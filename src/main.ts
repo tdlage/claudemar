@@ -1,7 +1,10 @@
 import { config } from "./config.js";
 import { bot } from "./bot.js";
+import { executionManager } from "./execution-manager.js";
 import { createDashboardServer } from "./server/index.js";
 import { tokenManager } from "./server/token-manager.js";
+
+await executionManager.loadRecent();
 
 const httpServer = createDashboardServer();
 

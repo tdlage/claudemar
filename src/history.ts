@@ -14,6 +14,8 @@ export interface HistoryEntry {
   costUsd: number;
   durationMs: number;
   source: string;
+  output?: string;
+  error?: string | null;
 }
 
 const MAX_LINES = 500;

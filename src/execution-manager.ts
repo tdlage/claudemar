@@ -2,7 +2,7 @@ import { type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { type ClaudeResult, type SpawnHandle, spawnClaude } from "./executor.js";
-import { type HistoryEntry, appendHistory } from "./history.js";
+import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { routeMessages } from "./agents/messenger.js";
 import { trackExecution } from "./metrics.js";
 
@@ -39,9 +39,14 @@ export interface StartExecutionOpts {
 const MAX_RECENT = 100;
 const MAX_STREAM_OUTPUT = 1024 * 1024;
 
+const MAX_PERSISTED_OUTPUT = 10_000;
+
 function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<HistoryEntry, "costUsd" | "durationMs">>): HistoryEntry {
   const durationMs = overrides?.durationMs
     ?? (info.completedAt ? info.completedAt.getTime() - info.startedAt.getTime() : 0);
+  const output = info.output.length > MAX_PERSISTED_OUTPUT
+    ? info.output.slice(0, MAX_PERSISTED_OUTPUT) + "\n...(truncated)"
+    : info.output;
   return {
     id: info.id,
     prompt: info.prompt,
@@ -53,6 +58,8 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
     costUsd: overrides?.costUsd ?? 0,
     durationMs,
     source: info.source,
+    output: output || undefined,
+    error: info.error,
   };
 }
 
@@ -162,6 +169,30 @@ class ExecutionManager extends EventEmitter {
 
   getProcess(id: string): ChildProcess | undefined {
     return this.active.get(id)?.process;
+  }
+
+  async loadRecent(): Promise<void> {
+    const entries = await loadHistory(MAX_RECENT);
+    this.recent = entries.map((e) => ({
+      id: e.id,
+      source: (e.source as ExecutionSource) || "telegram",
+      targetType: (e.targetType as ExecutionTargetType) || "orchestrator",
+      targetName: e.targetName || "orchestrator",
+      prompt: e.prompt,
+      cwd: "",
+      status: (e.status as ExecutionStatus) || "completed",
+      startedAt: new Date(e.startedAt),
+      completedAt: e.completedAt ? new Date(e.completedAt) : null,
+      output: e.output ?? "",
+      result: e.costUsd || e.durationMs ? {
+        output: e.output ?? "",
+        sessionId: "",
+        durationMs: e.durationMs,
+        costUsd: e.costUsd,
+        isError: e.status === "error",
+      } : null,
+      error: e.error ?? null,
+    }));
   }
 
   private finalize(id: string): void {
