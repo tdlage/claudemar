@@ -8,7 +8,7 @@ const PROJECT_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 
 interface Session {
   activeProject: string | null;
-  sessionId: string | null;
+  sessionIds: Record<string, string>;
   busy: boolean;
   mode: SessionMode;
   activeAgent: string | null;
@@ -21,7 +21,7 @@ function ensureSession(chatId: number): Session {
   if (!session) {
     session = {
       activeProject: null,
-      sessionId: null,
+      sessionIds: {},
       busy: false,
       mode: "projects",
       activeAgent: null,
@@ -52,7 +52,6 @@ export function setActiveProject(
 ): void {
   const session = ensureSession(chatId);
   session.activeProject = project;
-  session.sessionId = null;
 }
 
 export function getMode(chatId: number): SessionMode {
@@ -62,7 +61,6 @@ export function getMode(chatId: number): SessionMode {
 export function setMode(chatId: number, mode: SessionMode): void {
   const session = ensureSession(chatId);
   session.mode = mode;
-  session.sessionId = null;
 }
 
 export function getActiveAgent(chatId: number): string | null {
@@ -72,7 +70,6 @@ export function getActiveAgent(chatId: number): string | null {
 export function setActiveAgent(chatId: number, agent: string | null): void {
   const session = ensureSession(chatId);
   session.activeAgent = agent;
-  session.sessionId = null;
 }
 
 export function getWorkingDirectory(chatId: number): string {
@@ -91,12 +88,34 @@ export function getWorkingDirectory(chatId: number): string {
   return config.orchestratorPath;
 }
 
+function sessionKey(session: Session): string {
+  if (session.mode === "agents" && session.activeAgent) {
+    return `agent:${session.activeAgent}`;
+  }
+  if (session.mode === "projects" && session.activeProject) {
+    return `project:${session.activeProject}`;
+  }
+  return "orchestrator";
+}
+
 export function getSessionId(chatId: number): string | null {
-  return ensureSession(chatId).sessionId;
+  const session = ensureSession(chatId);
+  return session.sessionIds[sessionKey(session)] ?? null;
 }
 
 export function setSessionId(chatId: number, id: string): void {
-  ensureSession(chatId).sessionId = id;
+  const session = ensureSession(chatId);
+  session.sessionIds[sessionKey(session)] = id;
+}
+
+export function resetSessionId(chatId: number): void {
+  const session = ensureSession(chatId);
+  delete session.sessionIds[sessionKey(session)];
+}
+
+export function clearAllSessionIds(chatId: number): void {
+  const session = ensureSession(chatId);
+  session.sessionIds = {};
 }
 
 export function isBusy(chatId: number): boolean {
@@ -131,6 +150,6 @@ export function getSessionSnapshot(chatId: number): SessionSnapshot {
     activeProject: s.activeProject,
     activeAgent: s.activeAgent,
     busy: s.busy,
-    sessionId: s.sessionId,
+    sessionId: s.sessionIds[sessionKey(s)] ?? null,
   };
 }

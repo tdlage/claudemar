@@ -28,13 +28,16 @@ import { loadMetrics } from "./metrics.js";
 import { processDelegation } from "./processor.js";
 import { tokenManager } from "./server/token-manager.js";
 import {
+  clearAllSessionIds,
   getActiveAgent,
   getMode,
   getSession,
+  getSessionId,
   getWorkingDirectory,
   isValidProjectName,
   isBusy,
   listProjects,
+  resetSessionId,
   safeProjectPath,
   setActiveAgent,
   setActiveProject,
@@ -69,6 +72,7 @@ const HELP_TEXT = [
   "/current — Modo, projeto/agente e sessão",
   "/running — Execuções em andamento",
   "/history [N] — Histórico de execuções",
+  "/reset — Resetar sessão do contexto atual",
   "/clear — Resetar tudo",
   "/cancel — Cancelar execução",
   "/exec &lt;cmd&gt; — Executar comando shell",
@@ -82,6 +86,7 @@ export function registerCommands(bot: Bot): void {
   bot.command("project", handleProject);
   bot.command("current", handleCurrent);
   bot.command("clear", handleClear);
+  bot.command("reset", handleReset);
   bot.command("cancel", handleCancel);
   bot.command("running", handleRunning);
   bot.command("history", handleHistory);
@@ -177,10 +182,25 @@ async function handleCurrent(ctx: Context): Promise<void> {
     lines.push(`Projeto: ${session.activeProject ?? "Orchestrator (padrão)"}`);
   }
 
-  lines.push(`Sessão: ${session.sessionId ?? "nenhuma"}`);
+  lines.push(`Sessão: ${getSessionId(chatId) ?? "nenhuma"}`);
   lines.push(`Dir: ${cwd}`);
 
   await ctx.reply(lines.join("\n"));
+}
+
+async function handleReset(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  resetSessionId(chatId);
+
+  const mode = getMode(chatId);
+  const session = getSession(chatId);
+  const target = mode === "agents"
+    ? session.activeAgent ?? "nenhum"
+    : session.activeProject ?? "Orchestrator";
+
+  await ctx.reply(`Sessão resetada para: ${target}`);
 }
 
 async function handleClear(ctx: Context): Promise<void> {
@@ -190,7 +210,8 @@ async function handleClear(ctx: Context): Promise<void> {
   setActiveProject(chatId, null);
   setActiveAgent(chatId, null);
   setMode(chatId, "projects");
-  await ctx.reply("Resetado para Orchestrator. Sessão limpa.");
+  clearAllSessionIds(chatId);
+  await ctx.reply("Resetado para Orchestrator. Todas as sessões limpas.");
 }
 
 async function handleCancel(ctx: Context): Promise<void> {

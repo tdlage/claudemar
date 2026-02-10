@@ -252,6 +252,7 @@ register_bot_commands() {
         {"command":"running","description":"Execuções em andamento"},
         {"command":"history","description":"Histórico de execuções"},
         {"command":"current","description":"Modo, projeto/agente e sessão"},
+        {"command":"reset","description":"Resetar sessão do contexto atual"},
         {"command":"clear","description":"Resetar tudo"},
         {"command":"cancel","description":"Cancelar execução"},
         {"command":"exec","description":"Executar comando shell"},
