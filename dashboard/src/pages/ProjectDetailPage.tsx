@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
+import { Square } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { Tabs } from "../components/shared/Tabs";
@@ -25,6 +26,7 @@ export function ProjectDetailPage() {
   const projectActive = active.filter((e) => e.targetName === name);
   const projectRecent = recent.filter((e) => e.targetName === name);
   const projectActivity = [...projectActive, ...projectRecent];
+  const isRunning = execId ? active.some((e) => e.id === execId) : false;
 
   const loadProject = useCallback(() => {
     if (!name) return;
@@ -90,6 +92,16 @@ export function ProjectDetailPage() {
               className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
             />
             <Button type="submit" disabled={!prompt.trim()}>Send</Button>
+            {isRunning && (
+              <Button
+                variant="danger"
+                onClick={() => {
+                  if (execId) api.post(`/executions/${execId}/stop`).catch(() => {});
+                }}
+              >
+                <Square size={14} />
+              </Button>
+            )}
           </form>
           <div className="h-[500px]">
             <Terminal executionId={execId} />

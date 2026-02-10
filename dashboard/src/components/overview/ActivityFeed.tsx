@@ -1,6 +1,7 @@
 import { formatDistanceToNow } from "date-fns";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Square } from "lucide-react";
 import { Badge } from "../shared/Badge";
+import { api } from "../../lib/api";
 import type { ExecutionInfo } from "../../lib/types";
 
 interface ActivityFeedProps {
@@ -57,6 +58,18 @@ export function ActivityFeed({ executions, expandedId, onToggle }: ActivityFeedP
                   ? formatDistanceToNow(new Date(exec.completedAt), { addSuffix: true })
                   : "running"}
               </span>
+              {exec.status === "running" && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    api.post(`/executions/${exec.id}/stop`).catch(() => {});
+                  }}
+                  className="p-1 rounded text-danger hover:bg-danger/15 transition-colors shrink-0"
+                  title="Stop execution"
+                >
+                  <Square size={12} />
+                </button>
+              )}
               {clickable && (
                 <ChevronDown
                   size={14}
