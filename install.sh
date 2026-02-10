@@ -232,6 +232,43 @@ build_project() {
     success "Build complete"
 }
 
+register_bot_commands() {
+    local token="$1"
+    info "Registering bot commands in Telegram..."
+
+    local commands='{"commands":[
+        {"command":"project","description":"Selecionar projeto ativo"},
+        {"command":"add","description":"Clonar repositório"},
+        {"command":"remove","description":"Remover projeto"},
+        {"command":"agent","description":"Listar/criar/remover agentes"},
+        {"command":"mode","description":"Alternar entre projects/agents"},
+        {"command":"delegate","description":"Execução one-shot em agente"},
+        {"command":"inbox","description":"Mensagens pendentes do agente"},
+        {"command":"status","description":"Dashboard de agentes"},
+        {"command":"broadcast","description":"Mensagem para todos os agentes"},
+        {"command":"council","description":"Reunião multi-agente"},
+        {"command":"schedule","description":"Agendar tarefa"},
+        {"command":"metrics","description":"Métricas de uso"},
+        {"command":"current","description":"Modo, projeto/agente e sessão"},
+        {"command":"clear","description":"Resetar tudo"},
+        {"command":"cancel","description":"Cancelar execução"},
+        {"command":"exec","description":"Executar comando shell"},
+        {"command":"git","description":"Executar comando git"},
+        {"command":"help","description":"Lista de comandos"}
+    ]}'
+
+    local response
+    response=$(curl -s -X POST "https://api.telegram.org/bot${token}/setMyCommands" \
+        -H "Content-Type: application/json" \
+        -d "$commands" 2>/dev/null)
+
+    if echo "$response" | grep -q '"ok":true'; then
+        success "Bot commands registered (autocomplete will show Claudemar commands)"
+    else
+        warn "Could not register bot commands. You can do it manually via @BotFather /setcommands"
+    fi
+}
+
 setup_env() {
     step 6 "Configuring environment"
 
@@ -240,8 +277,12 @@ setup_env() {
     if [[ -f "$env_file" ]]; then
         info ".env already exists, preserving"
 
-        if grep -qE '^TELEGRAM_BOT_TOKEN=\s*"?\s*"?\s*$' "$env_file" 2>/dev/null; then
+        local existing_token
+        existing_token="$(grep -oP '^TELEGRAM_BOT_TOKEN=\K.+' "$env_file" 2>/dev/null || true)"
+        if [[ -z "$existing_token" ]]; then
             warn "TELEGRAM_BOT_TOKEN is empty — bot won't start until configured"
+        else
+            register_bot_commands "$existing_token"
         fi
         return
     fi
@@ -297,6 +338,8 @@ setup_env() {
 
         if [[ -z "$token" ]]; then
             warn "TELEGRAM_BOT_TOKEN left empty — bot won't start until configured"
+        else
+            register_bot_commands "$token"
         fi
     else
         cat > "$env_file" <<EOF
