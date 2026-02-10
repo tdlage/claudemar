@@ -26,7 +26,7 @@ export function spawnClaude(
     "--print",
     "--dangerously-skip-permissions",
     "--output-format",
-    "json",
+    "stream-json",
   ];
 
   if (resumeSessionId) {
@@ -41,18 +41,52 @@ export function spawnClaude(
   });
 
   const promise = new Promise<ClaudeResult>((resolve, reject) => {
-    let stdout = "";
     let stderr = "";
     let bufferExceeded = false;
+    let lineBuffer = "";
+    let resultTextSize = 0;
+    let resultText = "";
+    let resultData: ClaudeResult | null = null;
 
     proc.stdout!.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
-      if (stdout.length < config.maxBufferSize) {
-        stdout += text;
-        onChunk?.(text);
-      } else if (!bufferExceeded) {
-        bufferExceeded = true;
-        proc.kill("SIGTERM");
+      if (resultTextSize >= config.maxBufferSize) {
+        if (!bufferExceeded) {
+          bufferExceeded = true;
+          proc.kill("SIGTERM");
+        }
+        return;
+      }
+      lineBuffer += text;
+
+      const lines = lineBuffer.split("\n");
+      lineBuffer = lines.pop()!;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const event = JSON.parse(trimmed);
+          if (event.type === "assistant" && event.message?.content) {
+            for (const block of event.message.content) {
+              if (block.type === "text" && block.text) {
+                resultText += block.text;
+                resultTextSize += block.text.length;
+                onChunk?.(block.text);
+              }
+            }
+          } else if (event.type === "result") {
+            resultData = {
+              output: event.result ?? resultText,
+              sessionId: event.session_id ?? "",
+              durationMs: event.duration_ms ?? 0,
+              costUsd: event.total_cost_usd ?? 0,
+              isError: event.is_error ?? false,
+            };
+          }
+        } catch {
+          // non-JSON line, ignore
+        }
       }
     });
 
@@ -99,31 +133,25 @@ export function spawnClaude(
         return;
       }
 
-      try {
-        const parsed = JSON.parse(stdout);
+      if (resultData) {
+        resolve(resultData);
+        return;
+      }
+
+      if (code !== 0) {
+        reject(
+          new Error(
+            `Processo encerrado (exit code: ${code}).${stderr ? ` stderr: ${stderr}` : ""}`,
+          ),
+        );
+      } else {
         resolve({
-          output: parsed.result ?? "",
-          sessionId: parsed.session_id ?? "",
-          durationMs: parsed.duration_ms ?? 0,
-          costUsd: parsed.total_cost_usd ?? 0,
-          isError: parsed.is_error ?? false,
+          output: resultText || "",
+          sessionId: "",
+          durationMs: 0,
+          costUsd: 0,
+          isError: false,
         });
-      } catch {
-        if (code !== 0) {
-          reject(
-            new Error(
-              `Processo encerrado (exit code: ${code}).${stderr ? ` stderr: ${stderr}` : ""}`,
-            ),
-          );
-        } else {
-          resolve({
-            output: stdout || "",
-            sessionId: "",
-            durationMs: 0,
-            costUsd: 0,
-            isError: false,
-          });
-        }
       }
     });
   });

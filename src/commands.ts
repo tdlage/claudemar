@@ -23,6 +23,7 @@ import type { SessionMode } from "./agents/types.js";
 import { config } from "./config.js";
 import { executionManager } from "./execution-manager.js";
 import { executeShell, executeSpawn } from "./executor.js";
+import { loadHistory } from "./history.js";
 import { loadMetrics } from "./metrics.js";
 import { processDelegation } from "./processor.js";
 import { tokenManager } from "./server/token-manager.js";
@@ -66,6 +67,8 @@ const HELP_TEXT = [
   "",
   "<b>⚙️ Geral</b>",
   "/current — Modo, projeto/agente e sessão",
+  "/running — Execuções em andamento",
+  "/history [N] — Histórico de execuções",
   "/clear — Resetar tudo",
   "/cancel — Cancelar execução",
   "/exec &lt;cmd&gt; — Executar comando shell",
@@ -80,6 +83,8 @@ export function registerCommands(bot: Bot): void {
   bot.command("current", handleCurrent);
   bot.command("clear", handleClear);
   bot.command("cancel", handleCancel);
+  bot.command("running", handleRunning);
+  bot.command("history", handleHistory);
   bot.command("exec", handleExec);
   bot.command("git", handleGit);
   bot.command("add", handleAdd);
@@ -398,6 +403,80 @@ async function handleToken(ctx: Context): Promise<void> {
       // message already deleted or bot lacks permission
     }
   }, 30_000);
+}
+
+// --- Running ---
+
+async function handleRunning(ctx: Context): Promise<void> {
+  const activeExecs = executionManager.getActiveExecutions();
+
+  if (activeExecs.length === 0) {
+    await ctx.reply("Nenhuma execução em andamento.");
+    return;
+  }
+
+  const now = Date.now();
+  const lines = [`${activeExecs.length} execução(ões) em andamento:\n`];
+
+  for (const exec of activeExecs) {
+    const elapsedMs = now - exec.startedAt.getTime();
+    const minutes = Math.floor(elapsedMs / 60000);
+    const seconds = Math.floor((elapsedMs % 60000) / 1000);
+    const elapsed = minutes > 0 ? `há ${minutes}m ${seconds}s` : `há ${seconds}s`;
+    const promptPreview = exec.prompt.length > 80
+      ? exec.prompt.slice(0, 80) + "..."
+      : exec.prompt;
+
+    lines.push(`• [${exec.targetType}] ${exec.targetName}`);
+    lines.push(`  ${promptPreview}`);
+    lines.push(`  ${elapsed} · fonte: ${exec.source}`);
+    lines.push("");
+  }
+
+  await ctx.reply(lines.join("\n").trimEnd());
+}
+
+// --- History ---
+
+async function handleHistory(ctx: Context): Promise<void> {
+  const text = ctx.message?.text ?? "";
+  const arg = text.replace(/^\/history\s*/, "").trim();
+  let limit = 10;
+
+  if (arg) {
+    const parsed = Number.parseInt(arg, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      limit = Math.min(parsed, 50);
+    }
+  }
+
+  const entries = await loadHistory(limit);
+
+  if (entries.length === 0) {
+    await ctx.reply("Nenhum histórico de execuções.");
+    return;
+  }
+
+  const statusEmoji: Record<string, string> = {
+    completed: "✅",
+    error: "❌",
+    cancelled: "🛑",
+  };
+
+  const lines = [`Últimas ${entries.length} execuções:\n`];
+
+  for (const entry of entries.reverse()) {
+    const emoji = statusEmoji[entry.status] ?? "❔";
+    const promptPreview = entry.prompt.length > 60
+      ? entry.prompt.slice(0, 60) + "..."
+      : entry.prompt;
+    const durationSec = (entry.durationMs / 1000).toFixed(1);
+    const cost = entry.costUsd > 0 ? `$${entry.costUsd.toFixed(2)}` : "-";
+    lines.push(`${emoji} ${promptPreview}`);
+    lines.push(`   ${durationSec}s · ${cost} — ${entry.targetName}`);
+  }
+
+  await ctx.reply(lines.join("\n"));
 }
 
 // --- Agent commands ---

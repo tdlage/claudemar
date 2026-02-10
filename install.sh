@@ -249,6 +249,8 @@ register_bot_commands() {
         {"command":"council","description":"Reunião multi-agente"},
         {"command":"schedule","description":"Agendar tarefa"},
         {"command":"metrics","description":"Métricas de uso"},
+        {"command":"running","description":"Execuções em andamento"},
+        {"command":"history","description":"Histórico de execuções"},
         {"command":"current","description":"Modo, projeto/agente e sessão"},
         {"command":"clear","description":"Resetar tudo"},
         {"command":"cancel","description":"Cancelar execução"},

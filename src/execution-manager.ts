@@ -2,6 +2,7 @@ import { type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { type ClaudeResult, type SpawnHandle, spawnClaude } from "./executor.js";
+import { type HistoryEntry, appendHistory } from "./history.js";
 import { routeMessages } from "./agents/messenger.js";
 import { trackExecution } from "./metrics.js";
 
@@ -36,6 +37,23 @@ export interface StartExecutionOpts {
 
 const MAX_RECENT = 100;
 const MAX_STREAM_OUTPUT = 1024 * 1024;
+
+function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<HistoryEntry, "costUsd" | "durationMs">>): HistoryEntry {
+  const durationMs = overrides?.durationMs
+    ?? (info.completedAt ? info.completedAt.getTime() - info.startedAt.getTime() : 0);
+  return {
+    id: info.id,
+    prompt: info.prompt,
+    targetType: info.targetType,
+    targetName: info.targetName,
+    status: info.status,
+    startedAt: info.startedAt.toISOString(),
+    completedAt: info.completedAt?.toISOString() ?? null,
+    costUsd: overrides?.costUsd ?? 0,
+    durationMs,
+    source: info.source,
+  };
+}
 
 class ExecutionManager extends EventEmitter {
   private active = new Map<string, { info: ExecutionInfo; process: ChildProcess }>();
@@ -84,6 +102,8 @@ class ExecutionManager extends EventEmitter {
         this.finalize(id);
         this.emit("complete", id, info);
 
+        appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, durationMs: result.durationMs }));
+
         if (opts.targetType === "agent") {
           trackExecution(opts.targetName, result.costUsd, result.durationMs);
           routeMessages(opts.targetName);
@@ -97,6 +117,8 @@ class ExecutionManager extends EventEmitter {
         info.error = message;
         this.finalize(id);
         this.emit("error", id, info, message);
+
+        appendHistory(buildHistoryEntry(info));
       });
 
     return id;
@@ -118,6 +140,9 @@ class ExecutionManager extends EventEmitter {
 
     this.finalize(id);
     this.emit("cancel", id, entry.info);
+
+    appendHistory(buildHistoryEntry(entry.info));
+
     return true;
   }
 
