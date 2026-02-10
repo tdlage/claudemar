@@ -4,21 +4,19 @@ import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
-import { GitLog } from "../components/project/GitLog";
 import { FilesBrowser } from "../components/project/FilesBrowser";
 import { ExecutionCard } from "../components/overview/ExecutionCard";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
-import type { ProjectDetail, GitCommit } from "../lib/types";
+import type { ProjectDetail } from "../lib/types";
 
-type TabKey = "terminal" | "activity" | "files" | "git";
+type TabKey = "terminal" | "activity" | "files";
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
   const { addToast } = useToast();
   const [project, setProject] = useState<ProjectDetail | null>(null);
-  const [gitLog, setGitLog] = useState<GitCommit[]>([]);
   const [tab, setTab] = useState<TabKey>("terminal");
   const [prompt, setPrompt] = useState("");
   const [execId, setExecId] = useState<string | null>(null);
@@ -30,7 +28,6 @@ export function ProjectDetailPage() {
   const loadProject = useCallback(() => {
     if (!name) return;
     api.get<ProjectDetail>(`/projects/${name}`).then(setProject).catch(() => {});
-    api.get<GitCommit[]>(`/projects/${name}/git-log`).then(setGitLog).catch(() => {});
   }, [name]);
 
   useEffect(() => {
@@ -63,7 +60,6 @@ export function ProjectDetailPage() {
     { key: "terminal", label: "Terminal" },
     { key: "activity", label: `Activity (${projectActive.length + projectRecent.length})` },
     { key: "files", label: "Files" },
-    { key: "git", label: `Git Log (${gitLog.length})` },
   ];
 
   return (
@@ -125,10 +121,6 @@ export function ProjectDetailPage() {
 
       {tab === "files" && name && (
         <FilesBrowser projectName={name} />
-      )}
-
-      {tab === "git" && (
-        <GitLog commits={gitLog} />
       )}
     </div>
   );

@@ -115,7 +115,7 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
 
   return (
     <div className="flex border border-border rounded-lg overflow-hidden" style={{ height: "500px" }}>
-      <div className="w-56 bg-surface border-r border-border overflow-y-auto p-1">
+      <div className="w-72 bg-surface border-r border-border overflow-y-auto p-1">
         {error ? (
           <p className="text-xs text-danger p-2">{error}</p>
         ) : tree.length === 0 ? (
