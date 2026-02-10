@@ -10,7 +10,15 @@ interface ActivityFeedProps {
 }
 
 export function ActivityFeed({ executions, expandedId, onToggle }: ActivityFeedProps) {
-  const sorted = [...executions].reverse().slice(0, 20);
+  const sorted = [...executions]
+    .sort((a, b) => {
+      if (a.status === "running" && b.status !== "running") return -1;
+      if (b.status === "running" && a.status !== "running") return 1;
+      const dateA = a.completedAt ?? a.startedAt;
+      const dateB = b.completedAt ?? b.startedAt;
+      return new Date(dateB).getTime() - new Date(dateA).getTime();
+    })
+    .slice(0, 20);
 
   if (sorted.length === 0) {
     return <p className="text-sm text-text-muted">No recent activity.</p>;
