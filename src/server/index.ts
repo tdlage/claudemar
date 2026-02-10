@@ -1,7 +1,6 @@
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
@@ -19,15 +18,11 @@ export function createDashboardServer() {
   const app = express();
   const httpServer = createServer(app);
 
-  const corsOrigin = config.dashboardToken
-    ? `http://localhost:${config.dashboardPort}`
-    : "http://localhost:5173";
-
   const io = new SocketServer(httpServer, {
-    cors: { origin: corsOrigin },
+    cors: { origin: true },
   });
 
-  app.use(cors({ origin: corsOrigin }));
+  app.use(cors({ origin: true }));
   app.use(express.json({ limit: "5mb" }));
 
   const apiLimiter = rateLimit({
@@ -47,8 +42,7 @@ export function createDashboardServer() {
   app.use("/api/files", filesRouter);
   app.use("/api/system", systemRouter);
 
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-  const dashboardDist = resolve(__dirname, "../../dashboard/dist");
+  const dashboardDist = resolve(process.cwd(), "dashboard/dist");
 
   if (existsSync(dashboardDist)) {
     app.use(express.static(dashboardDist));
