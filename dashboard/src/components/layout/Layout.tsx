@@ -10,12 +10,12 @@ function LayoutInner() {
     <div className="flex min-h-screen">
       <Sidebar />
       <div
-        className={`flex-1 transition-[margin-left] duration-200 ${
+        className={`flex-1 min-w-0 overflow-hidden transition-[margin-left] duration-200 ${
           collapsed ? "ml-14" : "ml-56"
         }`}
       >
         <Header />
-        <main className="p-4 md:p-6">
+        <main className="p-4 md:p-6 overflow-hidden">
           <Outlet />
         </main>
       </div>

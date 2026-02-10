@@ -40,7 +40,7 @@ export function ActivityFeed({ executions, expandedId, onToggle }: ActivityFeedP
         return (
           <div key={exec.id}>
             <div
-              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm ${clickable ? "cursor-pointer" : ""} ${isExpanded ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
+              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm min-w-0 ${clickable ? "cursor-pointer" : ""} ${isExpanded ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
               onClick={clickable ? () => onToggle(exec.id) : undefined}
             >
               <Badge variant={statusVariant}>{exec.status}</Badge>
