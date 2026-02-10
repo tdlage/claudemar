@@ -24,6 +24,7 @@ export function spawnClaude(
   const timeout = timeoutMs ?? config.claudeTimeoutMs;
   const args = [
     "--print",
+    "--verbose",
     "--dangerously-skip-permissions",
     "--output-format",
     "stream-json",
