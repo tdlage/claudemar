@@ -14,7 +14,10 @@ httpServer.listen(config.dashboardPort, host, () => {
 });
 
 console.log("Claudemar starting...");
-bot.start();
+bot.start().catch((err) => {
+  console.error("Telegram bot failed to start:", err.message);
+  console.error("Dashboard is still running. Fix TELEGRAM_BOT_TOKEN in .env and restart.");
+});
 
 function shutdown() {
   console.log("Shutting down...");
