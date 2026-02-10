@@ -35,7 +35,11 @@ export function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-bg">
       <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-sm">
         <h1 className="text-lg font-semibold text-text-primary mb-1">Claudemar</h1>
-        <p className="text-sm text-text-muted mb-6">Enter your dashboard token to continue.</p>
+        <p className="text-sm text-text-muted mb-6">
+          Enter your dashboard token to continue.
+          <br />
+          <span className="text-xs">Use <code>/token</code> in Telegram to get the current token.</span>
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <input

@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { disconnectSocket } from "../lib/socket";
+import { disconnectSocket, reconnectSocket } from "../lib/socket";
 
 export function useAuth() {
   const [token, setTokenState] = useState(() =>
@@ -11,6 +11,7 @@ export function useAuth() {
   const login = useCallback((newToken: string) => {
     localStorage.setItem("dashboard_token", newToken);
     setTokenState(newToken);
+    reconnectSocket();
     navigate("/");
   }, [navigate]);
 

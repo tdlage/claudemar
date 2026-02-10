@@ -25,6 +25,7 @@ import { executionManager } from "./execution-manager.js";
 import { executeShell, executeSpawn } from "./executor.js";
 import { loadMetrics } from "./metrics.js";
 import { processDelegation } from "./processor.js";
+import { tokenManager } from "./server/token-manager.js";
 import {
   getActiveAgent,
   getMode,
@@ -69,6 +70,7 @@ const HELP_TEXT = [
   "/cancel — Cancelar execução",
   "/exec &lt;cmd&gt; — Executar comando shell",
   "/git &lt;subcmd&gt; — Executar comando git",
+  "/token — Token atual do dashboard",
   "/help — Lista de comandos",
 ].join("\n");
 
@@ -83,6 +85,7 @@ export function registerCommands(bot: Bot): void {
   bot.command("add", handleAdd);
   bot.command("remove", handleRemove);
   bot.command("help", handleHelp);
+  bot.command("token", handleToken);
   bot.command("agent", handleAgent);
   bot.command("mode", handleMode);
   bot.command("delegate", handleDelegate);
@@ -379,6 +382,11 @@ async function handleHelp(ctx: Context): Promise<void> {
     `Comandos disponíveis:\n\n${HELP_TEXT}\n\nEnvie qualquer texto para conversar com o Claude no projeto/agente ativo.`,
     { parse_mode: "HTML" },
   );
+}
+
+async function handleToken(ctx: Context): Promise<void> {
+  const token = tokenManager.getCurrentToken();
+  await ctx.reply(`Dashboard token:\n<code>${token}</code>`, { parse_mode: "HTML" });
 }
 
 // --- Agent commands ---

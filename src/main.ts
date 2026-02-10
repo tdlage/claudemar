@@ -1,16 +1,13 @@
 import { config } from "./config.js";
 import { bot } from "./bot.js";
 import { createDashboardServer } from "./server/index.js";
+import { tokenManager } from "./server/token-manager.js";
 
 const httpServer = createDashboardServer();
 
-const host = config.dashboardToken ? "0.0.0.0" : "127.0.0.1";
-httpServer.listen(config.dashboardPort, host, () => {
-  if (!config.dashboardToken) {
-    console.log(`Dashboard running on http://localhost:${config.dashboardPort} (no token — localhost only)`);
-  } else {
-    console.log(`Dashboard running on http://0.0.0.0:${config.dashboardPort} (token protected)`);
-  }
+httpServer.listen(config.dashboardPort, "0.0.0.0", () => {
+  console.log(`Dashboard running on http://0.0.0.0:${config.dashboardPort}`);
+  console.log(`Dashboard token: ${tokenManager.getCurrentToken()}`);
 });
 
 console.log("Claudemar starting...");
@@ -21,6 +18,7 @@ bot.start().catch((err) => {
 
 function shutdown() {
   console.log("Shutting down...");
+  tokenManager.stop();
   bot.stop();
   httpServer.close();
   process.exit(0);

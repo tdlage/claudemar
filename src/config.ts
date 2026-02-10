@@ -37,6 +37,7 @@ export const config = Object.freeze({
   openaiApiKey: process.env.OPENAI_API_KEY || "",
   dashboardPort: numericEnv("DASHBOARD_PORT", 3000),
   dashboardToken: process.env.DASHBOARD_TOKEN || "",
+  tokenRotationHours: numericEnv("TOKEN_ROTATION_HOURS", 24),
 });
 
 if (Number.isNaN(config.allowedChatId)) {

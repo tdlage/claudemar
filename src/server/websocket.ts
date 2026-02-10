@@ -1,7 +1,30 @@
-import type { Server as SocketServer } from "socket.io";
+import type { Server as SocketServer, Socket } from "socket.io";
 import { executionManager } from "../execution-manager.js";
 import { validateSocketToken } from "./middleware.js";
+import { tokenManager } from "./token-manager.js";
 import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
+
+const RATE_LIMIT_WINDOW_MS = 1000;
+const RATE_LIMIT_MAX_EVENTS = 30;
+
+function applyRateLimit(socket: Socket): void {
+  let eventCount = 0;
+  let windowStart = Date.now();
+
+  const originalOnEvent = socket.onAny;
+  socket.onAny(() => {
+    const now = Date.now();
+    if (now - windowStart > RATE_LIMIT_WINDOW_MS) {
+      eventCount = 0;
+      windowStart = now;
+    }
+    eventCount++;
+    if (eventCount > RATE_LIMIT_MAX_EVENTS) {
+      socket.emit("error:rate_limit", { message: "Too many events" });
+      socket.disconnect(true);
+    }
+  });
+}
 
 export function setupWebSocket(io: SocketServer): void {
   io.use((socket, next) => {
@@ -14,6 +37,8 @@ export function setupWebSocket(io: SocketServer): void {
   });
 
   io.on("connection", (socket) => {
+    applyRateLimit(socket);
+
     socket.join("executions");
 
     socket.on("subscribe:execution", (id: string) => {
@@ -31,6 +56,16 @@ export function setupWebSocket(io: SocketServer): void {
     socket.on("unsubscribe:files", () => {
       socket.leave("files");
     });
+  });
+
+  tokenManager.on("rotate", () => {
+    for (const [, socket] of io.sockets.sockets) {
+      const token = socket.handshake.auth.token as string;
+      if (!validateSocketToken(token)) {
+        socket.emit("auth:expired");
+        socket.disconnect(true);
+      }
+    }
   });
 
   executionManager.on("start", (id, info) => {

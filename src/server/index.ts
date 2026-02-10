@@ -2,11 +2,11 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import express from "express";
-import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { Server as SocketServer } from "socket.io";
 import { config } from "../config.js";
-import { authMiddleware } from "./middleware.js";
+import { authMiddleware, securityHeaders } from "./middleware.js";
+import { tokenManager } from "./token-manager.js";
 import { setupWebSocket } from "./websocket.js";
 import { agentsRouter } from "./routes/agents.js";
 import { projectsRouter } from "./routes/projects.js";
@@ -19,10 +19,10 @@ export function createDashboardServer() {
   const httpServer = createServer(app);
 
   const io = new SocketServer(httpServer, {
-    cors: { origin: true },
+    cors: { origin: false },
   });
 
-  app.use(cors({ origin: true }));
+  app.use(securityHeaders);
   app.use(express.json({ limit: "5mb" }));
 
   const apiLimiter = rateLimit({
@@ -52,6 +52,7 @@ export function createDashboardServer() {
   }
 
   setupWebSocket(io);
+  tokenManager.start();
 
   return httpServer;
 }

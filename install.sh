@@ -254,6 +254,7 @@ register_bot_commands() {
         {"command":"cancel","description":"Cancelar execução"},
         {"command":"exec","description":"Executar comando shell"},
         {"command":"git","description":"Executar comando git"},
+        {"command":"token","description":"Token atual do dashboard"},
         {"command":"help","description":"Lista de comandos"}
     ]}'
 
