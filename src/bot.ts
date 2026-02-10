@@ -37,7 +37,7 @@ bot.on("message:text", async (ctx) => {
   setBusy(chatId, true);
   const statusMsg = await ctx.reply("Executando...");
 
-  await processMessage(ctx, chatId, text, statusMsg);
+  processMessage(ctx, chatId, text, statusMsg);
 });
 
 bot.on(["message:voice", "message:audio"], async (ctx) => {
@@ -98,7 +98,7 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
     );
 
     const prompt = `[Mensagem de áudio transcrita]: ${transcribedText}`;
-    await processMessage(ctx, chatId, prompt, statusMsg);
+    processMessage(ctx, chatId, prompt, statusMsg);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     try {
