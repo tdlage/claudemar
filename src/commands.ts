@@ -41,34 +41,34 @@ import {
 } from "./session.js";
 
 const HELP_TEXT = [
-  "📁 *Projetos*",
+  "<b>📁 Projetos</b>",
   "/project — Selecionar projeto ativo",
-  "/add \\<url\\> \\[nome\\] — Clonar repositório",
-  "/remove \\<projeto\\> — Remover projeto",
+  "/add &lt;url&gt; [nome] — Clonar repositório",
+  "/remove &lt;projeto&gt; — Remover projeto",
   "",
-  "🤖 *Agentes*",
+  "<b>🤖 Agentes</b>",
   "/agent — Listar/criar/remover agentes",
-  "/agent create \\<nome\\> — Criar agente",
-  "/agent remove \\<nome\\> — Remover agente",
-  "/agent info \\<nome\\> — Info detalhada",
-  "/agent context \\<nome\\> add \\<texto|url\\> — Adicionar contexto",
+  "/agent create &lt;nome&gt; — Criar agente",
+  "/agent remove &lt;nome&gt; — Remover agente",
+  "/agent info &lt;nome&gt; — Info detalhada",
+  "/agent context &lt;nome&gt; add &lt;texto|url&gt; — Adicionar contexto",
   "/mode — Alternar entre projects/agents",
-  "/delegate \\<agente\\> \\<prompt\\> — Execução one\\-shot",
-  "/inbox \\[agente\\] — Mensagens pendentes",
+  "/delegate &lt;agente&gt; &lt;prompt&gt; — Execução one-shot",
+  "/inbox [agente] — Mensagens pendentes",
   "/status — Dashboard de agentes",
-  "/broadcast \\<msg\\> — Mensagem para todos",
-  "/council \\<tema\\> — Reunião multi\\-agente",
-  "/schedule \\<agente\\> \\<instrução\\> — Agendar tarefa",
+  "/broadcast &lt;msg&gt; — Mensagem para todos",
+  "/council &lt;tema&gt; — Reunião multi-agente",
+  "/schedule &lt;agente&gt; &lt;instrução&gt; — Agendar tarefa",
   "/schedule list — Listar agendamentos",
-  "/schedule remove \\<id\\> — Remover agendamento",
-  "/metrics \\[agente\\] — Métricas de uso",
+  "/schedule remove &lt;id&gt; — Remover agendamento",
+  "/metrics [agente] — Métricas de uso",
   "",
-  "⚙️ *Geral*",
+  "<b>⚙️ Geral</b>",
   "/current — Modo, projeto/agente e sessão",
   "/clear — Resetar tudo",
   "/cancel — Cancelar execução",
-  "/exec \\<cmd\\> — Executar comando shell",
-  "/git \\<subcmd\\> — Executar comando git",
+  "/exec &lt;cmd&gt; — Executar comando shell",
+  "/git &lt;subcmd&gt; — Executar comando git",
   "/help — Lista de comandos",
 ].join("\n");
 
@@ -97,7 +97,7 @@ export function registerCommands(bot: Bot): void {
 }
 
 async function handleStart(ctx: Context): Promise<void> {
-  await ctx.reply(`Claudemar — Telegram interface for Claude CLI\n\n${HELP_TEXT}`, { parse_mode: "MarkdownV2" });
+  await ctx.reply(`Claudemar — Telegram interface for Claude CLI\n\n${HELP_TEXT}`, { parse_mode: "HTML" });
 }
 
 async function handleProject(ctx: Context): Promise<void> {
@@ -377,7 +377,7 @@ async function handleRemove(ctx: Context): Promise<void> {
 async function handleHelp(ctx: Context): Promise<void> {
   await ctx.reply(
     `Comandos disponíveis:\n\n${HELP_TEXT}\n\nEnvie qualquer texto para conversar com o Claude no projeto/agente ativo.`,
-    { parse_mode: "MarkdownV2" },
+    { parse_mode: "HTML" },
   );
 }
 
