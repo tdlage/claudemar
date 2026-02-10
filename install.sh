@@ -320,10 +320,12 @@ setup_env() {
         echo -e "${BOLD}━━━ Dashboard Configuration ━━━${NC}"
         echo ""
         echo -e "  The web dashboard lets you manage agents, projects, and executions."
-        echo -e "  Set a ${BOLD}token${NC} to enable remote access (binds to 0.0.0.0)."
-        echo -e "  Leave empty for localhost-only access (no auth needed)."
+        echo -e "  A rotating token is generated automatically on each startup."
+        echo -e "  Use ${BOLD}/token${NC} in Telegram to get the current dashboard token."
+        echo -e "  Optionally set a ${BOLD}master token${NC} below as a permanent fallback."
+        echo -e "  Leave empty to use only rotating tokens (recommended)."
         echo ""
-        read -rp "$(echo -e "${BOLD}Dashboard Token${NC}: ")" dashboard_token
+        read -rp "$(echo -e "${BOLD}Dashboard Master Token${NC} (optional): ")" dashboard_token
 
         local dashboard_port=""
         read -rp "$(echo -e "${BOLD}Dashboard Port${NC} (default: 3000): ")" dashboard_port

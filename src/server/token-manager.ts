@@ -64,6 +64,7 @@ class TokenManager extends EventEmitter {
     this.graceTimeout = setTimeout(() => {
       this.previousToken = null;
       this.graceTimeout = null;
+      this.emit("grace:expired");
     }, GRACE_PERIOD_MS);
 
     this.emit("rotate");

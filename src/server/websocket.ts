@@ -11,7 +11,6 @@ function applyRateLimit(socket: Socket): void {
   let eventCount = 0;
   let windowStart = Date.now();
 
-  const originalOnEvent = socket.onAny;
   socket.onAny(() => {
     const now = Date.now();
     if (now - windowStart > RATE_LIMIT_WINDOW_MS) {
@@ -20,6 +19,7 @@ function applyRateLimit(socket: Socket): void {
     }
     eventCount++;
     if (eventCount > RATE_LIMIT_MAX_EVENTS) {
+      console.warn(`WebSocket rate limit exceeded: ${socket.id}`);
       socket.emit("error:rate_limit", { message: "Too many events" });
       socket.disconnect(true);
     }
@@ -58,7 +58,7 @@ export function setupWebSocket(io: SocketServer): void {
     });
   });
 
-  tokenManager.on("rotate", () => {
+  const sweepInvalidSockets = () => {
     for (const [, socket] of io.sockets.sockets) {
       const token = socket.handshake.auth.token as string;
       if (!validateSocketToken(token)) {
@@ -66,7 +66,10 @@ export function setupWebSocket(io: SocketServer): void {
         socket.disconnect(true);
       }
     }
-  });
+  };
+
+  tokenManager.on("rotate", sweepInvalidSockets);
+  tokenManager.on("grace:expired", sweepInvalidSockets);
 
   executionManager.on("start", (id, info) => {
     io.to("executions").emit("execution:start", { id, info });

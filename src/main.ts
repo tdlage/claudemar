@@ -6,8 +6,7 @@ import { tokenManager } from "./server/token-manager.js";
 const httpServer = createDashboardServer();
 
 httpServer.listen(config.dashboardPort, "0.0.0.0", () => {
-  console.log(`Dashboard running on http://0.0.0.0:${config.dashboardPort}`);
-  console.log(`Dashboard token: ${tokenManager.getCurrentToken()}`);
+  console.log(`Dashboard running on http://0.0.0.0:${config.dashboardPort} (use /token in Telegram)`);
 });
 
 console.log("Claudemar starting...");
