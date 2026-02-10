@@ -2,8 +2,8 @@ node_modules/
 dist/
 .env
 .localfiles/
-orchestrator/
-projects/
-agents/
+/orchestrator/
+/projects/
+/agents/
 dashboard/node_modules/
 dashboard/dist/
