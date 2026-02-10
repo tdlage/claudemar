@@ -33,6 +33,10 @@ export const config = Object.freeze({
   maxBufferSize: numericEnv("MAX_BUFFER_SIZE", 10 * 1024 * 1024),
   orchestratorPath: resolve(basePath, "orchestrator"),
   projectsPath: resolve(basePath, "projects"),
+  agentsPath: resolve(basePath, "agents"),
+  openaiApiKey: process.env.OPENAI_API_KEY || "",
+  dashboardPort: numericEnv("DASHBOARD_PORT", 3000),
+  dashboardToken: process.env.DASHBOARD_TOKEN || "",
 });
 
 if (Number.isNaN(config.allowedChatId)) {
@@ -42,3 +46,5 @@ if (Number.isNaN(config.allowedChatId)) {
 
 mkdirSync(config.orchestratorPath, { recursive: true });
 mkdirSync(config.projectsPath, { recursive: true });
+mkdirSync(config.agentsPath, { recursive: true });
+mkdirSync(resolve(config.orchestratorPath, "outbox"), { recursive: true });

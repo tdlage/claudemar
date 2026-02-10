@@ -1,0 +1,12 @@
+node_modules/
+dashboard/node_modules/
+dist/
+dashboard/dist/
+.env
+.git/
+.localfiles/
+orchestrator/
+agents/
+projects/
+data/
+*.md

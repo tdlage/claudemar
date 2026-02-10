@@ -9,7 +9,7 @@ export interface ClaudeResult {
   isError: boolean;
 }
 
-interface SpawnHandle {
+export interface SpawnHandle {
   process: ChildProcess;
   promise: Promise<ClaudeResult>;
 }
@@ -19,6 +19,7 @@ export function spawnClaude(
   cwd: string,
   resumeSessionId?: string | null,
   timeoutMs?: number,
+  onChunk?: (chunk: string) => void,
 ): SpawnHandle {
   const timeout = timeoutMs ?? config.claudeTimeoutMs;
   const args = [
@@ -45,8 +46,10 @@ export function spawnClaude(
     let bufferExceeded = false;
 
     proc.stdout!.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
       if (stdout.length < config.maxBufferSize) {
-        stdout += chunk.toString();
+        stdout += text;
+        onChunk?.(text);
       } else if (!bufferExceeded) {
         bufferExceeded = true;
         proc.kill("SIGTERM");

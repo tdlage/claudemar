@@ -1,0 +1,334 @@
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, unlinkSync } from "node:fs";
+import { resolve } from "node:path";
+import { rm } from "node:fs/promises";
+import { Router } from "express";
+import type { Request, Response } from "express";
+import {
+  createAgentStructure,
+  getAgentInfo,
+  getAgentPaths,
+  isValidAgentName,
+  listAgentInfos,
+} from "../../agents/manager.js";
+import type { AgentPaths } from "../../agents/types.js";
+import { listSchedulesByAgent, removeSchedulesByAgent } from "../../agents/scheduler.js";
+
+export const agentsRouter = Router();
+
+const SAFE_FILENAME_RE = /^[a-zA-Z0-9._-]+$/;
+
+function safeFilename(filename: string): boolean {
+  return SAFE_FILENAME_RE.test(filename) && !filename.includes("..");
+}
+
+function resolveAgentFile(
+  req: Request,
+  res: Response,
+  subdir: keyof Pick<AgentPaths, "inbox" | "outbox" | "output" | "context">,
+): { paths: AgentPaths; filePath: string } | null {
+  const { name, file } = req.params;
+  if (!isValidAgentName(name) || !safeFilename(file)) {
+    res.status(400).json({ error: "Invalid name or filename" });
+    return null;
+  }
+
+  const paths = getAgentPaths(name);
+  if (!paths) {
+    res.status(404).json({ error: "Agent not found" });
+    return null;
+  }
+
+  const parentDir = paths[subdir];
+  const filePath = resolve(parentDir, file);
+  if (!filePath.startsWith(parentDir + "/")) {
+    res.status(400).json({ error: "Invalid path" });
+    return null;
+  }
+
+  return { paths, filePath };
+}
+
+agentsRouter.get("/", (_req, res) => {
+  const agents = listAgentInfos();
+  res.json(agents);
+});
+
+agentsRouter.get("/:name", (req, res) => {
+  const { name } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+
+  const info = getAgentInfo(name);
+  if (!info) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+
+  const paths = getAgentPaths(name)!;
+  let claudeMd = "";
+  const claudeMdPath = resolve(paths.root, "CLAUDE.md");
+  if (existsSync(claudeMdPath)) {
+    claudeMd = readFileSync(claudeMdPath, "utf-8");
+  }
+
+  let inboxFiles: string[] = [];
+  try { inboxFiles = readdirSync(paths.inbox).filter((f) => !f.startsWith(".")).sort(); } catch { /* empty */ }
+
+  let outboxFiles: string[] = [];
+  try { outboxFiles = readdirSync(paths.outbox).filter((f) => !f.startsWith(".")).sort(); } catch { /* empty */ }
+
+  let outputFiles: { name: string; size: number; mtime: string }[] = [];
+  try {
+    outputFiles = readdirSync(paths.output)
+      .filter((f) => !f.startsWith("."))
+      .map((f) => {
+        const stat = statSync(resolve(paths.output, f));
+        return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
+      })
+      .sort((a, b) => b.mtime.localeCompare(a.mtime));
+  } catch { /* empty */ }
+
+  let contextFiles: string[] = [];
+  try { contextFiles = readdirSync(paths.context).filter((f) => !f.startsWith(".")).sort(); } catch { /* empty */ }
+
+  const schedules = listSchedulesByAgent(name);
+
+  res.json({
+    ...info,
+    claudeMd,
+    inboxFiles,
+    outboxFiles,
+    outputFiles,
+    contextFiles,
+    schedules,
+  });
+});
+
+agentsRouter.post("/", (req, res) => {
+  const { name } = req.body;
+  if (!name || !isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+
+  const paths = getAgentPaths(name);
+  if (paths && existsSync(paths.root)) {
+    res.status(409).json({ error: "Agent already exists" });
+    return;
+  }
+
+  const created = createAgentStructure(name);
+  if (!created) {
+    res.status(500).json({ error: "Failed to create agent" });
+    return;
+  }
+
+  res.status(201).json({ name, paths: created });
+});
+
+agentsRouter.delete("/:name", async (req, res) => {
+  const { name } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+
+  const paths = getAgentPaths(name);
+  if (!paths || !existsSync(paths.root)) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+
+  const removedSchedules = removeSchedulesByAgent(name);
+  await rm(paths.root, { recursive: true, force: true });
+
+  res.json({ removed: name, removedSchedules });
+});
+
+agentsRouter.get("/:name/inbox/:file", (req, res) => {
+  const result = resolveAgentFile(req, res, "inbox");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const content = readFileSync(result.filePath, "utf-8");
+  const stat = statSync(result.filePath);
+  res.json({ name: req.params.file, content, size: stat.size, mtime: stat.mtime.toISOString() });
+});
+
+agentsRouter.post("/:name/inbox/:file/archive", (req, res) => {
+  const result = resolveAgentFile(req, res, "inbox");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const archivedDir = resolve(result.paths.inbox, "archived");
+  mkdirSync(archivedDir, { recursive: true });
+  const archivePath = resolve(archivedDir, req.params.file);
+  if (!archivePath.startsWith(archivedDir + "/")) {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+  renameSync(result.filePath, archivePath);
+  res.json({ archived: true });
+});
+
+agentsRouter.delete("/:name/inbox/:file", (req, res) => {
+  const result = resolveAgentFile(req, res, "inbox");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  unlinkSync(result.filePath);
+  res.json({ deleted: true });
+});
+
+agentsRouter.post("/:name/outbox", (req, res) => {
+  const { name } = req.params;
+  const { recipient, content } = req.body;
+
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  if (!recipient || !isValidAgentName(recipient)) {
+    res.status(400).json({ error: "Invalid recipient" });
+    return;
+  }
+  if (!content || typeof content !== "string") {
+    res.status(400).json({ error: "content string required" });
+    return;
+  }
+
+  const paths = getAgentPaths(name);
+  if (!paths) { res.status(404).json({ error: "Agent not found" }); return; }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `PARA-${recipient}_${timestamp}_reply.md`;
+  writeFileSync(resolve(paths.outbox, filename), content, "utf-8");
+  res.status(201).json({ created: filename });
+});
+
+agentsRouter.get("/:name/outbox/:file", (req, res) => {
+  const result = resolveAgentFile(req, res, "outbox");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const content = readFileSync(result.filePath, "utf-8");
+  const stat = statSync(result.filePath);
+  res.json({ name: req.params.file, content, size: stat.size, mtime: stat.mtime.toISOString() });
+});
+
+agentsRouter.delete("/:name/outbox/:file", (req, res) => {
+  const result = resolveAgentFile(req, res, "outbox");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  unlinkSync(result.filePath);
+  res.json({ deleted: true });
+});
+
+agentsRouter.get("/:name/output/:file", (req, res) => {
+  const result = resolveAgentFile(req, res, "output");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const stat = statSync(result.filePath);
+  if (stat.size > 2 * 1024 * 1024) {
+    res.status(413).json({ error: "File too large" });
+    return;
+  }
+
+  const content = readFileSync(result.filePath, "utf-8");
+  res.json({ name: req.params.file, content, size: stat.size, mtime: stat.mtime.toISOString() });
+});
+
+agentsRouter.get("/:name/context/:file", (req, res) => {
+  const result = resolveAgentFile(req, res, "context");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const stat = statSync(result.filePath);
+  if (stat.size > 2 * 1024 * 1024) {
+    res.status(413).json({ error: "File too large" });
+    return;
+  }
+
+  const content = readFileSync(result.filePath, "utf-8");
+  res.json({ name: req.params.file, content, size: stat.size, mtime: stat.mtime.toISOString() });
+});
+
+agentsRouter.delete("/:name/context/:file", (req, res) => {
+  const result = resolveAgentFile(req, res, "context");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  unlinkSync(result.filePath);
+  res.json({ deleted: true });
+});
+
+agentsRouter.post("/:name/context", (req, res) => {
+  const { name } = req.params;
+  const { filename, content } = req.body;
+
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  if (!filename || !safeFilename(filename)) {
+    res.status(400).json({ error: "Invalid filename" });
+    return;
+  }
+  if (!content || typeof content !== "string") {
+    res.status(400).json({ error: "content string required" });
+    return;
+  }
+
+  const paths = getAgentPaths(name);
+  if (!paths) { res.status(404).json({ error: "Agent not found" }); return; }
+
+  mkdirSync(paths.context, { recursive: true });
+  const filePath = resolve(paths.context, filename);
+  if (!filePath.startsWith(paths.context + "/")) {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+  if (existsSync(filePath)) {
+    res.status(409).json({ error: "File already exists" });
+    return;
+  }
+
+  writeFileSync(filePath, content, "utf-8");
+  res.status(201).json({ created: filename });
+});

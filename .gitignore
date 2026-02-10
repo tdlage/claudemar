@@ -4,3 +4,6 @@ dist/
 .localfiles/
 orchestrator/
 projects/
+agents/
+dashboard/node_modules/
+dashboard/dist/

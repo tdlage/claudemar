@@ -1,6 +1,7 @@
-import { type ChildProcess } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
+import { getAgentPaths } from "./agents/manager.js";
+import type { SessionMode } from "./agents/types.js";
 import { config } from "./config.js";
 
 const PROJECT_NAME_RE = /^[a-zA-Z0-9._-]+$/;
@@ -9,10 +10,11 @@ interface Session {
   activeProject: string | null;
   sessionId: string | null;
   busy: boolean;
-  activeProcess: ChildProcess | null;
+  mode: SessionMode;
+  activeAgent: string | null;
 }
 
-const sessions = new Map<number, Session>();
+export const sessions = new Map<number, Session>();
 
 function ensureSession(chatId: number): Session {
   let session = sessions.get(chatId);
@@ -21,7 +23,8 @@ function ensureSession(chatId: number): Session {
       activeProject: null,
       sessionId: null,
       busy: false,
-      activeProcess: null,
+      mode: "projects",
+      activeAgent: null,
     };
     sessions.set(chatId, session);
   }
@@ -52,13 +55,39 @@ export function setActiveProject(
   session.sessionId = null;
 }
 
+export function getMode(chatId: number): SessionMode {
+  return ensureSession(chatId).mode;
+}
+
+export function setMode(chatId: number, mode: SessionMode): void {
+  const session = ensureSession(chatId);
+  session.mode = mode;
+  session.sessionId = null;
+}
+
+export function getActiveAgent(chatId: number): string | null {
+  return ensureSession(chatId).activeAgent;
+}
+
+export function setActiveAgent(chatId: number, agent: string | null): void {
+  const session = ensureSession(chatId);
+  session.activeAgent = agent;
+  session.sessionId = null;
+}
+
 export function getWorkingDirectory(chatId: number): string {
   const session = ensureSession(chatId);
-  if (session.activeProject) {
-    const path = safeProjectPath(session.activeProject);
-    if (!path) return config.orchestratorPath;
-    return path;
+
+  if (session.mode === "agents" && session.activeAgent) {
+    const paths = getAgentPaths(session.activeAgent);
+    if (paths) return paths.root;
   }
+
+  if (session.mode === "projects" && session.activeProject) {
+    const path = safeProjectPath(session.activeProject);
+    if (path) return path;
+  }
+
   return config.orchestratorPath;
 }
 
@@ -78,17 +107,6 @@ export function setBusy(chatId: number, busy: boolean): void {
   ensureSession(chatId).busy = busy;
 }
 
-export function getActiveProcess(chatId: number): ChildProcess | null {
-  return ensureSession(chatId).activeProcess;
-}
-
-export function setActiveProcess(
-  chatId: number,
-  proc: ChildProcess | null,
-): void {
-  ensureSession(chatId).activeProcess = proc;
-}
-
 export function listProjects(): string[] {
   try {
     const entries = readdirSync(config.projectsPath, { withFileTypes: true });
@@ -96,4 +114,23 @@ export function listProjects(): string[] {
   } catch {
     return [];
   }
+}
+
+export interface SessionSnapshot {
+  mode: SessionMode;
+  activeProject: string | null;
+  activeAgent: string | null;
+  busy: boolean;
+  sessionId: string | null;
+}
+
+export function getSessionSnapshot(chatId: number): SessionSnapshot {
+  const s = ensureSession(chatId);
+  return {
+    mode: s.mode,
+    activeProject: s.activeProject,
+    activeAgent: s.activeAgent,
+    busy: s.busy,
+    sessionId: s.sessionId,
+  };
 }

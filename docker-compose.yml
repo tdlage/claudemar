@@ -1,0 +1,15 @@
+services:
+  claudemar:
+    build: .
+    container_name: claudemar
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/orchestrator:/app/orchestrator
+      - ./data/agents:/app/agents
+      - ./data/projects:/app/projects
+    env_file: .env
+    environment:
+      - DASHBOARD_PORT=3000
+      - BASE_PATH=/app

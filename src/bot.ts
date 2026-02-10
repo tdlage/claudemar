@@ -1,18 +1,17 @@
-import { existsSync } from "node:fs";
-import { Bot, InputFile } from "grammy";
+import { Bot } from "grammy";
 import { registerCommands } from "./commands.js";
 import { config } from "./config.js";
-import { spawnClaude } from "./executor.js";
+import { processMessage } from "./processor.js";
 import {
-  getSessionId,
-  getWorkingDirectory,
   isBusy,
-  setActiveProcess,
   setBusy,
-  setSessionId,
 } from "./session.js";
+import { transcribeAudio } from "./transcription.js";
 
-const bot = new Bot(config.telegramBotToken);
+const BUSY_MSG = "Já existe uma execução em andamento. Aguarde ou use /cancel.";
+const MAX_AUDIO_SIZE = 25 * 1024 * 1024;
+
+export const bot = new Bot(config.telegramBotToken);
 
 bot.use(async (ctx, next) => {
   if (ctx.chat?.id !== config.allowedChatId) {
@@ -31,92 +30,86 @@ bot.on("message:text", async (ctx) => {
   const chatId = ctx.chat.id;
 
   if (isBusy(chatId)) {
-    await ctx.reply("Já existe uma execução em andamento. Aguarde ou use /cancel.");
+    await ctx.reply(BUSY_MSG);
     return;
   }
 
   setBusy(chatId, true);
   const statusMsg = await ctx.reply("Executando...");
 
+  await processMessage(ctx, chatId, text, statusMsg);
+});
+
+bot.on(["message:voice", "message:audio"], async (ctx) => {
+  const chatId = ctx.chat.id;
+
+  if (!config.openaiApiKey) {
+    await ctx.reply(
+      "OPENAI_API_KEY não configurada. Adicione ao .env para usar mensagens de voz.",
+    );
+    return;
+  }
+
+  if (isBusy(chatId)) {
+    await ctx.reply(BUSY_MSG);
+    return;
+  }
+
+  setBusy(chatId, true);
+  const statusMsg = await ctx.reply("Transcrevendo áudio...");
+
   try {
-    const cwd = getWorkingDirectory(chatId);
+    const file = await ctx.getFile();
+    const filePath = file.file_path;
 
-    if (!existsSync(cwd)) {
-      await ctx.api.editMessageText(
-        chatId,
-        statusMsg.message_id,
-        "Projeto não encontrado. Use /project.",
-      );
-      return;
+    if (!filePath) {
+      throw new Error("Não foi possível obter o arquivo de áudio.");
     }
 
-    const sessionId = getSessionId(chatId);
-    const handle = spawnClaude(text, cwd, sessionId);
-    setActiveProcess(chatId, handle.process);
-
-    const result = await handle.promise;
-    setActiveProcess(chatId, null);
-
-    if (result.sessionId) {
-      setSessionId(chatId, result.sessionId);
+    if (file.file_size && file.file_size > MAX_AUDIO_SIZE) {
+      throw new Error("Arquivo de áudio excede o limite de 25MB do Whisper.");
     }
 
-    const durationSec = (result.durationMs / 1000).toFixed(1);
-    const footer = `${durationSec}s · $${result.costUsd.toFixed(2)}`;
+    const fileUrl = `https://api.telegram.org/file/bot${config.telegramBotToken}/${filePath}`;
+    const response = await fetch(fileUrl);
 
-    if (!result.output) {
-      await ctx.api.editMessageText(
-        chatId,
-        statusMsg.message_id,
-        `Executado sem output.\n\n${footer}`,
-      );
-      return;
+    if (!response.ok) {
+      throw new Error("Falha ao baixar o arquivo de áudio.");
     }
 
-    if (result.output.length > config.maxOutputLength) {
-      const buffer = Buffer.from(result.output);
-      const sizeKb = (buffer.byteLength / 1024).toFixed(1);
-      await ctx.replyWithDocument(
-        new InputFile(buffer, "response.txt"),
-        { caption: `Resposta grande (${sizeKb} KB)\n\n${footer}` },
-      );
-    } else {
-      await ctx.reply(result.output);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = Buffer.from(arrayBuffer);
+    const filename = filePath.split("/").pop() || "voice.ogg";
+
+    const transcribedText = await transcribeAudio(audioBuffer, filename);
+
+    if (!transcribedText.trim()) {
+      throw new Error("Transcrição vazia — nenhum texto reconhecido no áudio.");
     }
 
+    const preview = transcribedText.length > 100
+      ? `${transcribedText.slice(0, 100)}...`
+      : transcribedText;
+
+    await ctx.api.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      `🎤 "${preview}"\n\nExecutando...`,
+    );
+
+    const prompt = `[Mensagem de áudio transcrita]: ${transcribedText}`;
+    await processMessage(ctx, chatId, prompt, statusMsg);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     try {
-      await ctx.api.editMessageText(chatId, statusMsg.message_id, footer);
+      await ctx.api.editMessageText(
+        chatId,
+        statusMsg.message_id,
+        `Erro: ${message}`,
+      );
     } catch {
       // non-critical
     }
-  } catch (err) {
-    setActiveProcess(chatId, null);
-    const message = err instanceof Error ? err.message : String(err);
-
-    try {
-      if (message.includes("não encontrado no PATH")) {
-        await ctx.api.editMessageText(
-          chatId,
-          statusMsg.message_id,
-          "Claude CLI não encontrado no PATH.",
-        );
-      } else if (message.includes("Timeout")) {
-        await ctx.api.editMessageText(
-          chatId,
-          statusMsg.message_id,
-          message,
-        );
-      } else {
-        await ctx.api.editMessageText(
-          chatId,
-          statusMsg.message_id,
-          `Erro: ${message}`,
-        );
-      }
-    } catch {
-      // status message edit failed, non-critical
-    }
-  } finally {
     setBusy(chatId, false);
   }
 });
@@ -124,9 +117,3 @@ bot.on("message:text", async (ctx) => {
 bot.catch((err) => {
   console.error("Bot error:", err);
 });
-
-process.on("SIGINT", () => bot.stop());
-process.on("SIGTERM", () => bot.stop());
-
-console.log("Claudemar starting...");
-bot.start();
