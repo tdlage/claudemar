@@ -60,12 +60,22 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
     source: info.source,
     output: output || undefined,
     error: info.error,
+    sessionId: info.result?.sessionId || undefined,
   };
 }
 
 class ExecutionManager extends EventEmitter {
   private active = new Map<string, { info: ExecutionInfo; process: ChildProcess }>();
   private recent: ExecutionInfo[] = [];
+  private lastSessionMap = new Map<string, string>();
+
+  private targetKey(targetType: string, targetName: string): string {
+    return `${targetType}:${targetName}`;
+  }
+
+  getLastSessionId(targetType: string, targetName: string): string | undefined {
+    return this.lastSessionMap.get(this.targetKey(targetType, targetName));
+  }
 
   startExecution(opts: StartExecutionOpts): string {
     const id = randomUUID();
@@ -84,10 +94,13 @@ class ExecutionManager extends EventEmitter {
       error: null,
     };
 
+    const resumeId = opts.resumeSessionId
+      ?? this.getLastSessionId(opts.targetType, opts.targetName);
+
     const handle: SpawnHandle = spawnClaude(
       opts.prompt,
       opts.cwd,
-      opts.resumeSessionId,
+      resumeId,
       opts.timeoutMs,
       (chunk: string) => {
         if (info.output.length < MAX_STREAM_OUTPUT) {
@@ -108,6 +121,9 @@ class ExecutionManager extends EventEmitter {
         info.completedAt = new Date();
         info.result = result;
         info.output = result.output;
+        if (result.sessionId) {
+          this.lastSessionMap.set(this.targetKey(opts.targetType, opts.targetName), result.sessionId);
+        }
         this.finalize(id);
         this.emit("complete", id, info);
 
@@ -186,13 +202,19 @@ class ExecutionManager extends EventEmitter {
       output: e.output ?? "",
       result: e.costUsd || e.durationMs ? {
         output: e.output ?? "",
-        sessionId: "",
+        sessionId: e.sessionId ?? "",
         durationMs: e.durationMs,
         costUsd: e.costUsd,
         isError: e.status === "error",
       } : null,
       error: e.error ?? null,
     }));
+
+    for (const e of entries) {
+      if (e.sessionId && e.status === "completed") {
+        this.lastSessionMap.set(this.targetKey(e.targetType, e.targetName), e.sessionId);
+      }
+    }
   }
 
   private finalize(id: string): void {
