@@ -4,7 +4,7 @@ set -euo pipefail
 INSTALL_DIR="$HOME/claudemar"
 REPO_URL="https://github.com/tdlage/claudemar.git"
 SERVICE_NAME="claudemar"
-NODE_MAJOR=20
+NODE_MAJOR=22
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -223,6 +223,12 @@ build_project() {
         error "Build failed: dist/main.js not found"
     fi
 
+    if [[ ! -f "$INSTALL_DIR/dashboard/dist/index.html" ]]; then
+        warn "Dashboard build not found — web UI will not be available"
+    else
+        success "Dashboard built"
+    fi
+
     success "Build complete"
 }
 
@@ -430,6 +436,15 @@ print_summary() {
         echo -e "${BOLD}║${NC}  Service:   ${YELLOW}skipped${NC}"
     fi
 
+    if [[ -f "$INSTALL_DIR/dashboard/dist/index.html" ]]; then
+        local dash_port
+        dash_port="$(grep -oP '^DASHBOARD_PORT=\K.*' "$INSTALL_DIR/.env" 2>/dev/null || echo "3000")"
+        dash_port="${dash_port:-3000}"
+        echo -e "${BOLD}║${NC}  Dashboard: ${GREEN}http://localhost:${dash_port}${NC}"
+    else
+        echo -e "${BOLD}║${NC}  Dashboard: ${YELLOW}not built${NC}"
+    fi
+
     echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 
     local has_next_steps=false
@@ -456,12 +471,15 @@ print_summary() {
         echo -e "  • Authenticate: claude auth"
     fi
 
+    echo ""
+    echo -e "${BOLD}Useful commands:${NC}"
     if [[ "$SERVICE_INSTALLED" == true ]]; then
-        echo ""
-        echo -e "${BOLD}Useful commands:${NC}"
         echo -e "  sudo systemctl status $SERVICE_NAME"
         echo -e "  sudo journalctl -u $SERVICE_NAME -f"
+        echo -e "  sudo systemctl restart $SERVICE_NAME"
     fi
+    echo -e "  cd $INSTALL_DIR && node dist/main.js      # run manually"
+    echo -e "  cd $INSTALL_DIR && docker compose up -d    # run via Docker"
 
     echo ""
 }
