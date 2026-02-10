@@ -250,6 +250,8 @@ register_bot_commands() {
         {"command":"schedule","description":"Agendar tarefa"},
         {"command":"metrics","description":"Métricas de uso"},
         {"command":"running","description":"Execuções em andamento"},
+        {"command":"stream","description":"Acompanhar saída em tempo real"},
+        {"command":"stop_stream","description":"Parar stream ativo"},
         {"command":"history","description":"Histórico de execuções"},
         {"command":"current","description":"Modo, projeto/agente e sessão"},
         {"command":"reset","description":"Resetar sessão do contexto atual"},

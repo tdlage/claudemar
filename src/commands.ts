@@ -21,7 +21,7 @@ import {
 } from "./agents/scheduler.js";
 import type { SessionMode } from "./agents/types.js";
 import { config } from "./config.js";
-import { executionManager } from "./execution-manager.js";
+import { type ExecutionInfo, executionManager } from "./execution-manager.js";
 import { executeShell, executeSpawn } from "./executor.js";
 import { loadHistory } from "./history.js";
 import { loadMetrics } from "./metrics.js";
@@ -71,6 +71,8 @@ const HELP_TEXT = [
   "<b>⚙️ Geral</b>",
   "/current — Modo, projeto/agente e sessão",
   "/running — Execuções em andamento",
+  "/stream &lt;id&gt; — Acompanhar saída em tempo real",
+  "/stop_stream — Parar stream ativo",
   "/history [N] — Histórico de execuções",
   "/reset — Resetar sessão do contexto atual",
   "/clear — Resetar tudo",
@@ -89,6 +91,8 @@ export function registerCommands(bot: Bot): void {
   bot.command("reset", handleReset);
   bot.command("cancel", handleCancel);
   bot.command("running", handleRunning);
+  bot.command("stream", handleStream);
+  bot.command("stop_stream", handleStopStream);
   bot.command("history", handleHistory);
   bot.command("exec", handleExec);
   bot.command("git", handleGit);
@@ -428,6 +432,10 @@ async function handleToken(ctx: Context): Promise<void> {
 
 // --- Running ---
 
+function shortId(id: string): string {
+  return id.slice(0, 8);
+}
+
 async function handleRunning(ctx: Context): Promise<void> {
   const activeExecs = executionManager.getActiveExecutions();
 
@@ -448,13 +456,151 @@ async function handleRunning(ctx: Context): Promise<void> {
       ? exec.prompt.slice(0, 80) + "..."
       : exec.prompt;
 
-    lines.push(`• [${exec.targetType}] ${exec.targetName}`);
+    lines.push(`<code>${shortId(exec.id)}</code> [${exec.targetType}] ${exec.targetName}`);
     lines.push(`  ${promptPreview}`);
     lines.push(`  ${elapsed} · fonte: ${exec.source}`);
     lines.push("");
   }
 
-  await ctx.reply(lines.join("\n").trimEnd());
+  lines.push("Use /stream &lt;id&gt; para acompanhar em tempo real.");
+
+  await ctx.reply(lines.join("\n").trimEnd(), { parse_mode: "HTML" });
+}
+
+// --- Stream ---
+
+interface ActiveStream {
+  execId: string;
+  chatId: number;
+  messageId: number;
+  buffer: string;
+  timer: ReturnType<typeof setInterval>;
+  onOutput: (id: string, chunk: string) => void;
+  onDone: (id: string, info: ExecutionInfo) => void;
+}
+
+const activeStreams = new Map<number, ActiveStream>();
+
+const STREAM_INTERVAL_MS = 1500;
+const STREAM_MAX_CHARS = 3500;
+
+function stopStream(chatId: number): void {
+  const stream = activeStreams.get(chatId);
+  if (!stream) return;
+  clearInterval(stream.timer);
+  executionManager.off("output", stream.onOutput);
+  executionManager.off("complete", stream.onDone);
+  executionManager.off("error", stream.onDone);
+  executionManager.off("cancel", stream.onDone);
+  activeStreams.delete(chatId);
+}
+
+async function handleStream(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  const text = ctx.message?.text ?? "";
+  const arg = text.replace(/^\/stream\s*/, "").trim();
+
+  if (!arg) {
+    await ctx.reply("Uso: /stream <id>\nUse /running para ver os IDs.");
+    return;
+  }
+
+  const activeExecs = executionManager.getActiveExecutions();
+  const exec = activeExecs.find((e) => e.id.startsWith(arg));
+
+  if (!exec) {
+    await ctx.reply("Execução não encontrada. Use /running para ver IDs ativos.");
+    return;
+  }
+
+  if (activeStreams.has(chatId)) {
+    stopStream(chatId);
+  }
+
+  const currentOutput = exec.output ?? "";
+  const initialText = currentOutput.length > STREAM_MAX_CHARS
+    ? "..." + currentOutput.slice(-STREAM_MAX_CHARS)
+    : currentOutput || "(aguardando output...)";
+
+  const header = `📡 Stream: ${shortId(exec.id)} [${exec.targetName}]\n\n`;
+  const msg = await ctx.reply(header + initialText);
+
+  let buffer = currentOutput;
+  let dirty = false;
+
+  const onOutput = (id: string, chunk: string) => {
+    if (id !== exec.id) return;
+    buffer += chunk;
+    dirty = true;
+  };
+
+  const onDone = async (id: string, info: ExecutionInfo) => {
+    if (id !== exec.id) return;
+    stopStream(chatId);
+
+    const statusLabel = info.status === "completed" ? "Concluída"
+      : info.status === "error" ? "Erro"
+      : "Cancelada";
+
+    const footer = info.result
+      ? `\n\n— ${statusLabel} · ${(info.result.durationMs / 1000).toFixed(1)}s · $${info.result.costUsd.toFixed(2)}`
+      : `\n\n— ${statusLabel}${info.error ? `: ${info.error}` : ""}`;
+
+    const finalText = buffer.length > STREAM_MAX_CHARS
+      ? "..." + buffer.slice(-STREAM_MAX_CHARS)
+      : buffer || "(sem output)";
+
+    try {
+      await ctx.api.editMessageText(chatId, msg.message_id, header + finalText + footer);
+    } catch {
+      // non-critical
+    }
+  };
+
+  const timer = setInterval(async () => {
+    if (!dirty) return;
+    dirty = false;
+
+    const display = buffer.length > STREAM_MAX_CHARS
+      ? "..." + buffer.slice(-STREAM_MAX_CHARS)
+      : buffer;
+
+    try {
+      await ctx.api.editMessageText(chatId, msg.message_id, header + display);
+    } catch {
+      // message not modified or rate limited
+    }
+  }, STREAM_INTERVAL_MS);
+
+  executionManager.on("output", onOutput);
+  executionManager.on("complete", onDone);
+  executionManager.on("error", onDone);
+  executionManager.on("cancel", onDone);
+
+  activeStreams.set(chatId, {
+    execId: exec.id,
+    chatId,
+    messageId: msg.message_id,
+    buffer,
+    timer,
+    onOutput,
+    onDone,
+  });
+}
+
+async function handleStopStream(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  if (!activeStreams.has(chatId)) {
+    await ctx.reply("Nenhum stream ativo.");
+    return;
+  }
+
+  stopStream(chatId);
+  await ctx.reply("Stream interrompido.");
 }
 
 // --- History ---
