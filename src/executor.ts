@@ -1,6 +1,50 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { config } from "./config.js";
 
+const ANSI = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  cyan: "\x1b[36m",
+  yellow: "\x1b[33m",
+  green: "\x1b[32m",
+  magenta: "\x1b[35m",
+  gray: "\x1b[90m",
+};
+
+function formatToolUse(name: string, input: Record<string, unknown>): string {
+  const label = `${ANSI.cyan}${ANSI.bold}> ${name}${ANSI.reset}`;
+  let detail = "";
+
+  switch (name) {
+    case "Read":
+      detail = `${ANSI.gray}${input.file_path ?? ""}${ANSI.reset}`;
+      break;
+    case "Write":
+      detail = `${ANSI.yellow}${input.file_path ?? ""}${ANSI.reset}`;
+      break;
+    case "Edit":
+      detail = `${ANSI.yellow}${input.file_path ?? ""}${ANSI.reset}`;
+      break;
+    case "Bash":
+      detail = `${ANSI.dim}${String(input.command ?? "").slice(0, 120)}${ANSI.reset}`;
+      break;
+    case "Glob":
+      detail = `${ANSI.gray}${input.pattern ?? ""}${ANSI.reset}`;
+      break;
+    case "Grep":
+      detail = `${ANSI.gray}${input.pattern ?? ""}${ANSI.reset}`;
+      break;
+    case "Task":
+      detail = `${ANSI.magenta}${input.description ?? ""}${ANSI.reset}`;
+      break;
+    default:
+      detail = `${ANSI.dim}${JSON.stringify(input).slice(0, 100)}${ANSI.reset}`;
+  }
+
+  return `\n${label} ${detail}\n`;
+}
+
 export interface ClaudeResult {
   output: string;
   sessionId: string;
@@ -76,9 +120,18 @@ export function spawnClaude(
           if (event.type === "assistant" && event.message?.content) {
             for (const block of event.message.content) {
               if (block.type === "text" && block.text) {
+                const needsNewline = resultText.length > 0 && !resultText.endsWith("\n") && !block.text.startsWith("\n");
+                if (needsNewline) {
+                  resultText += "\n";
+                  resultTextSize += 1;
+                  onChunk?.("\n");
+                }
                 resultText += block.text;
                 resultTextSize += block.text.length;
                 onChunk?.(block.text);
+              } else if (block.type === "tool_use" && block.name) {
+                const formatted = formatToolUse(block.name, block.input ?? {});
+                onChunk?.(formatted);
               }
             }
           } else if (event.type === "result") {

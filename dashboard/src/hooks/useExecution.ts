@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { api } from "../lib/api";
 import { useSocketEvent } from "./useSocket";
+import { seedOutput } from "../lib/outputBuffer";
 import type { ExecutionInfo } from "../lib/types";
 
 const MAX_RECENT = 200;
@@ -15,6 +16,9 @@ export function useExecutions() {
     );
     setActive(data.active);
     setRecent(data.recent);
+    for (const exec of [...data.active, ...data.recent]) {
+      if (exec.output) seedOutput(exec.id, exec.output);
+    }
   }, []);
 
   useEffect(() => {

@@ -124,7 +124,9 @@ class ExecutionManager extends EventEmitter {
         info.status = "completed";
         info.completedAt = new Date();
         info.result = result;
-        info.output = result.output;
+        if (!info.output) {
+          info.output = result.output;
+        }
         if (result.sessionId) {
           this.lastSessionMap.set(this.targetKey(opts.targetType, opts.targetName), result.sessionId);
         }
@@ -144,10 +146,18 @@ class ExecutionManager extends EventEmitter {
         info.status = "error";
         info.completedAt = new Date();
         info.error = message;
+        const durationMs = info.completedAt.getTime() - info.startedAt.getTime();
+        info.result = {
+          output: info.output,
+          sessionId: resumeId ?? "",
+          durationMs,
+          costUsd: 0,
+          isError: true,
+        };
         this.finalize(id);
         this.emit("error", id, info, message);
 
-        appendHistory(buildHistoryEntry(info));
+        appendHistory(buildHistoryEntry(info, { durationMs }));
       });
 
     return id;

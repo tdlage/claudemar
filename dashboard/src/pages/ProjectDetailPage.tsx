@@ -142,7 +142,7 @@ export function ProjectDetailPage() {
             )}
           </form>
           <div className="h-[500px]">
-            <Terminal key={name} executionId={execId} initialOutput={activeExec?.output} />
+            <Terminal key={name} executionId={execId} />
           </div>
 
           {projectActivity.length > 0 && (

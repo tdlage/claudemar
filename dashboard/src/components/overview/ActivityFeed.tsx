@@ -47,7 +47,12 @@ export function ActivityFeed({ executions, expandedId, onToggle }: ActivityFeedP
               <span className="text-text-muted text-xs min-w-[70px]">
                 {exec.targetName}
               </span>
-              <span className="text-text-primary truncate flex-1">{exec.prompt}</span>
+              <span className="text-text-primary truncate flex-1">
+                {exec.prompt}
+                {exec.status === "error" && exec.error && (
+                  <span className="text-danger ml-2">— {exec.error}</span>
+                )}
+              </span>
               {exec.result?.sessionId && (
                 <span className="text-xs text-text-muted font-mono" title={exec.result.sessionId}>
                   {exec.result.sessionId.slice(0, 8)}
@@ -83,9 +88,16 @@ export function ActivityFeed({ executions, expandedId, onToggle }: ActivityFeedP
               )}
             </div>
             {isExpanded && (
-              <pre className="mx-3 mt-1 mb-2 p-3 bg-bg rounded-md border border-border text-xs text-text-primary max-h-[400px] overflow-auto whitespace-pre-wrap break-words">
-                {exec.output || exec.error || "(sem output)"}
-              </pre>
+              <div className="mx-3 mt-1 mb-2 space-y-1">
+                {exec.status === "error" && exec.error && (
+                  <div className="p-2 bg-danger/10 border border-danger/30 rounded-md text-xs text-danger">
+                    {exec.error}
+                  </div>
+                )}
+                <pre className="p-3 bg-bg rounded-md border border-border text-xs text-text-primary max-h-[400px] overflow-auto whitespace-pre-wrap break-words">
+                  {exec.output || "(sem output)"}
+                </pre>
+              </div>
             )}
           </div>
         );

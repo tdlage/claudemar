@@ -3,13 +3,13 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { getSocket } from "../../lib/socket";
+import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
 
 interface TerminalProps {
   executionId: string | null;
-  initialOutput?: string;
 }
 
-export function Terminal({ executionId, initialOutput }: TerminalProps) {
+export function Terminal({ executionId }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -23,6 +23,10 @@ export function Terminal({ executionId, initialOutput }: TerminalProps) {
         foreground: "#e4e4e7",
         cursor: "#6366f1",
         selectionBackground: "#6366f133",
+        cyan: "#22d3ee",
+        yellow: "#facc15",
+        green: "#4ade80",
+        magenta: "#c084fc",
       },
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       fontSize: 13,
@@ -57,27 +61,39 @@ export function Terminal({ executionId, initialOutput }: TerminalProps) {
     if (!term) return;
 
     term.clear();
-    if (initialOutput) {
-      term.write(initialOutput);
-    }
-  }, [executionId, initialOutput]);
 
-  useEffect(() => {
     if (!executionId) return;
+
+    const buffered = getOutput(executionId);
+    if (buffered) {
+      term.write(buffered);
+    }
 
     const socket = getSocket();
     socket.emit("subscribe:execution", executionId);
 
-    const handler = (data: { id: string; chunk: string }) => {
-      if (data.id === executionId && termRef.current) {
-        termRef.current.write(data.chunk);
+    const catchupHandler = (data: { id: string; output: string }) => {
+      if (data.id !== executionId) return;
+      const current = getOutput(executionId);
+      if (data.output.length > current.length) {
+        setOutput(executionId, data.output);
+        term.clear();
+        term.write(data.output);
       }
     };
 
-    socket.on("execution:output", handler);
+    const chunkHandler = (data: { id: string; chunk: string }) => {
+      if (data.id !== executionId) return;
+      appendOutput(data.id, data.chunk);
+      term.write(data.chunk);
+    };
+
+    socket.on("execution:catchup", catchupHandler);
+    socket.on("execution:output", chunkHandler);
 
     return () => {
-      socket.off("execution:output", handler);
+      socket.off("execution:catchup", catchupHandler);
+      socket.off("execution:output", chunkHandler);
       socket.emit("unsubscribe:execution", executionId);
     };
   }, [executionId]);

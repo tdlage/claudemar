@@ -43,6 +43,10 @@ export function setupWebSocket(io: SocketServer): void {
 
     socket.on("subscribe:execution", (id: string) => {
       socket.join(`exec:${id}`);
+      const exec = executionManager.getExecution(id);
+      if (exec?.output) {
+        socket.emit("execution:catchup", { id, output: exec.output });
+      }
     });
 
     socket.on("unsubscribe:execution", (id: string) => {

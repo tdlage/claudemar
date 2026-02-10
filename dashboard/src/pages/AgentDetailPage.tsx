@@ -137,7 +137,7 @@ export function AgentDetailPage() {
             )}
           </form>
           <div className="h-[500px]">
-            <Terminal key={name} executionId={execId} initialOutput={activeExec?.output} />
+            <Terminal key={name} executionId={execId} />
           </div>
         </div>
       )}
