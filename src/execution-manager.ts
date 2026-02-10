@@ -33,6 +33,7 @@ export interface StartExecutionOpts {
   cwd: string;
   resumeSessionId?: string | null;
   timeoutMs?: number;
+  model?: string;
 }
 
 const MAX_RECENT = 100;
@@ -87,6 +88,7 @@ class ExecutionManager extends EventEmitter {
         }
         this.emit("output", id, chunk);
       },
+      opts.model,
     );
 
     this.active.set(id, { info, process: handle.process });

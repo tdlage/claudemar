@@ -111,6 +111,7 @@ export function registerCommands(bot: Bot): void {
   bot.command("metrics", handleMetrics);
   bot.callbackQuery(/^select_project:/, handleSelectProject);
   bot.callbackQuery(/^select_agent:/, handleSelectAgent);
+  bot.callbackQuery(/^stream_exec:/, handleStreamCallback);
 }
 
 async function handleStart(ctx: Context): Promise<void> {
@@ -446,6 +447,7 @@ async function handleRunning(ctx: Context): Promise<void> {
 
   const now = Date.now();
   const lines = [`${activeExecs.length} execução(ões) em andamento:\n`];
+  const keyboard = new InlineKeyboard();
 
   for (const exec of activeExecs) {
     const elapsedMs = now - exec.startedAt.getTime();
@@ -460,11 +462,17 @@ async function handleRunning(ctx: Context): Promise<void> {
     lines.push(`  ${promptPreview}`);
     lines.push(`  ${elapsed} · fonte: ${exec.source}`);
     lines.push("");
+
+    keyboard.row().text(
+      `📡 ${exec.targetName} (${shortId(exec.id)})`,
+      `stream_exec:${shortId(exec.id)}`,
+    );
   }
 
-  lines.push("Use /stream &lt;id&gt; para acompanhar em tempo real.");
-
-  await ctx.reply(lines.join("\n").trimEnd(), { parse_mode: "HTML" });
+  await ctx.reply(lines.join("\n").trimEnd(), {
+    parse_mode: "HTML",
+    reply_markup: keyboard,
+  });
 }
 
 // --- Stream ---
@@ -495,26 +503,7 @@ function stopStream(chatId: number): void {
   activeStreams.delete(chatId);
 }
 
-async function handleStream(ctx: Context): Promise<void> {
-  const chatId = ctx.chat?.id;
-  if (!chatId) return;
-
-  const text = ctx.message?.text ?? "";
-  const arg = text.replace(/^\/stream\s*/, "").trim();
-
-  if (!arg) {
-    await ctx.reply("Uso: /stream <id>\nUse /running para ver os IDs.");
-    return;
-  }
-
-  const activeExecs = executionManager.getActiveExecutions();
-  const exec = activeExecs.find((e) => e.id.startsWith(arg));
-
-  if (!exec) {
-    await ctx.reply("Execução não encontrada. Use /running para ver IDs ativos.");
-    return;
-  }
-
+async function startStreamFromExec(chatId: number, botApi: Context["api"], exec: ExecutionInfo): Promise<void> {
   if (activeStreams.has(chatId)) {
     stopStream(chatId);
   }
@@ -525,7 +514,7 @@ async function handleStream(ctx: Context): Promise<void> {
     : currentOutput || "(aguardando output...)";
 
   const header = `📡 Stream: ${shortId(exec.id)} [${exec.targetName}]\n\n`;
-  const msg = await ctx.reply(header + initialText);
+  const msg = await botApi.sendMessage(chatId, header + initialText);
 
   let buffer = currentOutput;
   let dirty = false;
@@ -553,7 +542,7 @@ async function handleStream(ctx: Context): Promise<void> {
       : buffer || "(sem output)";
 
     try {
-      await ctx.api.editMessageText(chatId, msg.message_id, header + finalText + footer);
+      await botApi.editMessageText(chatId, msg.message_id, header + finalText + footer);
     } catch {
       // non-critical
     }
@@ -568,7 +557,7 @@ async function handleStream(ctx: Context): Promise<void> {
       : buffer;
 
     try {
-      await ctx.api.editMessageText(chatId, msg.message_id, header + display);
+      await botApi.editMessageText(chatId, msg.message_id, header + display);
     } catch {
       // message not modified or rate limited
     }
@@ -590,6 +579,29 @@ async function handleStream(ctx: Context): Promise<void> {
   });
 }
 
+async function handleStream(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  const text = ctx.message?.text ?? "";
+  const arg = text.replace(/^\/stream\s*/, "").trim();
+
+  if (!arg) {
+    await ctx.reply("Uso: /stream <id>\nUse /running para ver os IDs.");
+    return;
+  }
+
+  const activeExecs = executionManager.getActiveExecutions();
+  const exec = activeExecs.find((e) => e.id.startsWith(arg));
+
+  if (!exec) {
+    await ctx.reply("Execução não encontrada. Use /running para ver IDs ativos.");
+    return;
+  }
+
+  await startStreamFromExec(chatId, ctx.api, exec);
+}
+
 async function handleStopStream(ctx: Context): Promise<void> {
   const chatId = ctx.chat?.id;
   if (!chatId) return;
@@ -601,6 +613,26 @@ async function handleStopStream(ctx: Context): Promise<void> {
 
   stopStream(chatId);
   await ctx.reply("Stream interrompido.");
+}
+
+async function handleStreamCallback(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  const data = ctx.callbackQuery?.data;
+  if (!data) return;
+
+  const prefix = data.replace("stream_exec:", "");
+  const activeExecs = executionManager.getActiveExecutions();
+  const exec = activeExecs.find((e) => e.id.startsWith(prefix));
+
+  if (!exec) {
+    await ctx.answerCallbackQuery({ text: "Execução já finalizada." });
+    return;
+  }
+
+  await ctx.answerCallbackQuery({ text: `Streaming ${shortId(exec.id)}...` });
+  await startStreamFromExec(chatId, ctx.api, exec);
 }
 
 // --- History ---

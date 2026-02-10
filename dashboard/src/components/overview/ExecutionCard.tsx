@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Square, Eye } from "lucide-react";
+import { Square, ChevronDown } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
@@ -9,10 +9,11 @@ import type { ExecutionInfo } from "../../lib/types";
 
 interface ExecutionCardProps {
   execution: ExecutionInfo;
+  expanded?: boolean;
   onViewOutput?: (id: string) => void;
 }
 
-export function ExecutionCard({ execution, onViewOutput }: ExecutionCardProps) {
+export function ExecutionCard({ execution, expanded, onViewOutput }: ExecutionCardProps) {
   const [elapsed, setElapsed] = useState("");
 
   useEffect(() => {
@@ -23,14 +24,19 @@ export function ExecutionCard({ execution, onViewOutput }: ExecutionCardProps) {
     return () => clearInterval(interval);
   }, [execution.status, execution.startedAt]);
 
-  const handleStop = async () => {
+  const handleStop = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     await api.post(`/executions/${execution.id}/stop`);
   };
 
   const sourceVariant = execution.source === "telegram" ? "accent" as const : "default" as const;
+  const clickable = !!onViewOutput;
 
   return (
-    <Card>
+    <Card
+      className={clickable ? "transition-colors" : undefined}
+      onClick={clickable ? () => onViewOutput(execution.id) : undefined}
+    >
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2">
           <Badge variant={sourceVariant}>{execution.source}</Badge>
@@ -44,9 +50,10 @@ export function ExecutionCard({ execution, onViewOutput }: ExecutionCardProps) {
         </div>
         <div className="flex items-center gap-1.5">
           {onViewOutput && (
-            <Button size="sm" variant="ghost" onClick={() => onViewOutput(execution.id)}>
-              <Eye size={14} />
-            </Button>
+            <ChevronDown
+              size={16}
+              className={`text-text-muted transition-transform ${expanded ? "rotate-180" : ""}`}
+            />
           )}
           {execution.status === "running" && (
             <Button size="sm" variant="danger" onClick={handleStop}>

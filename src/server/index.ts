@@ -12,6 +12,7 @@ import { agentsRouter } from "./routes/agents.js";
 import { projectsRouter } from "./routes/projects.js";
 import { executionsRouter } from "./routes/executions.js";
 import { filesRouter } from "./routes/files.js";
+import { orchestratorRouter } from "./routes/orchestrator.js";
 import { systemRouter } from "./routes/system.js";
 
 export function createDashboardServer() {
@@ -40,6 +41,7 @@ export function createDashboardServer() {
   app.use("/api/projects", projectsRouter);
   app.use("/api/executions", executionsRouter);
   app.use("/api/files", filesRouter);
+  app.use("/api/orchestrator", orchestratorRouter);
   app.use("/api/system", systemRouter);
 
   const dashboardDist = resolve(process.cwd(), "dashboard/dist");

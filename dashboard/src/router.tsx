@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import { Layout } from "./components/layout/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { OverviewPage } from "./pages/OverviewPage";
+import { OrchestratorPage } from "./pages/OrchestratorPage";
 import { AgentDetailPage } from "./pages/AgentDetailPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { EditorPage } from "./pages/EditorPage";
@@ -27,6 +28,7 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <OverviewPage /> },
+      { path: "orchestrator", element: <OrchestratorPage /> },
       { path: "agents/:name", element: <AgentDetailPage /> },
       { path: "projects/:name", element: <ProjectDetailPage /> },
       { path: "editor", element: <EditorPage /> },

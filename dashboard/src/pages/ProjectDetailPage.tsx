@@ -20,6 +20,7 @@ export function ProjectDetailPage() {
   const [tab, setTab] = useState<TabKey>("terminal");
   const [prompt, setPrompt] = useState("");
   const [execId, setExecId] = useState<string | null>(null);
+  const [expandedExecId, setExpandedExecId] = useState<string | null>(null);
   const { active, recent } = useExecutions();
 
   const projectActive = active.filter((e) => e.targetName === name);
@@ -50,6 +51,10 @@ export function ProjectDetailPage() {
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
     }
+  };
+
+  const toggleExpanded = (id: string) => {
+    setExpandedExecId((prev) => (prev === id ? null : id));
   };
 
   if (!project) {
@@ -100,21 +105,29 @@ export function ProjectDetailPage() {
               <h2 className="text-sm font-medium text-text-muted">Running</h2>
               <div className="grid gap-2">
                 {projectActive.map((exec) => (
-                  <ExecutionCard
-                    key={exec.id}
-                    execution={exec}
-                    onViewOutput={(id) => {
-                      setExecId(id);
-                      setTab("terminal");
-                    }}
-                  />
+                  <div key={exec.id}>
+                    <ExecutionCard
+                      execution={exec}
+                      expanded={expandedExecId === exec.id}
+                      onViewOutput={toggleExpanded}
+                    />
+                    {expandedExecId === exec.id && (
+                      <div className="h-[400px] mt-2">
+                        <Terminal executionId={exec.id} initialOutput={exec.output} />
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
           )}
           <div>
             <h2 className="text-sm font-medium text-text-muted mb-2">Recent</h2>
-            <ActivityFeed executions={projectRecent} />
+            <ActivityFeed
+              executions={projectRecent}
+              expandedId={expandedExecId}
+              onToggle={toggleExpanded}
+            />
           </div>
         </div>
       )}

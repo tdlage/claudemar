@@ -2,6 +2,7 @@ import { useState, useEffect, createContext, useContext } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
+  Cpu,
   Bot,
   FolderGit2,
   FileCode,
@@ -48,15 +49,27 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+type TargetStatus = Record<string, { running: boolean; lastStatus: "completed" | "error" | "cancelled" | null }>;
+
+function StatusDot({ targetKey, statusMap }: { targetKey: string; statusMap: TargetStatus }) {
+  const entry = statusMap[targetKey];
+  if (!entry) return <span className="w-2 h-2 rounded-full bg-text-muted/30 shrink-0" />;
+  if (entry.running) return <span className="w-2 h-2 rounded-full bg-warning animate-pulse shrink-0" />;
+  if (entry.lastStatus === "error") return <span className="w-2 h-2 rounded-full bg-danger shrink-0" />;
+  return <span className="w-2 h-2 rounded-full bg-success shrink-0" />;
+}
+
 export function Sidebar() {
   const { logout } = useAuth();
   const { collapsed, setCollapsed } = useSidebar();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [targetStatus, setTargetStatus] = useState<TargetStatus>({});
 
   useEffect(() => {
     api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
     api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
+    api.get<TargetStatus>("/executions/target-status").then(setTargetStatus).catch(() => {});
   }, []);
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -93,10 +106,14 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-5">
-        <div>
+        <div className="space-y-0.5">
           <NavLink to="/" end className={linkClass} title="Overview">
             <LayoutDashboard size={16} />
             {!collapsed && "Overview"}
+          </NavLink>
+          <NavLink to="/orchestrator" className={linkClass} title="Orchestrator">
+            <Cpu size={16} />
+            {!collapsed && "Orchestrator"}
           </NavLink>
         </div>
 
@@ -114,6 +131,7 @@ export function Sidebar() {
                 className={linkClass}
                 title={a.name}
               >
+                <StatusDot targetKey={`agent:${a.name}`} statusMap={targetStatus} />
                 <Bot size={14} />
                 {!collapsed && (
                   <>
@@ -150,6 +168,7 @@ export function Sidebar() {
                 className={linkClass}
                 title={p.name}
               >
+                <StatusDot targetKey={`project:${p.name}`} statusMap={targetStatus} />
                 <FolderGit2 size={14} />
                 {!collapsed && <span className="truncate">{p.name}</span>}
               </NavLink>

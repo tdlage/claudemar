@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { writeFile, readFile } from "node:fs/promises";
 import { readdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { getAgentPaths } from "./agents/manager.js";
@@ -14,7 +16,67 @@ interface Session {
   activeAgent: string | null;
 }
 
+interface PersistedSession {
+  activeProject: string | null;
+  sessionIds: Record<string, string>;
+  mode: SessionMode;
+  activeAgent: string | null;
+}
+
 export const sessions = new Map<number, Session>();
+
+function sessionsPath(): string {
+  return resolve(config.basePath, "sessions.json");
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+const PERSIST_DEBOUNCE_MS = 2000;
+
+function schedulePersist(): void {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    persistSessions();
+  }, PERSIST_DEBOUNCE_MS);
+}
+
+function persistSessions(): void {
+  const data: Record<string, PersistedSession> = {};
+  for (const [chatId, session] of sessions) {
+    if (Object.keys(session.sessionIds).length === 0 && !session.activeProject && !session.activeAgent) continue;
+    data[String(chatId)] = {
+      activeProject: session.activeProject,
+      sessionIds: session.sessionIds,
+      mode: session.mode,
+      activeAgent: session.activeAgent,
+    };
+  }
+  writeFile(sessionsPath(), JSON.stringify(data, null, 2), "utf-8").catch(() => {});
+}
+
+function loadPersistedSessions(): void {
+  const filePath = sessionsPath();
+  if (!existsSync(filePath)) return;
+  try {
+    const raw = readFileSync(filePath, "utf-8");
+    const data: Record<string, PersistedSession> = JSON.parse(raw);
+    for (const [chatIdStr, persisted] of Object.entries(data)) {
+      const chatId = Number(chatIdStr);
+      if (Number.isNaN(chatId)) continue;
+      sessions.set(chatId, {
+        activeProject: persisted.activeProject ?? null,
+        sessionIds: persisted.sessionIds ?? {},
+        busy: false,
+        mode: persisted.mode ?? "projects",
+        activeAgent: persisted.activeAgent ?? null,
+      });
+    }
+  } catch {
+    // corrupted file, start fresh
+  }
+}
+
+loadPersistedSessions();
 
 function ensureSession(chatId: number): Session {
   let session = sessions.get(chatId);
@@ -52,6 +114,7 @@ export function setActiveProject(
 ): void {
   const session = ensureSession(chatId);
   session.activeProject = project;
+  schedulePersist();
 }
 
 export function getMode(chatId: number): SessionMode {
@@ -61,6 +124,7 @@ export function getMode(chatId: number): SessionMode {
 export function setMode(chatId: number, mode: SessionMode): void {
   const session = ensureSession(chatId);
   session.mode = mode;
+  schedulePersist();
 }
 
 export function getActiveAgent(chatId: number): string | null {
@@ -70,6 +134,7 @@ export function getActiveAgent(chatId: number): string | null {
 export function setActiveAgent(chatId: number, agent: string | null): void {
   const session = ensureSession(chatId);
   session.activeAgent = agent;
+  schedulePersist();
 }
 
 export function getWorkingDirectory(chatId: number): string {
@@ -106,16 +171,19 @@ export function getSessionId(chatId: number): string | null {
 export function setSessionId(chatId: number, id: string): void {
   const session = ensureSession(chatId);
   session.sessionIds[sessionKey(session)] = id;
+  schedulePersist();
 }
 
 export function resetSessionId(chatId: number): void {
   const session = ensureSession(chatId);
   delete session.sessionIds[sessionKey(session)];
+  schedulePersist();
 }
 
 export function clearAllSessionIds(chatId: number): void {
   const session = ensureSession(chatId);
   session.sessionIds = {};
+  schedulePersist();
 }
 
 export function isBusy(chatId: number): boolean {

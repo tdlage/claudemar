@@ -6,6 +6,7 @@ import {
   type ExecutionInfo,
   executionManager,
 } from "./execution-manager.js";
+import { loadOrchestratorSettings } from "./orchestrator-settings.js";
 import {
   getActiveAgent,
   getMode,
@@ -40,13 +41,27 @@ export async function processMessage(
     const targetType = mode === "agents" && activeAgent ? "agent" as const : session.activeProject ? "project" as const : "orchestrator" as const;
     const targetName = mode === "agents" && activeAgent ? activeAgent : session.activeProject ?? "orchestrator";
 
+    let finalPrompt = text;
+    let model: string | undefined;
+
+    if (targetType === "orchestrator") {
+      const settings = loadOrchestratorSettings();
+      if (settings.prependPrompt) {
+        finalPrompt = `${settings.prependPrompt}\n\n${text}`;
+      }
+      if (settings.model) {
+        model = settings.model;
+      }
+    }
+
     const execId = executionManager.startExecution({
       source: "telegram",
       targetType,
       targetName,
-      prompt: text,
+      prompt: finalPrompt,
       cwd,
       resumeSessionId: getSessionId(chatId),
+      model,
     });
 
     await waitAndReply(ctx, chatId, execId, statusMsg);

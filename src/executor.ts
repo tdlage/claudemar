@@ -20,6 +20,7 @@ export function spawnClaude(
   resumeSessionId?: string | null,
   timeoutMs?: number,
   onChunk?: (chunk: string) => void,
+  model?: string,
 ): SpawnHandle {
   const timeout = timeoutMs ?? config.claudeTimeoutMs;
   const args = [
@@ -29,6 +30,10 @@ export function spawnClaude(
     "--output-format",
     "stream-json",
   ];
+
+  if (model) {
+    args.push("--model", model);
+  }
 
   if (resumeSessionId) {
     args.push("--resume", resumeSessionId);
