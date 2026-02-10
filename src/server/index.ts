@@ -46,7 +46,7 @@ export function createDashboardServer() {
 
   if (existsSync(dashboardDist)) {
     app.use(express.static(dashboardDist));
-    app.get("*", (_req, res) => {
+    app.get("/{*path}", (_req, res) => {
       res.sendFile(resolve(dashboardDist, "index.html"));
     });
   }
