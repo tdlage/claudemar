@@ -6,10 +6,13 @@ import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
 import { GitLog } from "../components/project/GitLog";
 import { FilesBrowser } from "../components/project/FilesBrowser";
+import { ExecutionCard } from "../components/overview/ExecutionCard";
+import { ActivityFeed } from "../components/overview/ActivityFeed";
+import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import type { ProjectDetail, GitCommit } from "../lib/types";
 
-type TabKey = "terminal" | "files" | "git";
+type TabKey = "terminal" | "activity" | "files" | "git";
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -19,6 +22,10 @@ export function ProjectDetailPage() {
   const [tab, setTab] = useState<TabKey>("terminal");
   const [prompt, setPrompt] = useState("");
   const [execId, setExecId] = useState<string | null>(null);
+  const { active, recent } = useExecutions();
+
+  const projectActive = active.filter((e) => e.targetName === name);
+  const projectRecent = recent.filter((e) => e.targetName === name);
 
   const loadProject = useCallback(() => {
     if (!name) return;
@@ -54,6 +61,7 @@ export function ProjectDetailPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "terminal", label: "Terminal" },
+    { key: "activity", label: `Activity (${projectActive.length + projectRecent.length})` },
     { key: "files", label: "Files" },
     { key: "git", label: `Git Log (${gitLog.length})` },
   ];
@@ -85,6 +93,32 @@ export function ProjectDetailPage() {
           </form>
           <div className="h-[500px]">
             <Terminal executionId={execId} />
+          </div>
+        </div>
+      )}
+
+      {tab === "activity" && (
+        <div className="space-y-4">
+          {projectActive.length > 0 && (
+            <div className="space-y-2">
+              <h2 className="text-sm font-medium text-text-muted">Running</h2>
+              <div className="grid gap-2">
+                {projectActive.map((exec) => (
+                  <ExecutionCard
+                    key={exec.id}
+                    execution={exec}
+                    onViewOutput={(id) => {
+                      setExecId(id);
+                      setTab("terminal");
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          <div>
+            <h2 className="text-sm font-medium text-text-muted mb-2">Recent</h2>
+            <ActivityFeed executions={projectRecent} />
           </div>
         </div>
       )}

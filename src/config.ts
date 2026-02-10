@@ -15,8 +15,8 @@ function numericEnv(key: string, fallback: number): number {
   const raw = process.env[key];
   if (!raw) return fallback;
   const parsed = Number(raw);
-  if (Number.isNaN(parsed) || parsed <= 0) {
-    console.error(`${key} must be a positive number, got: ${raw}`);
+  if (Number.isNaN(parsed) || parsed < 0) {
+    console.error(`${key} must be a non-negative number, got: ${raw}`);
     process.exit(1);
   }
   return parsed;
@@ -28,7 +28,7 @@ export const config = Object.freeze({
   telegramBotToken: requiredEnv("TELEGRAM_BOT_TOKEN"),
   allowedChatId: Number(requiredEnv("ALLOWED_CHAT_ID")),
   basePath,
-  claudeTimeoutMs: numericEnv("CLAUDE_TIMEOUT_MS", 300_000),
+  claudeTimeoutMs: numericEnv("CLAUDE_TIMEOUT_MS", 0),
   maxOutputLength: numericEnv("MAX_OUTPUT_LENGTH", 4096),
   maxBufferSize: numericEnv("MAX_BUFFER_SIZE", 10 * 1024 * 1024),
   orchestratorPath: resolve(basePath, "orchestrator"),

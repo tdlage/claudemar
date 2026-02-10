@@ -98,18 +98,21 @@ export function spawnClaude(
     });
 
     let killed = false;
-    const timer = setTimeout(() => {
-      killed = true;
-      proc.kill("SIGTERM");
-      setTimeout(() => {
-        if (!proc.killed) {
-          proc.kill("SIGKILL");
-        }
-      }, 5000);
-    }, timeout);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (timeout > 0) {
+      timer = setTimeout(() => {
+        killed = true;
+        proc.kill("SIGTERM");
+        setTimeout(() => {
+          if (!proc.killed) {
+            proc.kill("SIGKILL");
+          }
+        }, 5000);
+      }, timeout);
+    }
 
     proc.on("error", (err: NodeJS.ErrnoException) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       if (err.code === "ENOENT") {
         reject(new Error("Claude CLI não encontrado no PATH."));
       } else {
@@ -118,7 +121,7 @@ export function spawnClaude(
     });
 
     proc.on("close", (code) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
 
       if (bufferExceeded) {
         reject(new Error("Output excedeu o limite de buffer."));

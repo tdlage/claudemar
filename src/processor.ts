@@ -9,6 +9,7 @@ import {
 import {
   getActiveAgent,
   getMode,
+  getSession,
   getSessionId,
   getWorkingDirectory,
   setBusy,
@@ -35,8 +36,9 @@ export async function processMessage(
 
     const mode = getMode(chatId);
     const activeAgent = getActiveAgent(chatId);
-    const targetType = mode === "agents" && activeAgent ? "agent" as const : mode === "projects" ? "project" as const : "orchestrator" as const;
-    const targetName = mode === "agents" && activeAgent ? activeAgent : "default";
+    const session = getSession(chatId);
+    const targetType = mode === "agents" && activeAgent ? "agent" as const : session.activeProject ? "project" as const : "orchestrator" as const;
+    const targetName = mode === "agents" && activeAgent ? activeAgent : session.activeProject ?? "orchestrator";
 
     const execId = executionManager.startExecution({
       source: "telegram",
