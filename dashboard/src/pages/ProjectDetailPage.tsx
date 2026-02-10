@@ -5,13 +5,12 @@ import { Terminal } from "../components/terminal/Terminal";
 import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
 import { FilesBrowser } from "../components/project/FilesBrowser";
-import { ExecutionCard } from "../components/overview/ExecutionCard";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import type { ProjectDetail } from "../lib/types";
 
-type TabKey = "terminal" | "activity" | "files";
+type TabKey = "terminal" | "files";
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -25,6 +24,7 @@ export function ProjectDetailPage() {
 
   const projectActive = active.filter((e) => e.targetName === name);
   const projectRecent = recent.filter((e) => e.targetName === name);
+  const projectActivity = [...projectActive, ...projectRecent];
 
   const loadProject = useCallback(() => {
     if (!name) return;
@@ -63,7 +63,6 @@ export function ProjectDetailPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "terminal", label: "Terminal" },
-    { key: "activity", label: `Activity (${projectActive.length + projectRecent.length})` },
     { key: "files", label: "Files" },
   ];
 
@@ -95,40 +94,17 @@ export function ProjectDetailPage() {
           <div className="h-[500px]">
             <Terminal executionId={execId} />
           </div>
-        </div>
-      )}
 
-      {tab === "activity" && (
-        <div className="space-y-4">
-          {projectActive.length > 0 && (
-            <div className="space-y-2">
-              <h2 className="text-sm font-medium text-text-muted">Running</h2>
-              <div className="grid gap-2">
-                {projectActive.map((exec) => (
-                  <div key={exec.id}>
-                    <ExecutionCard
-                      execution={exec}
-                      expanded={expandedExecId === exec.id}
-                      onViewOutput={toggleExpanded}
-                    />
-                    {expandedExecId === exec.id && (
-                      <div className="h-[400px] mt-2">
-                        <Terminal executionId={exec.id} initialOutput={exec.output} />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+          {projectActivity.length > 0 && (
+            <div>
+              <h2 className="text-sm font-medium text-text-muted mb-2">Activity</h2>
+              <ActivityFeed
+                executions={projectActivity}
+                expandedId={expandedExecId}
+                onToggle={toggleExpanded}
+              />
             </div>
           )}
-          <div>
-            <h2 className="text-sm font-medium text-text-muted mb-2">Recent</h2>
-            <ActivityFeed
-              executions={projectRecent}
-              expandedId={expandedExecId}
-              onToggle={toggleExpanded}
-            />
-          </div>
         </div>
       )}
 
