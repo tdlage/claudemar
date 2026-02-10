@@ -247,21 +247,43 @@ setup_env() {
     fi
 
     if [[ -t 0 ]]; then
-        info "Interactive setup — press Enter to skip any field"
         echo ""
-
-        local token=""
-        local chat_id=""
-        local openai_key=""
-
+        echo -e "${BOLD}━━━ Telegram Bot Setup ━━━${NC}"
+        echo ""
+        echo -e "  To create your Telegram bot:"
+        echo -e "  1. Open Telegram and search for ${BOLD}@BotFather${NC}"
+        echo -e "  2. Send ${BOLD}/newbot${NC} and follow the prompts"
+        echo -e "  3. Copy the ${BOLD}HTTP API token${NC} BotFather gives you"
+        echo ""
         read -rp "$(echo -e "${BOLD}Telegram Bot Token${NC}: ")" token
+
+        echo ""
+        echo -e "  To find your Chat ID:"
+        echo -e "  1. Send any message to your new bot"
+        echo -e "  2. Open: ${BOLD}https://api.telegram.org/bot<TOKEN>/getUpdates${NC}"
+        echo -e "  3. Look for ${BOLD}\"chat\":{\"id\":YOUR_NUMBER}${NC} in the response"
+        echo -e "  (or start the bot and check the logs)"
+        echo ""
         read -rp "$(echo -e "${BOLD}Allowed Chat ID${NC}: ")" chat_id
-        read -rp "$(echo -e "${BOLD}OpenAI API Key${NC} (optional, for voice messages): ")" openai_key
 
-        local dashboard_token=""
+        echo ""
+        echo -e "${BOLD}━━━ Optional Services ━━━${NC}"
+        echo ""
+        echo -e "  OpenAI API key enables voice message transcription (Whisper)."
+        echo -e "  Leave empty to skip."
+        echo ""
+        read -rp "$(echo -e "${BOLD}OpenAI API Key${NC} (optional): ")" openai_key
+
+        echo ""
+        echo -e "${BOLD}━━━ Dashboard Configuration ━━━${NC}"
+        echo ""
+        echo -e "  The web dashboard lets you manage agents, projects, and executions."
+        echo -e "  Set a ${BOLD}token${NC} to enable remote access (binds to 0.0.0.0)."
+        echo -e "  Leave empty for localhost-only access (no auth needed)."
+        echo ""
+        read -rp "$(echo -e "${BOLD}Dashboard Token${NC}: ")" dashboard_token
+
         local dashboard_port=""
-
-        read -rp "$(echo -e "${BOLD}Dashboard Token${NC} (for web dashboard auth): ")" dashboard_token
         read -rp "$(echo -e "${BOLD}Dashboard Port${NC} (default: 3000): ")" dashboard_port
 
         printf 'TELEGRAM_BOT_TOKEN=%s\n' "$token" > "$env_file"
@@ -274,7 +296,7 @@ setup_env() {
         ENV_CREATED=true
 
         if [[ -z "$token" ]]; then
-            warn "TELEGRAM_BOT_TOKEN left empty — edit $env_file before starting"
+            warn "TELEGRAM_BOT_TOKEN left empty — bot won't start until configured"
         fi
     else
         cat > "$env_file" <<EOF
