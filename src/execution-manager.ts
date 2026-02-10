@@ -77,6 +77,10 @@ class ExecutionManager extends EventEmitter {
     return this.lastSessionMap.get(this.targetKey(targetType, targetName));
   }
 
+  clearSessionId(targetType: string, targetName: string): void {
+    this.lastSessionMap.delete(this.targetKey(targetType, targetName));
+  }
+
   startExecution(opts: StartExecutionOpts): string {
     const id = randomUUID();
     const info: ExecutionInfo = {

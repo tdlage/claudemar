@@ -27,17 +27,17 @@ export function useExecutions() {
 
   useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:complete", ({ id, info }) => {
     setActive((prev) => prev.filter((e) => e.id !== id));
-    setRecent((prev) => [...prev, info].slice(-MAX_RECENT));
+    setRecent((prev) => [...prev.filter((e) => e.id !== id), info].slice(-MAX_RECENT));
   });
 
   useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:error", ({ id, info }) => {
     setActive((prev) => prev.filter((e) => e.id !== id));
-    setRecent((prev) => [...prev, info].slice(-MAX_RECENT));
+    setRecent((prev) => [...prev.filter((e) => e.id !== id), info].slice(-MAX_RECENT));
   });
 
   useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:cancel", ({ id, info }) => {
     setActive((prev) => prev.filter((e) => e.id !== id));
-    setRecent((prev) => [...prev, info].slice(-MAX_RECENT));
+    setRecent((prev) => [...prev.filter((e) => e.id !== id), info].slice(-MAX_RECENT));
   });
 
   return { active, recent, refresh };

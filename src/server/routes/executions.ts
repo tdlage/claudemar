@@ -99,6 +99,18 @@ executionsRouter.get("/target-status", (_req, res) => {
   res.json(statusMap);
 });
 
+executionsRouter.get("/session/:targetType/:targetName", (req, res) => {
+  const { targetType, targetName } = req.params;
+  const sessionId = executionManager.getLastSessionId(targetType, targetName);
+  res.json({ sessionId: sessionId ?? null });
+});
+
+executionsRouter.delete("/session/:targetType/:targetName", (req, res) => {
+  const { targetType, targetName } = req.params;
+  executionManager.clearSessionId(targetType, targetName);
+  res.json({ ok: true });
+});
+
 executionsRouter.post("/:id/stop", (req, res) => {
   const { id } = req.params;
   const cancelled = executionManager.cancelExecution(id);

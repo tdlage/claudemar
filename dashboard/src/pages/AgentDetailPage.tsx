@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Square } from "lucide-react";
+import { RotateCcw, Square } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { Tabs } from "../components/shared/Tabs";
@@ -23,6 +23,7 @@ export function AgentDetailPage() {
   const [tab, setTab] = useState<TabKey>("terminal");
   const [prompt, setPrompt] = useState("");
   const [execId, setExecId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const { active } = useExecutions();
   const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
   const isRunning = !!activeExec;
@@ -32,9 +33,17 @@ export function AgentDetailPage() {
     api.get<AgentDetail>(`/agents/${name}`).then(setAgent).catch(() => {});
   }, [name]);
 
+  const loadSession = useCallback(() => {
+    if (!name) return;
+    api.get<{ sessionId: string | null }>(`/executions/session/agent/${name}`)
+      .then((data) => setSessionId(data.sessionId))
+      .catch(() => {});
+  }, [name]);
+
   useEffect(() => {
     loadAgent();
-  }, [loadAgent]);
+    loadSession();
+  }, [loadAgent, loadSession]);
 
   useEffect(() => {
     const running = active.find((e) => e.targetType === "agent" && e.targetName === name);
@@ -42,6 +51,7 @@ export function AgentDetailPage() {
       setExecId(running.id);
     } else if (execId && !active.some((e) => e.id === execId)) {
       setExecId(null);
+      loadSession();
     }
   }, [name, active]);
 
@@ -83,6 +93,23 @@ export function AgentDetailPage() {
         {agent.schedules.length > 0 && (
           <Badge variant="info">{agent.schedules.length} schedules</Badge>
         )}
+        {sessionId && (
+          <span className="text-xs text-text-muted font-mono bg-surface px-2 py-0.5 rounded border border-border">
+            session: {sessionId.slice(0, 8)}
+          </span>
+        )}
+        <button
+          onClick={() => {
+            api.delete(`/executions/session/agent/${name}`).then(() => {
+              setSessionId(null);
+              addToast("success", "Session reset");
+            }).catch(() => addToast("error", "Failed to reset session"));
+          }}
+          className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+          title="Reset session (start fresh context)"
+        >
+          <RotateCcw size={14} />
+        </button>
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
@@ -110,7 +137,7 @@ export function AgentDetailPage() {
             )}
           </form>
           <div className="h-[500px]">
-            <Terminal executionId={execId} initialOutput={activeExec?.output} />
+            <Terminal key={name} executionId={execId} initialOutput={activeExec?.output} />
           </div>
         </div>
       )}

@@ -48,6 +48,11 @@ export function ActivityFeed({ executions, expandedId, onToggle }: ActivityFeedP
                 {exec.targetName}
               </span>
               <span className="text-text-primary truncate flex-1">{exec.prompt}</span>
+              {exec.result?.sessionId && (
+                <span className="text-xs text-text-muted font-mono" title={exec.result.sessionId}>
+                  {exec.result.sessionId.slice(0, 8)}
+                </span>
+              )}
               {exec.result && (
                 <span className="text-xs text-text-muted">
                   {(exec.result.durationMs / 1000).toFixed(1)}s · ${exec.result.costUsd.toFixed(2)}
