@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, createContext, useContext } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../hooks/useAuth";
-import type { AgentInfo, ProjectInfo } from "../../lib/types";
+import { useSocketEvent } from "../../hooks/useSocket";
+import type { AgentInfo, ProjectInfo, ExecutionInfo } from "../../lib/types";
 
 interface SidebarContextValue {
   collapsed: boolean;
@@ -53,9 +54,8 @@ type TargetStatus = Record<string, { running: boolean; lastStatus: "completed" |
 
 function StatusDot({ targetKey, statusMap }: { targetKey: string; statusMap: TargetStatus }) {
   const entry = statusMap[targetKey];
-  if (!entry) return <span className="w-2 h-2 rounded-full bg-text-muted/30 shrink-0" />;
-  if (entry.running) return <span className="w-2 h-2 rounded-full bg-warning animate-pulse shrink-0" />;
-  if (entry.lastStatus === "error") return <span className="w-2 h-2 rounded-full bg-danger shrink-0" />;
+  if (entry?.running) return <span className="w-2 h-2 rounded-full bg-warning animate-pulse shrink-0" />;
+  if (entry?.lastStatus === "error") return <span className="w-2 h-2 rounded-full bg-danger shrink-0" />;
   return <span className="w-2 h-2 rounded-full bg-success shrink-0" />;
 }
 
@@ -71,6 +71,27 @@ export function Sidebar() {
     api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
     api.get<TargetStatus>("/executions/target-status").then(setTargetStatus).catch(() => {});
   }, []);
+
+  const markRunning = useCallback((info: ExecutionInfo) => {
+    const key = `${info.targetType}:${info.targetName}`;
+    setTargetStatus((prev) => ({
+      ...prev,
+      [key]: { running: true, lastStatus: prev[key]?.lastStatus ?? null },
+    }));
+  }, []);
+
+  const markDone = useCallback((info: ExecutionInfo) => {
+    const key = `${info.targetType}:${info.targetName}`;
+    setTargetStatus((prev) => ({
+      ...prev,
+      [key]: { running: false, lastStatus: info.status as "completed" | "error" | "cancelled" },
+    }));
+  }, []);
+
+  useSocketEvent<{ info: ExecutionInfo }>("execution:start", ({ info }) => markRunning(info));
+  useSocketEvent<{ info: ExecutionInfo }>("execution:complete", ({ info }) => markDone(info));
+  useSocketEvent<{ info: ExecutionInfo }>("execution:error", ({ info }) => markDone(info));
+  useSocketEvent<{ info: ExecutionInfo }>("execution:cancel", ({ info }) => markDone(info));
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-colors ${

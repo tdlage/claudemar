@@ -24,7 +24,8 @@ export function AgentDetailPage() {
   const [prompt, setPrompt] = useState("");
   const [execId, setExecId] = useState<string | null>(null);
   const { active } = useExecutions();
-  const isRunning = execId ? active.some((e) => e.id === execId) : false;
+  const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
+  const isRunning = !!activeExec;
 
   const loadAgent = useCallback(() => {
     if (!name) return;
@@ -34,6 +35,15 @@ export function AgentDetailPage() {
   useEffect(() => {
     loadAgent();
   }, [loadAgent]);
+
+  useEffect(() => {
+    const running = active.find((e) => e.targetType === "agent" && e.targetName === name);
+    if (running) {
+      setExecId(running.id);
+    } else if (execId && !active.some((e) => e.id === execId)) {
+      setExecId(null);
+    }
+  }, [name, active]);
 
   const handleExecute = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,7 +110,7 @@ export function AgentDetailPage() {
             )}
           </form>
           <div className="h-[500px]">
-            <Terminal executionId={execId} />
+            <Terminal executionId={execId} initialOutput={activeExec?.output} />
           </div>
         </div>
       )}

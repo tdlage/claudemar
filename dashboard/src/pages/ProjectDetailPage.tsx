@@ -26,7 +26,8 @@ export function ProjectDetailPage() {
   const projectActive = active.filter((e) => e.targetName === name);
   const projectRecent = recent.filter((e) => e.targetName === name);
   const projectActivity = [...projectActive, ...projectRecent];
-  const isRunning = execId ? active.some((e) => e.id === execId) : false;
+  const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
+  const isRunning = !!activeExec;
 
   const loadProject = useCallback(() => {
     if (!name) return;
@@ -35,7 +36,17 @@ export function ProjectDetailPage() {
 
   useEffect(() => {
     loadProject();
+    setExpandedExecId(null);
   }, [loadProject]);
+
+  useEffect(() => {
+    const running = active.find((e) => e.targetType === "project" && e.targetName === name);
+    if (running) {
+      setExecId(running.id);
+    } else if (execId && !active.some((e) => e.id === execId)) {
+      setExecId(null);
+    }
+  }, [name, active]);
 
   const handleExecute = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,7 +115,7 @@ export function ProjectDetailPage() {
             )}
           </form>
           <div className="h-[500px]">
-            <Terminal executionId={execId} />
+            <Terminal executionId={execId} initialOutput={activeExec?.output} />
           </div>
 
           {projectActivity.length > 0 && (
