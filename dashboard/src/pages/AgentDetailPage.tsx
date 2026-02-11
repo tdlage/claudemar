@@ -46,10 +46,6 @@ export function AgentDetailPage() {
   }, [loadAgent, loadSession]);
 
   useEffect(() => {
-    setExecId(null);
-  }, [name]);
-
-  useEffect(() => {
     const running = active.find((e) => e.targetType === "agent" && e.targetName === name);
     if (running) {
       setExecId(running.id);

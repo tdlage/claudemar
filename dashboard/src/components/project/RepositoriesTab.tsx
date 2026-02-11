@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { GitBranch, GitPullRequest, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Circle, FileDiff } from "lucide-react";
+import { GitBranch, GitPullRequest, GitCommitHorizontal, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Circle, FileDiff } from "lucide-react";
 import { api } from "../../lib/api";
 import { Card } from "../shared/Card";
 import { Badge } from "../shared/Badge";
@@ -192,14 +192,40 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
                     Stash Pop
                   </Button>
                   {repo.hasChanges && (
-                    <Button
-                      size="sm"
-                      variant={diffRepo === repo.name ? "primary" : "secondary"}
-                      onClick={() => setDiffRepo(diffRepo === repo.name ? null : repo.name)}
-                    >
-                      <FileDiff size={13} className="mr-1" />
-                      Changes
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant={diffRepo === repo.name ? "primary" : "secondary"}
+                        onClick={() => setDiffRepo(diffRepo === repo.name ? null : repo.name)}
+                      >
+                        <FileDiff size={13} className="mr-1" />
+                        Changes
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={async () => {
+                          try {
+                            const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
+                              targetType: "project",
+                              targetName: projectName,
+                              repoName: repo.name,
+                              prompt: "Analyze all uncommitted changes (staged and unstaged), write a clear and concise commit message following conventional commits style, stage all changes, commit, and push to origin. If there are merge conflicts, resolve them. Show the final commit message and push result.",
+                            });
+                            if (result.queued) {
+                              addToast("success", `Commit & Push queued (#${result.queueItem?.seqId})`);
+                            } else {
+                              addToast("success", "Commit & Push started — check terminal for progress");
+                            }
+                          } catch (err) {
+                            addToast("error", err instanceof Error ? err.message : "Failed");
+                          }
+                        }}
+                      >
+                        <GitCommitHorizontal size={13} className="mr-1" />
+                        Commit & Push
+                      </Button>
+                    </>
                   )}
                   {repo.name !== "." && (
                     <Button

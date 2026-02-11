@@ -2,6 +2,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ChevronDown, Square, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
+import { ansiToHtml } from "../../lib/ansi";
 import type { ExecutionInfo, QueueItem } from "../../lib/types";
 
 interface ActivityFeedProps {
@@ -121,9 +122,10 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle }: A
                     {exec.error}
                   </div>
                 )}
-                <pre className="p-3 bg-bg rounded-md border border-border text-xs text-text-primary max-h-[400px] overflow-auto whitespace-pre-wrap break-words">
-                  {exec.output || "(sem output)"}
-                </pre>
+                <pre
+                  className="p-3 bg-bg rounded-md border border-border text-xs text-text-primary max-h-[400px] overflow-auto whitespace-pre-wrap break-words"
+                  dangerouslySetInnerHTML={{ __html: ansiToHtml(exec.output || "(sem output)") }}
+                />
               </div>
             )}
           </div>

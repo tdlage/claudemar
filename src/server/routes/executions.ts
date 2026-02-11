@@ -5,6 +5,7 @@ import { getAgentPaths } from "../../agents/manager.js";
 import { config } from "../../config.js";
 import { loadOrchestratorSettings } from "../../orchestrator-settings.js";
 import { commandQueue } from "../../queue.js";
+import { resolveRepoPath } from "../../repositories.js";
 import { safeProjectPath } from "../../session.js";
 
 export const executionsRouter = Router();
@@ -23,7 +24,7 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", (req, res) => {
-  const { targetType, targetName, prompt, resumeSessionId } = req.body;
+  const { targetType, targetName, prompt, resumeSessionId, repoName } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -44,7 +45,16 @@ executionsRouter.post("/", (req, res) => {
       res.status(404).json({ error: "Project not found" });
       return;
     }
-    cwd = projectPath;
+    if (repoName) {
+      const repoPath = resolveRepoPath(projectPath, repoName);
+      if (!repoPath) {
+        res.status(404).json({ error: "Repository not found" });
+        return;
+      }
+      cwd = repoPath;
+    } else {
+      cwd = projectPath;
+    }
   } else {
     cwd = config.orchestratorPath;
   }

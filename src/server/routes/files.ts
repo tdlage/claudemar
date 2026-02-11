@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync } from "node:fs";
-import { resolve, sep, relative, extname } from "node:path";
+import { resolve, sep, relative, extname, basename } from "node:path";
 import { Router } from "express";
 import { config } from "../../config.js";
 import { getAgentPaths, isValidAgentName } from "../../agents/manager.js";
@@ -87,6 +87,36 @@ filesRouter.get("/", (req, res) => {
 
   const content = readFileSync(resolved, "utf-8");
   res.json({ type: "file", content, size: stat.size });
+});
+
+filesRouter.get("/download", (req, res) => {
+  const base = req.query.base as string;
+  const filePath = req.query.path as string;
+
+  if (!base || !filePath) {
+    res.status(400).json({ error: "base and path query params required" });
+    return;
+  }
+
+  const basePath = resolveBase(base);
+  if (!basePath || !existsSync(basePath)) {
+    res.status(404).json({ error: "Base not found" });
+    return;
+  }
+
+  const resolved = safePath(basePath, filePath);
+  if (!resolved || !existsSync(resolved)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const stat = statSync(resolved);
+  if (stat.isDirectory()) {
+    res.status(400).json({ error: "Cannot download a directory" });
+    return;
+  }
+
+  res.download(resolved, basename(resolved));
 });
 
 filesRouter.put("/", (req, res) => {

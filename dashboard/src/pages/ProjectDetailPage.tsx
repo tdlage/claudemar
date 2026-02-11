@@ -52,10 +52,6 @@ export function ProjectDetailPage() {
   }, [loadProject, loadSession]);
 
   useEffect(() => {
-    setExecId(null);
-  }, [name]);
-
-  useEffect(() => {
     const running = active.find((e) => e.targetType === "project" && e.targetName === name);
     if (running) {
       setExecId(running.id);

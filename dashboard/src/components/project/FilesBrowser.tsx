@@ -60,13 +60,39 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
     setExpandedDirs(next);
   };
 
+  const downloadFile = async (path: string) => {
+    try {
+      const token = localStorage.getItem("dashboard_token") || "";
+      const res = await fetch(`/api/files/download?base=${base}&path=${encodeURIComponent(path)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = path.split("/").pop() || "file";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      addToast("error", "Failed to download file");
+    }
+  };
+
   const openFile = async (path: string) => {
     setLoading(true);
     try {
       const result = await api.get<FileReadResult>(`/files?base=${base}&path=${encodeURIComponent(path)}`);
       if (result.type === "file") {
+        if (result.binary) {
+          downloadFile(path);
+          setLoading(false);
+          return;
+        }
         setCurrentFile(path);
-        setFileContent(result.binary ? "(binary file)" : result.content || "");
+        setFileContent(result.content || "");
       }
     } catch {
       setFileContent("Failed to load file");

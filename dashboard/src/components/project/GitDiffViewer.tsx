@@ -9,12 +9,12 @@ interface GitDiffViewerProps {
   repoName: string;
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  M: { label: "M", color: "text-yellow-400 bg-yellow-400/15" },
-  A: { label: "A", color: "text-green-400 bg-green-400/15" },
-  D: { label: "D", color: "text-red-400 bg-red-400/15" },
-  R: { label: "R", color: "text-blue-400 bg-blue-400/15" },
-  "?": { label: "?", color: "text-text-muted bg-surface-hover" },
+const STATUS_CONFIG: Record<string, { label: string; title: string; color: string }> = {
+  M: { label: "M", title: "Modified", color: "text-yellow-400 bg-yellow-400/15" },
+  A: { label: "A", title: "Added", color: "text-green-400 bg-green-400/15" },
+  D: { label: "D", title: "Deleted", color: "text-red-400 bg-red-400/15" },
+  R: { label: "R", title: "Renamed", color: "text-blue-400 bg-blue-400/15" },
+  "?": { label: "U", title: "Untracked", color: "text-green-400 bg-green-400/15" },
 };
 
 function getStatusConfig(status: string) {
@@ -101,7 +101,7 @@ export function GitDiffViewer({ projectName, repoName }: GitDiffViewerProps) {
                   : "text-text-secondary hover:bg-surface-hover"
               }`}
             >
-              <span className={`shrink-0 w-5 h-5 flex items-center justify-center rounded text-[10px] font-bold ${cfg.color}`}>
+              <span className={`shrink-0 w-5 h-5 flex items-center justify-center rounded text-[10px] font-bold ${cfg.color}`} title={cfg.title}>
                 {cfg.label}
               </span>
               <span className="truncate" title={file.path}>
@@ -115,8 +115,8 @@ export function GitDiffViewer({ projectName, repoName }: GitDiffViewerProps) {
       <div className="flex-1 flex flex-col min-w-0">
         {selectedFile && (
           <div className="px-3 py-1.5 text-xs text-text-muted border-b border-border bg-surface flex items-center gap-2">
-            <span className={`shrink-0 w-4 h-4 flex items-center justify-center rounded text-[9px] font-bold ${getStatusConfig(files.find((f) => f.path === selectedFile)?.status ?? "?").color}`}>
-              {files.find((f) => f.path === selectedFile)?.status ?? "?"}
+            <span className={`shrink-0 w-4 h-4 flex items-center justify-center rounded text-[9px] font-bold ${getStatusConfig(files.find((f) => f.path === selectedFile)?.status ?? "?").color}`} title={getStatusConfig(files.find((f) => f.path === selectedFile)?.status ?? "?").title}>
+              {getStatusConfig(files.find((f) => f.path === selectedFile)?.status ?? "?").label}
             </span>
             <span className="font-mono truncate">{selectedFile}</span>
           </div>
@@ -129,6 +129,7 @@ export function GitDiffViewer({ projectName, repoName }: GitDiffViewerProps) {
             </div>
           ) : diff ? (
             <DiffEditor
+              height="100%"
               original={diff.original}
               modified={diff.modified}
               language={detectLanguage(fileName)}
