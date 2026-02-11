@@ -3,7 +3,9 @@ import { bot } from "./bot.js";
 import { executionManager } from "./execution-manager.js";
 import { createDashboardServer } from "./server/index.js";
 import { tokenManager } from "./server/token-manager.js";
+import { initOrchestratorClaudeMd } from "./orchestrator-init.js";
 
+initOrchestratorClaudeMd();
 await executionManager.loadRecent();
 
 const httpServer = createDashboardServer();
