@@ -22,14 +22,14 @@ import {
 import type { SessionMode } from "./agents/types.js";
 import { config } from "./config.js";
 import { type ExecutionInfo, executionManager } from "./execution-manager.js";
-import { executeShell, executeSpawn } from "./executor.js";
 import { loadHistory } from "./history.js";
 import { loadMetrics } from "./metrics.js";
 import { processDelegation } from "./processor.js";
 import { commandQueue } from "./queue.js";
 import { cloneRepo, discoverRepos, removeRepo } from "./repositories.js";
 import { tokenManager } from "./server/token-manager.js";
-import { formatStreamForTelegram } from "./telegram-format.js";
+import { escapeHtml, formatStreamForTelegram } from "./telegram-format.js";
+import { checkForUpdates, performUpdate, restartService } from "./updater.js";
 import {
   clearAllSessionIds,
   getActiveAgent,
@@ -85,7 +85,7 @@ const HELP_TEXT = [
   "/cancel — Cancelar execução",
   "/queue — Ver fila de comandos",
   "/queue_remove [id] — Remover item da fila",
-  "/exec &lt;cmd&gt; — Executar comando shell",
+  "/update — Verificar e aplicar atualizações",
   "/token — Token atual do dashboard",
   "/help — Lista de comandos",
 ].join("\n");
@@ -102,7 +102,6 @@ export function registerCommands(bot: Bot): void {
   bot.command("stream", handleStream);
   bot.command("stop_stream", handleStopStream);
   bot.command("history", handleHistory);
-  bot.command("exec", handleExec);
   bot.command("help", handleHelp);
   bot.command("token", handleToken);
   bot.command("agent", handleAgent);
@@ -116,8 +115,10 @@ export function registerCommands(bot: Bot): void {
   bot.command("metrics", handleMetrics);
   bot.command("queue", handleQueue);
   bot.command("queue_remove", handleQueueRemove);
+  bot.command("update", handleUpdate);
   bot.callbackQuery(/^select_project:/, handleSelectProject);
   bot.callbackQuery(/^queue_remove:/, handleQueueRemoveCallback);
+  bot.callbackQuery(/^autoupdate:/, handleAutoUpdateCallback);
   bot.callbackQuery(/^select_agent:/, handleSelectAgent);
   bot.callbackQuery(/^stream_exec:/, handleStreamCallback);
   bot.callbackQuery(/^confirm_remove_project:/, handleConfirmRemoveProject);
@@ -348,48 +349,6 @@ async function handleCancel(ctx: Context): Promise<void> {
   executionManager.cancelExecution(telegramExec.id);
   setBusy(chatId, false);
   await ctx.reply("Execução cancelada.");
-}
-
-async function replyWithShellOutput(
-  ctx: Context,
-  output: string,
-  exitCode: number,
-  filename: string,
-): Promise<void> {
-  const response = output || "(sem output)";
-  const footer = exitCode === 0 ? "exit: 0" : `exit: ${exitCode}`;
-
-  if (response.length > config.maxOutputLength) {
-    const buffer = Buffer.from(response);
-    await ctx.replyWithDocument(new InputFile(buffer, filename), {
-      caption: footer,
-    });
-  } else {
-    await ctx.reply(`${response}\n\n${footer}`);
-  }
-}
-
-async function handleExec(ctx: Context): Promise<void> {
-  const chatId = ctx.chat?.id;
-  if (!chatId) return;
-
-  const text = ctx.message?.text ?? "";
-  const command = text.replace(/^\/exec\s*/, "").trim();
-
-  if (!command) {
-    await ctx.reply("Uso: /exec <comando>");
-    return;
-  }
-
-  const cwd = getWorkingDirectory(chatId);
-
-  try {
-    const { output, exitCode } = await executeShell(command, cwd);
-    await replyWithShellOutput(ctx, output, exitCode, "output.txt");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await ctx.reply(`Erro: ${message}`);
-  }
 }
 
 async function handleRepository(ctx: Context): Promise<void> {
@@ -1432,5 +1391,104 @@ async function handleQueueRemoveCallback(ctx: Context): Promise<void> {
     } catch { /* non-critical */ }
   } else {
     await ctx.answerCallbackQuery({ text: `Item #${seqId} não encontrado.` });
+  }
+}
+
+// --- Update ---
+
+async function handleUpdate(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  const statusMsg = await ctx.reply("Verificando atualizações...");
+
+  try {
+    const info = await checkForUpdates();
+
+    if (!info.available) {
+      await ctx.api.editMessageText(
+        chatId,
+        statusMsg.message_id,
+        `Versão atual: <code>${info.currentCommit}</code> (${info.currentDate.split(" ")[0]})\n\nNenhuma atualização disponível.`,
+        { parse_mode: "HTML" },
+      );
+      return;
+    }
+
+    const commitLines = info.commits
+      .map((c) => {
+        const hash = c.split(" ")[0];
+        const msg = escapeHtml(c.slice(hash.length + 1));
+        return `• <code>${hash}</code> ${msg}`;
+      })
+      .join("\n");
+
+    const text = [
+      `Versão atual: <code>${info.currentCommit}</code> (${info.currentDate.split(" ")[0]})`,
+      "",
+      `<b>${info.commitCount}</b> commit(s) novo(s):`,
+      commitLines,
+      "",
+      `Nova versão: <code>${info.remoteCommit}</code>`,
+    ].join("\n");
+
+    const keyboard = new InlineKeyboard()
+      .text("Atualizar agora", "autoupdate:confirm")
+      .text("Ignorar", "autoupdate:dismiss");
+
+    await ctx.api.editMessageText(chatId, statusMsg.message_id, text, {
+      parse_mode: "HTML",
+      reply_markup: keyboard,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await ctx.api.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      `Erro ao verificar atualizações: ${message}`,
+    );
+  }
+}
+
+async function handleAutoUpdateCallback(ctx: Context): Promise<void> {
+  const data = ctx.callbackQuery?.data;
+  if (!data) return;
+
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  const action = data.replace("autoupdate:", "");
+
+  if (action === "dismiss") {
+    await ctx.answerCallbackQuery({ text: "Atualização ignorada." });
+    try {
+      await ctx.editMessageText("Atualização ignorada.");
+    } catch { /* non-critical */ }
+    return;
+  }
+
+  if (action !== "confirm") return;
+
+  await ctx.answerCallbackQuery({ text: "Iniciando atualização..." });
+  try {
+    await ctx.editMessageText("Atualizando... (isso pode levar alguns minutos)");
+  } catch { /* non-critical */ }
+
+  try {
+    const result = await performUpdate();
+
+    if (result.success) {
+      await ctx.api.sendMessage(chatId, "Atualização concluída! Reiniciando serviço...");
+      setTimeout(() => restartService(), 1000);
+    } else {
+      await ctx.api.sendMessage(
+        chatId,
+        `Falha na atualização:\n<pre>${escapeHtml(result.output)}</pre>`,
+        { parse_mode: "HTML" },
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await ctx.api.sendMessage(chatId, `Erro na atualização: ${message}`);
   }
 }

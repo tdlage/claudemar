@@ -18,11 +18,12 @@ NODE_INSTALLED=false
 CLAUDE_FOUND=false
 ENV_CREATED=false
 SERVICE_INSTALLED=false
+CRON_INSTALLED=false
 OS=""
 DISTRO=""
 NODE_BIN_DIR=""
 CLAUDE_BIN_DIR=""
-TOTAL_STEPS=7
+TOTAL_STEPS=8
 
 info()    { echo -e "${BLUE}ℹ${NC} $*"; }
 success() { echo -e "${GREEN}✔${NC} $*"; }
@@ -256,7 +257,9 @@ register_bot_commands() {
         {"command":"reset","description":"Resetar sessão do contexto atual"},
         {"command":"clear","description":"Resetar tudo"},
         {"command":"cancel","description":"Cancelar execução"},
-        {"command":"exec","description":"Executar comando shell"},
+        {"command":"queue","description":"Ver fila de comandos"},
+        {"command":"queue_remove","description":"Remover item da fila"},
+        {"command":"update","description":"Verificar e aplicar atualizações"},
         {"command":"token","description":"Token atual do dashboard"},
         {"command":"help","description":"Lista de comandos"}
     ]}'
@@ -366,8 +369,47 @@ EOF
     success ".env configured (permissions: 600)"
 }
 
+setup_cron() {
+    step 7 "Setting up auto-update cron"
+
+    local script_path="$INSTALL_DIR/scripts/check-update.sh"
+
+    if [[ ! -f "$script_path" ]]; then
+        warn "check-update.sh not found — skipping cron setup"
+        return
+    fi
+
+    chmod +x "$script_path"
+
+    if ! command -v crontab &>/dev/null; then
+        warn "crontab not found — skipping auto-update cron"
+        info "You can run $script_path manually or set up a scheduler"
+        return
+    fi
+
+    local cron_entry="*/10 * * * * CLAUDEMAR_DIR=$INSTALL_DIR $script_path >/dev/null 2>&1"
+
+    local existing
+    existing="$(crontab -l 2>/dev/null || true)"
+    local filtered
+    filtered="$(echo "$existing" | grep -v "check-update.sh" | sed '/^$/d' || true)"
+
+    if [[ -n "$filtered" ]]; then
+        printf '%s\n%s\n' "$filtered" "$cron_entry" | crontab -
+    else
+        echo "$cron_entry" | crontab -
+    fi
+
+    if echo "$existing" | grep -qF "check-update.sh"; then
+        info "Updated existing cron entry"
+    fi
+
+    CRON_INSTALLED=true
+    success "Auto-update cron configured (every 10 minutes)"
+}
+
 setup_systemd() {
-    step 7 "Setting up systemd service"
+    step 8 "Setting up systemd service"
 
     if ! command -v systemctl &>/dev/null; then
         warn "systemctl not found — skipping service setup"
@@ -448,7 +490,7 @@ EOF
 }
 
 macos_instructions() {
-    step 7 "Run instructions (macOS)"
+    step 8 "Run instructions (macOS)"
 
     echo ""
     info "macOS detected — no systemd available"
@@ -505,6 +547,12 @@ print_summary() {
         echo -e "${BOLD}║${NC}  Service:   ${BLUE}manual (macOS)${NC}"
     else
         echo -e "${BOLD}║${NC}  Service:   ${YELLOW}skipped${NC}"
+    fi
+
+    if [[ "$CRON_INSTALLED" == true ]]; then
+        echo -e "${BOLD}║${NC}  AutoUpdate: ${GREEN}cron every 10m${NC}"
+    else
+        echo -e "${BOLD}║${NC}  AutoUpdate: ${YELLOW}skipped${NC}"
     fi
 
     if [[ -f "$INSTALL_DIR/dashboard/dist/index.html" ]]; then
@@ -567,6 +615,7 @@ main() {
     setup_repo
     build_project
     setup_env
+    setup_cron
 
     if [[ "$OS" == "linux" ]]; then
         setup_systemd
