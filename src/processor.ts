@@ -140,54 +140,70 @@ function waitAndReply(
       if (id !== execId) return;
       cleanup();
 
-      const result = info.result;
-      if (!result) {
-        resolve();
-        return;
-      }
-
-      if (result.sessionId) {
-        setSessionId(chatId, result.sessionId);
-      }
-
-      const durationSec = (result.durationMs / 1000).toFixed(1);
-      const footer = `${prefix}${durationSec}s · $${result.costUsd.toFixed(2)}`;
-
-      if (!result.output) {
-        try {
-          await ctx.api.editMessageText(
-            chatId,
-            statusMsg.message_id,
-            `${prefix}Executado sem output.\n\n${footer}`,
-          );
-        } catch { /* non-critical */ }
-        resolve();
-        return;
-      }
-
-      if (result.output.length > config.maxOutputLength) {
-        const buffer = Buffer.from(result.output);
-        const sizeKb = (buffer.byteLength / 1024).toFixed(1);
-        const filename = agentLabel ? `${agentLabel}-response.txt` : "response.txt";
-        await ctx.replyWithDocument(
-          new InputFile(buffer, filename),
-          { caption: `${prefix}Resposta grande (${sizeKb} KB)\n\n${footer}` },
-        );
-      } else {
-        const raw = agentLabel ? `[${agentLabel}]\n${result.output}` : result.output;
-        const html = agentLabel
-          ? `<b>[${agentLabel}]</b>\n${markdownToTelegramHtml(result.output)}`
-          : markdownToTelegramHtml(result.output);
-        try {
-          await ctx.reply(html, { parse_mode: "HTML" });
-        } catch {
-          await ctx.reply(raw);
-        }
-      }
-
       try {
-        await ctx.api.editMessageText(chatId, statusMsg.message_id, footer);
-      } catch { /* non-critical */ }
+        const result = info.result;
+        if (!result) {
+          resolve();
+          return;
+        }
+
+        if (result.sessionId) {
+          setSessionId(chatId, result.sessionId);
+        }
+
+        const durationSec = (result.durationMs / 1000).toFixed(1);
+        const footer = `${prefix}${durationSec}s · $${result.costUsd.toFixed(2)}`;
+
+        if (!result.output) {
+          try {
+            await ctx.api.editMessageText(
+              chatId,
+              statusMsg.message_id,
+              `${prefix}Executado sem output.\n\n${footer}`,
+            );
+          } catch { /* non-critical */ }
+          resolve();
+          return;
+        }
+
+        if (result.output.length > config.maxOutputLength) {
+          try {
+            const buffer = Buffer.from(result.output);
+            const sizeKb = (buffer.byteLength / 1024).toFixed(1);
+            const filename = agentLabel ? `${agentLabel}-response.txt` : "response.txt";
+            await ctx.replyWithDocument(
+              new InputFile(buffer, filename),
+              { caption: `${prefix}Resposta grande (${sizeKb} KB)\n\n${footer}` },
+            );
+          } catch {
+            await ctx.reply(`${prefix}Resposta grande demais para enviar.\n\n${footer}`);
+          }
+        } else {
+          const raw = agentLabel ? `[${agentLabel}]\n${result.output}` : result.output;
+          const html = agentLabel
+            ? `<b>[${agentLabel}]</b>\n${markdownToTelegramHtml(result.output)}`
+            : markdownToTelegramHtml(result.output);
+          try {
+            await ctx.reply(html, { parse_mode: "HTML" });
+          } catch {
+            try {
+              await ctx.reply(raw);
+            } catch {
+              await ctx.reply(`${prefix}Resposta não pôde ser exibida (formato inválido).\n\n${footer}`);
+            }
+          }
+        }
+
+        try {
+          await ctx.api.editMessageText(chatId, statusMsg.message_id, footer);
+        } catch { /* non-critical */ }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[waitAndReply] onComplete error: ${msg}`);
+        try {
+          await ctx.api.editMessageText(chatId, statusMsg.message_id, `${prefix}Concluído (erro ao enviar resposta).`);
+        } catch { /* last resort */ }
+      }
 
       resolve();
     };
@@ -210,7 +226,11 @@ function waitAndReply(
             `${prefix}Erro: ${message}`,
           );
         }
-      } catch { /* non-critical */ }
+      } catch {
+        try {
+          await ctx.reply(`${prefix}Erro: ${message}`);
+        } catch { /* last resort */ }
+      }
 
       resolve();
     };

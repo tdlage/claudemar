@@ -83,7 +83,7 @@ bot.on("message:text", async (ctx) => {
 
   setBusy(chatId, true);
   const statusMsg = await ctx.reply("Executando...");
-  processMessage(ctx, chatId, text, statusMsg);
+  await processMessage(ctx, chatId, text, statusMsg);
 });
 
 bot.on(["message:voice", "message:audio"], async (ctx) => {
@@ -160,7 +160,7 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
       `"${preview}"\n\nExecutando...`,
     );
 
-    processMessage(ctx, chatId, prompt, statusMsg);
+    await processMessage(ctx, chatId, prompt, statusMsg);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     try {
