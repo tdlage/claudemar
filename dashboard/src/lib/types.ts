@@ -114,3 +114,13 @@ export interface AgentMetrics {
   totalCostUsd: number;
   totalDurationMs: number;
 }
+
+export interface QueueItem {
+  id: string;
+  seqId: number;
+  targetType: ExecutionTargetType;
+  targetName: string;
+  prompt: string;
+  source: ExecutionSource;
+  enqueuedAt: string;
+}

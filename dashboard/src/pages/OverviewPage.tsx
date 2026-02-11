@@ -11,7 +11,7 @@ import { Modal } from "../components/shared/Modal";
 import type { AgentInfo, ProjectInfo } from "../lib/types";
 
 export function OverviewPage() {
-  const { active, recent } = useExecutions();
+  const { active, recent, queue } = useExecutions();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [viewingExecId, setViewingExecId] = useState<string | null>(null);
@@ -59,7 +59,7 @@ export function OverviewPage() {
       <div>
         <h2 className="text-sm font-medium text-text-muted mb-3 uppercase tracking-wider">Recent Activity</h2>
         <div className="bg-surface border border-border rounded-lg overflow-hidden">
-          <ActivityFeed executions={recent} />
+          <ActivityFeed executions={recent} queue={queue} />
         </div>
       </div>
 

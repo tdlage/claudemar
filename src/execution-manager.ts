@@ -189,6 +189,15 @@ class ExecutionManager extends EventEmitter {
     return this.active.get(id)?.info ?? this.recent.find((e) => e.id === id);
   }
 
+  isTargetActive(targetType: string, targetName: string): boolean {
+    const key = this.targetKey(targetType, targetName);
+    for (const entry of this.active.values()) {
+      const entryKey = this.targetKey(entry.info.targetType, entry.info.targetName);
+      if (entryKey === key) return true;
+    }
+    return false;
+  }
+
   getActiveExecutions(): ExecutionInfo[] {
     return Array.from(this.active.values()).map((e) => e.info);
   }

@@ -1,16 +1,17 @@
 import { formatDistanceToNow } from "date-fns";
-import { ChevronDown, Square } from "lucide-react";
+import { ChevronDown, Square, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
-import type { ExecutionInfo } from "../../lib/types";
+import type { ExecutionInfo, QueueItem } from "../../lib/types";
 
 interface ActivityFeedProps {
   executions: ExecutionInfo[];
+  queue?: QueueItem[];
   expandedId?: string | null;
   onToggle?: (id: string) => void;
 }
 
-export function ActivityFeed({ executions, expandedId, onToggle }: ActivityFeedProps) {
+export function ActivityFeed({ executions, queue = [], expandedId, onToggle }: ActivityFeedProps) {
   const sorted = [...executions]
     .sort((a, b) => {
       if (a.status === "running" && b.status !== "running") return -1;
@@ -21,12 +22,38 @@ export function ActivityFeed({ executions, expandedId, onToggle }: ActivityFeedP
     })
     .slice(0, 20);
 
-  if (sorted.length === 0) {
+  if (sorted.length === 0 && queue.length === 0) {
     return <p className="text-sm text-text-muted">No recent activity.</p>;
   }
 
   return (
     <div className="space-y-1.5">
+      {queue.map((item) => (
+        <div key={`q-${item.id}`} className="flex items-center gap-3 px-3 py-2 rounded-md text-sm min-w-0 hover:bg-surface-hover">
+          <Badge variant="warning">queued</Badge>
+          <span className="text-text-muted text-xs min-w-[70px]">
+            {item.targetName}
+          </span>
+          <span className="text-text-primary truncate flex-1">
+            {item.prompt}
+          </span>
+          <span className="text-xs text-text-muted font-mono">
+            #{item.seqId}
+          </span>
+          <span className="text-xs text-text-muted min-w-[60px] text-right">
+            {formatDistanceToNow(new Date(item.enqueuedAt), { addSuffix: true })}
+          </span>
+          <button
+            onClick={() => {
+              api.delete(`/executions/queue/${item.seqId}`).catch(() => {});
+            }}
+            className="p-1 rounded text-text-muted hover:text-danger hover:bg-danger/15 transition-colors shrink-0"
+            title="Remove from queue"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ))}
       {sorted.map((exec) => {
         const statusVariant =
           exec.status === "completed" ? "success" as const :

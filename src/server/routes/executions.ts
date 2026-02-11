@@ -4,6 +4,7 @@ import { executionManager } from "../../execution-manager.js";
 import { getAgentPaths } from "../../agents/manager.js";
 import { config } from "../../config.js";
 import { loadOrchestratorSettings } from "../../orchestrator-settings.js";
+import { commandQueue } from "../../queue.js";
 import { safeProjectPath } from "../../session.js";
 
 export const executionsRouter = Router();
@@ -61,10 +62,26 @@ executionsRouter.post("/", (req, res) => {
     }
   }
 
+  const effectiveTargetName = targetName || "orchestrator";
+
+  if (executionManager.isTargetActive(targetType, effectiveTargetName)) {
+    const item = commandQueue.enqueue({
+      targetType,
+      targetName: effectiveTargetName,
+      prompt: finalPrompt,
+      source: "web",
+      cwd,
+      resumeSessionId,
+      model,
+    });
+    res.status(202).json({ queued: true, queueItem: { id: item.id, seqId: item.seqId } });
+    return;
+  }
+
   const id = executionManager.startExecution({
     source: "web",
     targetType,
-    targetName: targetName || "orchestrator",
+    targetName: effectiveTargetName,
     prompt: finalPrompt,
     cwd,
     resumeSessionId,
@@ -72,6 +89,26 @@ executionsRouter.post("/", (req, res) => {
   });
 
   res.status(201).json({ id });
+});
+
+executionsRouter.get("/queue", (_req, res) => {
+  res.json(commandQueue.getAll());
+});
+
+executionsRouter.delete("/queue/:seqId", (req, res) => {
+  const seqId = parseInt(req.params.seqId, 10);
+  if (Number.isNaN(seqId)) {
+    res.status(400).json({ error: "Invalid seqId" });
+    return;
+  }
+
+  const removed = commandQueue.remove(seqId);
+  if (!removed) {
+    res.status(404).json({ error: "Queue item not found" });
+    return;
+  }
+
+  res.json({ removed: true, item: removed });
 });
 
 executionsRouter.get("/target-status", (_req, res) => {

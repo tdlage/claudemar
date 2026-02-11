@@ -26,8 +26,10 @@ import { executeShell, executeSpawn } from "./executor.js";
 import { loadHistory } from "./history.js";
 import { loadMetrics } from "./metrics.js";
 import { processDelegation } from "./processor.js";
+import { commandQueue } from "./queue.js";
 import { cloneRepo, discoverRepos, removeRepo } from "./repositories.js";
 import { tokenManager } from "./server/token-manager.js";
+import { formatStreamForTelegram } from "./telegram-format.js";
 import {
   clearAllSessionIds,
   getActiveAgent,
@@ -81,6 +83,8 @@ const HELP_TEXT = [
   "/reset — Resetar sessão do contexto atual",
   "/clear — Resetar tudo",
   "/cancel — Cancelar execução",
+  "/queue — Ver fila de comandos",
+  "/queue_remove [id] — Remover item da fila",
   "/exec &lt;cmd&gt; — Executar comando shell",
   "/token — Token atual do dashboard",
   "/help — Lista de comandos",
@@ -110,7 +114,10 @@ export function registerCommands(bot: Bot): void {
   bot.command("council", handleCouncil);
   bot.command("schedule", handleSchedule);
   bot.command("metrics", handleMetrics);
+  bot.command("queue", handleQueue);
+  bot.command("queue_remove", handleQueueRemove);
   bot.callbackQuery(/^select_project:/, handleSelectProject);
+  bot.callbackQuery(/^queue_remove:/, handleQueueRemoveCallback);
   bot.callbackQuery(/^select_agent:/, handleSelectAgent);
   bot.callbackQuery(/^stream_exec:/, handleStreamCallback);
   bot.callbackQuery(/^confirm_remove_project:/, handleConfirmRemoveProject);
@@ -587,7 +594,7 @@ async function startStreamFromExec(chatId: number, botApi: Context["api"], exec:
     : currentOutput || "(aguardando output...)";
 
   const header = `📡 Stream: ${shortId(exec.id)} [${exec.targetName}]\n\n`;
-  const msg = await botApi.sendMessage(chatId, header + initialText);
+  const msg = await botApi.sendMessage(chatId, formatStreamForTelegram(header + initialText), { parse_mode: "HTML" });
 
   let buffer = currentOutput;
   let dirty = false;
@@ -615,7 +622,7 @@ async function startStreamFromExec(chatId: number, botApi: Context["api"], exec:
       : buffer || "(sem output)";
 
     try {
-      await botApi.editMessageText(chatId, msg.message_id, header + finalText + footer);
+      await botApi.editMessageText(chatId, msg.message_id, formatStreamForTelegram(header + finalText + footer), { parse_mode: "HTML" });
     } catch {
       // non-critical
     }
@@ -630,7 +637,7 @@ async function startStreamFromExec(chatId: number, botApi: Context["api"], exec:
       : buffer;
 
     try {
-      await botApi.editMessageText(chatId, msg.message_id, header + display);
+      await botApi.editMessageText(chatId, msg.message_id, formatStreamForTelegram(header + display), { parse_mode: "HTML" });
     } catch {
       // message not modified or rate limited
     }
@@ -1014,8 +1021,23 @@ async function handleDelegate(ctx: Context): Promise<void> {
     return;
   }
 
-  if (isBusy(chatId)) {
-    await ctx.reply("Já existe uma execução em andamento. Aguarde ou use /cancel.");
+  const paths = getAgentPaths(agentName);
+  if (!paths || !existsSync(paths.root)) {
+    await ctx.reply(`Agente "${agentName}" não encontrado.`);
+    return;
+  }
+
+  if (executionManager.isTargetActive("agent", agentName)) {
+    const item = commandQueue.enqueue({
+      targetType: "agent",
+      targetName: agentName,
+      prompt,
+      source: "telegram",
+      cwd: paths.root,
+      telegramChatId: chatId,
+    });
+    const preview = prompt.length > 60 ? prompt.slice(0, 60) + "..." : prompt;
+    await ctx.reply(`[${agentName}] Adicionado a fila (#${item.seqId}). "${preview}"\nUse /queue para ver a fila.`);
     return;
   }
 
@@ -1325,4 +1347,90 @@ async function handleMetrics(ctx: Context): Promise<void> {
   }
 
   await ctx.reply(lines.join("\n"));
+}
+
+// --- Queue ---
+
+async function handleQueue(ctx: Context): Promise<void> {
+  const grouped = commandQueue.getGrouped();
+
+  if (grouped.size === 0) {
+    await ctx.reply("Fila vazia.");
+    return;
+  }
+
+  const lines: string[] = ["<b>Fila de comandos:</b>\n"];
+
+  for (const [key, items] of grouped) {
+    const [type, ...nameParts] = key.split(":");
+    const name = nameParts.join(":");
+    lines.push(`<b>[${type}] ${name}:</b>`);
+    for (const item of items) {
+      const preview = item.prompt.length > 60
+        ? item.prompt.slice(0, 60) + "..."
+        : item.prompt;
+      lines.push(`  #${item.seqId} — "${preview}"`);
+    }
+    lines.push("");
+  }
+
+  await ctx.reply(lines.join("\n").trimEnd(), { parse_mode: "HTML" });
+}
+
+async function handleQueueRemove(ctx: Context): Promise<void> {
+  const text = ctx.message?.text ?? "";
+  const args = text.replace(/^\/queue_remove\s*/, "").trim();
+
+  if (args) {
+    const seqId = parseInt(args, 10);
+    if (Number.isNaN(seqId)) {
+      await ctx.reply("Uso: /queue_remove <id>");
+      return;
+    }
+
+    const removed = commandQueue.remove(seqId);
+    if (removed) {
+      await ctx.reply(`Item #${seqId} removido da fila.`);
+    } else {
+      await ctx.reply(`Item #${seqId} não encontrado na fila.`);
+    }
+    return;
+  }
+
+  const all = commandQueue.getAll();
+  if (all.length === 0) {
+    await ctx.reply("Fila vazia.");
+    return;
+  }
+
+  const keyboard = new InlineKeyboard();
+  for (const item of all) {
+    const preview = item.prompt.length > 30
+      ? item.prompt.slice(0, 30) + "..."
+      : item.prompt;
+    keyboard.row().text(
+      `#${item.seqId} [${item.targetName}] ${preview}`,
+      `queue_remove:${item.seqId}`,
+    );
+  }
+
+  await ctx.reply("Selecione o item para remover:", { reply_markup: keyboard });
+}
+
+async function handleQueueRemoveCallback(ctx: Context): Promise<void> {
+  const data = ctx.callbackQuery?.data;
+  if (!data) return;
+
+  const seqId = parseInt(data.replace("queue_remove:", ""), 10);
+  if (Number.isNaN(seqId)) return;
+
+  const removed = commandQueue.remove(seqId);
+  if (removed) {
+    await ctx.answerCallbackQuery({ text: `Item #${seqId} removido.` });
+    try {
+      await ctx.editMessageText(`Item #${seqId} removido da fila.`);
+    } catch { /* non-critical */ }
+  } else {
+    await ctx.answerCallbackQuery({ text: `Item #${seqId} não encontrado.` });
+  }
 }

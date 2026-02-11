@@ -1,12 +1,27 @@
 import { config } from "./config.js";
 import { bot } from "./bot.js";
-import { executionManager } from "./execution-manager.js";
+import { executionManager, type ExecutionInfo } from "./execution-manager.js";
+import { commandQueue } from "./queue.js";
+import { processQueueItem } from "./processor.js";
 import { createDashboardServer } from "./server/index.js";
 import { tokenManager } from "./server/token-manager.js";
 import { initOrchestratorClaudeMd } from "./orchestrator-init.js";
 
 initOrchestratorClaudeMd();
 await executionManager.loadRecent();
+
+function drainQueue(_id: string, info: ExecutionInfo) {
+  const key = commandQueue.targetKey(info.targetType, info.targetName);
+  if (executionManager.isTargetActive(info.targetType, info.targetName)) return;
+  const next = commandQueue.dequeue(key);
+  if (!next) return;
+  commandQueue.emit("queue:processing", next);
+  processQueueItem(next);
+}
+
+executionManager.on("complete", drainQueue);
+executionManager.on("error", drainQueue);
+executionManager.on("cancel", drainQueue);
 
 const httpServer = createDashboardServer();
 

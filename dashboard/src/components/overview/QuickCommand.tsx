@@ -27,8 +27,15 @@ export function QuickCommand() {
     setSending(true);
 
     try {
-      await api.post("/executions", { targetType, targetName, prompt: prompt.trim() });
-      addToast("success", "Execution started");
+      const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>(
+        "/executions",
+        { targetType, targetName, prompt: prompt.trim() },
+      );
+      if (result.queued) {
+        addToast("success", `Queued (#${result.queueItem?.seqId})`);
+      } else {
+        addToast("success", "Execution started");
+      }
       setPrompt("");
 
       if (targetType === "agent") {

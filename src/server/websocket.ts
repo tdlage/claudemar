@@ -1,5 +1,6 @@
 import type { Server as SocketServer, Socket } from "socket.io";
 import { executionManager } from "../execution-manager.js";
+import { commandQueue } from "../queue.js";
 import { validateSocketToken } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
@@ -96,6 +97,14 @@ export function setupWebSocket(io: SocketServer): void {
   executionManager.on("cancel", (id, info) => {
     io.to("executions").emit("execution:cancel", { id, info });
     io.to(`exec:${id}`).emit("execution:cancel", { id, info });
+  });
+
+  commandQueue.on("queue:add", (item) => {
+    io.to("executions").emit("queue:add", { item });
+  });
+
+  commandQueue.on("queue:remove", (item) => {
+    io.to("executions").emit("queue:remove", { item });
   });
 
   startFileWatcher((event, base, path) => {

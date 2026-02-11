@@ -24,11 +24,12 @@ export function ProjectDetailPage() {
   const [execId, setExecId] = useState<string | null>(null);
   const [expandedExecId, setExpandedExecId] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const { active, recent } = useExecutions();
+  const { active, recent, queue } = useExecutions();
 
   const projectActive = active.filter((e) => e.targetName === name);
   const projectRecent = recent.filter((e) => e.targetName === name);
   const projectActivity = [...projectActive, ...projectRecent];
+  const projectQueue = queue.filter((q) => q.targetName === name);
   const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
   const isRunning = !!activeExec;
 
@@ -65,14 +66,18 @@ export function ProjectDetailPage() {
     if (!prompt.trim() || !name) return;
 
     try {
-      const { id } = await api.post<{ id: string }>("/executions", {
+      const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
         targetType: "project",
         targetName: name,
         prompt: prompt.trim(),
       });
-      setExecId(id);
+      if (result.queued) {
+        addToast("success", `Queued (#${result.queueItem?.seqId})`);
+      } else if (result.id) {
+        setExecId(result.id);
+        addToast("success", "Execution started");
+      }
       setPrompt("");
-      addToast("success", "Execution started");
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
     }
@@ -144,11 +149,12 @@ export function ProjectDetailPage() {
             <Terminal key={name} executionId={execId} />
           </div>
 
-          {projectActivity.length > 0 && (
+          {(projectActivity.length > 0 || projectQueue.length > 0) && (
             <div>
               <h2 className="text-sm font-medium text-text-muted mb-2">Activity</h2>
               <ActivityFeed
                 executions={projectActivity}
+                queue={projectQueue}
                 expandedId={expandedExecId}
                 onToggle={toggleExpanded}
               />

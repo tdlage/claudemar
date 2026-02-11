@@ -7,6 +7,8 @@ import {
   executionManager,
 } from "./execution-manager.js";
 import { loadOrchestratorSettings } from "./orchestrator-settings.js";
+import type { QueueItem } from "./queue.js";
+import { markdownToTelegramHtml } from "./telegram-format.js";
 import {
   getActiveAgent,
   getMode,
@@ -172,7 +174,15 @@ function waitAndReply(
           { caption: `${prefix}Resposta grande (${sizeKb} KB)\n\n${footer}` },
         );
       } else {
-        await ctx.reply(agentLabel ? `[${agentLabel}]\n${result.output}` : result.output);
+        const raw = agentLabel ? `[${agentLabel}]\n${result.output}` : result.output;
+        const html = agentLabel
+          ? `<b>[${agentLabel}]</b>\n${markdownToTelegramHtml(result.output)}`
+          : markdownToTelegramHtml(result.output);
+        try {
+          await ctx.reply(html, { parse_mode: "HTML" });
+        } catch {
+          await ctx.reply(raw);
+        }
       }
 
       try {
@@ -220,5 +230,17 @@ function waitAndReply(
     executionManager.on("complete", onComplete);
     executionManager.on("error", onError);
     executionManager.on("cancel", onCancel);
+  });
+}
+
+export function processQueueItem(item: QueueItem): string {
+  return executionManager.startExecution({
+    source: item.source,
+    targetType: item.targetType,
+    targetName: item.targetName,
+    prompt: item.prompt,
+    cwd: item.cwd,
+    resumeSessionId: item.resumeSessionId,
+    model: item.model,
   });
 }
