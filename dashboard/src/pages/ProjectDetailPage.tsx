@@ -5,13 +5,15 @@ import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
+import { Badge } from "../components/shared/Badge";
 import { FilesBrowser } from "../components/project/FilesBrowser";
+import { RepositoriesTab } from "../components/project/RepositoriesTab";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import type { ProjectDetail } from "../lib/types";
 
-type TabKey = "terminal" | "files";
+type TabKey = "terminal" | "repositories" | "files";
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -86,6 +88,7 @@ export function ProjectDetailPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "terminal", label: "Terminal" },
+    { key: "repositories", label: "Repositories" },
     { key: "files", label: "Files" },
   ];
 
@@ -93,11 +96,7 @@ export function ProjectDetailPage() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <h1 className="text-lg font-semibold">{project.name}</h1>
-        {project.gitInfo && (
-          <span className="text-xs text-text-muted bg-surface px-2 py-0.5 rounded border border-border">
-            {project.gitInfo.branch}
-          </span>
-        )}
+        <Badge variant="default">{project.repos.length} repos</Badge>
         {sessionId && (
           <span className="text-xs text-text-muted font-mono bg-surface px-2 py-0.5 rounded border border-border">
             session: {sessionId.slice(0, 8)}
@@ -156,6 +155,14 @@ export function ProjectDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === "repositories" && (
+        <RepositoriesTab
+          projectName={project.name}
+          repos={project.repos}
+          onRefresh={loadProject}
+        />
       )}
 
       {tab === "files" && name && (

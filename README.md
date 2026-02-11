@@ -7,7 +7,7 @@ Telegram bot that gives you full access to Claude CLI from your phone. Manage pr
 ### Telegram Bot
 - **Claude CLI via Telegram** — send messages, get Claude responses with streaming
 - **Voice messages** — transcribed via OpenAI Whisper, then processed by Claude
-- **Project management** — clone repos, switch between projects, run git/shell commands
+- **Project management** — create project folders, clone multiple repos per project, switch between projects
 - **Multi-agent system** — create specialized agents with personas, context files, and inboxes
 - **Agent-to-agent messaging** — outbox/inbox routing, broadcast, delegation
 - **Council meetings** — simulate multi-agent discussions on a topic
@@ -17,7 +17,7 @@ Telegram bot that gives you full access to Claude CLI from your phone. Manage pr
 ### Web Dashboard
 - **Overview** — active executions, agent/project status, activity feed, quick command
 - **Agent management** — inbox, outbox, output files, context, config, schedules
-- **Project management** — git log, file browser, execution history
+- **Project management** — repository browser with branches, log, git operations, file browser
 - **Code editor** — Monaco Editor with syntax highlighting, multi-file tabs, Ctrl+S save
 - **File watching** — real-time updates when files change on disk
 - **Execution logs** — search, filter by status/target, pagination
@@ -102,10 +102,12 @@ BASE_PATH=/path/to/data                   # base directory for agents/projects/o
 | Command | Description |
 |---------|-------------|
 | `/project` | Select active project (shows inline keyboard) |
-| `/add <url> [name]` | Clone a git repository as a project |
-| `/remove <project>` | Delete a project |
+| `/project add <name>` | Create a new project folder |
+| `/project remove <name>` | Delete a project and all its repos |
+| `/repository add <url> [name]` | Clone a repo into the active project |
+| `/repository list` | List repos in the active project |
+| `/repository remove <name>` | Remove a repo from the active project |
 | `/exec <cmd>` | Run a shell command in the active project |
-| `/git <subcmd>` | Run a git command in the active project |
 
 ### Agents
 | Command | Description |
@@ -171,10 +173,18 @@ All endpoints require `Authorization: Bearer <DASHBOARD_TOKEN>` header.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/projects` | List all projects |
-| GET | `/api/projects/:name` | Project detail with git info |
-| GET | `/api/projects/:name/git-log` | Last 50 commits |
-| POST | `/api/projects` | Clone repo (`{ url, name? }`) |
+| GET | `/api/projects/:name` | Project detail with repos list |
+| POST | `/api/projects` | Create project folder (`{ name }`) |
 | DELETE | `/api/projects/:name` | Delete project |
+| GET | `/api/projects/:name/repos` | List repos in project |
+| POST | `/api/projects/:name/repos` | Clone repo (`{ url, name? }`) |
+| DELETE | `/api/projects/:name/repos/:repo` | Remove repo |
+| GET | `/api/projects/:name/repos/:repo/log` | Commit log |
+| GET | `/api/projects/:name/repos/:repo/branches` | Branch list |
+| POST | `/api/projects/:name/repos/:repo/checkout` | Checkout branch (`{ branch }`) |
+| POST | `/api/projects/:name/repos/:repo/pull` | Git pull |
+| POST | `/api/projects/:name/repos/:repo/stash` | Git stash (`{ pop?: boolean }`) |
+| POST | `/api/projects/:name/repos/:repo/fetch` | Git fetch |
 
 ### Executions
 | Method | Endpoint | Description |
@@ -246,6 +256,7 @@ src/
   processor.ts             # Message processing + delegation
   executor.ts              # Claude CLI spawning, shell execution
   execution-manager.ts     # Singleton execution tracker (EventEmitter)
+  repositories.ts          # Git repository discovery and operations
   session.ts               # Per-chat session state
   config.ts                # Environment configuration
   metrics.ts               # Agent execution metrics

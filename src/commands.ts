@@ -26,6 +26,7 @@ import { executeShell, executeSpawn } from "./executor.js";
 import { loadHistory } from "./history.js";
 import { loadMetrics } from "./metrics.js";
 import { processDelegation } from "./processor.js";
+import { cloneRepo, discoverRepos, removeRepo } from "./repositories.js";
 import { tokenManager } from "./server/token-manager.js";
 import {
   clearAllSessionIds,
@@ -48,8 +49,11 @@ import {
 const HELP_TEXT = [
   "<b>📁 Projetos</b>",
   "/project — Selecionar projeto ativo",
-  "/add &lt;url&gt; [nome] — Clonar repositório",
-  "/remove &lt;projeto&gt; — Remover projeto",
+  "/project add &lt;nome&gt; — Criar projeto (pasta)",
+  "/project remove &lt;nome&gt; — Remover projeto",
+  "/repository add &lt;url&gt; [nome] — Clonar repo no projeto ativo",
+  "/repository list — Listar repos do projeto ativo",
+  "/repository remove &lt;nome&gt; — Remover repo do projeto ativo",
   "",
   "<b>🤖 Agentes</b>",
   "/agent — Listar/criar/remover agentes",
@@ -78,7 +82,6 @@ const HELP_TEXT = [
   "/clear — Resetar tudo",
   "/cancel — Cancelar execução",
   "/exec &lt;cmd&gt; — Executar comando shell",
-  "/git &lt;subcmd&gt; — Executar comando git",
   "/token — Token atual do dashboard",
   "/help — Lista de comandos",
 ].join("\n");
@@ -86,6 +89,7 @@ const HELP_TEXT = [
 export function registerCommands(bot: Bot): void {
   bot.command("start", handleStart);
   bot.command("project", handleProject);
+  bot.command("repository", handleRepository);
   bot.command("current", handleCurrent);
   bot.command("clear", handleClear);
   bot.command("reset", handleReset);
@@ -95,9 +99,6 @@ export function registerCommands(bot: Bot): void {
   bot.command("stop_stream", handleStopStream);
   bot.command("history", handleHistory);
   bot.command("exec", handleExec);
-  bot.command("git", handleGit);
-  bot.command("add", handleAdd);
-  bot.command("remove", handleRemove);
   bot.command("help", handleHelp);
   bot.command("token", handleToken);
   bot.command("agent", handleAgent);
@@ -112,6 +113,7 @@ export function registerCommands(bot: Bot): void {
   bot.callbackQuery(/^select_project:/, handleSelectProject);
   bot.callbackQuery(/^select_agent:/, handleSelectAgent);
   bot.callbackQuery(/^stream_exec:/, handleStreamCallback);
+  bot.callbackQuery(/^confirm_remove_project:/, handleConfirmRemoveProject);
 }
 
 async function handleStart(ctx: Context): Promise<void> {
@@ -119,6 +121,28 @@ async function handleStart(ctx: Context): Promise<void> {
 }
 
 async function handleProject(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  const text = ctx.message?.text ?? "";
+  const args = text.replace(/^\/project\s*/, "").trim();
+
+  if (args) {
+    const parts = args.split(/\s+/);
+    const subcommand = parts[0];
+
+    if (subcommand === "add" && parts[1]) {
+      return handleProjectAdd(ctx, chatId, parts[1]);
+    }
+
+    if (subcommand === "remove" && parts[1]) {
+      return handleProjectRemove(ctx, chatId, parts[1]);
+    }
+
+    await ctx.reply("Uso: /project [add <nome> | remove <nome>]");
+    return;
+  }
+
   const projects = listProjects();
   const keyboard = new InlineKeyboard();
 
@@ -130,11 +154,94 @@ async function handleProject(ctx: Context): Promise<void> {
 
   if (projects.length === 0) {
     await ctx.reply(
-      "Nenhum projeto encontrado. Use /add <url> para clonar um repositório.\n\nUse Orchestrator como workspace padrão:",
+      "Nenhum projeto encontrado. Use /project add <nome> para criar.\n\nUse Orchestrator como workspace padrão:",
       { reply_markup: keyboard },
     );
   } else {
     await ctx.reply("Selecione um projeto:", { reply_markup: keyboard });
+  }
+}
+
+async function handleProjectAdd(ctx: Context, chatId: number, name: string): Promise<void> {
+  if (!isValidProjectName(name)) {
+    await ctx.reply("Nome de projeto inválido. Use apenas letras, números, '.', '-' e '_'.");
+    return;
+  }
+
+  const projectPath = safeProjectPath(name);
+  if (!projectPath) {
+    await ctx.reply("Nome de projeto inválido.");
+    return;
+  }
+
+  if (existsSync(projectPath)) {
+    await ctx.reply(`Projeto "${name}" já existe.`);
+    return;
+  }
+
+  try {
+    mkdirSync(projectPath, { recursive: true });
+    setActiveProject(chatId, name);
+    setMode(chatId, "projects");
+    await ctx.reply(`Projeto "${name}" criado e ativado.`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await ctx.reply(`Erro ao criar projeto: ${message}`);
+  }
+}
+
+async function handleProjectRemove(ctx: Context, chatId: number, name: string): Promise<void> {
+  const projectPath = safeProjectPath(name);
+  if (!projectPath || !existsSync(projectPath)) {
+    await ctx.reply(`Projeto "${name}" não encontrado.`);
+    return;
+  }
+
+  const keyboard = new InlineKeyboard()
+    .text("Sim, remover", `confirm_remove_project:${name}`)
+    .text("Cancelar", "confirm_remove_project:__cancel__");
+
+  await ctx.reply(
+    `Tem certeza que deseja remover o projeto "${name}" e todos os seus repositórios?`,
+    { reply_markup: keyboard },
+  );
+}
+
+async function handleConfirmRemoveProject(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  const data = ctx.callbackQuery?.data;
+  if (!data) return;
+
+  const projectName = data.replace("confirm_remove_project:", "");
+
+  if (projectName === "__cancel__") {
+    await ctx.answerCallbackQuery({ text: "Remoção cancelada" });
+    await ctx.editMessageText("Remoção cancelada.");
+    return;
+  }
+
+  const projectPath = safeProjectPath(projectName);
+  if (!projectPath || !existsSync(projectPath)) {
+    await ctx.answerCallbackQuery({ text: "Projeto não encontrado" });
+    return;
+  }
+
+  try {
+    await rm(projectPath, { recursive: true, force: true });
+
+    const session = getSession(chatId);
+    if (session.activeProject === projectName) {
+      setActiveProject(chatId, null);
+    }
+
+    await ctx.answerCallbackQuery({ text: "Projeto removido" });
+    await ctx.editMessageText(`Projeto "${projectName}" removido.`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await ctx.answerCallbackQuery({ text: "Erro ao remover" });
+    await ctx.editMessageText(`Erro ao remover: ${message}`);
   }
 }
 
@@ -278,134 +385,100 @@ async function handleExec(ctx: Context): Promise<void> {
   }
 }
 
-async function handleGit(ctx: Context): Promise<void> {
+async function handleRepository(ctx: Context): Promise<void> {
   const chatId = ctx.chat?.id;
   if (!chatId) return;
 
   const text = ctx.message?.text ?? "";
-  const subcmd = text.replace(/^\/git\s*/, "").trim();
+  const args = text.replace(/^\/repository\s*/, "").trim();
 
-  if (!subcmd) {
-    await ctx.reply("Uso: /git <subcomando>");
+  if (!args) {
+    await ctx.reply("Uso: /repository add <url> [nome]\n/repository list\n/repository remove <nome>");
     return;
   }
 
-  const cwd = getWorkingDirectory(chatId);
-
-  try {
-    const args = subcmd.split(/\s+/);
-    const { output, exitCode } = await executeSpawn("git", args, cwd);
-    await replyWithShellOutput(ctx, output, exitCode, "git-output.txt");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await ctx.reply(`Erro: ${message}`);
-  }
-}
-
-async function handleAdd(ctx: Context): Promise<void> {
-  const chatId = ctx.chat?.id;
-  if (!chatId) return;
-
-  const text = ctx.message?.text ?? "";
-  const parts = text.replace(/^\/add\s*/, "").trim().split(/\s+/);
-  const url = parts[0];
-
-  if (!url) {
-    await ctx.reply("Uso: /add <url> [nome]");
+  const session = getSession(chatId);
+  if (!session.activeProject) {
+    await ctx.reply("Nenhum projeto ativo. Use /project para selecionar ou /project add <nome> para criar.");
     return;
   }
 
-  const repoName =
-    parts[1] ?? url.split("/").pop()?.replace(/\.git$/, "") ?? "repo";
-
-  if (!isValidProjectName(repoName)) {
-    await ctx.reply("Nome de projeto inválido. Use apenas letras, números, '.', '-' e '_'.");
+  const projectPath = safeProjectPath(session.activeProject);
+  if (!projectPath || !existsSync(projectPath)) {
+    await ctx.reply("Projeto ativo não encontrado.");
     return;
   }
 
-  const targetPath = safeProjectPath(repoName);
-  if (!targetPath) {
-    await ctx.reply("Nome de projeto inválido.");
-    return;
-  }
+  const parts = args.split(/\s+/);
+  const subcommand = parts[0];
 
-  if (existsSync(targetPath)) {
-    await ctx.reply(`Projeto "${repoName}" já existe.`);
-    return;
-  }
-
-  const statusMsg = await ctx.reply(`Clonando ${url}...`);
-
-  try {
-    const { output, exitCode } = await executeSpawn(
-      "git",
-      ["clone", url, targetPath],
-      config.projectsPath,
-      120000,
-    );
-
-    if (exitCode !== 0) {
-      await ctx.api.editMessageText(
-        chatId,
-        statusMsg.message_id,
-        `Erro ao clonar: ${output}`,
-      );
+  if (subcommand === "add") {
+    const url = parts[1];
+    if (!url) {
+      await ctx.reply("Uso: /repository add <url> [nome]");
       return;
     }
 
-    setActiveProject(chatId, repoName);
-    setMode(chatId, "projects");
-    await ctx.api.editMessageText(
-      chatId,
-      statusMsg.message_id,
-      `Repositório clonado e ativado: ${repoName}`,
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await ctx.api.editMessageText(
-      chatId,
-      statusMsg.message_id,
-      `Erro ao clonar: ${message}`,
-    );
-  }
-}
+    const statusMsg = await ctx.reply(`Clonando ${url}...`);
 
-async function handleRemove(ctx: Context): Promise<void> {
-  const chatId = ctx.chat?.id;
-  if (!chatId) return;
-
-  const text = ctx.message?.text ?? "";
-  const projectName = text.replace(/^\/remove\s*/, "").trim();
-
-  if (!projectName) {
-    await ctx.reply("Uso: /remove <projeto>");
+    try {
+      const repoName = await cloneRepo(projectPath, url, parts[2]);
+      await ctx.api.editMessageText(
+        chatId,
+        statusMsg.message_id,
+        `Repositório clonado: ${repoName}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await ctx.api.editMessageText(
+        chatId,
+        statusMsg.message_id,
+        `Erro ao clonar: ${message}`,
+      );
+    }
     return;
   }
 
-  const projectPath = safeProjectPath(projectName);
-  if (!projectPath) {
-    await ctx.reply("Nome de projeto inválido.");
+  if (subcommand === "list") {
+    try {
+      const repos = await discoverRepos(projectPath);
+      if (repos.length === 0) {
+        await ctx.reply(`Nenhum repositório encontrado em "${session.activeProject}".`);
+        return;
+      }
+
+      const lines = [`Repositórios em ${session.activeProject}:\n`];
+      for (const repo of repos) {
+        const dirty = repo.hasChanges ? " (modificado)" : "";
+        lines.push(`- ${repo.name} [${repo.branch}]${dirty}`);
+        if (repo.remoteUrl) lines.push(`  ${repo.remoteUrl}`);
+      }
+      await ctx.reply(lines.join("\n"));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await ctx.reply(`Erro: ${message}`);
+    }
     return;
   }
 
-  if (!existsSync(projectPath)) {
-    await ctx.reply(`Projeto "${projectName}" não encontrado.`);
-    return;
-  }
-
-  try {
-    await rm(projectPath, { recursive: true, force: true });
-
-    const session = getSession(chatId);
-    if (session.activeProject === projectName) {
-      setActiveProject(chatId, null);
+  if (subcommand === "remove") {
+    const repoName = parts[1];
+    if (!repoName) {
+      await ctx.reply("Uso: /repository remove <nome>");
+      return;
     }
 
-    await ctx.reply(`Projeto "${projectName}" removido.`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await ctx.reply(`Erro ao remover: ${message}`);
+    try {
+      await removeRepo(projectPath, repoName);
+      await ctx.reply(`Repositório "${repoName}" removido.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await ctx.reply(`Erro: ${message}`);
+    }
+    return;
   }
+
+  await ctx.reply("Uso: /repository add <url> [nome]\n/repository list\n/repository remove <nome>");
 }
 
 async function handleHelp(ctx: Context): Promise<void> {

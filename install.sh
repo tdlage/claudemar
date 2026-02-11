@@ -237,9 +237,8 @@ register_bot_commands() {
     info "Registering bot commands in Telegram..."
 
     local commands='{"commands":[
-        {"command":"project","description":"Selecionar projeto ativo"},
-        {"command":"add","description":"Clonar repositório"},
-        {"command":"remove","description":"Remover projeto"},
+        {"command":"project","description":"Gerenciar projetos (add/remove/selecionar)"},
+        {"command":"repository","description":"Gerenciar repositórios do projeto ativo"},
         {"command":"agent","description":"Listar/criar/remover agentes"},
         {"command":"mode","description":"Alternar entre projects/agents"},
         {"command":"delegate","description":"Execução one-shot em agente"},
@@ -258,7 +257,6 @@ register_bot_commands() {
         {"command":"clear","description":"Resetar tudo"},
         {"command":"cancel","description":"Cancelar execução"},
         {"command":"exec","description":"Executar comando shell"},
-        {"command":"git","description":"Executar comando git"},
         {"command":"token","description":"Token atual do dashboard"},
         {"command":"help","description":"Lista de comandos"}
     ]}'

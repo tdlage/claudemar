@@ -4,7 +4,7 @@ import {
   LayoutDashboard,
   Cpu,
   Bot,
-  FolderGit2,
+  Folder,
   FileCode,
   ScrollText,
   LogOut,
@@ -190,7 +190,7 @@ export function Sidebar() {
                 title={p.name}
               >
                 <StatusDot targetKey={`project:${p.name}`} statusMap={targetStatus} />
-                <FolderGit2 size={14} />
+                <Folder size={14} />
                 {!collapsed && <span className="truncate">{p.name}</span>}
               </NavLink>
             ))}

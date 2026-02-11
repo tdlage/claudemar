@@ -62,10 +62,20 @@ export interface ProjectInfo {
 
 export interface ProjectDetail {
   name: string;
-  gitInfo: {
-    branch: string;
-    recentCommits: string[];
-  } | null;
+  repos: RepoInfo[];
+}
+
+export interface RepoInfo {
+  name: string;
+  path: string;
+  branch: string;
+  remoteUrl: string;
+  hasChanges: boolean;
+}
+
+export interface RepoBranches {
+  current: string;
+  branches: string[];
 }
 
 export interface GitCommit {

@@ -50,8 +50,8 @@ ${config.basePath}/
 │       ├── outbox/        # Outgoing messages (routed automatically)
 │       ├── output/        # Execution outputs and scheduled results
 │       └── schedules/     # Cron scripts and logs
-├── projects/              # Git repositories
-│   └── <name>/            # Cloned project with full git history
+├── projects/              # Project folders (may contain multiple repos)
+│   └── <name>/            # Project folder with one or more git repositories
 ├── schedules.json         # Global schedule metadata
 ├── history.jsonl          # Execution history log
 └── .env                   # Environment configuration
@@ -89,15 +89,28 @@ Place markdown files in \`${config.agentsPath}/<name>/context/\`.
 
 ## Project Management
 
-### Add a project
+Projects are folders that can contain one or more git repositories.
+
+### Create a project
 \`\`\`bash
-cd ${config.projectsPath} && git clone <url> [name]
+mkdir -p ${config.projectsPath}/<name>
 \`\`\`
 Project names must match: \`/^[a-zA-Z0-9._-]+$/\`
+
+### Clone a repository into a project
+\`\`\`bash
+cd ${config.projectsPath}/<project> && git clone <url> [name]
+\`\`\`
+Each project can contain multiple repositories (e.g. frontend, backend, infra).
 
 ### Remove a project
 \`\`\`bash
 rm -rf ${config.projectsPath}/<name>
+\`\`\`
+
+### Remove a repository from a project
+\`\`\`bash
+rm -rf ${config.projectsPath}/<project>/<repo>
 \`\`\`
 
 ## Messaging System
