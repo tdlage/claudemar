@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { rm } from "node:fs/promises";
 import { executeSpawn } from "./executor.js";
@@ -256,6 +256,76 @@ export async function fetchRepo(repoPath: string): Promise<string> {
   }
 
   return output.trim();
+}
+
+export interface GitFileStatus {
+  status: string;
+  path: string;
+}
+
+export async function getRepoStatus(repoPath: string): Promise<GitFileStatus[]> {
+  const { output } = await executeSpawn(
+    "git",
+    ["status", "--porcelain"],
+    repoPath,
+    10000,
+  );
+
+  return output
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const xy = line.slice(0, 2);
+      const filePath = line.slice(3).trim();
+
+      let status: string;
+      if (xy === "??") status = "?";
+      else if (xy.includes("D")) status = "D";
+      else if (xy.includes("A")) status = "A";
+      else if (xy.includes("R")) status = "R";
+      else if (xy.includes("M") || xy.includes("m")) status = "M";
+      else status = xy.trim() || "M";
+
+      return { status, path: filePath };
+    });
+}
+
+export async function getFileDiff(repoPath: string, filePath: string): Promise<{ original: string; modified: string }> {
+  if (filePath.includes("..") || filePath.startsWith("/")) {
+    throw new Error("Invalid file path");
+  }
+
+  const absolutePath = resolve(repoPath, filePath);
+  if (!absolutePath.startsWith(repoPath + sep) && absolutePath !== repoPath) {
+    throw new Error("Path traversal detected");
+  }
+
+  let original = "";
+  try {
+    const result = await executeSpawn(
+      "git",
+      ["show", `HEAD:${filePath}`],
+      repoPath,
+      10000,
+    );
+    if (result.exitCode === 0) {
+      original = result.output;
+    }
+  } catch {
+    // file doesn't exist in HEAD (new file)
+  }
+
+  let modified = "";
+  try {
+    if (existsSync(absolutePath)) {
+      modified = readFileSync(absolutePath, "utf-8");
+    }
+  } catch {
+    // file deleted or unreadable
+  }
+
+  return { original, modified };
 }
 
 export function resolveRepoPath(projectPath: string, repoName: string): string | null {

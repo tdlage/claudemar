@@ -124,3 +124,13 @@ export interface QueueItem {
   source: ExecutionSource;
   enqueuedAt: string;
 }
+
+export interface GitFileStatus {
+  status: string;
+  path: string;
+}
+
+export interface GitFileDiff {
+  original: string;
+  modified: string;
+}

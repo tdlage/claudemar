@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { GitBranch, GitPullRequest, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Circle } from "lucide-react";
+import { GitBranch, GitPullRequest, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Circle, FileDiff } from "lucide-react";
 import { api } from "../../lib/api";
 import { Card } from "../shared/Card";
 import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
 import { Modal } from "../shared/Modal";
+import { GitDiffViewer } from "./GitDiffViewer";
 import { GitLog } from "./GitLog";
 import { useToast } from "../shared/Toast";
 import type { RepoInfo, RepoBranches, GitCommit } from "../../lib/types";
@@ -27,6 +28,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
   const [branches, setBranches] = useState<Record<string, RepoBranches>>({});
   const [logs, setLogs] = useState<Record<string, GitCommit[]>>({});
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [diffRepo, setDiffRepo] = useState<string | null>(null);
 
   const toggleExpand = async (repoName: string) => {
     if (expandedRepo === repoName) {
@@ -189,6 +191,16 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
                     <Archive size={13} className="mr-1" />
                     Stash Pop
                   </Button>
+                  {repo.hasChanges && (
+                    <Button
+                      size="sm"
+                      variant={diffRepo === repo.name ? "primary" : "secondary"}
+                      onClick={() => setDiffRepo(diffRepo === repo.name ? null : repo.name)}
+                    >
+                      <FileDiff size={13} className="mr-1" />
+                      Changes
+                    </Button>
+                  )}
                   {repo.name !== "." && (
                     <Button
                       size="sm"
@@ -200,6 +212,10 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
                     </Button>
                   )}
                 </div>
+
+                {diffRepo === repo.name && (
+                  <GitDiffViewer projectName={projectName} repoName={repo.name} />
+                )}
 
                 {repoBranches && (
                   <div>

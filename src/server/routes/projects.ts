@@ -12,8 +12,10 @@ import {
   cloneRepo,
   discoverRepos,
   fetchRepo,
+  getFileDiff,
   getRepoBranches,
   getRepoLog,
+  getRepoStatus,
   pullRepo,
   removeRepo,
   resolveRepoPath,
@@ -226,6 +228,38 @@ projectsRouter.post("/:name/repos/:repo/fetch", async (req, res) => {
   try {
     const output = await fetchRepo(resolved.repoPath);
     res.json({ output });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+projectsRouter.get("/:name/repos/:repo/status", async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  try {
+    const files = await getRepoStatus(resolved.repoPath);
+    res.json(files);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+projectsRouter.get("/:name/repos/:repo/diff", async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  const filePath = req.query.path;
+  if (!filePath || typeof filePath !== "string") {
+    res.status(400).json({ error: "Query parameter 'path' is required" });
+    return;
+  }
+
+  try {
+    const diff = await getFileDiff(resolved.repoPath, filePath);
+    res.json(diff);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: message });
