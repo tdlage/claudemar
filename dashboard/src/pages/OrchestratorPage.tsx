@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Save } from "lucide-react";
 import { api } from "../lib/api";
 import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
+import { MarkdownEditor } from "../components/shared/MarkdownEditor";
 import { useToast } from "../components/shared/Toast";
 
 interface OrchestratorSettings {
@@ -25,7 +26,6 @@ export function OrchestratorPage() {
   const [mdContent, setMdContent] = useState("");
   const [mdDirty, setMdDirty] = useState(false);
   const [mdSaving, setMdSaving] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
 
   const [settings, setSettings] = useState<OrchestratorSettings>({ prependPrompt: "", model: "claude-opus-4-6" });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -55,13 +55,6 @@ export function OrchestratorPage() {
       addToast("error", "Failed to save CLAUDE.md");
     } finally {
       setMdSaving(false);
-    }
-  };
-
-  const handleEditorKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-      e.preventDefault();
-      handleSaveMd();
     }
   };
 
@@ -102,16 +95,13 @@ export function OrchestratorPage() {
               {mdSaving ? "Saving..." : "Save"}
             </Button>
           </div>
-          <textarea
-            ref={editorRef}
+          <MarkdownEditor
             value={mdContent}
-            onChange={(e) => {
-              setMdContent(e.target.value);
+            onChange={(md) => {
+              setMdContent(md);
               setMdDirty(true);
             }}
-            onKeyDown={handleEditorKeyDown}
-            className="w-full h-96 bg-bg border border-border rounded-md p-4 text-sm text-text-primary font-mono resize-y focus:outline-none focus:border-accent"
-            spellCheck={false}
+            onSave={handleSaveMd}
             placeholder="Write orchestrator instructions here..."
           />
         </div>

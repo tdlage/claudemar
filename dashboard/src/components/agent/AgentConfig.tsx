@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Save, Plus, Trash2, Play, FileText } from "lucide-react";
 import { api } from "../../lib/api";
 import { Card } from "../shared/Card";
 import { Button } from "../shared/Button";
 import { Badge } from "../shared/Badge";
 import { Modal } from "../shared/Modal";
+import { MarkdownEditor } from "../shared/MarkdownEditor";
 import { useToast } from "../shared/Toast";
 import type { AgentFileContent, ScheduleEntry } from "../../lib/types";
 
@@ -21,7 +22,6 @@ export function AgentConfig({ agentName, claudeMd, contextFiles, schedules, onRe
   const [mdContent, setMdContent] = useState(claudeMd);
   const [mdDirty, setMdDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
 
   const [contextExpanded, setContextExpanded] = useState<string | null>(null);
   const [contextContents, setContextContents] = useState<Record<string, string>>({});
@@ -45,13 +45,6 @@ export function AgentConfig({ agentName, claudeMd, contextFiles, schedules, onRe
       addToast("error", "Failed to save CLAUDE.md");
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleEditorKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-      e.preventDefault();
-      handleSaveMd();
     }
   };
 
@@ -125,16 +118,14 @@ export function AgentConfig({ agentName, claudeMd, contextFiles, schedules, onRe
             {saving ? "Saving..." : "Save"}
           </Button>
         </div>
-        <textarea
-          ref={editorRef}
+        <MarkdownEditor
           value={mdContent}
-          onChange={(e) => {
-            setMdContent(e.target.value);
+          onChange={(md) => {
+            setMdContent(md);
             setMdDirty(true);
           }}
-          onKeyDown={handleEditorKeyDown}
-          className="w-full h-64 bg-bg border border-border rounded-md p-4 text-sm text-text-primary font-mono resize-y focus:outline-none focus:border-accent"
-          spellCheck={false}
+          onSave={handleSaveMd}
+          placeholder="Write agent instructions..."
         />
       </div>
 

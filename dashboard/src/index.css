@@ -47,3 +47,131 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #444;
 }
+
+.markdown-editor .tiptap {
+  color: var(--color-text-primary);
+  line-height: 1.7;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.markdown-editor .tiptap:focus {
+  outline: none;
+}
+
+.markdown-editor .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-text-muted);
+  pointer-events: none;
+  height: 0;
+}
+
+.markdown-editor .tiptap h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 1.2em 0 0.5em;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.3em;
+}
+
+.markdown-editor .tiptap h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 1em 0 0.4em;
+  color: var(--color-text-primary);
+}
+
+.markdown-editor .tiptap h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0.8em 0 0.3em;
+  color: var(--color-text-primary);
+}
+
+.markdown-editor .tiptap p {
+  margin: 0.5em 0;
+}
+
+.markdown-editor .tiptap ul,
+.markdown-editor .tiptap ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.markdown-editor .tiptap ul { list-style: disc; }
+.markdown-editor .tiptap ol { list-style: decimal; }
+
+.markdown-editor .tiptap li { margin: 0.15em 0; }
+.markdown-editor .tiptap li p { margin: 0; }
+
+.markdown-editor .tiptap blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: var(--color-text-secondary);
+}
+
+.markdown-editor .tiptap code {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+  font-size: 0.85em;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  color: #e879f9;
+}
+
+.markdown-editor .tiptap pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.75em 1em;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+
+.markdown-editor .tiptap pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-text-primary);
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.markdown-editor .tiptap a {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-editor .tiptap a:hover {
+  color: var(--color-accent);
+}
+
+.markdown-editor .tiptap hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 1em 0;
+}
+
+.markdown-editor .tiptap strong { font-weight: 600; }
+.markdown-editor .tiptap em { font-style: italic; }
+.markdown-editor .tiptap s { text-decoration: line-through; }
+
+.markdown-editor .tiptap .hljs-keyword,
+.markdown-editor .tiptap .hljs-selector-tag,
+.markdown-editor .tiptap .hljs-built_in { color: #c084fc; }
+.markdown-editor .tiptap .hljs-string,
+.markdown-editor .tiptap .hljs-attr { color: #4ade80; }
+.markdown-editor .tiptap .hljs-comment { color: #71717a; }
+.markdown-editor .tiptap .hljs-number,
+.markdown-editor .tiptap .hljs-literal { color: #f59e0b; }
+.markdown-editor .tiptap .hljs-function .hljs-title,
+.markdown-editor .tiptap .hljs-title { color: #60a5fa; }
+.markdown-editor .tiptap .hljs-type,
+.markdown-editor .tiptap .hljs-class .hljs-title { color: #22d3ee; }
+.markdown-editor .tiptap .hljs-meta,
+.markdown-editor .tiptap .hljs-tag { color: #f87171; }
