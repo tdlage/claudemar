@@ -459,15 +459,7 @@ async function handleToken(ctx: Context): Promise<void> {
   if (!chatId) return;
 
   const token = tokenManager.getCurrentToken();
-  const msg = await ctx.reply(`Dashboard token:\n<code>${token}</code>\n\n<i>Esta mensagem será apagada em 30s.</i>`, { parse_mode: "HTML" });
-
-  setTimeout(async () => {
-    try {
-      await ctx.api.deleteMessage(chatId, msg.message_id);
-    } catch {
-      // message already deleted or bot lacks permission
-    }
-  }, 30_000);
+  await ctx.reply(token);
 }
 
 // --- Running ---
