@@ -51,7 +51,7 @@ export function QuickCommand() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2">
+    <form onSubmit={handleSubmit} className="flex gap-2 items-end">
       <select
         value={target}
         onChange={(e) => setTarget(e.target.value)}
@@ -69,12 +69,23 @@ export function QuickCommand() {
           ))}
         </optgroup>
       </select>
-      <input
-        type="text"
+      <textarea
         value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        placeholder="Type a command..."
-        className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+        onChange={(e) => {
+          setPrompt(e.target.value);
+          e.target.style.height = "auto";
+          e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            if (prompt.trim()) handleSubmit(e);
+          }
+        }}
+        placeholder="Type a command... (Shift+Enter for new line)"
+        rows={1}
+        className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
+        style={{ maxHeight: 200 }}
       />
       <button
         type="submit"

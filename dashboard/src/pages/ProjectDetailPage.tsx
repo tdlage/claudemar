@@ -52,6 +52,10 @@ export function ProjectDetailPage() {
   }, [loadProject, loadSession]);
 
   useEffect(() => {
+    setExecId(null);
+  }, [name]);
+
+  useEffect(() => {
     const running = active.find((e) => e.targetType === "project" && e.targetName === name);
     if (running) {
       setExecId(running.id);
@@ -125,13 +129,24 @@ export function ProjectDetailPage() {
 
       {tab === "terminal" && (
         <div className="space-y-3">
-          <form onSubmit={handleExecute} className="flex gap-2">
-            <input
-              type="text"
+          <form onSubmit={handleExecute} className="flex gap-2 items-end">
+            <textarea
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder={`Message ${name}...`}
-              className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+              onChange={(e) => {
+                setPrompt(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (prompt.trim()) handleExecute(e);
+                }
+              }}
+              placeholder={`Message ${name}... (Shift+Enter for new line)`}
+              rows={1}
+              className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
+              style={{ maxHeight: 200 }}
             />
             <Button type="submit" disabled={!prompt.trim()}>Send</Button>
             {isRunning && (
