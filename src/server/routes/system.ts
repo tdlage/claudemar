@@ -8,7 +8,7 @@ import { loadMetrics } from "../../metrics.js";
 import { executionManager } from "../../execution-manager.js";
 import { checkForUpdates, performUpdate, restartService } from "../../updater.js";
 
-const INSTALL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const INSTALL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const systemRouter = Router();
 

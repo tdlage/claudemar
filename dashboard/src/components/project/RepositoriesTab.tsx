@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { GitBranch, GitPullRequest, GitCommitHorizontal, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, FileDiff } from "lucide-react";
+import { GitBranch, GitPullRequest, GitCommitHorizontal, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, FileDiff, Circle } from "lucide-react";
 import { api } from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { Card } from "../shared/Card";
@@ -237,6 +237,9 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
               {isExpanded ? <ChevronDown size={14} className="text-text-muted shrink-0" /> : <ChevronRight size={14} className="text-text-muted shrink-0" />}
               <span className="font-medium text-sm text-text-primary">{repo.name}</span>
               <Badge variant="accent">{repo.branch || "no branch"}</Badge>
+              {repo.hasChanges && !cpState && (
+                <Circle size={8} className="text-warning fill-warning shrink-0" />
+              )}
               {cpState?.status === "running" && (
                 <Loader2 size={12} className="animate-spin text-accent shrink-0" />
               )}
