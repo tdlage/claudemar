@@ -995,7 +995,7 @@ async function handleDelegate(ctx: Context): Promise<void> {
   setBusy(chatId, true);
   const statusMsg = await ctx.reply(`[${agentName}] Executando...`);
 
-  await processDelegation(ctx, chatId, agentName, prompt, statusMsg);
+  processDelegation(ctx, chatId, agentName, prompt, statusMsg);
 }
 
 // --- Inbox ---

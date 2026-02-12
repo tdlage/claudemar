@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync, openSync, readSync, closeSync } from "node:fs";
 import { resolve, sep, relative, extname, basename } from "node:path";
 import { Router } from "express";
 import { config } from "../../config.js";
@@ -6,6 +6,18 @@ import { getAgentPaths, isValidAgentName } from "../../agents/manager.js";
 import { safeProjectPath } from "../../session.js";
 
 export const filesRouter = Router();
+
+const TEXT_EXTENSIONS = new Set([
+  ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".xml", ".html", ".htm",
+  ".css", ".scss", ".less", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+  ".py", ".rb", ".rs", ".go", ".java", ".kt", ".c", ".cpp", ".h", ".hpp",
+  ".cs", ".swift", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
+  ".sql", ".graphql", ".gql", ".env", ".ini", ".cfg", ".conf", ".properties",
+  ".csv", ".tsv", ".log", ".svg", ".vue", ".svelte", ".astro", ".mdx",
+  ".dockerfile", ".gitignore", ".gitattributes", ".editorconfig", ".eslintrc",
+  ".prettierrc", ".lock", ".prisma", ".tf", ".hcl", ".lua", ".r", ".m",
+  ".php", ".pl", ".pm", ".ex", ".exs", ".erl", ".hs", ".ml", ".clj",
+]);
 
 function resolveBase(base: string): string | null {
   if (base === "orchestrator") return config.orchestratorPath;
@@ -78,11 +90,27 @@ filesRouter.get("/", (req, res) => {
   }
 
   const ext = extname(resolved).toLowerCase();
-  const binaryExtensions = new Set([".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".zip", ".tar", ".gz"]);
 
-  if (binaryExtensions.has(ext)) {
-    res.json({ type: "file", binary: true, size: stat.size });
+  if (TEXT_EXTENSIONS.has(ext) || ext === "" || resolved.endsWith("Makefile") || resolved.endsWith("Dockerfile")) {
+    const content = readFileSync(resolved, "utf-8");
+    res.json({ type: "file", content, size: stat.size });
     return;
+  }
+
+  const fd = openSync(resolved, "r");
+  let bytesRead: number;
+  const sample = Buffer.alloc(8192);
+  try {
+    bytesRead = readSync(fd, sample, 0, 8192, 0);
+  } finally {
+    closeSync(fd);
+  }
+
+  for (let i = 0; i < bytesRead; i++) {
+    if (sample[i] === 0) {
+      res.json({ type: "file", binary: true, size: stat.size });
+      return;
+    }
   }
 
   const content = readFileSync(resolved, "utf-8");

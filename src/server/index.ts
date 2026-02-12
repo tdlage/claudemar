@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import express from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 import rateLimit from "express-rate-limit";
 import { Server as SocketServer } from "socket.io";
 import { config } from "../config.js";
@@ -45,6 +45,10 @@ export function createDashboardServer() {
   app.use("/api/orchestrator", orchestratorRouter);
   app.use("/api/system", systemRouter);
 
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "Not found" });
+  });
+
   const dashboardDist = resolve(process.cwd(), "dashboard/dist");
 
   if (existsSync(dashboardDist)) {
@@ -53,6 +57,11 @@ export function createDashboardServer() {
       res.sendFile(resolve(dashboardDist, "index.html"));
     });
   }
+
+  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+    console.error("[server] Unhandled error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  });
 
   setupWebSocket(io);
   tokenManager.start();

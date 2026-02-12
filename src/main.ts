@@ -6,6 +6,7 @@ import { processQueueItem } from "./processor.js";
 import { createDashboardServer } from "./server/index.js";
 import { tokenManager } from "./server/token-manager.js";
 import { initOrchestratorClaudeMd } from "./orchestrator-init.js";
+import { flushSessions } from "./session.js";
 
 initOrchestratorClaudeMd();
 await executionManager.loadRecent();
@@ -16,7 +17,11 @@ function drainQueue(_id: string, info: ExecutionInfo) {
   const next = commandQueue.dequeue(key);
   if (!next) return;
   commandQueue.emit("queue:processing", next);
-  processQueueItem(next);
+  try {
+    processQueueItem(next);
+  } catch (err) {
+    console.error("[drainQueue] Failed to process queue item:", err);
+  }
 }
 
 executionManager.on("complete", drainQueue);
@@ -37,10 +42,14 @@ bot.start().catch((err) => {
 
 function shutdown() {
   console.log("Shutting down...");
+  commandQueue.flush();
+  flushSessions();
   tokenManager.stop();
   bot.stop();
-  httpServer.close();
-  process.exit(0);
+  httpServer.close(() => {
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(0), 5000);
 }
 
 process.on("SIGINT", shutdown);

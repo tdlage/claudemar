@@ -7,6 +7,7 @@ import { AgentDetailPage } from "./pages/AgentDetailPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { EditorPage } from "./pages/EditorPage";
 import { LogsPage } from "./pages/LogsPage";
+import { ChangelogPage } from "./pages/ChangelogPage";
 
 function KeyedProjectPage() {
   const { name } = useParams();
@@ -43,6 +44,7 @@ export const router = createBrowserRouter([
       { path: "projects/:name", element: <KeyedProjectPage /> },
       { path: "editor", element: <EditorPage /> },
       { path: "logs", element: <LogsPage /> },
+      { path: "changelog", element: <ChangelogPage /> },
     ],
   },
 ]);

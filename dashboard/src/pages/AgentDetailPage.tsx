@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { RotateCcw, Square } from "lucide-react";
+import { Square } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { Tabs } from "../components/shared/Tabs";
@@ -16,6 +16,11 @@ import type { AgentDetail } from "../lib/types";
 
 type TabKey = "terminal" | "inbox" | "outbox" | "output" | "config";
 
+interface SessionData {
+  sessionId: string | null;
+  history: string[];
+}
+
 export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
   const { addToast } = useToast();
@@ -23,7 +28,7 @@ export function AgentDetailPage() {
   const [tab, setTab] = useState<TabKey>("terminal");
   const [prompt, setPrompt] = useState("");
   const [execId, setExecId] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
   const { active } = useExecutions();
   const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
   const isRunning = !!activeExec;
@@ -35,8 +40,8 @@ export function AgentDetailPage() {
 
   const loadSession = useCallback(() => {
     if (!name) return;
-    api.get<{ sessionId: string | null }>(`/executions/session/agent/${name}`)
-      .then((data) => setSessionId(data.sessionId))
+    api.get<SessionData>(`/executions/session/agent/${name}`)
+      .then(setSessionData)
       .catch(() => {});
   }, [name]);
 
@@ -53,7 +58,28 @@ export function AgentDetailPage() {
       setExecId(null);
       loadSession();
     }
-  }, [name, active]);
+  }, [name, active, execId, loadSession]);
+
+  const handleSessionChange = async (value: string) => {
+    if (!name) return;
+    if (value === "__new") {
+      try {
+        await api.delete(`/executions/session/agent/${name}`);
+        setSessionData((prev) => ({ ...prev, sessionId: null }));
+        addToast("success", "New session");
+      } catch {
+        addToast("error", "Failed to reset session");
+      }
+    } else {
+      try {
+        await api.put(`/executions/session/agent/${name}`, { sessionId: value });
+        setSessionData((prev) => ({ ...prev, sessionId: value }));
+        addToast("success", `Session switched to ${value.slice(0, 8)}`);
+      } catch {
+        addToast("error", "Failed to switch session");
+      }
+    }
+  };
 
   const handleExecute = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,23 +119,18 @@ export function AgentDetailPage() {
         {agent.schedules.length > 0 && (
           <Badge variant="info">{agent.schedules.length} schedules</Badge>
         )}
-        {sessionId && (
-          <span className="text-xs text-text-muted font-mono bg-surface px-2 py-0.5 rounded border border-border">
-            session: {sessionId.slice(0, 8)}
-          </span>
-        )}
-        <button
-          onClick={() => {
-            api.delete(`/executions/session/agent/${name}`).then(() => {
-              setSessionId(null);
-              addToast("success", "Session reset");
-            }).catch(() => addToast("error", "Failed to reset session"));
-          }}
-          className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-          title="Reset session (start fresh context)"
+        <select
+          value={sessionData.sessionId ?? "__new"}
+          onChange={(e) => handleSessionChange(e.target.value)}
+          className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
         >
-          <RotateCcw size={14} />
-        </button>
+          <option value="__new">New session</option>
+          {sessionData.history.map((sid) => (
+            <option key={sid} value={sid}>
+              {sid.slice(0, 8)}{sid === sessionData.sessionId ? " (active)" : ""}
+            </option>
+          ))}
+        </select>
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />

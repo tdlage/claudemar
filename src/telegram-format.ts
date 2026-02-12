@@ -1,4 +1,4 @@
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b[()][0-9A-Z]|\x1b[>=<]|\x9b[0-9;]*[a-zA-Z]/g;
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI_RE, "");

@@ -38,6 +38,7 @@ export interface StartExecutionOpts {
 
 const MAX_RECENT = 100;
 const MAX_STREAM_OUTPUT = 1024 * 1024;
+const MAX_SESSION_HISTORY = 5;
 
 const MAX_PERSISTED_OUTPUT = 10_000;
 
@@ -67,7 +68,13 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
 class ExecutionManager extends EventEmitter {
   private active = new Map<string, { info: ExecutionInfo; process: ChildProcess }>();
   private recent: ExecutionInfo[] = [];
+
+  constructor() {
+    super();
+    this.setMaxListeners(50);
+  }
   private lastSessionMap = new Map<string, string>();
+  private sessionHistoryMap = new Map<string, string[]>();
 
   private targetKey(targetType: string, targetName: string): string {
     return `${targetType}:${targetName}`;
@@ -77,8 +84,24 @@ class ExecutionManager extends EventEmitter {
     return this.lastSessionMap.get(this.targetKey(targetType, targetName));
   }
 
+  getSessionHistory(targetType: string, targetName: string): string[] {
+    return this.sessionHistoryMap.get(this.targetKey(targetType, targetName)) ?? [];
+  }
+
+  setActiveSessionId(targetType: string, targetName: string, sessionId: string): void {
+    this.lastSessionMap.set(this.targetKey(targetType, targetName), sessionId);
+  }
+
   clearSessionId(targetType: string, targetName: string): void {
     this.lastSessionMap.delete(this.targetKey(targetType, targetName));
+  }
+
+  private pushSessionHistory(targetType: string, targetName: string, sessionId: string): void {
+    const key = this.targetKey(targetType, targetName);
+    const list = this.sessionHistoryMap.get(key) ?? [];
+    const filtered = list.filter((s) => s !== sessionId);
+    filtered.unshift(sessionId);
+    this.sessionHistoryMap.set(key, filtered.slice(0, MAX_SESSION_HISTORY));
   }
 
   startExecution(opts: StartExecutionOpts): string {
@@ -129,6 +152,7 @@ class ExecutionManager extends EventEmitter {
         }
         if (result.sessionId) {
           this.lastSessionMap.set(this.targetKey(opts.targetType, opts.targetName), result.sessionId);
+          this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
         }
         this.finalize(id);
         this.emit("complete", id, info);
@@ -236,6 +260,7 @@ class ExecutionManager extends EventEmitter {
     for (const e of entries) {
       if (e.sessionId && e.status === "completed") {
         this.lastSessionMap.set(this.targetKey(e.targetType, e.targetName), e.sessionId);
+        this.pushSessionHistory(e.targetType, e.targetName, e.sessionId);
       }
     }
   }

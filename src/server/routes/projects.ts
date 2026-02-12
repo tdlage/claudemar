@@ -21,6 +21,7 @@ import {
   resolveRepoPath,
   stashRepo,
 } from "../../repositories.js";
+import { executionManager } from "../../execution-manager.js";
 
 export const projectsRouter = Router();
 
@@ -264,4 +265,21 @@ projectsRouter.get("/:name/repos/:repo/diff", async (req, res) => {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: message });
   }
+});
+
+projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  const targetName = `__commitpush:${req.params.name}:${req.params.repo}`;
+
+  const id = executionManager.startExecution({
+    source: "web",
+    targetType: "project",
+    targetName,
+    prompt: "Analyze all uncommitted changes (staged and unstaged), write a clear and concise commit message following conventional commits style, stage all changes, commit, and push to origin. If there are merge conflicts, resolve them. Show the final commit message and push result.",
+    cwd: resolved.repoPath,
+  });
+
+  res.status(201).json({ id });
 });

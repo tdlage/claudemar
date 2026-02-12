@@ -200,7 +200,7 @@ export async function checkoutBranch(repoPath: string, branch: string): Promise<
 
   const { output, exitCode } = await executeSpawn(
     "git",
-    ["checkout", "--", branch],
+    ["switch", branch],
     repoPath,
     15000,
   );

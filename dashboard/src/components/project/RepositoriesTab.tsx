@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { GitBranch, GitPullRequest, GitCommitHorizontal, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Circle, FileDiff } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { GitBranch, GitPullRequest, GitCommitHorizontal, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, FileDiff } from "lucide-react";
 import { api } from "../../lib/api";
+import { getSocket } from "../../lib/socket";
 import { Card } from "../shared/Card";
 import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
@@ -8,12 +9,20 @@ import { Modal } from "../shared/Modal";
 import { GitDiffViewer } from "./GitDiffViewer";
 import { GitLog } from "./GitLog";
 import { useToast } from "../shared/Toast";
-import type { RepoInfo, RepoBranches, GitCommit } from "../../lib/types";
+import type { RepoInfo, RepoBranches, GitCommit, ExecutionInfo } from "../../lib/types";
 
 interface RepositoriesTabProps {
   projectName: string;
   repos: RepoInfo[];
   onRefresh: () => void;
+}
+
+type CommitPushStatus = "running" | "completed" | "error";
+
+interface CommitPushState {
+  execId: string;
+  status: CommitPushStatus;
+  error?: string;
 }
 
 export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesTabProps) {
@@ -29,6 +38,89 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
   const [logs, setLogs] = useState<Record<string, GitCommit[]>>({});
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [diffRepo, setDiffRepo] = useState<string | null>(null);
+
+  const [commitPush, setCommitPush] = useState<Record<string, CommitPushState>>({});
+
+  const handleCommitPushDone = useCallback((repoName: string, status: "completed" | "error", error?: string) => {
+    setCommitPush((prev) => ({
+      ...prev,
+      [repoName]: { ...prev[repoName], status, error },
+    }));
+    if (status === "completed") {
+      addToast("success", `Commit & Push completed (${repoName})`);
+      onRefresh();
+      if (expandedRepo === repoName) {
+        Promise.all([
+          api.get<RepoBranches>(`/projects/${projectName}/repos/${repoName}/branches`).catch(() => null),
+          api.get<GitCommit[]>(`/projects/${projectName}/repos/${repoName}/log`).catch(() => null),
+        ]).then(([b, l]) => {
+          if (b) setBranches((prev) => ({ ...prev, [repoName]: b }));
+          if (l) setLogs((prev) => ({ ...prev, [repoName]: l }));
+        });
+      }
+    } else {
+      addToast("error", `Commit & Push failed (${repoName})`);
+    }
+    setTimeout(() => {
+      setCommitPush((prev) => {
+        const next = { ...prev };
+        delete next[repoName];
+        return next;
+      });
+    }, 5000);
+  }, [addToast, expandedRepo, onRefresh, projectName]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    const runningEntries = Object.entries(commitPush).filter(([, s]) => s.status === "running");
+    if (runningEntries.length === 0) return;
+
+    const execToRepo = new Map<string, string>();
+    for (const [repoName, state] of runningEntries) {
+      execToRepo.set(state.execId, repoName);
+      socket.emit("subscribe:execution", state.execId);
+    }
+
+    const onComplete = (data: { id: string; info: ExecutionInfo }) => {
+      const repoName = execToRepo.get(data.id);
+      if (repoName) handleCommitPushDone(repoName, "completed");
+    };
+    const onError = (data: { id: string; info: ExecutionInfo; error?: string }) => {
+      const repoName = execToRepo.get(data.id);
+      if (repoName) handleCommitPushDone(repoName, "error", data.error);
+    };
+    const onCancel = (data: { id: string; info: ExecutionInfo }) => {
+      const repoName = execToRepo.get(data.id);
+      if (repoName) handleCommitPushDone(repoName, "error", "Cancelled");
+    };
+
+    socket.on("execution:complete", onComplete);
+    socket.on("execution:error", onError);
+    socket.on("execution:cancel", onCancel);
+
+    return () => {
+      socket.off("execution:complete", onComplete);
+      socket.off("execution:error", onError);
+      socket.off("execution:cancel", onCancel);
+      for (const execId of execToRepo.keys()) {
+        socket.emit("unsubscribe:execution", execId);
+      }
+    };
+  }, [commitPush, handleCommitPushDone]);
+
+  const handleCommitPush = async (repoName: string) => {
+    try {
+      const { id } = await api.post<{ id: string }>(
+        `/projects/${projectName}/repos/${repoName}/commit-push`,
+      );
+      setCommitPush((prev) => ({
+        ...prev,
+        [repoName]: { execId: id, status: "running" },
+      }));
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Failed to start commit & push");
+    }
+  };
 
   const toggleExpand = async (repoName: string) => {
     if (expandedRepo === repoName) {
@@ -134,6 +226,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
         const isExpanded = expandedRepo === repo.name;
         const repoBranches = branches[repo.name];
         const repoLog = logs[repo.name];
+        const cpState = commitPush[repo.name];
 
         return (
           <Card key={repo.name} className="p-0 overflow-hidden">
@@ -144,8 +237,14 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
               {isExpanded ? <ChevronDown size={14} className="text-text-muted shrink-0" /> : <ChevronRight size={14} className="text-text-muted shrink-0" />}
               <span className="font-medium text-sm text-text-primary">{repo.name}</span>
               <Badge variant="accent">{repo.branch || "no branch"}</Badge>
-              {repo.hasChanges && (
-                <Circle size={8} className="text-warning fill-warning shrink-0" />
+              {cpState?.status === "running" && (
+                <Loader2 size={12} className="animate-spin text-accent shrink-0" />
+              )}
+              {cpState?.status === "completed" && (
+                <CheckCircle size={12} className="text-green-500 shrink-0" />
+              )}
+              {cpState?.status === "error" && (
+                <XCircle size={12} className="text-red-500 shrink-0" />
               )}
               <span className="flex-1 text-xs text-text-muted truncate text-right">
                 {repo.remoteUrl}
@@ -192,41 +291,28 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
                     Stash Pop
                   </Button>
                   {repo.hasChanges && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant={diffRepo === repo.name ? "primary" : "secondary"}
-                        onClick={() => setDiffRepo(diffRepo === repo.name ? null : repo.name)}
-                      >
-                        <FileDiff size={13} className="mr-1" />
-                        Changes
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={async () => {
-                          try {
-                            const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
-                              targetType: "project",
-                              targetName: projectName,
-                              repoName: repo.name,
-                              prompt: "Analyze all uncommitted changes (staged and unstaged), write a clear and concise commit message following conventional commits style, stage all changes, commit, and push to origin. If there are merge conflicts, resolve them. Show the final commit message and push result.",
-                            });
-                            if (result.queued) {
-                              addToast("success", `Commit & Push queued (#${result.queueItem?.seqId})`);
-                            } else {
-                              addToast("success", "Commit & Push started — check terminal for progress");
-                            }
-                          } catch (err) {
-                            addToast("error", err instanceof Error ? err.message : "Failed");
-                          }
-                        }}
-                      >
-                        <GitCommitHorizontal size={13} className="mr-1" />
-                        Commit & Push
-                      </Button>
-                    </>
+                    <Button
+                      size="sm"
+                      variant={diffRepo === repo.name ? "primary" : "secondary"}
+                      onClick={() => setDiffRepo(diffRepo === repo.name ? null : repo.name)}
+                    >
+                      <FileDiff size={13} className="mr-1" />
+                      Changes
+                    </Button>
                   )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleCommitPush(repo.name)}
+                    disabled={cpState?.status === "running"}
+                  >
+                    {cpState?.status === "running" ? (
+                      <Loader2 size={13} className="mr-1 animate-spin" />
+                    ) : (
+                      <GitCommitHorizontal size={13} className="mr-1" />
+                    )}
+                    {cpState?.status === "running" ? "Committing..." : "Commit & Push"}
+                  </Button>
                   {repo.name !== "." && (
                     <Button
                       size="sm"

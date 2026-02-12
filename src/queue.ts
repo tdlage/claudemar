@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import { existsSync, readFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { writeFile, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { config } from "./config.js";
@@ -150,7 +150,28 @@ class CommandQueue extends EventEmitter {
       nextSeqId: this.nextSeqId,
       items,
     };
-    writeFile(this.filePath(), JSON.stringify(data, null, 2), "utf-8").catch(() => {});
+    const target = this.filePath();
+    const tmp = target + ".tmp";
+    writeFile(tmp, JSON.stringify(data, null, 2), "utf-8")
+      .then(() => rename(tmp, target))
+      .catch((err) => console.error("[queue] persist failed:", err));
+  }
+
+  flush(): void {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    const items = this.getAll();
+    const data: PersistedQueue = { nextSeqId: this.nextSeqId, items };
+    const target = this.filePath();
+    const tmp = target + ".tmp";
+    try {
+      writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
+      renameSync(tmp, target);
+    } catch (err) {
+      console.error("[queue] flush failed:", err);
+    }
   }
 }
 

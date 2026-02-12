@@ -80,13 +80,15 @@ Responda APENAS com o JSON, sem explicações ou markdown.`;
 
   let cron: string;
   let task: string;
+  const CRON_RE = /^[0-9*,/\-]+\s+[0-9*,/\-]+\s+[0-9*,/\-]+\s+[0-9*,/\-]+\s+[0-9*,/\-]+$/;
   try {
     const jsonMatch = parseResult.output.match(/\{[^}]+\}/);
     if (!jsonMatch) throw new Error("JSON não encontrado");
     const parsed = JSON.parse(jsonMatch[0]);
-    cron = parsed.cron;
-    task = parsed.task;
+    cron = String(parsed.cron ?? "").trim();
+    task = String(parsed.task ?? "").trim();
     if (!cron || !task) throw new Error("Campos cron/task ausentes");
+    if (!CRON_RE.test(cron)) throw new Error(`Expressão cron inválida: ${cron}`);
   } catch {
     throw new Error(`Não foi possível interpretar a instrução. Output: ${parseResult.output}`);
   }
@@ -123,7 +125,8 @@ Responda APENAS com o conteúdo do script, sem explicações. Comece com #!/usr/
   chmodSync(scriptPath, 0o755);
 
   const logPath = resolve(schedulesDir, `${slug}-${id}.log`);
-  const cronLine = `${cron} cd ${agentPaths.root} && TELEGRAM_BOT_TOKEN=${config.telegramBotToken} ALLOWED_CHAT_ID=${config.allowedChatId} bash ${scriptPath} >> ${logPath} 2>&1`;
+  const envFile = resolve(config.basePath, ".env");
+  const cronLine = `${cron} cd ${agentPaths.root} && set -a && . ${envFile} && set +a && bash ${scriptPath} >> ${logPath} 2>&1`;
 
   const currentCrontab = getCurrentCrontab();
   const newCrontab = currentCrontab.trimEnd() + "\n" + cronLine + "\n";

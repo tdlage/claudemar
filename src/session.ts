@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { writeFile, readFile } from "node:fs/promises";
-import { readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, renameSync } from "node:fs";
+import { writeFile, rename } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { getAgentPaths } from "./agents/manager.js";
 import type { SessionMode } from "./agents/types.js";
@@ -40,7 +39,7 @@ function schedulePersist(): void {
   }, PERSIST_DEBOUNCE_MS);
 }
 
-function persistSessions(): void {
+function buildSessionData(): Record<string, PersistedSession> {
   const data: Record<string, PersistedSession> = {};
   for (const [chatId, session] of sessions) {
     if (Object.keys(session.sessionIds).length === 0 && !session.activeProject && !session.activeAgent) continue;
@@ -51,7 +50,30 @@ function persistSessions(): void {
       activeAgent: session.activeAgent,
     };
   }
-  writeFile(sessionsPath(), JSON.stringify(data, null, 2), "utf-8").catch(() => {});
+  return data;
+}
+
+function persistSessions(): void {
+  const target = sessionsPath();
+  const tmp = target + ".tmp";
+  writeFile(tmp, JSON.stringify(buildSessionData(), null, 2), "utf-8")
+    .then(() => rename(tmp, target))
+    .catch((err) => console.error("[session] persist failed:", err));
+}
+
+export function flushSessions(): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  const target = sessionsPath();
+  const tmp = target + ".tmp";
+  try {
+    writeFileSync(tmp, JSON.stringify(buildSessionData(), null, 2), "utf-8");
+    renameSync(tmp, target);
+  } catch (err) {
+    console.error("[session] flush failed:", err);
+  }
 }
 
 function loadPersistedSessions(): void {

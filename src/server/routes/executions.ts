@@ -149,7 +149,19 @@ executionsRouter.get("/target-status", (_req, res) => {
 executionsRouter.get("/session/:targetType/:targetName", (req, res) => {
   const { targetType, targetName } = req.params;
   const sessionId = executionManager.getLastSessionId(targetType, targetName);
-  res.json({ sessionId: sessionId ?? null });
+  const history = executionManager.getSessionHistory(targetType, targetName);
+  res.json({ sessionId: sessionId ?? null, history });
+});
+
+executionsRouter.put("/session/:targetType/:targetName", (req, res) => {
+  const { targetType, targetName } = req.params;
+  const { sessionId } = req.body;
+  if (!sessionId || typeof sessionId !== "string") {
+    res.status(400).json({ error: "sessionId required" });
+    return;
+  }
+  executionManager.setActiveSessionId(targetType, targetName, sessionId);
+  res.json({ ok: true });
 });
 
 executionsRouter.delete("/session/:targetType/:targetName", (req, res) => {

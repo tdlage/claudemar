@@ -83,7 +83,10 @@ bot.on("message:text", async (ctx) => {
 
   setBusy(chatId, true);
   const statusMsg = await ctx.reply("Executando...");
-  await processMessage(ctx, chatId, text, statusMsg);
+  processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model }, statusMsg).catch((err) => {
+    console.error("[bot] processMessage error:", err);
+    setBusy(chatId, false);
+  });
 });
 
 bot.on(["message:voice", "message:audio"], async (ctx) => {
@@ -160,7 +163,10 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
       `"${preview}"\n\nExecutando...`,
     );
 
-    await processMessage(ctx, chatId, prompt, statusMsg);
+    processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model }, statusMsg).catch((err) => {
+      console.error("[bot] processMessage error:", err);
+      setBusy(chatId, false);
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     try {

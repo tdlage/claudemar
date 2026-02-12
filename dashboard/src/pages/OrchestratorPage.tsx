@@ -1,14 +1,24 @@
 import { useState, useEffect } from "react";
-import { Save } from "lucide-react";
+import { Save, RefreshCw, Download, CheckCircle } from "lucide-react";
 import { api } from "../lib/api";
 import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
+import { Badge } from "../components/shared/Badge";
 import { MarkdownEditor } from "../components/shared/MarkdownEditor";
 import { useToast } from "../components/shared/Toast";
 
 interface OrchestratorSettings {
   prependPrompt: string;
   model: string;
+}
+
+interface UpdateInfo {
+  available: boolean;
+  currentCommit: string;
+  currentDate: string;
+  remoteCommit: string;
+  commitCount: number;
+  commits: string[];
 }
 
 const MODEL_OPTIONS = [
@@ -31,6 +41,10 @@ export function OrchestratorPage() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     api.get<{ content: string }>("/orchestrator/claude-md")
@@ -68,6 +82,35 @@ export function OrchestratorPage() {
       addToast("error", "Failed to save settings");
     } finally {
       setSettingsSaving(false);
+    }
+  };
+
+  const handleCheckUpdate = async () => {
+    setUpdateChecking(true);
+    try {
+      const info = await api.get<UpdateInfo>("/system/update-check");
+      setUpdateInfo(info);
+      if (!info.available) addToast("success", "Already up to date");
+    } catch {
+      addToast("error", "Failed to check for updates");
+    } finally {
+      setUpdateChecking(false);
+    }
+  };
+
+  const handleUpdate = async () => {
+    setUpdating(true);
+    try {
+      const result = await api.post<{ success: boolean; output: string }>("/system/update");
+      if (result.success) {
+        addToast("success", "Update complete — service restarting...");
+      } else {
+        addToast("error", "Update failed");
+      }
+    } catch {
+      addToast("error", "Update request failed");
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -152,6 +195,48 @@ export function OrchestratorPage() {
             <Save size={14} className="mr-1.5" />
             {settingsSaving ? "Saving..." : "Save Settings"}
           </Button>
+
+          <div className="border-t border-border pt-6">
+            <h3 className="text-sm font-medium text-text-muted mb-3">System Update</h3>
+            <div className="flex items-center gap-3">
+              <Button size="sm" variant="secondary" onClick={handleCheckUpdate} disabled={updateChecking || updating}>
+                <RefreshCw size={12} className={`mr-1.5 ${updateChecking ? "animate-spin" : ""}`} />
+                {updateChecking ? "Checking..." : "Check for updates"}
+              </Button>
+              {updateInfo?.available && (
+                <Button size="sm" onClick={handleUpdate} disabled={updating}>
+                  <Download size={12} className={`mr-1.5 ${updating ? "animate-bounce" : ""}`} />
+                  {updating ? "Updating..." : "Update now"}
+                </Button>
+              )}
+            </div>
+            {updateInfo && (
+              <div className="mt-3 text-sm space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-text-muted">Current:</span>
+                  <span className="font-mono text-xs">{updateInfo.currentCommit}</span>
+                  <span className="text-text-muted text-xs">({new Date(updateInfo.currentDate).toLocaleDateString()})</span>
+                </div>
+                {updateInfo.available ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="warning">{updateInfo.commitCount} new commit{updateInfo.commitCount > 1 ? "s" : ""}</Badge>
+                    </div>
+                    <ul className="space-y-0.5 text-xs font-mono text-text-muted bg-surface rounded-md p-2 border border-border">
+                      {updateInfo.commits.map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-green-500">
+                    <CheckCircle size={14} />
+                    <span>Up to date</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

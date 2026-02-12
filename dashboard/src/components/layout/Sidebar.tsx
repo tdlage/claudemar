@@ -7,6 +7,7 @@ import {
   Folder,
   FileCode,
   ScrollText,
+  GitCommitHorizontal,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
@@ -213,6 +214,10 @@ export function Sidebar() {
           <NavLink to="/logs" className={linkClass} title="Logs">
             <ScrollText size={16} />
             {!collapsed && "Logs"}
+          </NavLink>
+          <NavLink to="/changelog" className={linkClass} title="Changelog">
+            <GitCommitHorizontal size={16} />
+            {!collapsed && "Changelog"}
           </NavLink>
         </div>
       </nav>

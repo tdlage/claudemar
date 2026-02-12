@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { config } from "../config.js";
 import { getAgentPaths, isValidAgentName, listAgents } from "./manager.js";
 
@@ -55,9 +55,15 @@ function routeFromOutbox(outboxPath: string, sourceName: string): RouteResult {
       continue;
     }
 
-    const inboxFilename = `DE-${sourceName}_${rest}`;
+    const sanitizedRest = rest.replace(/[/\\]/g, "_");
+    const inboxFilename = `DE-${sourceName}_${sanitizedRest}`;
     const sourcePath = resolve(outboxPath, file);
     const destPath = resolve(destPaths.inbox, inboxFilename);
+
+    if (!destPath.startsWith(destPaths.inbox + sep)) {
+      result.errors.push(`Path traversal detectado: ${file}`);
+      continue;
+    }
 
     try {
       renameSync(sourcePath, destPath);
