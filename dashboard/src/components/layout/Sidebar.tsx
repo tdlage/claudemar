@@ -81,13 +81,20 @@ export function Sidebar() {
     }));
   }, []);
 
+  const loadProjects = useCallback(() => {
+    api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
+  }, []);
+
   const markDone = useCallback((info: ExecutionInfo) => {
     const key = `${info.targetType}:${info.targetName}`;
     setTargetStatus((prev) => ({
       ...prev,
       [key]: { running: false, lastStatus: info.status as "completed" | "error" | "cancelled" },
     }));
-  }, []);
+    if (info.targetType === "project") {
+      loadProjects();
+    }
+  }, [loadProjects]);
 
   useSocketEvent<{ info: ExecutionInfo }>("execution:start", ({ info }) => markRunning(info));
   useSocketEvent<{ info: ExecutionInfo }>("execution:complete", ({ info }) => markDone(info));
@@ -192,7 +199,16 @@ export function Sidebar() {
               >
                 <StatusDot targetKey={`project:${p.name}`} statusMap={targetStatus} />
                 <Folder size={14} />
-                {!collapsed && <span className="truncate">{p.name}</span>}
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 truncate">{p.name}</span>
+                    {p.repoCount > 0 && (
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${p.hasChanges ? "bg-warning/20 text-warning" : "bg-success/20 text-success"}`}>
+                        {p.repoCount}
+                      </span>
+                    )}
+                  </>
+                )}
               </NavLink>
             ))}
             {projects.length === 0 && !collapsed && (
