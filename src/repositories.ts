@@ -276,19 +276,21 @@ export async function getRepoStatus(repoPath: string): Promise<GitFileStatus[]> 
     .split("\n")
     .filter(Boolean)
     .map((line) => {
-      const xy = line.slice(0, 2);
-      const filePath = line.slice(3).trim();
+      const match = line.match(/^(.{1,2})\s(.+)$/);
+      if (!match) return null;
+      const [, xy, filePath] = match;
 
       let status: string;
-      if (xy === "??") status = "?";
+      if (xy === "??" || xy === "?") status = "?";
       else if (xy.includes("D")) status = "D";
       else if (xy.includes("A")) status = "A";
       else if (xy.includes("R")) status = "R";
       else if (xy.includes("M") || xy.includes("m")) status = "M";
       else status = xy.trim() || "M";
 
-      return { status, path: filePath };
-    });
+      return { status, path: filePath.trim() };
+    })
+    .filter((entry): entry is GitFileStatus => entry !== null);
 }
 
 export async function getFileDiff(repoPath: string, filePath: string): Promise<{ original: string; modified: string }> {
