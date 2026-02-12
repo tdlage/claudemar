@@ -49,9 +49,27 @@ function resolveProjectAndRepo(req: Request, res: Response): { projectPath: stri
   return { projectPath, repoPath };
 }
 
-projectsRouter.get("/", (_req, res) => {
+projectsRouter.get("/", async (_req, res) => {
   const projects = listProjects();
-  res.json(projects.map((name) => ({ name })));
+  const results = await Promise.all(
+    projects.map(async (name) => {
+      const projectPath = safeProjectPath(name);
+      if (!projectPath || !existsSync(projectPath)) {
+        return { name, repoCount: 0, hasChanges: false };
+      }
+      try {
+        const repos = await discoverRepos(projectPath);
+        return {
+          name,
+          repoCount: repos.length,
+          hasChanges: repos.some((r) => r.hasChanges),
+        };
+      } catch {
+        return { name, repoCount: 0, hasChanges: false };
+      }
+    }),
+  );
+  res.json(results);
 });
 
 projectsRouter.get("/:name", async (req, res) => {

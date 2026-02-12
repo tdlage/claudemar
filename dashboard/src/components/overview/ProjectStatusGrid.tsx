@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { FolderGit2 } from "lucide-react";
 import { Card } from "../shared/Card";
+import { Badge } from "../shared/Badge";
 import type { ProjectInfo } from "../../lib/types";
 
 interface ProjectStatusGridProps {
@@ -21,6 +22,11 @@ export function ProjectStatusGrid({ projects }: ProjectStatusGridProps) {
           <div className="flex items-center gap-2">
             <FolderGit2 size={16} className="text-accent" />
             <span className="text-sm font-medium">{project.name}</span>
+            {project.repoCount > 0 && (
+              <Badge variant={project.hasChanges ? "warning" : "success"}>
+                {project.repoCount} repo{project.repoCount !== 1 ? "s" : ""}
+              </Badge>
+            )}
           </div>
         </Card>
       ))}

@@ -63,8 +63,9 @@ export function ProjectDetailPage() {
     } else if (execId && !active.some((e) => e.id === execId)) {
       setExecId(null);
       loadSession();
+      loadProject();
     }
-  }, [name, active, execId, loadSession]);
+  }, [name, active, execId, loadSession, loadProject]);
 
   const handleSessionChange = async (value: string) => {
     if (!name) return;

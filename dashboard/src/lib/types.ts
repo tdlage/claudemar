@@ -58,6 +58,8 @@ export interface AgentFileContent {
 
 export interface ProjectInfo {
   name: string;
+  repoCount: number;
+  hasChanges: boolean;
 }
 
 export interface ProjectDetail {

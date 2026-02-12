@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../lib/api";
 import { useExecutions } from "../hooks/useExecution";
 import { ExecutionCard } from "../components/overview/ExecutionCard";
@@ -15,11 +15,23 @@ export function OverviewPage() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [viewingExecId, setViewingExecId] = useState<string | null>(null);
+  const prevActiveCount = useRef(active.length);
+
+  const loadProjects = useCallback(() => {
+    api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
+  }, []);
 
   useEffect(() => {
     api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
-    api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
-  }, []);
+    loadProjects();
+  }, [loadProjects]);
+
+  useEffect(() => {
+    if (prevActiveCount.current > 0 && active.length < prevActiveCount.current) {
+      loadProjects();
+    }
+    prevActiveCount.current = active.length;
+  }, [active.length, loadProjects]);
 
   return (
     <div className="space-y-6">
