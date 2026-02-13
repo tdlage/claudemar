@@ -12,6 +12,7 @@ import { RepositoriesTab } from "../components/project/RepositoriesTab";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
+import { useCachedState } from "../hooks/useCachedState";
 import type { ProjectDetail } from "../lib/types";
 
 type TabKey = "terminal" | "repositories" | "files";
@@ -25,11 +26,11 @@ export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
   const { addToast } = useToast();
   const [project, setProject] = useState<ProjectDetail | null>(null);
-  const [tab, setTab] = useState<TabKey>("terminal");
-  const [prompt, setPrompt] = useState("");
-  const [planMode, setPlanMode] = useState(false);
-  const [execId, setExecId] = useState<string | null>(null);
-  const [expandedExecId, setExpandedExecId] = useState<string | null>(null);
+  const [tab, setTab] = useCachedState<TabKey>(`project:${name}:tab`, "terminal");
+  const [prompt, setPrompt] = useCachedState(`project:${name}:prompt`, "");
+  const [planMode, setPlanMode] = useCachedState(`project:${name}:planMode`, false);
+  const [execId, setExecId] = useCachedState<string | null>(`project:${name}:execId`, null);
+  const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`project:${name}:expandedExecId`, null);
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
 
@@ -55,7 +56,6 @@ export function ProjectDetailPage() {
   useEffect(() => {
     loadProject();
     loadSession();
-    setExpandedExecId(null);
   }, [loadProject, loadSession]);
 
   useEffect(() => {

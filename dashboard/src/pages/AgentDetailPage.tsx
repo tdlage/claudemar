@@ -13,6 +13,7 @@ import { OutputBrowser } from "../components/agent/OutputBrowser";
 import { AgentConfig } from "../components/agent/AgentConfig";
 import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
+import { useCachedState } from "../hooks/useCachedState";
 import type { AgentDetail } from "../lib/types";
 
 type TabKey = "terminal" | "inbox" | "outbox" | "output" | "config";
@@ -26,10 +27,10 @@ export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
   const { addToast } = useToast();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
-  const [tab, setTab] = useState<TabKey>("terminal");
-  const [prompt, setPrompt] = useState("");
-  const [planMode, setPlanMode] = useState(false);
-  const [execId, setExecId] = useState<string | null>(null);
+  const [tab, setTab] = useCachedState<TabKey>(`agent:${name}:tab`, "terminal");
+  const [prompt, setPrompt] = useCachedState(`agent:${name}:prompt`, "");
+  const [planMode, setPlanMode] = useCachedState(`agent:${name}:planMode`, false);
+  const [execId, setExecId] = useCachedState<string | null>(`agent:${name}:execId`, null);
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
   const { active, pendingQuestions, submitAnswer } = useExecutions();
   const activeExec = execId ? active.find((e) => e.id === execId) : undefined;

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronRight, File, Folder, Save, SaveAll } from "lucide-react";
 import { api } from "../../lib/api";
+import { getCached, setCached } from "../../lib/stateCache";
 import { useToast } from "../shared/Toast";
 import { EditorTabs, type OpenFile } from "../editor/EditorTabs";
 import { MonacoEditorWrapper, detectLanguage } from "../editor/MonacoEditor";
@@ -15,18 +16,38 @@ interface FileBuffer {
   current: string;
 }
 
+interface CachedFileBrowserState {
+  openFiles: Map<string, FileBuffer>;
+  activeTab: string | null;
+  expandedDirs: Set<string>;
+  dirContents: Record<string, FileEntry[]>;
+  tree: FileEntry[];
+}
+
 export function FilesBrowser({ projectName }: FilesBrowserProps) {
   const { addToast } = useToast();
   const base = `project:${projectName}`;
-  const [tree, setTree] = useState<FileEntry[]>([]);
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
-  const [dirContents, setDirContents] = useState<Record<string, FileEntry[]>>({});
-  const [openFiles, setOpenFiles] = useState<Map<string, FileBuffer>>(new Map());
-  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const cacheKey = `filebrowser:${projectName}`;
+  const cached = getCached<CachedFileBrowserState>(cacheKey);
+
+  const [tree, setTree] = useState<FileEntry[]>(cached?.tree ?? []);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(cached?.expandedDirs ?? new Set());
+  const [dirContents, setDirContents] = useState<Record<string, FileEntry[]>>(cached?.dirContents ?? {});
+  const [openFiles, setOpenFiles] = useState<Map<string, FileBuffer>>(cached?.openFiles ?? new Map());
+  const [activeTab, setActiveTab] = useState<string | null>(cached?.activeTab ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const savingRef = useRef(false);
+
+  const stateRef = useRef({ openFiles, activeTab, expandedDirs, dirContents, tree });
+  stateRef.current = { openFiles, activeTab, expandedDirs, dirContents, tree };
+
+  useEffect(() => {
+    return () => {
+      setCached(cacheKey, stateRef.current);
+    };
+  }, [cacheKey]);
 
   const loadDir = useCallback(async (path: string) => {
     try {
@@ -49,14 +70,12 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
   }, [base, addToast]);
 
   useEffect(() => {
-    setTree([]);
-    setExpandedDirs(new Set());
-    setDirContents({});
-    setOpenFiles(new Map());
-    setActiveTab(null);
+    if (getCached<CachedFileBrowserState>(cacheKey)?.tree?.length) {
+      return;
+    }
     setError(null);
     loadDir("");
-  }, [loadDir]);
+  }, [loadDir, cacheKey]);
 
   const toggleDir = (path: string) => {
     const next = new Set(expandedDirs);

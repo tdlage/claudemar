@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
+import { getCached, setCached } from "../lib/stateCache";
 import { useToast } from "../components/shared/Toast";
 import { useSocketRoom, useSocketEvent } from "../hooks/useSocket";
 import { FileTree, type FileTreeHandle } from "../components/editor/FileTree";
@@ -16,23 +17,43 @@ interface FileState {
   originalContent: string;
 }
 
+interface CachedEditorState {
+  openFiles: Map<string, FileState>;
+  activeFile: string | null;
+  base: string;
+}
+
+const EDITOR_CACHE_KEY = "editorPage";
+
 export function EditorPage() {
   const [searchParams] = useSearchParams();
   const { addToast } = useToast();
 
-  const initialBase = searchParams.get("base") || "orchestrator";
+  const cached = getCached<CachedEditorState>(EDITOR_CACHE_KEY);
+  const initialBase = searchParams.get("base") || cached?.base || "orchestrator";
   const initialPath = searchParams.get("path") || "";
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [base, setBase] = useState(initialBase);
   const [openFiles, setOpenFiles] = useState<Map<string, FileState>>(
-    new Map(),
+    cached?.openFiles ?? new Map(),
   );
-  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [activeFile, setActiveFile] = useState<string | null>(
+    cached?.activeFile ?? null,
+  );
   const [saving, setSaving] = useState(false);
 
   const fileTreeRef = useRef<FileTreeHandle>(null);
+
+  const editorStateRef = useRef({ openFiles, activeFile, base });
+  editorStateRef.current = { openFiles, activeFile, base };
+
+  useEffect(() => {
+    return () => {
+      setCached(EDITOR_CACHE_KEY, editorStateRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
