@@ -124,7 +124,7 @@ export function ProjectDetailPage() {
   const tabs: { key: TabKey; label: string }[] = [
     { key: "terminal", label: "Terminal" },
     { key: "repositories", label: "Repositories" },
-    { key: "files", label: "Files" },
+    { key: "files", label: "Code" },
   ];
 
   return (

@@ -5,7 +5,6 @@ import { OverviewPage } from "./pages/OverviewPage";
 import { OrchestratorPage } from "./pages/OrchestratorPage";
 import { AgentDetailPage } from "./pages/AgentDetailPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
-import { EditorPage } from "./pages/EditorPage";
 import { LogsPage } from "./pages/LogsPage";
 import { ChangelogPage } from "./pages/ChangelogPage";
 
@@ -42,7 +41,6 @@ export const router = createBrowserRouter([
       { path: "orchestrator", element: <OrchestratorPage /> },
       { path: "agents/:name", element: <KeyedAgentPage /> },
       { path: "projects/:name", element: <KeyedProjectPage /> },
-      { path: "editor", element: <EditorPage /> },
       { path: "logs", element: <LogsPage /> },
       { path: "changelog", element: <ChangelogPage /> },
     ],

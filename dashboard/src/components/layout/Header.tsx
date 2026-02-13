@@ -51,8 +51,10 @@ export function Header() {
   );
 }
 
+const BREADCRUMB_LABELS: Record<string, string> = {};
+
 function buildBreadcrumbs(pathname: string): string[] {
   if (pathname === "/") return ["Overview"];
   const parts = pathname.split("/").filter(Boolean);
-  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1));
+  return parts.map((p) => BREADCRUMB_LABELS[p] || p.charAt(0).toUpperCase() + p.slice(1));
 }

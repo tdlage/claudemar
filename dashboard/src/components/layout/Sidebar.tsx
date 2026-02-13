@@ -5,7 +5,6 @@ import {
   Cpu,
   Bot,
   Folder,
-  FileCode,
   ScrollText,
   GitCommitHorizontal,
   LogOut,
@@ -238,10 +237,6 @@ export function Sidebar() {
               Tools
             </p>
           )}
-          <NavLink to="/editor" className={linkClass} title="Code">
-            <FileCode size={16} />
-            {!collapsed && "Code"}
-          </NavLink>
           <NavLink to="/logs" className={linkClass} title="Logs">
             <ScrollText size={16} />
             {!collapsed && "Logs"}

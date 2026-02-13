@@ -5,6 +5,9 @@ import { getCached, setCached } from "../../lib/stateCache";
 import { useToast } from "../shared/Toast";
 import { EditorTabs, type OpenFile } from "../editor/EditorTabs";
 import { MonacoEditorWrapper, detectLanguage } from "../editor/MonacoEditor";
+import { ActivityBar, type ActivityView } from "../editor/ActivityBar";
+import { SearchPanel } from "../editor/SearchPanel";
+import { RunPanel } from "../editor/RunPanel";
 import type { FileEntry, FileReadResult } from "../../lib/types";
 
 interface FilesBrowserProps {
@@ -38,6 +41,8 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<ActivityView>("files");
+  const [goToLine, setGoToLine] = useState<number | undefined>();
   const savingRef = useRef(false);
 
   const stateRef = useRef({ openFiles, activeTab, expandedDirs, dirContents, tree });
@@ -109,9 +114,10 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
     }
   };
 
-  const openFile = async (path: string) => {
+  const openFile = useCallback(async (path: string, line?: number) => {
     if (openFiles.has(path)) {
       setActiveTab(path);
+      if (line) setGoToLine(line);
       return;
     }
 
@@ -127,13 +133,18 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
         const content = result.content || "";
         setOpenFiles((prev) => new Map(prev).set(path, { original: content, current: content }));
         setActiveTab(path);
+        if (line) setGoToLine(line);
       }
     } catch {
       addToast("error", "Failed to load file");
     } finally {
       setLoading(false);
     }
-  };
+  }, [openFiles, base, addToast]);
+
+  const handleSearchResultClick = useCallback((path: string, line: number) => {
+    openFile(path, line);
+  }, [openFile]);
 
   const handleChange = useCallback((value: string) => {
     setActiveTab((tab) => {
@@ -282,17 +293,40 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
       ));
   }
 
+  function renderSidePanel() {
+    switch (activeView) {
+      case "files":
+        return (
+          <div className="w-64 bg-surface border-r border-border overflow-y-auto p-1 shrink-0">
+            {error ? (
+              <p className="text-xs text-danger p-2">{error}</p>
+            ) : tree.length === 0 ? (
+              <p className="text-xs text-text-muted p-2">No files found.</p>
+            ) : (
+              renderEntries(tree)
+            )}
+          </div>
+        );
+      case "search":
+        return (
+          <div className="w-64 bg-surface border-r border-border shrink-0">
+            <SearchPanel base={base} onResultClick={handleSearchResultClick} />
+          </div>
+        );
+      case "run":
+        return (
+          <div className="w-64 bg-surface border-r border-border shrink-0">
+            <RunPanel base={base} />
+          </div>
+        );
+    }
+  }
+
   return (
     <div className="flex border border-border rounded-lg overflow-hidden h-full relative">
-      <div className="w-64 bg-surface border-r border-border overflow-y-auto p-1 shrink-0">
-        {error ? (
-          <p className="text-xs text-danger p-2">{error}</p>
-        ) : tree.length === 0 ? (
-          <p className="text-xs text-text-muted p-2">No files found.</p>
-        ) : (
-          renderEntries(tree)
-        )}
-      </div>
+      <ActivityBar activeView={activeView} onViewChange={setActiveView} />
+
+      {renderSidePanel()}
 
       <div className="flex-1 flex flex-col bg-bg min-w-0">
         <div className="flex items-center border-b border-border shrink-0">
@@ -337,6 +371,7 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
               onChange={handleChange}
               language={detectLanguage(activeTab!)}
               onSave={handleSave}
+              goToLine={goToLine}
             />
           </div>
         ) : (

@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   Bot,
   FolderGit2,
-  FileCode,
   ScrollText,
 } from "lucide-react";
 import { api } from "../lib/api";
@@ -78,16 +77,6 @@ export function CommandPalette() {
         },
       },
       {
-        id: "nav:editor",
-        label: "Editor",
-        category: "Navigation",
-        icon: FileCode,
-        action: () => {
-          navigate("/editor");
-          close();
-        },
-      },
-      {
         id: "nav:logs",
         label: "Logs",
         category: "Navigation",
@@ -110,16 +99,6 @@ export function CommandPalette() {
           close();
         },
       });
-      result.push({
-        id: `editor:agent:${agent.name}`,
-        label: `Edit ${agent.name} files`,
-        category: "Editor",
-        icon: FileCode,
-        action: () => {
-          navigate(`/editor?base=agent:${agent.name}`);
-          close();
-        },
-      });
     }
 
     for (const project of projects) {
@@ -130,16 +109,6 @@ export function CommandPalette() {
         icon: FolderGit2,
         action: () => {
           navigate(`/projects/${project.name}`);
-          close();
-        },
-      });
-      result.push({
-        id: `editor:project:${project.name}`,
-        label: `Edit ${project.name} files`,
-        category: "Editor",
-        icon: FileCode,
-        action: () => {
-          navigate(`/editor?base=project:${project.name}`);
           close();
         },
       });
