@@ -10,6 +10,9 @@ import {
   detectLanguage,
 } from "../components/editor/MonacoEditor";
 import { EditorTabs, type OpenFile } from "../components/editor/EditorTabs";
+import { ActivityBar, type ActivityView } from "../components/editor/ActivityBar";
+import { SearchPanel } from "../components/editor/SearchPanel";
+import { RunPanel } from "../components/editor/RunPanel";
 import type { AgentInfo, FileReadResult, ProjectInfo } from "../lib/types";
 
 interface FileState {
@@ -43,6 +46,8 @@ export function EditorPage() {
     cached?.activeFile ?? null,
   );
   const [saving, setSaving] = useState(false);
+  const [activeView, setActiveView] = useState<ActivityView>("files");
+  const [goToLine, setGoToLine] = useState<number | undefined>();
 
   const fileTreeRef = useRef<FileTreeHandle>(null);
 
@@ -166,6 +171,16 @@ export function EditorPage() {
     setActiveFile(null);
   }, []);
 
+  const handleSearchResultClick = useCallback(
+    async (path: string, line: number) => {
+      await openFile(path);
+      setActiveFile(path);
+      setGoToLine(line);
+      setTimeout(() => setGoToLine(undefined), 100);
+    },
+    [openFile],
+  );
+
   useSocketRoom("files");
 
   useSocketEvent<{ event: string; base: string; path: string }>(
@@ -216,42 +231,54 @@ export function EditorPage() {
 
   return (
     <div className="flex h-[calc(100vh-7rem)] gap-0 -m-4 md:-m-6">
-      <div className="w-64 bg-surface border-r border-border overflow-y-auto flex flex-col">
-        <div className="p-2 border-b border-border">
-          <select
-            value={base}
-            onChange={(e) => handleBaseChange(e.target.value)}
-            className="w-full bg-bg border border-border rounded text-xs px-2 py-1 text-text-primary focus:outline-none"
-          >
-            <option value="orchestrator">Orchestrator</option>
-            {agents.length > 0 && (
-              <optgroup label="Agents">
-                {agents.map((a) => (
-                  <option key={a.name} value={`agent:${a.name}`}>
-                    {a.name}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {projects.length > 0 && (
-              <optgroup label="Projects">
-                {projects.map((p) => (
-                  <option key={p.name} value={`project:${p.name}`}>
-                    {p.name}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-        </div>
-        <div className="overflow-y-auto flex-1">
-          <FileTree
-            ref={fileTreeRef}
-            base={base}
-            onFileSelect={openFile}
-            selectedFile={activeFile || ""}
-          />
-        </div>
+      <ActivityBar activeView={activeView} onViewChange={setActiveView} />
+
+      <div className="w-64 bg-surface border-r border-border overflow-y-auto flex flex-col shrink-0">
+        {activeView === "files" && (
+          <>
+            <div className="p-2 border-b border-border">
+              <select
+                value={base}
+                onChange={(e) => handleBaseChange(e.target.value)}
+                className="w-full bg-bg border border-border rounded text-xs px-2 py-1 text-text-primary focus:outline-none"
+              >
+                <option value="orchestrator">Orchestrator</option>
+                {agents.length > 0 && (
+                  <optgroup label="Agents">
+                    {agents.map((a) => (
+                      <option key={a.name} value={`agent:${a.name}`}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {projects.length > 0 && (
+                  <optgroup label="Projects">
+                    {projects.map((p) => (
+                      <option key={p.name} value={`project:${p.name}`}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <FileTree
+                ref={fileTreeRef}
+                base={base}
+                onFileSelect={openFile}
+                selectedFile={activeFile || ""}
+              />
+            </div>
+          </>
+        )}
+
+        {activeView === "search" && (
+          <SearchPanel base={base} onResultClick={handleSearchResultClick} />
+        )}
+
+        {activeView === "run" && <RunPanel base={base} />}
       </div>
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -264,13 +291,14 @@ export function EditorPage() {
               onClose={handleTabClose}
             />
             {activeState ? (
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 relative">
                 <MonacoEditorWrapper
                   key={activeFile}
                   content={activeState.content}
                   onChange={handleContentChange}
                   language={detectLanguage(activeFile || "")}
                   onSave={handleSave}
+                  goToLine={goToLine}
                 />
                 {saving && (
                   <div className="absolute bottom-4 right-4 bg-surface border border-border rounded px-3 py-1 text-xs text-text-muted">

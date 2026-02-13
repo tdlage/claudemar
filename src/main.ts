@@ -2,6 +2,7 @@ import { config } from "./config.js";
 import { bot } from "./bot.js";
 import { executionManager, type ExecutionInfo } from "./execution-manager.js";
 import { commandQueue } from "./queue.js";
+import { runProcessManager } from "./run-process-manager.js";
 import { processQueueItem } from "./processor.js";
 import { createDashboardServer } from "./server/index.js";
 import { tokenManager } from "./server/token-manager.js";
@@ -43,6 +44,7 @@ bot.start().catch((err) => {
 function shutdown() {
   console.log("Shutting down...");
   commandQueue.flush();
+  runProcessManager.flush();
   flushSessions();
   tokenManager.stop();
   bot.stop();

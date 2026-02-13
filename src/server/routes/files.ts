@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync, openSync, readSync, closeSync } from "node:fs";
 import { resolve, sep, relative, extname, basename } from "node:path";
 import { Router } from "express";
@@ -206,4 +207,67 @@ filesRouter.delete("/", (req, res) => {
 
   unlinkSync(resolved);
   res.json({ deleted: true });
+});
+
+const MAX_SEARCH_RESULTS = 500;
+
+filesRouter.get("/search", (req, res) => {
+  const base = req.query.base as string;
+  const query = req.query.query as string;
+  const useRegex = req.query.regex === "true";
+  const caseSensitive = req.query.caseSensitive === "true";
+  const wholeWord = req.query.wholeWord === "true";
+
+  if (!base || !query) {
+    res.status(400).json({ error: "base and query params required" });
+    return;
+  }
+
+  const basePath = resolveBase(base);
+  if (!basePath || !existsSync(basePath)) {
+    res.status(404).json({ error: "Base not found" });
+    return;
+  }
+
+  const args = ["-rn", "--include=*.*", `-m`, String(MAX_SEARCH_RESULTS)];
+  if (!caseSensitive) args.push("-i");
+  if (!useRegex) args.push("-F");
+  if (wholeWord) args.push("-w");
+  args.push("--", query, basePath);
+
+  execFile("grep", args, { maxBuffer: 5 * 1024 * 1024, timeout: 15000 }, (err, stdout) => {
+    if (err && (err as NodeJS.ErrnoException).code !== "1" && err.killed !== false) {
+      if (!stdout) {
+        res.json({ results: {}, count: 0 });
+        return;
+      }
+    }
+
+    const results: Record<string, Array<{ line: number; content: string }>> = {};
+    let count = 0;
+    const lines = (stdout || "").trim().split("\n").filter(Boolean);
+
+    for (const line of lines) {
+      const sepIdx = line.indexOf(":");
+      if (sepIdx === -1) continue;
+      const rest = line.slice(sepIdx + 1);
+      const sepIdx2 = rest.indexOf(":");
+      if (sepIdx2 === -1) continue;
+
+      const filePath = line.slice(0, sepIdx);
+      const lineNum = parseInt(rest.slice(0, sepIdx2), 10);
+      const content = rest.slice(sepIdx2 + 1);
+
+      if (isNaN(lineNum)) continue;
+
+      const relPath = relative(basePath, filePath);
+      if (relPath.startsWith("..")) continue;
+
+      if (!results[relPath]) results[relPath] = [];
+      results[relPath].push({ line: lineNum, content: content.slice(0, 500) });
+      count++;
+    }
+
+    res.json({ results, count });
+  });
 });

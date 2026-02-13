@@ -1,6 +1,7 @@
 import type { Server as SocketServer, Socket } from "socket.io";
 import { executionManager } from "../execution-manager.js";
 import { commandQueue } from "../queue.js";
+import { runProcessManager } from "../run-process-manager.js";
 import { validateSocketToken } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
@@ -65,6 +66,18 @@ export function setupWebSocket(io: SocketServer): void {
     socket.on("execution:answer", ({ execId, answer }: { execId: string; answer: string }) => {
       executionManager.submitAnswer(execId, answer);
     });
+
+    socket.on("subscribe:run", (configId: string) => {
+      socket.join(`run:${configId}`);
+      const output = runProcessManager.getOutput(configId);
+      if (output) {
+        socket.emit("run:catchup", { configId, output });
+      }
+    });
+
+    socket.on("unsubscribe:run", (configId: string) => {
+      socket.leave(`run:${configId}`);
+    });
   });
 
   const sweepInvalidSockets = () => {
@@ -122,6 +135,24 @@ export function setupWebSocket(io: SocketServer): void {
 
   commandQueue.on("queue:remove", (item) => {
     io.to("executions").emit("queue:remove", { item });
+  });
+
+  runProcessManager.on("start", (configId, cfg) => {
+    io.to("executions").emit("run:start", { configId, config: cfg });
+  });
+
+  runProcessManager.on("output", (configId, chunk) => {
+    io.to(`run:${configId}`).emit("run:output", { configId, chunk });
+  });
+
+  runProcessManager.on("stop", (configId, exitCode) => {
+    io.to("executions").emit("run:stop", { configId, exitCode });
+    io.to(`run:${configId}`).emit("run:stop", { configId, exitCode });
+  });
+
+  runProcessManager.on("error", (configId, error) => {
+    io.to("executions").emit("run:error", { configId, error });
+    io.to(`run:${configId}`).emit("run:error", { configId, error });
   });
 
   startFileWatcher((event, base, path) => {

@@ -226,9 +226,9 @@ export function Sidebar() {
               Tools
             </p>
           )}
-          <NavLink to="/editor" className={linkClass} title="Editor">
+          <NavLink to="/editor" className={linkClass} title="Code">
             <FileCode size={16} />
-            {!collapsed && "Editor"}
+            {!collapsed && "Code"}
           </NavLink>
           <NavLink to="/logs" className={linkClass} title="Logs">
             <ScrollText size={16} />

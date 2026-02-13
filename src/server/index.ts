@@ -14,6 +14,7 @@ import { executionsRouter } from "./routes/executions.js";
 import { filesRouter } from "./routes/files.js";
 import { orchestratorRouter } from "./routes/orchestrator.js";
 import { systemRouter } from "./routes/system.js";
+import { runConfigsRouter } from "./routes/run-configs.js";
 
 export function createDashboardServer() {
   const app = express();
@@ -44,6 +45,7 @@ export function createDashboardServer() {
   app.use("/api/files", filesRouter);
   app.use("/api/orchestrator", orchestratorRouter);
   app.use("/api/system", systemRouter);
+  app.use("/api/run-configs", runConfigsRouter);
 
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "Not found" });

@@ -155,3 +155,23 @@ export interface GitFileDiff {
   original: string;
   modified: string;
 }
+
+export interface RunConfig {
+  id: string;
+  name: string;
+  command: string;
+  workingDirectory: string;
+  envVars: Record<string, string>;
+  projectName: string;
+  status?: { running: boolean; pid?: number; startedAt?: string };
+}
+
+export interface SearchMatch {
+  line: number;
+  content: string;
+}
+
+export interface SearchResponse {
+  results: Record<string, SearchMatch[]>;
+  count: number;
+}

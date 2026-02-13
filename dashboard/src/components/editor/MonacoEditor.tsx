@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 
@@ -8,6 +8,7 @@ interface MonacoEditorProps {
   language?: string;
   readOnly?: boolean;
   onSave?: () => void;
+  goToLine?: number;
 }
 
 const EXT_LANGUAGE_MAP: Record<string, string> = {
@@ -42,6 +43,7 @@ export function MonacoEditorWrapper({
   language = "plaintext",
   readOnly = false,
   onSave,
+  goToLine,
 }: MonacoEditorProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
 
@@ -58,6 +60,13 @@ export function MonacoEditorWrapper({
     },
     [onSave],
   );
+
+  useEffect(() => {
+    if (!editorRef.current || !goToLine) return;
+    editorRef.current.revealLineInCenter(goToLine);
+    editorRef.current.setPosition({ lineNumber: goToLine, column: 1 });
+    editorRef.current.focus();
+  }, [goToLine]);
 
   const handleChange = useCallback(
     (value: string | undefined) => {
