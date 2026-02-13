@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync, writeFileSync } from "node:fs";
+import { executionManager } from "./execution-manager.js";
 
 const INSTALL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const NOTIFIED_FILE = resolve(INSTALL_DIR, ".update-notified");
@@ -110,7 +111,22 @@ export async function performUpdate(): Promise<{ success: boolean; output: strin
   }
 }
 
-export function restartService(): void {
+const RESTART_RETRY_INTERVAL_MS = 30_000;
+
+export interface RestartCallbacks {
+  onWaiting?: (activeCount: number) => void;
+  onRestarting?: () => void;
+}
+
+export function restartService(callbacks?: RestartCallbacks): void {
+  const active = executionManager.getActiveExecutions();
+  if (active.length > 0) {
+    callbacks?.onWaiting?.(active.length);
+    setTimeout(() => restartService(callbacks), RESTART_RETRY_INTERVAL_MS);
+    return;
+  }
+
+  callbacks?.onRestarting?.();
   const child = execFile("sudo", ["systemctl", "restart", "claudemar"], {
     timeout: 10_000,
   });

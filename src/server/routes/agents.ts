@@ -12,6 +12,7 @@ import {
 } from "../../agents/manager.js";
 import type { AgentPaths } from "../../agents/types.js";
 import { listSchedulesByAgent, removeSchedulesByAgent } from "../../agents/scheduler.js";
+import { secretsManager } from "../../secrets-manager.js";
 
 export const agentsRouter = Router();
 
@@ -94,6 +95,7 @@ agentsRouter.get("/:name", (req, res) => {
   try { contextFiles = readdirSync(paths.context).filter((f) => !f.startsWith(".")).sort(); } catch { /* empty */ }
 
   const schedules = listSchedulesByAgent(name);
+  const secrets = secretsManager.getMaskedSecrets(name);
 
   res.json({
     ...info,
@@ -103,6 +105,7 @@ agentsRouter.get("/:name", (req, res) => {
     outputFiles,
     contextFiles,
     schedules,
+    secrets,
   });
 });
 
@@ -331,4 +334,83 @@ agentsRouter.post("/:name/context", (req, res) => {
 
   writeFileSync(filePath, content, "utf-8");
   res.status(201).json({ created: filename });
+});
+
+agentsRouter.get("/:name/secrets", (req, res) => {
+  const { name } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  const paths = getAgentPaths(name);
+  if (!paths || !existsSync(paths.root)) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  res.json(secretsManager.getMaskedSecrets(name));
+});
+
+agentsRouter.post("/:name/secrets", (req, res) => {
+  const { name } = req.params;
+  const { name: secretName, value, description } = req.body;
+
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  const paths = getAgentPaths(name);
+  if (!paths || !existsSync(paths.root)) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  if (!secretName || typeof secretName !== "string") {
+    res.status(400).json({ error: "name (string) required" });
+    return;
+  }
+  if (!value || typeof value !== "string") {
+    res.status(400).json({ error: "value (string) required" });
+    return;
+  }
+
+  const created = secretsManager.createSecret(name, secretName, value, description || "");
+  res.status(201).json(created);
+});
+
+agentsRouter.put("/:name/secrets/:id", (req, res) => {
+  const { name, id } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+
+  const ownerAgent = secretsManager.getSecretAgentName(id);
+  if (!ownerAgent || ownerAgent !== name) {
+    res.status(404).json({ error: "Secret not found" });
+    return;
+  }
+
+  const { name: secretName, value, description } = req.body;
+  const updated = secretsManager.updateSecret(id, { name: secretName, value, description });
+  if (!updated) {
+    res.status(404).json({ error: "Secret not found" });
+    return;
+  }
+  res.json(updated);
+});
+
+agentsRouter.delete("/:name/secrets/:id", (req, res) => {
+  const { name, id } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+
+  const ownerAgent = secretsManager.getSecretAgentName(id);
+  if (!ownerAgent || ownerAgent !== name) {
+    res.status(404).json({ error: "Secret not found" });
+    return;
+  }
+
+  secretsManager.deleteSecret(id);
+  res.json({ deleted: true });
 });

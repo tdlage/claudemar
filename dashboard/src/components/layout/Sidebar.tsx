@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Cpu,
@@ -10,6 +10,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../hooks/useAuth";
@@ -62,15 +63,39 @@ function StatusDot({ targetKey, statusMap }: { targetKey: string; statusMap: Tar
 export function Sidebar() {
   const { logout } = useAuth();
   const { collapsed, setCollapsed } = useSidebar();
+  const navigate = useNavigate();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [targetStatus, setTargetStatus] = useState<TargetStatus>({});
+  const [createAgentOpen, setCreateAgentOpen] = useState(false);
+  const [newAgentName, setNewAgentName] = useState("");
+  const [creatingAgent, setCreatingAgent] = useState(false);
+
+  const loadAgents = useCallback(() => {
+    api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
+  }, []);
 
   useEffect(() => {
-    api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
+    loadAgents();
     api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
     api.get<TargetStatus>("/executions/target-status").then(setTargetStatus).catch(() => {});
-  }, []);
+  }, [loadAgents]);
+
+  const handleCreateAgent = async () => {
+    if (!newAgentName.trim() || creatingAgent) return;
+    setCreatingAgent(true);
+    try {
+      await api.post("/agents", { name: newAgentName.trim() });
+      setCreateAgentOpen(false);
+      setNewAgentName("");
+      loadAgents();
+      navigate(`/agents/${newAgentName.trim()}`);
+    } catch {
+      // ignore
+    } finally {
+      setCreatingAgent(false);
+    }
+  };
 
   const markRunning = useCallback((info: ExecutionInfo) => {
     const key = `${info.targetType}:${info.targetName}`;
@@ -162,9 +187,27 @@ export function Sidebar() {
 
         <div>
           {!collapsed && (
-            <p className="px-3 mb-1.5 text-xs font-medium text-text-muted uppercase tracking-wider">
-              Agents
-            </p>
+            <div className="flex items-center justify-between px-3 mb-1.5">
+              <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
+                Agents
+              </p>
+              <button
+                onClick={() => setCreateAgentOpen(true)}
+                className="text-text-muted hover:text-accent transition-colors"
+                title="Create agent"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+          )}
+          {collapsed && (
+            <button
+              onClick={() => setCreateAgentOpen(true)}
+              className="flex items-center justify-center w-full h-8 text-text-muted hover:text-accent transition-colors"
+              title="Create agent"
+            >
+              <Plus size={14} />
+            </button>
           )}
           <div className="space-y-0.5">
             {agents.map((a) => (
@@ -258,6 +301,45 @@ export function Sidebar() {
           {!collapsed && "Logout"}
         </button>
       </div>
+      {createAgentOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/60" onClick={() => setCreateAgentOpen(false)} />
+          <div className="relative bg-surface border border-border rounded-lg shadow-2xl w-80 mx-4">
+            <div className="p-4 border-b border-border">
+              <h3 className="text-sm font-medium text-text-primary">Create Agent</h3>
+            </div>
+            <div className="p-4 space-y-3">
+              <input
+                type="text"
+                value={newAgentName}
+                onChange={(e) => setNewAgentName(e.target.value.replace(/[^a-zA-Z0-9._-]/g, ""))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateAgent();
+                  if (e.key === "Escape") setCreateAgentOpen(false);
+                }}
+                placeholder="Agent name"
+                autoFocus
+                className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setCreateAgentOpen(false)}
+                  className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateAgent}
+                  disabled={!newAgentName.trim() || creatingAgent}
+                  className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                >
+                  {creatingAgent ? "Creating..." : "Create"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

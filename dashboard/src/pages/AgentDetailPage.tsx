@@ -223,6 +223,7 @@ export function AgentDetailPage() {
           claudeMd={agent.claudeMd}
           contextFiles={agent.contextFiles}
           schedules={agent.schedules}
+          secrets={agent.secrets}
           onRefresh={loadAgent}
         />
       )}

@@ -97,7 +97,14 @@ systemRouter.post("/update", async (_req, res) => {
     const result = await performUpdate();
     res.json(result);
     if (result.success) {
-      setTimeout(() => restartService(), 1500);
+      setTimeout(() => restartService({
+        onWaiting: (count) => {
+          console.log(`[updater] ${count} active execution(s), waiting 30s before restart...`);
+        },
+        onRestarting: () => {
+          console.log("[updater] No active executions, restarting service...");
+        },
+      }), 1500);
     }
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Update failed" });

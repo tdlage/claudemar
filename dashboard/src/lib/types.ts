@@ -50,6 +50,13 @@ export interface AgentInfo {
   lastExecution: string | null;
 }
 
+export interface AgentSecret {
+  id: string;
+  name: string;
+  maskedValue: string;
+  description: string;
+}
+
 export interface AgentDetail extends AgentInfo {
   claudeMd: string;
   inboxFiles: string[];
@@ -57,6 +64,7 @@ export interface AgentDetail extends AgentInfo {
   outputFiles: { name: string; size: number; mtime: string }[];
   contextFiles: string[];
   schedules: ScheduleEntry[];
+  secrets: AgentSecret[];
 }
 
 export interface ScheduleEntry {

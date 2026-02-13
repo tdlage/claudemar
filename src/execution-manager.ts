@@ -42,6 +42,7 @@ export interface StartExecutionOpts {
   timeoutMs?: number;
   model?: string;
   planMode?: boolean;
+  env?: Record<string, string>;
 }
 
 const MAX_RECENT = 100;
@@ -159,6 +160,7 @@ class ExecutionManager extends EventEmitter {
         this.emit("question", id, info);
       },
       opts.planMode,
+      opts.env,
     );
 
     this.active.set(id, { info, process: handle.process, opts });

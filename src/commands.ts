@@ -1481,7 +1481,14 @@ async function handleAutoUpdateCallback(ctx: Context): Promise<void> {
 
     if (result.success) {
       await ctx.api.sendMessage(chatId, "Atualização concluída! Reiniciando serviço...");
-      setTimeout(() => restartService(), 1000);
+      setTimeout(() => restartService({
+        onWaiting: (count) => {
+          ctx.api.sendMessage(chatId, `⏳ ${count} execução(ões) ativa(s). Aguardando para reiniciar... (nova tentativa em 30s)`).catch(() => {});
+        },
+        onRestarting: () => {
+          ctx.api.sendMessage(chatId, "Reiniciando serviço agora...").catch(() => {});
+        },
+      }), 1000);
     } else {
       await ctx.api.sendMessage(
         chatId,
