@@ -122,9 +122,11 @@ export function ProjectDetailPage() {
     return <p className="text-text-muted">Loading...</p>;
   }
 
-  const tabs: { key: TabKey; label: string }[] = [
+  const changedRepoCount = project.repos.filter((r) => r.hasChanges).length;
+
+  const tabs: { key: TabKey; label: string; badge?: number; badgeVariant?: "warning" }[] = [
     { key: "terminal", label: "Terminal" },
-    { key: "repositories", label: "Repositories" },
+    { key: "repositories", label: "Repositories", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) },
     { key: "files", label: "Code" },
   ];
 

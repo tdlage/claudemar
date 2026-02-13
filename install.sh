@@ -459,42 +459,51 @@ EOF
 }
 
 setup_cron() {
-    step 7 "Setting up auto-update cron"
-
-    local script_path="$INSTALL_DIR/scripts/check-update.sh"
-
-    if [[ ! -f "$script_path" ]]; then
-        warn "check-update.sh not found — skipping cron setup"
-        return
-    fi
-
-    chmod +x "$script_path"
+    step 7 "Setting up cron jobs"
 
     if ! command -v crontab &>/dev/null; then
-        warn "crontab not found — skipping auto-update cron"
-        info "You can run $script_path manually or set up a scheduler"
+        warn "crontab not found — skipping cron setup"
         return
     fi
-
-    local cron_entry="*/10 * * * * CLAUDEMAR_DIR=$INSTALL_DIR $script_path >/dev/null 2>&1"
 
     local existing
     existing="$(crontab -l 2>/dev/null || true)"
     local filtered
-    filtered="$(echo "$existing" | grep -v "check-update.sh" | sed '/^$/d' || true)"
+    filtered="$(echo "$existing" | grep -v "check-update.sh" | grep -v "sync-agents.sh" | sed '/^$/d' || true)"
 
-    if [[ -n "$filtered" ]]; then
-        printf '%s\n%s\n' "$filtered" "$cron_entry" | crontab -
+    local entries=""
+
+    local update_script="$INSTALL_DIR/scripts/check-update.sh"
+    if [[ -f "$update_script" ]]; then
+        chmod +x "$update_script"
+        entries+="*/10 * * * * CLAUDEMAR_DIR=$INSTALL_DIR $update_script >/dev/null 2>&1"$'\n'
+        success "Auto-update cron configured (every 10 minutes)"
     else
-        echo "$cron_entry" | crontab -
+        warn "check-update.sh not found — skipping auto-update cron"
     fi
 
-    if echo "$existing" | grep -qF "check-update.sh"; then
-        info "Updated existing cron entry"
+    local sync_script="$INSTALL_DIR/scripts/sync-agents.sh"
+    if [[ -f "$sync_script" ]]; then
+        chmod +x "$sync_script"
+        entries+="*/10 * * * * CLAUDEMAR_DIR=$INSTALL_DIR $sync_script >/dev/null 2>&1"$'\n'
+        success "Agent sync cron configured (every 10 minutes)"
+    else
+        warn "sync-agents.sh not found — skipping agent sync cron"
+    fi
+
+    if [[ -z "$entries" ]]; then
+        return
+    fi
+
+    entries="${entries%$'\n'}"
+
+    if [[ -n "$filtered" ]]; then
+        printf '%s\n%s\n' "$filtered" "$entries" | crontab -
+    else
+        echo "$entries" | crontab -
     fi
 
     CRON_INSTALLED=true
-    success "Auto-update cron configured (every 10 minutes)"
 }
 
 setup_systemd() {

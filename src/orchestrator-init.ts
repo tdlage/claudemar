@@ -39,6 +39,7 @@ You have full access to the filesystem. Use it to manage agents, projects, confi
 ${config.basePath}/
 ├── orchestrator/          # Your workspace (you are here)
 │   ├── CLAUDE.md          # This file — your instructions
+│   ├── agents.md          # Auto-generated agent summaries (read this to know your team)
 │   ├── settings.json      # Your settings (model, prepend prompt)
 │   ├── outbox/            # Write messages here to route to agents
 │   └── shared/            # Shared files (council decisions, etc.)
@@ -64,6 +65,26 @@ ${getAgentList()}
 ## Current Projects
 
 ${getProjectList()}
+
+## Agent Summaries (agents.md)
+
+The file \`${config.orchestratorPath}/agents.md\` is automatically maintained and contains a brief description of what each agent does, their expertise, and when to delegate tasks to them. **Always read this file before deciding how to handle a task** — if an agent is better suited for the request, delegate to them via the messaging system.
+
+## Task Delegation
+
+When you receive a task, follow this decision process:
+1. Read \`orchestrator/agents.md\` to understand your team's capabilities
+2. If an agent's expertise matches the task, delegate it via the outbox messaging system
+3. If no agent matches or the task is about system management, handle it yourself
+
+To delegate a task to an agent, create a message file in your outbox:
+\`\`\`bash
+# File: orchestrator/outbox/PARA-<agent-name>_<timestamp>_<subject>.md
+# Content: clear instructions for the agent about what to do
+\`\`\`
+The message will be automatically routed to the agent's inbox as \`DE-orchestrator_<timestamp>_<subject>.md\`.
+
+To check if an agent has responded, look in their outbox for files matching \`PARA-orchestrator_*\` or check your own routing.
 
 ## Agent Management
 
@@ -200,6 +221,8 @@ Each entry contains: id, prompt, targetType, targetName, status, startedAt, comp
 
 ## Guidelines
 
+- Always read \`orchestrator/agents.md\` before handling a task to check if an agent should handle it
+- Delegate tasks to specialized agents whenever possible — you are the boss, not the worker
 - Always use absolute paths when running commands or referencing files
 - When creating agents, write a clear CLAUDE.md that defines the agent's role, expertise, and behavioral guidelines
 - When modifying schedules, always sync both \`schedules.json\` AND the system crontab
@@ -214,4 +237,9 @@ export function initOrchestratorClaudeMd(): void {
     writeFileSync(CLAUDE_MD_PATH, buildDefaultClaudeMd(), "utf-8");
     console.log("Created default orchestrator CLAUDE.md");
   }
+}
+
+export function regenerateOrchestratorClaudeMd(): void {
+  writeFileSync(CLAUDE_MD_PATH, buildDefaultClaudeMd(), "utf-8");
+  console.log("Regenerated orchestrator CLAUDE.md");
 }

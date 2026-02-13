@@ -3,7 +3,9 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { type AskQuestion, type ClaudeResult, type SpawnHandle, spawnClaude } from "./executor.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
-import { routeMessages } from "./agents/messenger.js";
+import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInboxMessages } from "./agents/messenger.js";
+import { getAgentPaths } from "./agents/manager.js";
+import { config } from "./config.js";
 import { trackExecution } from "./metrics.js";
 
 export type ExecutionSource = "telegram" | "web";
@@ -43,6 +45,7 @@ export interface StartExecutionOpts {
   model?: string;
   planMode?: boolean;
   env?: Record<string, string>;
+  isInboxProcessing?: boolean;
 }
 
 const MAX_RECENT = 100;
@@ -143,8 +146,12 @@ class ExecutionManager extends EventEmitter {
     const resumeId = opts.resumeSessionId
       ?? this.getLastSessionId(opts.targetType, opts.targetName);
 
+    const effectivePrompt = (opts.targetType === "agent" || opts.targetType === "orchestrator")
+      ? `${opts.prompt}\n\n[SYSTEM: Before executing, read your CLAUDE.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`
+      : opts.prompt;
+
     const handle: SpawnHandle = spawnClaude(
-      opts.prompt,
+      effectivePrompt,
       opts.cwd,
       resumeId,
       opts.timeoutMs,
@@ -204,7 +211,14 @@ class ExecutionManager extends EventEmitter {
 
         if (opts.targetType === "agent") {
           trackExecution(opts.targetName, result.costUsd, result.durationMs);
-          routeMessages(opts.targetName);
+          if (opts.isInboxProcessing) {
+            archiveInboxMessages(opts.targetName);
+          }
+          const agentRoute = routeMessages(opts.targetName);
+          this.triggerInboxProcessing(agentRoute.destinations);
+        } else if (opts.targetType === "orchestrator") {
+          const orchRoute = routeOrchestratorMessages();
+          this.triggerInboxProcessing(orchRoute.destinations);
         }
       })
       .catch((err) => {
@@ -359,6 +373,31 @@ class ExecutionManager extends EventEmitter {
     this.recent.push(entry.info);
     if (this.recent.length > MAX_RECENT) {
       this.recent.shift();
+    }
+  }
+
+  private triggerInboxProcessing(destinations: string[]): void {
+    for (const agentName of destinations) {
+      if (this.isTargetActive("agent", agentName)) {
+        console.log(`[inbox] ${agentName} is busy, skipping inbox trigger`);
+        continue;
+      }
+
+      const inboxPrompt = buildInboxPrompt(agentName);
+      if (!inboxPrompt) continue;
+
+      const paths = getAgentPaths(agentName);
+      if (!paths) continue;
+
+      console.log(`[inbox] Triggering ${agentName} to process inbox messages`);
+      this.startExecution({
+        source: "web",
+        targetType: "agent",
+        targetName: agentName,
+        prompt: inboxPrompt,
+        cwd: paths.root,
+        isInboxProcessing: true,
+      });
     }
   }
 }

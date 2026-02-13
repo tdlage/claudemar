@@ -11,13 +11,15 @@ import { InboxList } from "../components/agent/InboxList";
 import { OutboxList } from "../components/agent/OutboxList";
 import { OutputBrowser } from "../components/agent/OutputBrowser";
 import { AgentConfig } from "../components/agent/AgentConfig";
+import { AgentContextFiles } from "../components/agent/AgentContextFiles";
+import { AgentSecrets } from "../components/agent/AgentSecrets";
 import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
 import { VoiceInput } from "../components/shared/VoiceInput";
 import type { AgentDetail } from "../lib/types";
 
-type TabKey = "terminal" | "inbox" | "outbox" | "output" | "config";
+type TabKey = "terminal" | "inbox" | "outbox" | "output" | "config" | "context" | "secrets";
 
 interface SessionData {
   sessionId: string | null;
@@ -114,6 +116,8 @@ export function AgentDetailPage() {
     { key: "outbox", label: `Outbox (${agent.outboxFiles.length})` },
     { key: "output", label: `Output (${agent.outputFiles.length})` },
     { key: "config", label: "Config" },
+    { key: "context", label: `Context (${agent.contextFiles.length})` },
+    { key: "secrets", label: `Secrets (${agent.secrets.length})` },
   ];
 
   return (
@@ -223,8 +227,21 @@ export function AgentDetailPage() {
         <AgentConfig
           agentName={agent.name}
           claudeMd={agent.claudeMd}
-          contextFiles={agent.contextFiles}
           schedules={agent.schedules}
+        />
+      )}
+
+      {tab === "context" && (
+        <AgentContextFiles
+          agentName={agent.name}
+          contextFiles={agent.contextFiles}
+          onRefresh={loadAgent}
+        />
+      )}
+
+      {tab === "secrets" && (
+        <AgentSecrets
+          agentName={agent.name}
           secrets={agent.secrets}
           onRefresh={loadAgent}
         />

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Save, RefreshCw, Download, CheckCircle, Square, Map } from "lucide-react";
+import { Save, RefreshCw, Download, CheckCircle, Square, Map, Crown } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -212,7 +212,8 @@ export function OrchestratorPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold">Orchestrator</h1>
+        <Crown size={20} className="text-amber-400" />
+        <h1 className="text-lg font-semibold">Claudemar</h1>
         <select
           value={sessionData.sessionId ?? "__new"}
           onChange={(e) => handleSessionChange(e.target.value)}

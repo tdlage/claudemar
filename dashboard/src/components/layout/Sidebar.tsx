@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, createContext, useContext } f
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
-  Cpu,
+  Crown,
   Bot,
   Folder,
   ScrollText,
@@ -70,6 +70,9 @@ export function Sidebar() {
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const [newAgentName, setNewAgentName] = useState("");
   const [creatingAgent, setCreatingAgent] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
 
   const loadAgents = useCallback(() => {
     api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
@@ -94,6 +97,22 @@ export function Sidebar() {
       // ignore
     } finally {
       setCreatingAgent(false);
+    }
+  };
+
+  const handleCreateProject = async () => {
+    if (!newProjectName.trim() || creatingProject) return;
+    setCreatingProject(true);
+    try {
+      await api.post("/projects", { name: newProjectName.trim() });
+      setCreateProjectOpen(false);
+      setNewProjectName("");
+      loadProjects();
+      navigate(`/projects/${newProjectName.trim()}`);
+    } catch {
+      // ignore
+    } finally {
+      setCreatingProject(false);
     }
   };
 
@@ -179,9 +198,9 @@ export function Sidebar() {
             <LayoutDashboard size={16} />
             {!collapsed && "Overview"}
           </NavLink>
-          <NavLink to="/orchestrator" className={linkClass} title="Orchestrator">
-            <Cpu size={16} />
-            {!collapsed && "Orchestrator"}
+          <NavLink to="/orchestrator" className={linkClass} title="Claudemar">
+            <Crown size={16} />
+            {!collapsed && "Claudemar"}
           </NavLink>
         </div>
 
@@ -242,9 +261,27 @@ export function Sidebar() {
 
         <div>
           {!collapsed && (
-            <p className="px-3 mb-1.5 text-xs font-medium text-text-muted uppercase tracking-wider">
-              Projects
-            </p>
+            <div className="flex items-center justify-between px-3 mb-1.5">
+              <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
+                Projects
+              </p>
+              <button
+                onClick={() => setCreateProjectOpen(true)}
+                className="text-text-muted hover:text-accent transition-colors"
+                title="Create project"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+          )}
+          {collapsed && (
+            <button
+              onClick={() => setCreateProjectOpen(true)}
+              className="flex items-center justify-center w-full h-8 text-text-muted hover:text-accent transition-colors"
+              title="Create project"
+            >
+              <Plus size={14} />
+            </button>
           )}
           <div className="space-y-0.5">
             {projects.map((p) => (
@@ -334,6 +371,45 @@ export function Sidebar() {
                   className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
                 >
                   {creatingAgent ? "Creating..." : "Create"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {createProjectOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/60" onClick={() => setCreateProjectOpen(false)} />
+          <div className="relative bg-surface border border-border rounded-lg shadow-2xl w-80 mx-4">
+            <div className="p-4 border-b border-border">
+              <h3 className="text-sm font-medium text-text-primary">Create Project</h3>
+            </div>
+            <div className="p-4 space-y-3">
+              <input
+                type="text"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value.replace(/[^a-zA-Z0-9._-]/g, ""))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateProject();
+                  if (e.key === "Escape") setCreateProjectOpen(false);
+                }}
+                placeholder="Project name"
+                autoFocus
+                className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setCreateProjectOpen(false)}
+                  className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateProject}
+                  disabled={!newProjectName.trim() || creatingProject}
+                  className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                >
+                  {creatingProject ? "Creating..." : "Create"}
                 </button>
               </div>
             </div>

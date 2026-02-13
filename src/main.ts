@@ -7,11 +7,11 @@ import { secretsManager } from "./secrets-manager.js";
 import { processQueueItem } from "./processor.js";
 import { createDashboardServer } from "./server/index.js";
 import { tokenManager } from "./server/token-manager.js";
-import { initOrchestratorClaudeMd } from "./orchestrator-init.js";
+import { regenerateOrchestratorClaudeMd } from "./orchestrator-init.js";
 import { flushSessions } from "./session.js";
 import { ensureAllAgentGitRepos } from "./agents/manager.js";
 
-initOrchestratorClaudeMd();
+regenerateOrchestratorClaudeMd();
 ensureAllAgentGitRepos();
 await executionManager.loadRecent();
 

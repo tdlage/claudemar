@@ -336,6 +336,25 @@ agentsRouter.post("/:name/context", (req, res) => {
   res.status(201).json({ created: filename });
 });
 
+agentsRouter.put("/:name/context/:file", (req, res) => {
+  const result = resolveAgentFile(req, res, "context");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const { content } = req.body;
+  if (typeof content !== "string") {
+    res.status(400).json({ error: "content string required" });
+    return;
+  }
+
+  writeFileSync(result.filePath, content, "utf-8");
+  res.json({ updated: true });
+});
+
 agentsRouter.get("/:name/secrets", (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 import { executionManager } from "./execution-manager.js";
 
 const INSTALL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -81,6 +81,40 @@ export function clearNotifiedCommit(): void {
   }
 }
 
+const CRON_SCRIPTS = ["check-update.sh", "sync-agents.sh"];
+
+async function syncCronJobs(): Promise<void> {
+  const scriptsDir = resolve(INSTALL_DIR, "scripts");
+  const entries: string[] = [];
+
+  for (const script of CRON_SCRIPTS) {
+    const scriptPath = resolve(scriptsDir, script);
+    if (!existsSync(scriptPath)) continue;
+    chmodSync(scriptPath, 0o755);
+    entries.push(`*/10 * * * * CLAUDEMAR_DIR=${INSTALL_DIR} ${scriptPath} >/dev/null 2>&1`);
+  }
+
+  if (entries.length === 0) return;
+
+  const existing = await run("crontab", ["-l"]).catch(() => "");
+  const filtered = existing
+    .split("\n")
+    .filter((line) => !CRON_SCRIPTS.some((s) => line.includes(s)))
+    .filter(Boolean)
+    .join("\n");
+
+  const newCrontab = filtered ? `${filtered}\n${entries.join("\n")}\n` : `${entries.join("\n")}\n`;
+
+  return new Promise((resolve, reject) => {
+    const proc = execFile("crontab", ["-"], { timeout: 10_000 }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+    proc.stdin?.write(newCrontab);
+    proc.stdin?.end();
+  });
+}
+
 export async function performUpdate(): Promise<{ success: boolean; output: string }> {
   const steps: string[] = [];
 
@@ -100,6 +134,10 @@ export async function performUpdate(): Promise<{ success: boolean; output: strin
     steps.push("npm run build:all...");
     await run("npm", ["run", "build:all"], INSTALL_DIR);
     steps.push("build complete");
+
+    steps.push("syncing cron jobs...");
+    await syncCronJobs();
+    steps.push("cron jobs synced");
 
     clearNotifiedCommit();
 
