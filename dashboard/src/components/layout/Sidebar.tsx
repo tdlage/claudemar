@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../hooks/useAuth";
-import { useSocketEvent } from "../../hooks/useSocket";
+import { useSocketEvent, useSocketRoom } from "../../hooks/useSocket";
 import type { AgentInfo, ProjectInfo, ExecutionInfo } from "../../lib/types";
 
 interface SidebarContextValue {
@@ -103,6 +103,18 @@ export function Sidebar() {
   useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>("execution:complete", ({ info, hasQueued }) => markDone(info, hasQueued));
   useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>("execution:error", ({ info, hasQueued }) => markDone(info, hasQueued));
   useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>("execution:cancel", ({ info, hasQueued }) => markDone(info, hasQueued));
+
+  useSocketRoom("files");
+
+  const fileChangeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useSocketEvent<{ event: string; base: string; path: string }>(
+    "file:changed",
+    useCallback(({ base }) => {
+      if (!base.startsWith("project:")) return;
+      if (fileChangeTimer.current) clearTimeout(fileChangeTimer.current);
+      fileChangeTimer.current = setTimeout(loadProjects, 2000);
+    }, [loadProjects]),
+  );
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
