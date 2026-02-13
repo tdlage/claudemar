@@ -65,7 +65,7 @@ export function EditorTabs({
           }`}
         >
           {tab.dirty && (
-            <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+            <span className="w-2 h-2 rounded-full bg-yellow-400 shrink-0" />
           )}
           <span className="truncate max-w-[120px]">{basename(tab.path)}</span>
           <span

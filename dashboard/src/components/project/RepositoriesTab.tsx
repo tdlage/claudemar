@@ -48,6 +48,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
     }));
     if (status === "completed") {
       addToast("success", `Commit & Push completed (${repoName})`);
+      setDiffRepo((prev) => (prev === repoName ? null : prev));
       onRefresh();
       if (expandedRepo === repoName) {
         Promise.all([

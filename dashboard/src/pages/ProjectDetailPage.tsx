@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Square } from "lucide-react";
+import { Square, Map } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -128,8 +128,8 @@ export function ProjectDetailPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
+    <div className={`flex flex-col gap-4 ${tab === "files" ? "h-full" : ""}`}>
+      <div className="flex items-center gap-3 shrink-0">
         <h1 className="text-lg font-semibold">{project.name}</h1>
         <Badge variant="default">{project.repos.length} repos</Badge>
         <select
@@ -183,15 +183,19 @@ export function ProjectDetailPage() {
               className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 200 }}
             />
-            <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer select-none whitespace-nowrap">
-              <input
-                type="checkbox"
-                checked={planMode}
-                onChange={(e) => setPlanMode(e.target.checked)}
-                className="rounded border-border accent-accent"
-              />
+            <button
+              type="button"
+              onClick={() => setPlanMode(!planMode)}
+              title={planMode ? "Plan mode ON (read-only)" : "Plan mode OFF"}
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all select-none whitespace-nowrap ${
+                planMode
+                  ? "bg-accent/20 text-accent border border-accent/40 shadow-[0_0_6px_rgba(var(--accent-rgb),0.15)]"
+                  : "text-text-muted hover:text-text-secondary hover:bg-surface-hover border border-transparent"
+              }`}
+            >
+              <Map size={13} />
               Plan
-            </label>
+            </button>
             <Button type="submit" disabled={!prompt.trim()}>Send</Button>
             {isRunning && (
               <Button
@@ -231,7 +235,9 @@ export function ProjectDetailPage() {
       )}
 
       {tab === "files" && name && (
-        <FilesBrowser projectName={name} />
+        <div className="flex-1 min-h-0">
+          <FilesBrowser projectName={name} />
+        </div>
       )}
     </div>
   );

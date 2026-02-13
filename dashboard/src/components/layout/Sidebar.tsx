@@ -85,11 +85,14 @@ export function Sidebar() {
     api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
   }, []);
 
-  const markDone = useCallback((info: ExecutionInfo) => {
+  const markDone = useCallback((info: ExecutionInfo, hasQueued?: boolean) => {
     const key = `${info.targetType}:${info.targetName}`;
     setTargetStatus((prev) => ({
       ...prev,
-      [key]: { running: false, lastStatus: info.status as "completed" | "error" | "cancelled" },
+      [key]: {
+        running: hasQueued ?? false,
+        lastStatus: hasQueued ? (prev[key]?.lastStatus ?? null) : (info.status as "completed" | "error" | "cancelled"),
+      },
     }));
     if (info.targetType === "project") {
       loadProjects();
@@ -97,9 +100,9 @@ export function Sidebar() {
   }, [loadProjects]);
 
   useSocketEvent<{ info: ExecutionInfo }>("execution:start", ({ info }) => markRunning(info));
-  useSocketEvent<{ info: ExecutionInfo }>("execution:complete", ({ info }) => markDone(info));
-  useSocketEvent<{ info: ExecutionInfo }>("execution:error", ({ info }) => markDone(info));
-  useSocketEvent<{ info: ExecutionInfo }>("execution:cancel", ({ info }) => markDone(info));
+  useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>("execution:complete", ({ info, hasQueued }) => markDone(info, hasQueued));
+  useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>("execution:error", ({ info, hasQueued }) => markDone(info, hasQueued));
+  useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>("execution:cancel", ({ info, hasQueued }) => markDone(info, hasQueued));
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-colors ${

@@ -89,18 +89,21 @@ export function setupWebSocket(io: SocketServer): void {
   });
 
   executionManager.on("complete", (id, info) => {
-    io.to("executions").emit("execution:complete", { id, info });
-    io.to(`exec:${id}`).emit("execution:complete", { id, info });
+    const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
+    io.to("executions").emit("execution:complete", { id, info, hasQueued });
+    io.to(`exec:${id}`).emit("execution:complete", { id, info, hasQueued });
   });
 
   executionManager.on("error", (id, info, message) => {
-    io.to("executions").emit("execution:error", { id, info, error: message });
-    io.to(`exec:${id}`).emit("execution:error", { id, info, error: message });
+    const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
+    io.to("executions").emit("execution:error", { id, info, error: message, hasQueued });
+    io.to(`exec:${id}`).emit("execution:error", { id, info, error: message, hasQueued });
   });
 
   executionManager.on("cancel", (id, info) => {
-    io.to("executions").emit("execution:cancel", { id, info });
-    io.to(`exec:${id}`).emit("execution:cancel", { id, info });
+    const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
+    io.to("executions").emit("execution:cancel", { id, info, hasQueued });
+    io.to(`exec:${id}`).emit("execution:cancel", { id, info, hasQueued });
   });
 
   executionManager.on("question", (id, info) => {
