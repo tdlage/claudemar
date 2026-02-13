@@ -172,30 +172,27 @@ check_claude() {
 setup_repo() {
     step 4 "Setting up repository"
 
-    if [[ -d "$INSTALL_DIR" ]]; then
-        if [[ -d "$INSTALL_DIR/.git" ]]; then
-            IS_UPDATE=true
-            info "Existing installation found, updating..."
-            cd "$INSTALL_DIR"
-            git fetch origin
-            if ! git pull --ff-only origin main 2>/dev/null; then
-                warn "Local changes detected, cannot fast-forward."
-                if [[ -t 0 ]]; then
-                    read -rp "Reset to origin/main? Local changes will be LOST. [y/N]: " confirm
-                    if [[ "$confirm" =~ ^[Yy]$ ]]; then
-                        git reset --hard origin/main
-                    else
-                        error "Update aborted. Resolve manually in $INSTALL_DIR"
-                    fi
-                else
+    if [[ -d "$INSTALL_DIR/.git" ]]; then
+        info "Updating repository..."
+        cd "$INSTALL_DIR"
+        git fetch origin
+        if ! git pull --ff-only origin main 2>/dev/null; then
+            warn "Local changes detected, cannot fast-forward."
+            if [[ -t 0 ]]; then
+                read -rp "Reset to origin/main? Local changes will be LOST. [y/N]: " confirm
+                if [[ "$confirm" =~ ^[Yy]$ ]]; then
                     git reset --hard origin/main
-                    warn "Non-interactive mode: forced reset to origin/main"
+                else
+                    error "Update aborted. Resolve manually in $INSTALL_DIR"
                 fi
+            else
+                git reset --hard origin/main
+                warn "Non-interactive mode: forced reset to origin/main"
             fi
-            success "Repository updated to latest"
-        else
-            error "$INSTALL_DIR exists but is not a git repository. Please rename or remove it."
         fi
+        success "Repository updated to latest"
+    elif [[ -d "$INSTALL_DIR" ]]; then
+        error "$INSTALL_DIR exists but is not a git repository. Please rename or remove it."
     else
         info "Cloning repository..."
         git clone "$REPO_URL" "$INSTALL_DIR"
@@ -276,6 +273,24 @@ register_bot_commands() {
     fi
 }
 
+auto_detect_chat_id() {
+    local token="$1"
+    local response
+    response=$(curl -s "https://api.telegram.org/bot${token}/getUpdates?limit=5" 2>/dev/null)
+
+    if ! echo "$response" | grep -q '"ok":true'; then
+        return 1
+    fi
+
+    local chat_id
+    chat_id=$(echo "$response" | grep -oP '"chat":\{"id":\K[0-9-]+' | head -1)
+    if [[ -n "$chat_id" ]]; then
+        echo "$chat_id"
+        return 0
+    fi
+    return 1
+}
+
 setup_env() {
     step 6 "Configuring environment"
 
@@ -291,63 +306,137 @@ setup_env() {
         else
             register_bot_commands "$existing_token"
         fi
+
+        if grep -q '^CLAUDE_TIMEOUT_MS=' "$env_file" 2>/dev/null; then
+            local current_timeout
+            current_timeout="$(grep -oP '^CLAUDE_TIMEOUT_MS=\K.*' "$env_file" 2>/dev/null || true)"
+            if [[ "$current_timeout" != "0" && -n "$current_timeout" ]]; then
+                info "Removing timeout (CLAUDE_TIMEOUT_MS=${current_timeout} -> 0). Claude Code should not have a timeout."
+                sed -i "s/^CLAUDE_TIMEOUT_MS=.*/CLAUDE_TIMEOUT_MS=0/" "$env_file"
+            fi
+        fi
         return
     fi
 
     if [[ -t 0 ]]; then
-        echo ""
-        echo -e "${BOLD}━━━ Telegram Bot Setup ━━━${NC}"
-        echo ""
-        echo -e "  To create your Telegram bot:"
-        echo -e "  1. Open Telegram and search for ${BOLD}@BotFather${NC}"
-        echo -e "  2. Send ${BOLD}/newbot${NC} and follow the prompts"
-        echo -e "  3. Copy the ${BOLD}HTTP API token${NC} BotFather gives you"
-        echo ""
-        read -rp "$(echo -e "${BOLD}Telegram Bot Token${NC}: ")" token
+        local token="" chat_id="" openai_key="" dashboard_token="" dashboard_port=""
 
         echo ""
-        echo -e "  To find your Chat ID:"
-        echo -e "  1. Send any message to your new bot"
-        echo -e "  2. Open: ${BOLD}https://api.telegram.org/bot<TOKEN>/getUpdates${NC}"
-        echo -e "  3. Look for ${BOLD}\"chat\":{\"id\":YOUR_NUMBER}${NC} in the response"
-        echo -e "  (or start the bot and check the logs)"
+        echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${BOLD}║              Telegram Bot Configuration                      ║${NC}"
+        echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
         echo ""
-        read -rp "$(echo -e "${BOLD}Allowed Chat ID${NC}: ")" chat_id
+        echo -e "  Claudemar uses a Telegram bot to receive and process messages."
+        echo -e "  You need to create a bot and get its token. Here's how:"
+        echo ""
+        echo -e "  ${BOLD}Step 1:${NC} Open Telegram and search for ${BOLD}@BotFather${NC}"
+        echo -e "  ${BOLD}Step 2:${NC} Send ${BOLD}/newbot${NC} to BotFather"
+        echo -e "  ${BOLD}Step 3:${NC} Choose a ${BOLD}name${NC} for your bot (display name, can have spaces)"
+        echo -e "  ${BOLD}Step 4:${NC} Choose a ${BOLD}username${NC} (must end with 'bot', e.g. my_claude_bot)"
+        echo -e "  ${BOLD}Step 5:${NC} BotFather will reply with your ${BOLD}HTTP API token${NC}"
+        echo -e "         It looks like: ${YELLOW}123456789:ABCdefGHIjklMNOpqrSTUvwxYZ${NC}"
+        echo ""
+        echo -e "  ${BLUE}You can do this now or skip to configure later in .env${NC}"
+        echo ""
+        read -rp "$(echo -e "${BOLD}Telegram Bot Token${NC} (Enter to skip): ")" token
+
+        if [[ -n "$token" ]]; then
+            success "Token set"
+
+            echo ""
+            echo -e "  ${BOLD}Now let's get your Chat ID${NC} so only you can use the bot."
+            echo ""
+            echo -e "  ${BOLD}Step 1:${NC} Open Telegram and send ${BOLD}any message${NC} to your new bot"
+            echo -e "         (just say \"hi\" — this registers your chat)"
+            echo ""
+            echo -e "  ${YELLOW}>>> Send a message to your bot now, then press Enter here <<<${NC}"
+            read -rp "" _wait
+
+            local detected_id
+            if detected_id=$(auto_detect_chat_id "$token"); then
+                echo ""
+                success "Chat ID detected automatically: ${BOLD}${detected_id}${NC}"
+                read -rp "$(echo -e "  Use this ID? [Y/n]: ")" use_detected
+                if [[ ! "$use_detected" =~ ^[Nn]$ ]]; then
+                    chat_id="$detected_id"
+                fi
+            else
+                echo ""
+                warn "Could not detect Chat ID automatically."
+                echo -e "  Make sure you sent a message to the bot and try again,"
+                echo -e "  or enter it manually."
+                echo ""
+                echo -e "  ${BOLD}To find manually:${NC}"
+                echo -e "  Open: ${BOLD}https://api.telegram.org/bot${token}/getUpdates${NC}"
+                echo -e "  Look for ${BOLD}\"chat\":{\"id\":YOUR_NUMBER}${NC} in the JSON response"
+            fi
+
+            if [[ -z "$chat_id" ]]; then
+                echo ""
+                read -rp "$(echo -e "${BOLD}Chat ID${NC} (Enter to skip): ")" chat_id
+            fi
+
+            if [[ -n "$chat_id" ]]; then
+                success "Chat ID set: $chat_id"
+            else
+                warn "Chat ID not set — bot will reject all messages until configured"
+            fi
+        else
+            warn "Telegram not configured — you'll need to edit .env later"
+        fi
 
         echo ""
-        echo -e "${BOLD}━━━ Optional Services ━━━${NC}"
+        echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${BOLD}║              Voice Messages (Optional)                       ║${NC}"
+        echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
         echo ""
-        echo -e "  OpenAI API key enables voice message transcription (Whisper)."
-        echo -e "  Leave empty to skip."
+        echo -e "  An OpenAI API key enables ${BOLD}voice message transcription${NC} via Whisper."
+        echo -e "  You can send voice messages to the bot and they'll be transcribed"
+        echo -e "  and processed as text commands."
         echo ""
-        read -rp "$(echo -e "${BOLD}OpenAI API Key${NC} (optional): ")" openai_key
+        echo -e "  Get your key at: ${BOLD}https://platform.openai.com/api-keys${NC}"
+        echo ""
+        read -rp "$(echo -e "${BOLD}OpenAI API Key${NC} (Enter to skip): ")" openai_key
+
+        if [[ -n "$openai_key" ]]; then
+            success "OpenAI key set"
+        else
+            info "Skipped — voice messages won't be transcribed"
+        fi
 
         echo ""
-        echo -e "${BOLD}━━━ Dashboard Configuration ━━━${NC}"
+        echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${BOLD}║              Web Dashboard                                   ║${NC}"
+        echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
         echo ""
-        echo -e "  The web dashboard lets you manage agents, projects, and executions."
-        echo -e "  A rotating token is generated automatically on each startup."
-        echo -e "  Use ${BOLD}/token${NC} in Telegram to get the current dashboard token."
-        echo -e "  Optionally set a ${BOLD}master token${NC} below as a permanent fallback."
-        echo -e "  Leave empty to use only rotating tokens (recommended)."
+        echo -e "  The web dashboard lets you manage projects, agents, and executions"
+        echo -e "  from a browser with a terminal, file editor, and more."
         echo ""
-        read -rp "$(echo -e "${BOLD}Dashboard Master Token${NC} (optional): ")" dashboard_token
+        echo -e "  ${BOLD}Authentication:${NC} A rotating token is generated on each startup."
+        echo -e "  Use ${BOLD}/token${NC} in Telegram to get the current access token."
+        echo ""
+        echo -e "  You can optionally set a ${BOLD}master token${NC} as a permanent fallback"
+        echo -e "  (useful for bookmarks/scripts). Leave empty for rotating only."
+        echo ""
+        read -rp "$(echo -e "${BOLD}Dashboard Master Token${NC} (Enter to skip): ")" dashboard_token
+        read -rp "$(echo -e "${BOLD}Dashboard Port${NC} [3000]: ")" dashboard_port
 
-        local dashboard_port=""
-        read -rp "$(echo -e "${BOLD}Dashboard Port${NC} (default: 3000): ")" dashboard_port
+        if [[ -n "$dashboard_token" ]]; then
+            success "Master token set"
+        else
+            info "Using rotating tokens only (get via /token in Telegram)"
+        fi
 
         printf 'TELEGRAM_BOT_TOKEN=%s\n' "$token" > "$env_file"
         printf 'ALLOWED_CHAT_ID=%s\n' "$chat_id" >> "$env_file"
         printf 'OPENAI_API_KEY=%s\n' "$openai_key" >> "$env_file"
-        printf 'CLAUDE_TIMEOUT_MS=300000\n' >> "$env_file"
+        printf 'CLAUDE_TIMEOUT_MS=0\n' >> "$env_file"
         printf 'MAX_OUTPUT_LENGTH=4096\n' >> "$env_file"
         printf 'DASHBOARD_TOKEN=%s\n' "$dashboard_token" >> "$env_file"
         printf 'DASHBOARD_PORT=%s\n' "${dashboard_port:-3000}" >> "$env_file"
         ENV_CREATED=true
 
-        if [[ -z "$token" ]]; then
-            warn "TELEGRAM_BOT_TOKEN left empty — bot won't start until configured"
-        else
+        if [[ -n "$token" ]]; then
             register_bot_commands "$token"
         fi
     else
@@ -355,7 +444,7 @@ setup_env() {
 TELEGRAM_BOT_TOKEN=
 ALLOWED_CHAT_ID=
 OPENAI_API_KEY=
-CLAUDE_TIMEOUT_MS=300000
+CLAUDE_TIMEOUT_MS=0
 MAX_OUTPUT_LENGTH=4096
 DASHBOARD_TOKEN=
 DASHBOARD_PORT=3000
@@ -603,10 +692,72 @@ print_summary() {
     echo ""
 }
 
+check_existing_installation() {
+    if [[ -d "$INSTALL_DIR/.git" ]]; then
+        local current_commit current_date
+        current_commit="$(cd "$INSTALL_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+        current_date="$(cd "$INSTALL_DIR" && git log -1 --format=%ci 2>/dev/null | cut -d' ' -f1 || echo "unknown")"
+
+        echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${BOLD}║              Existing Installation Detected                   ║${NC}"
+        echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "  Claudemar is already installed at: ${BOLD}${INSTALL_DIR}${NC}"
+        echo -e "  Current version: ${BOLD}${current_commit}${NC} (${current_date})"
+
+        if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+            echo -e "  Service status:  ${GREEN}running${NC}"
+        elif systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
+            echo -e "  Service status:  ${YELLOW}stopped${NC}"
+        fi
+
+        echo ""
+
+        if [[ -t 0 ]]; then
+            echo -e "  ${BOLD}[U]${NC} Update to latest version"
+            echo -e "  ${BOLD}[R]${NC} Reinstall from scratch (keeps .env)"
+            echo -e "  ${BOLD}[Q]${NC} Quit"
+            echo ""
+            read -rp "$(echo -e "  ${BOLD}Choice${NC} [U/r/q]: ")" choice
+            choice="${choice:-U}"
+
+            case "$choice" in
+                [Uu])
+                    IS_UPDATE=true
+                    info "Proceeding with update..."
+                    ;;
+                [Rr])
+                    IS_UPDATE=false
+                    info "Proceeding with reinstall (preserving .env)..."
+                    ;;
+                [Qq])
+                    echo ""
+                    info "Installation cancelled."
+                    exit 0
+                    ;;
+                *)
+                    IS_UPDATE=true
+                    info "Proceeding with update..."
+                    ;;
+            esac
+        else
+            IS_UPDATE=true
+            info "Non-interactive mode: proceeding with update"
+        fi
+
+        echo ""
+        return 0
+    fi
+
+    return 1
+}
+
 main() {
     echo ""
     echo -e "${BOLD}🤖 Claudemar Installer${NC}"
     echo ""
+
+    check_existing_installation
 
     detect_os
     preflight_checks

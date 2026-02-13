@@ -130,6 +130,13 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
     }
     setExpandedRepo(repoName);
 
+    const repo = repos.find((r) => r.name === repoName);
+    if (repo?.hasChanges) {
+      setDiffRepo(repoName);
+    } else {
+      setDiffRepo((prev) => (prev === repoName ? null : prev));
+    }
+
     if (!branches[repoName]) {
       try {
         const b = await api.get<RepoBranches>(`/projects/${projectName}/repos/${repoName}/branches`);

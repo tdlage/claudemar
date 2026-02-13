@@ -1,5 +1,6 @@
 import { useLocation } from "react-router-dom";
 import { Search } from "lucide-react";
+import { SystemResources } from "./SystemResources";
 
 export function Header() {
   const location = useLocation();
@@ -25,24 +26,27 @@ export function Header() {
         ))}
       </nav>
 
-      <button
-        onClick={() =>
-          window.dispatchEvent(
-            new KeyboardEvent("keydown", {
-              key: "k",
-              metaKey: true,
-              bubbles: true,
-            }),
-          )
-        }
-        className="hidden sm:flex items-center gap-2 text-xs text-text-muted hover:text-text-secondary transition-colors border border-border rounded-md px-2.5 py-1"
-      >
-        <Search size={12} />
-        <span>Search</span>
-        <kbd className="text-[10px] border border-border rounded px-1 py-0.5">
-          ⌘K
-        </kbd>
-      </button>
+      <div className="flex items-center gap-4">
+        <SystemResources />
+        <button
+          onClick={() =>
+            window.dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key: "k",
+                metaKey: true,
+                bubbles: true,
+              }),
+            )
+          }
+          className="hidden sm:flex items-center gap-2 text-xs text-text-muted hover:text-text-secondary transition-colors border border-border rounded-md px-2.5 py-1"
+        >
+          <Search size={12} />
+          <span>Search</span>
+          <kbd className="text-[10px] border border-border rounded px-1 py-0.5">
+            ⌘K
+          </kbd>
+        </button>
+      </div>
     </header>
   );
 }

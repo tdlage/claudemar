@@ -1,11 +1,16 @@
-import { useState, useEffect } from "react";
-import { Save, RefreshCw, Download, CheckCircle } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Save, RefreshCw, Download, CheckCircle, Square, Map } from "lucide-react";
 import { api } from "../lib/api";
+import { Terminal } from "../components/terminal/Terminal";
+import { QuestionPanel } from "../components/terminal/QuestionPanel";
+import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
 import { Badge } from "../components/shared/Badge";
 import { MarkdownEditor } from "../components/shared/MarkdownEditor";
+import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
+import { useCachedState } from "../hooks/useCachedState";
 
 interface OrchestratorSettings {
   prependPrompt: string;
@@ -27,11 +32,29 @@ const MODEL_OPTIONS = [
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
 ];
 
-type TabKey = "claude-md" | "settings";
+interface SessionData {
+  sessionId: string | null;
+  history: string[];
+}
+
+type TabKey = "terminal" | "claude-md" | "settings";
 
 export function OrchestratorPage() {
   const { addToast } = useToast();
-  const [tab, setTab] = useState<TabKey>("claude-md");
+  const [tab, setTab] = useCachedState<TabKey>("orchestrator:tab", "terminal");
+  const [prompt, setPrompt] = useCachedState("orchestrator:prompt", "");
+  const [planMode, setPlanMode] = useCachedState("orchestrator:planMode", false);
+  const [execId, setExecId] = useCachedState<string | null>("orchestrator:execId", null);
+  const [expandedExecId, setExpandedExecId] = useCachedState<string | null>("orchestrator:expandedExecId", null);
+  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
+  const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
+
+  const orchActive = active.filter((e) => e.targetType === "orchestrator");
+  const orchRecent = recent.filter((e) => e.targetType === "orchestrator");
+  const orchActivity = [...orchActive, ...orchRecent];
+  const orchQueue = queue.filter((q) => q.targetType === "orchestrator");
+  const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
+  const isRunning = !!activeExec;
 
   const [mdContent, setMdContent] = useState("");
   const [mdDirty, setMdDirty] = useState(false);
@@ -46,6 +69,12 @@ export function OrchestratorPage() {
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
 
+  const loadSession = useCallback(() => {
+    api.get<SessionData>("/executions/session/orchestrator/orchestrator")
+      .then(setSessionData)
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     api.get<{ content: string }>("/orchestrator/claude-md")
       .then((data) => setMdContent(data.content))
@@ -57,7 +86,66 @@ export function OrchestratorPage() {
         setSettingsLoaded(true);
       })
       .catch(() => setSettingsLoaded(true));
-  }, []);
+
+    loadSession();
+  }, [loadSession]);
+
+  useEffect(() => {
+    const running = active.find((e) => e.targetType === "orchestrator");
+    if (running) {
+      setExecId(running.id);
+    } else if (execId && !active.some((e) => e.id === execId)) {
+      loadSession();
+    }
+  }, [active, execId, loadSession]);
+
+  const handleSessionChange = async (value: string) => {
+    if (value === "__new") {
+      try {
+        await api.delete("/executions/session/orchestrator/orchestrator");
+        setSessionData((prev) => ({ ...prev, sessionId: null }));
+        addToast("success", "New session");
+      } catch {
+        addToast("error", "Failed to reset session");
+      }
+    } else {
+      try {
+        await api.put("/executions/session/orchestrator/orchestrator", { sessionId: value });
+        setSessionData((prev) => ({ ...prev, sessionId: value }));
+        addToast("success", `Session switched to ${value.slice(0, 8)}`);
+      } catch {
+        addToast("error", "Failed to switch session");
+      }
+    }
+  };
+
+  const handleExecute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prompt.trim()) return;
+
+    try {
+      const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
+        targetType: "orchestrator",
+        targetName: "orchestrator",
+        prompt: prompt.trim(),
+        planMode,
+      });
+      if (result.queued) {
+        addToast("success", `Queued (#${result.queueItem?.seqId})`);
+      } else if (result.id) {
+        setExecId(result.id);
+        addToast("success", "Execution started");
+      }
+      setPrompt("");
+      setPlanMode(false);
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Failed");
+    }
+  };
+
+  const toggleExpanded = (id: string) => {
+    setExpandedExecId((prev) => (prev === id ? null : id));
+  };
 
   const handleSaveMd = async () => {
     setMdSaving(true);
@@ -115,15 +203,108 @@ export function OrchestratorPage() {
   };
 
   const tabs: { key: TabKey; label: string }[] = [
+    { key: "terminal", label: "Terminal" },
     { key: "claude-md", label: "CLAUDE.md" },
     { key: "settings", label: "Settings" },
   ];
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Orchestrator</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-lg font-semibold">Orchestrator</h1>
+        <select
+          value={sessionData.sessionId ?? "__new"}
+          onChange={(e) => handleSessionChange(e.target.value)}
+          className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+        >
+          <option value="__new">New session</option>
+          {sessionData.history.map((sid) => (
+            <option key={sid} value={sid}>
+              {sid.slice(0, 8)}{sid === sessionData.sessionId ? " (active)" : ""}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
+
+      {tab === "terminal" && (
+        <div className="space-y-3">
+          {pendingQuestions
+            .filter((pq) => pq.info.targetType === "orchestrator")
+            .map((pq) => (
+              <QuestionPanel
+                key={pq.execId}
+                execId={pq.execId}
+                question={pq.question}
+                targetName="orchestrator"
+                onSubmit={submitAnswer}
+                onDismiss={(id) => {
+                  api.post(`/executions/${id}/stop`).catch(() => {});
+                }}
+              />
+            ))}
+          <form onSubmit={handleExecute} className="flex gap-2 items-end">
+            <textarea
+              value={prompt}
+              onChange={(e) => {
+                setPrompt(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (prompt.trim()) handleExecute(e);
+                }
+              }}
+              placeholder="Message orchestrator... (Shift+Enter for new line)"
+              rows={1}
+              className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
+              style={{ maxHeight: 200 }}
+            />
+            <button
+              type="button"
+              onClick={() => setPlanMode(!planMode)}
+              title={planMode ? "Plan mode ON (read-only)" : "Plan mode OFF"}
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all select-none whitespace-nowrap ${
+                planMode
+                  ? "bg-accent/20 text-accent border border-accent/40 shadow-[0_0_6px_rgba(var(--accent-rgb),0.15)]"
+                  : "text-text-muted hover:text-text-secondary hover:bg-surface-hover border border-transparent"
+              }`}
+            >
+              <Map size={13} />
+              Plan
+            </button>
+            <Button type="submit" disabled={!prompt.trim()}>Send</Button>
+            {isRunning && (
+              <Button
+                variant="danger"
+                onClick={() => {
+                  if (execId) api.post(`/executions/${execId}/stop`).catch(() => {});
+                }}
+              >
+                <Square size={14} />
+              </Button>
+            )}
+          </form>
+          <div className="h-[500px]">
+            <Terminal executionId={execId} />
+          </div>
+
+          {(orchActivity.length > 0 || orchQueue.length > 0) && (
+            <div>
+              <h2 className="text-sm font-medium text-text-muted mb-2">Activity</h2>
+              <ActivityFeed
+                executions={orchActivity}
+                queue={orchQueue}
+                expandedId={expandedExecId}
+                onToggle={toggleExpanded}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {tab === "claude-md" && (
         <div>
