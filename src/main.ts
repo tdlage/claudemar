@@ -9,8 +9,10 @@ import { createDashboardServer } from "./server/index.js";
 import { tokenManager } from "./server/token-manager.js";
 import { initOrchestratorClaudeMd } from "./orchestrator-init.js";
 import { flushSessions } from "./session.js";
+import { ensureAllAgentGitRepos } from "./agents/manager.js";
 
 initOrchestratorClaudeMd();
+ensureAllAgentGitRepos();
 await executionManager.loadRecent();
 
 function drainQueue(_id: string, info: ExecutionInfo) {

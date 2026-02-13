@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { config } from "../config.js";
@@ -38,7 +39,25 @@ export function createAgentStructure(name: string): AgentPaths | null {
   mkdirSync(paths.outbox, { recursive: true });
   mkdirSync(paths.output, { recursive: true });
 
+  ensureAgentGitRepo(paths.root);
+
   return paths;
+}
+
+export function ensureAgentGitRepo(agentRoot: string): void {
+  if (existsSync(resolve(agentRoot, ".git"))) return;
+  try {
+    execFileSync("git", ["init"], { cwd: agentRoot, stdio: "ignore" });
+  } catch {
+    // non-critical
+  }
+}
+
+export function ensureAllAgentGitRepos(): void {
+  for (const name of listAgents()) {
+    const root = safeAgentPath(name);
+    if (root) ensureAgentGitRepo(root);
+  }
 }
 
 export function listAgents(): string[] {

@@ -383,14 +383,8 @@ agentsRouter.put("/:name/secrets/:id", (req, res) => {
     return;
   }
 
-  const ownerAgent = secretsManager.getSecretAgentName(id);
-  if (!ownerAgent || ownerAgent !== name) {
-    res.status(404).json({ error: "Secret not found" });
-    return;
-  }
-
   const { name: secretName, value, description } = req.body;
-  const updated = secretsManager.updateSecret(id, { name: secretName, value, description });
+  const updated = secretsManager.updateSecret(name, id, { name: secretName, value, description });
   if (!updated) {
     res.status(404).json({ error: "Secret not found" });
     return;
@@ -405,12 +399,10 @@ agentsRouter.delete("/:name/secrets/:id", (req, res) => {
     return;
   }
 
-  const ownerAgent = secretsManager.getSecretAgentName(id);
-  if (!ownerAgent || ownerAgent !== name) {
+  const deleted = secretsManager.deleteSecret(name, id);
+  if (!deleted) {
     res.status(404).json({ error: "Secret not found" });
     return;
   }
-
-  secretsManager.deleteSecret(id);
   res.json({ deleted: true });
 });

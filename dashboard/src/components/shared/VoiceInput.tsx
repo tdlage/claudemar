@@ -25,59 +25,75 @@ export function VoiceInput({ onTranscription, disabled }: VoiceInputProps) {
   }, []);
 
   const startRecording = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      addToast("error", "Microphone not available (HTTPS required)");
+      return;
+    }
+
+    let stream: MediaStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.error("[VoiceInput] getUserMedia error:", err);
+      const errName = err instanceof DOMException ? err.name : "";
+      if (errName === "NotAllowedError") {
+        addToast("error", "Microphone blocked — check site permissions in browser");
+      } else if (errName === "NotFoundError") {
+        addToast("error", "No microphone found");
+      } else {
+        addToast("error", `Microphone error: ${errName || (err instanceof Error ? err.message : "unknown")}`);
+      }
+      return;
+    }
 
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
+    streamRef.current = stream;
 
-      const recorder = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = recorder;
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+
+    const recorder = new MediaRecorder(stream, { mimeType });
+    mediaRecorderRef.current = recorder;
+    chunksRef.current = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+
+    recorder.onstop = async () => {
+      const blob = new Blob(chunksRef.current, { type: mimeType });
       chunksRef.current = [];
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
+      if (blob.size === 0) return;
 
-      recorder.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        chunksRef.current = [];
+      setTranscribing(true);
+      try {
+        const token = localStorage.getItem("dashboard_token") || "";
+        const res = await fetch("/api/transcribe", {
+          method: "POST",
+          headers: {
+            "Content-Type": mimeType.split(";")[0],
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: blob,
+        });
 
-        if (blob.size === 0) return;
-
-        setTranscribing(true);
-        try {
-          const token = localStorage.getItem("dashboard_token") || "";
-          const res = await fetch("/api/transcribe", {
-            method: "POST",
-            headers: {
-              "Content-Type": mimeType.split(";")[0],
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: blob,
-          });
-
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({ error: res.statusText }));
-            throw new Error(err.error || res.statusText);
-          }
-
-          const { text } = await res.json();
-          if (text) onTranscription(text);
-        } catch (err) {
-          addToast("error", err instanceof Error ? err.message : "Transcription failed");
-        } finally {
-          setTranscribing(false);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || res.statusText);
         }
-      };
 
-      recorder.start();
-      setRecording(true);
-    } catch {
-      addToast("error", "Microphone access denied");
-    }
+        const { text } = await res.json();
+        if (text) onTranscription(text);
+      } catch (err) {
+        addToast("error", err instanceof Error ? err.message : "Transcription failed");
+      } finally {
+        setTranscribing(false);
+      }
+    };
+
+    recorder.start();
+    setRecording(true);
   }, [onTranscription, addToast]);
 
   const handleClick = () => {
