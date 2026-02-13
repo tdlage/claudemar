@@ -14,6 +14,7 @@ import { AgentConfig } from "../components/agent/AgentConfig";
 import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
+import { VoiceInput } from "../components/shared/VoiceInput";
 import type { AgentDetail } from "../lib/types";
 
 type TabKey = "terminal" | "inbox" | "outbox" | "output" | "config";
@@ -156,6 +157,7 @@ export function AgentDetailPage() {
               />
             ))}
           <form onSubmit={handleExecute} className="flex gap-2 items-end">
+            <VoiceInput onTranscription={(text) => setPrompt((prev) => prev ? `${prev} ${text}` : text)} />
             <textarea
               value={prompt}
               onChange={(e) => {

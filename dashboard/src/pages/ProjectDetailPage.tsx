@@ -13,6 +13,7 @@ import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
+import { VoiceInput } from "../components/shared/VoiceInput";
 import type { ProjectDetail } from "../lib/types";
 
 type TabKey = "terminal" | "repositories" | "files";
@@ -165,6 +166,7 @@ export function ProjectDetailPage() {
               />
             ))}
           <form onSubmit={handleExecute} className="flex gap-2 items-end">
+            <VoiceInput onTranscription={(text) => setPrompt((prev) => prev ? `${prev} ${text}` : text)} />
             <textarea
               value={prompt}
               onChange={(e) => {

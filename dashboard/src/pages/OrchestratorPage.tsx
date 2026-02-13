@@ -11,6 +11,7 @@ import { MarkdownEditor } from "../components/shared/MarkdownEditor";
 import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
+import { VoiceInput } from "../components/shared/VoiceInput";
 
 interface OrchestratorSettings {
   prependPrompt: string;
@@ -245,6 +246,7 @@ export function OrchestratorPage() {
               />
             ))}
           <form onSubmit={handleExecute} className="flex gap-2 items-end">
+            <VoiceInput onTranscription={(text) => setPrompt((prev) => prev ? `${prev} ${text}` : text)} />
             <textarea
               value={prompt}
               onChange={(e) => {

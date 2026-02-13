@@ -15,6 +15,7 @@ import { filesRouter } from "./routes/files.js";
 import { orchestratorRouter } from "./routes/orchestrator.js";
 import { systemRouter } from "./routes/system.js";
 import { runConfigsRouter } from "./routes/run-configs.js";
+import { transcriptionRouter } from "./routes/transcription.js";
 
 export function createDashboardServer() {
   const app = express();
@@ -46,6 +47,7 @@ export function createDashboardServer() {
   app.use("/api/orchestrator", orchestratorRouter);
   app.use("/api/system", systemRouter);
   app.use("/api/run-configs", runConfigsRouter);
+  app.use("/api/transcribe", transcriptionRouter);
 
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "Not found" });
