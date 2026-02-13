@@ -7,11 +7,12 @@ import { ProjectStatusGrid } from "../components/overview/ProjectStatusGrid";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { QuickCommand } from "../components/overview/QuickCommand";
 import { Terminal } from "../components/terminal/Terminal";
+import { QuestionPanel } from "../components/terminal/QuestionPanel";
 import { Modal } from "../components/shared/Modal";
 import type { AgentInfo, ProjectInfo } from "../lib/types";
 
 export function OverviewPage() {
-  const { active, recent, queue } = useExecutions();
+  const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [viewingExecId, setViewingExecId] = useState<string | null>(null);
@@ -39,6 +40,28 @@ export function OverviewPage() {
         <h2 className="text-sm font-medium text-text-muted mb-3 uppercase tracking-wider">Quick Command</h2>
         <QuickCommand />
       </div>
+
+      {pendingQuestions.length > 0 && (
+        <div>
+          <h2 className="text-sm font-medium text-text-muted mb-3 uppercase tracking-wider">
+            Pending Questions ({pendingQuestions.length})
+          </h2>
+          <div className="space-y-3">
+            {pendingQuestions.map((pq) => (
+              <QuestionPanel
+                key={pq.execId}
+                execId={pq.execId}
+                question={pq.question}
+                targetName={pq.info.targetName}
+                onSubmit={submitAnswer}
+                onDismiss={(id) => {
+                  api.post(`/executions/${id}/stop`).catch(() => {});
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {active.length > 0 && (
         <div>

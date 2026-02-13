@@ -61,6 +61,10 @@ export function setupWebSocket(io: SocketServer): void {
     socket.on("unsubscribe:files", () => {
       socket.leave("files");
     });
+
+    socket.on("execution:answer", ({ execId, answer }: { execId: string; answer: string }) => {
+      executionManager.submitAnswer(execId, answer);
+    });
   });
 
   const sweepInvalidSockets = () => {
@@ -97,6 +101,16 @@ export function setupWebSocket(io: SocketServer): void {
   executionManager.on("cancel", (id, info) => {
     io.to("executions").emit("execution:cancel", { id, info });
     io.to(`exec:${id}`).emit("execution:cancel", { id, info });
+  });
+
+  executionManager.on("question", (id, info) => {
+    io.to("executions").emit("execution:question", { id, info });
+    io.to(`exec:${id}`).emit("execution:question", { id, info });
+  });
+
+  executionManager.on("question:answered", (id, info) => {
+    io.to("executions").emit("execution:question:answered", { id, info });
+    io.to(`exec:${id}`).emit("execution:question:answered", { id, info });
   });
 
   commandQueue.on("queue:add", (item) => {

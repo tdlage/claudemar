@@ -2,6 +2,23 @@ export type ExecutionSource = "telegram" | "web";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
 export type ExecutionStatus = "running" | "completed" | "error" | "cancelled";
 
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface AskQuestion {
+  question: string;
+  header: string;
+  options: QuestionOption[];
+  multiSelect: boolean;
+}
+
+export interface PendingQuestion {
+  toolUseId: string;
+  questions: AskQuestion[];
+}
+
 export interface ExecutionInfo {
   id: string;
   source: ExecutionSource;
@@ -15,6 +32,8 @@ export interface ExecutionInfo {
   output: string;
   result: ClaudeResult | null;
   error: string | null;
+  pendingQuestion?: PendingQuestion | null;
+  planMode?: boolean;
 }
 
 export interface ClaudeResult {

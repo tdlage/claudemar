@@ -46,6 +46,7 @@ import {
   setActiveProject,
   setBusy,
   setMode,
+  setNextPlanMode,
 } from "./session.js";
 
 const HELP_TEXT = [
@@ -82,6 +83,7 @@ const HELP_TEXT = [
   "/history [N] — Histórico de execuções",
   "/reset — Resetar sessão do contexto atual",
   "/clear — Resetar tudo",
+  "/plan — Próxima mensagem em plan mode (read-only)",
   "/cancel — Cancelar execução",
   "/queue — Ver fila de comandos",
   "/queue_remove [id] — Remover item da fila",
@@ -97,6 +99,7 @@ export function registerCommands(bot: Bot): void {
   bot.command("current", handleCurrent);
   bot.command("clear", handleClear);
   bot.command("reset", handleReset);
+  bot.command("plan", handlePlan);
   bot.command("cancel", handleCancel);
   bot.command("running", handleRunning);
   bot.command("stream", handleStream);
@@ -332,6 +335,13 @@ async function handleClear(ctx: Context): Promise<void> {
   setMode(chatId, "projects");
   clearAllSessionIds(chatId);
   await ctx.reply("Resetado para Orchestrator. Todas as sessões limpas.");
+}
+
+async function handlePlan(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+  setNextPlanMode(chatId, true);
+  await ctx.reply("🔍 Plan mode ON. A próxima mensagem será executada em modo read-only (sem edições).");
 }
 
 async function handleCancel(ctx: Context): Promise<void> {

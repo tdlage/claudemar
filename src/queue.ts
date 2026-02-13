@@ -16,6 +16,7 @@ export interface QueueItem {
   cwd: string;
   resumeSessionId?: string | null;
   model?: string;
+  planMode?: boolean;
   enqueuedAt: string;
   telegramChatId?: number;
 }

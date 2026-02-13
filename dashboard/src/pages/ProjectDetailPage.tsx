@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { Square } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
+import { QuestionPanel } from "../components/terminal/QuestionPanel";
 import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
 import { Badge } from "../components/shared/Badge";
@@ -26,10 +27,11 @@ export function ProjectDetailPage() {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [tab, setTab] = useState<TabKey>("terminal");
   const [prompt, setPrompt] = useState("");
+  const [planMode, setPlanMode] = useState(false);
   const [execId, setExecId] = useState<string | null>(null);
   const [expandedExecId, setExpandedExecId] = useState<string | null>(null);
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
-  const { active, recent, queue } = useExecutions();
+  const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
 
   const projectActive = active.filter((e) => e.targetName === name);
   const projectRecent = recent.filter((e) => e.targetName === name);
@@ -61,7 +63,6 @@ export function ProjectDetailPage() {
     if (running) {
       setExecId(running.id);
     } else if (execId && !active.some((e) => e.id === execId)) {
-      setExecId(null);
       loadSession();
       loadProject();
     }
@@ -97,6 +98,7 @@ export function ProjectDetailPage() {
         targetType: "project",
         targetName: name,
         prompt: prompt.trim(),
+        planMode,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -105,6 +107,7 @@ export function ProjectDetailPage() {
         addToast("success", "Execution started");
       }
       setPrompt("");
+      setPlanMode(false);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
     }
@@ -147,6 +150,20 @@ export function ProjectDetailPage() {
 
       {tab === "terminal" && (
         <div className="space-y-3">
+          {pendingQuestions
+            .filter((pq) => pq.info.targetType === "project" && pq.info.targetName === name)
+            .map((pq) => (
+              <QuestionPanel
+                key={pq.execId}
+                execId={pq.execId}
+                question={pq.question}
+                targetName={name!}
+                onSubmit={submitAnswer}
+                onDismiss={(id) => {
+                  api.post(`/executions/${id}/stop`).catch(() => {});
+                }}
+              />
+            ))}
           <form onSubmit={handleExecute} className="flex gap-2 items-end">
             <textarea
               value={prompt}
@@ -166,6 +183,15 @@ export function ProjectDetailPage() {
               className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 200 }}
             />
+            <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer select-none whitespace-nowrap">
+              <input
+                type="checkbox"
+                checked={planMode}
+                onChange={(e) => setPlanMode(e.target.checked)}
+                className="rounded border-border accent-accent"
+              />
+              Plan
+            </label>
             <Button type="submit" disabled={!prompt.trim()}>Send</Button>
             {isRunning && (
               <Button

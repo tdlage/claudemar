@@ -1,7 +1,7 @@
 import { type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { type ClaudeResult, type SpawnHandle, spawnClaude } from "./executor.js";
+import { type AskQuestion, type ClaudeResult, type SpawnHandle, spawnClaude } from "./executor.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { routeMessages } from "./agents/messenger.js";
 import { trackExecution } from "./metrics.js";
@@ -9,6 +9,11 @@ import { trackExecution } from "./metrics.js";
 export type ExecutionSource = "telegram" | "web";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
 export type ExecutionStatus = "running" | "completed" | "error" | "cancelled";
+
+export interface PendingQuestion {
+  toolUseId: string;
+  questions: AskQuestion[];
+}
 
 export interface ExecutionInfo {
   id: string;
@@ -23,6 +28,8 @@ export interface ExecutionInfo {
   output: string;
   result: ClaudeResult | null;
   error: string | null;
+  pendingQuestion: PendingQuestion | null;
+  planMode: boolean;
 }
 
 export interface StartExecutionOpts {
@@ -34,6 +41,7 @@ export interface StartExecutionOpts {
   resumeSessionId?: string | null;
   timeoutMs?: number;
   model?: string;
+  planMode?: boolean;
 }
 
 const MAX_RECENT = 100;
@@ -62,12 +70,20 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
     output: output || undefined,
     error: info.error,
     sessionId: info.result?.sessionId || undefined,
+    planMode: info.planMode || undefined,
   };
 }
 
+interface ActiveEntry {
+  info: ExecutionInfo;
+  process: ChildProcess;
+  opts: StartExecutionOpts;
+}
+
 class ExecutionManager extends EventEmitter {
-  private active = new Map<string, { info: ExecutionInfo; process: ChildProcess }>();
+  private active = new Map<string, ActiveEntry>();
   private recent: ExecutionInfo[] = [];
+  private pendingQuestions = new Map<string, { info: ExecutionInfo; opts: StartExecutionOpts }>();
 
   constructor() {
     super();
@@ -119,6 +135,8 @@ class ExecutionManager extends EventEmitter {
       output: "",
       result: null,
       error: null,
+      pendingQuestion: null,
+      planMode: opts.planMode ?? false,
     };
 
     const resumeId = opts.resumeSessionId
@@ -136,15 +154,19 @@ class ExecutionManager extends EventEmitter {
         this.emit("output", id, chunk);
       },
       opts.model,
+      (toolUseId: string, questions: AskQuestion[]) => {
+        info.pendingQuestion = { toolUseId, questions };
+        this.emit("question", id, info);
+      },
+      opts.planMode,
     );
 
-    this.active.set(id, { info, process: handle.process });
+    this.active.set(id, { info, process: handle.process, opts });
     this.emit("start", id, info);
 
     handle.promise
       .then((result) => {
         if (info.status === "cancelled") return;
-        info.status = "completed";
         info.completedAt = new Date();
         info.result = result;
         if (!info.output) {
@@ -154,10 +176,29 @@ class ExecutionManager extends EventEmitter {
           this.lastSessionMap.set(this.targetKey(opts.targetType, opts.targetName), result.sessionId);
           this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
         }
-        this.finalize(id);
-        this.emit("complete", id, info);
 
-        appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, durationMs: result.durationMs }));
+        const askDenial = result.permissionDenials.find(
+          (d) => d.tool_name === "AskUserQuestion",
+        );
+
+        if (askDenial) {
+          info.status = "completed";
+          info.pendingQuestion = {
+            toolUseId: askDenial.tool_use_id,
+            questions: askDenial.tool_input.questions,
+          };
+          this.finalize(id);
+          this.pendingQuestions.set(id, { info, opts });
+          this.emit("complete", id, info);
+          this.emit("question", id, info);
+          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, durationMs: result.durationMs }));
+        } else {
+          info.status = "completed";
+          info.pendingQuestion = null;
+          this.finalize(id);
+          this.emit("complete", id, info);
+          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, durationMs: result.durationMs }));
+        }
 
         if (opts.targetType === "agent") {
           trackExecution(opts.targetName, result.costUsd, result.durationMs);
@@ -177,6 +218,7 @@ class ExecutionManager extends EventEmitter {
           durationMs,
           costUsd: 0,
           isError: true,
+          permissionDenials: [],
         };
         this.finalize(id);
         this.emit("error", id, info, message);
@@ -187,26 +229,63 @@ class ExecutionManager extends EventEmitter {
     return id;
   }
 
+  submitAnswer(execId: string, answer: string): string | null {
+    const pending = this.pendingQuestions.get(execId);
+    if (!pending) return null;
+
+    const { info, opts } = pending;
+    const sessionId = info.result?.sessionId;
+    if (!sessionId) return null;
+
+    this.pendingQuestions.delete(execId);
+    info.pendingQuestion = null;
+    this.emit("question:answered", execId, info);
+
+    const newExecId = this.startExecution({
+      ...opts,
+      prompt: answer,
+      resumeSessionId: sessionId,
+    });
+
+    return newExecId;
+  }
+
+  getPendingQuestion(execId: string): PendingQuestion | null {
+    return this.pendingQuestions.get(execId)?.info.pendingQuestion ?? null;
+  }
+
+  getAllPendingQuestions(): Array<{ execId: string; info: ExecutionInfo }> {
+    return Array.from(this.pendingQuestions.entries()).map(([execId, { info }]) => ({ execId, info }));
+  }
+
   cancelExecution(id: string): boolean {
     const entry = this.active.get(id);
-    if (!entry) return false;
+    if (entry) {
+      entry.info.status = "cancelled";
+      entry.info.completedAt = new Date();
+      entry.info.error = "Cancelado pelo usuário.";
+      entry.process.kill("SIGTERM");
+      setTimeout(() => {
+        if (!entry.process.killed) {
+          entry.process.kill("SIGKILL");
+        }
+      }, 5000);
 
-    entry.info.status = "cancelled";
-    entry.info.completedAt = new Date();
-    entry.info.error = "Cancelado pelo usuário.";
-    entry.process.kill("SIGTERM");
-    setTimeout(() => {
-      if (!entry.process.killed) {
-        entry.process.kill("SIGKILL");
-      }
-    }, 5000);
+      this.finalize(id);
+      this.emit("cancel", id, entry.info);
+      appendHistory(buildHistoryEntry(entry.info));
+      return true;
+    }
 
-    this.finalize(id);
-    this.emit("cancel", id, entry.info);
+    const pending = this.pendingQuestions.get(id);
+    if (pending) {
+      this.pendingQuestions.delete(id);
+      pending.info.pendingQuestion = null;
+      this.emit("question:answered", id, pending.info);
+      return true;
+    }
 
-    appendHistory(buildHistoryEntry(entry.info));
-
-    return true;
+    return false;
   }
 
   getExecution(id: string): ExecutionInfo | undefined {
@@ -253,8 +332,11 @@ class ExecutionManager extends EventEmitter {
         durationMs: e.durationMs,
         costUsd: e.costUsd,
         isError: e.status === "error",
+        permissionDenials: [],
       } : null,
       error: e.error ?? null,
+      pendingQuestion: null,
+      planMode: e.planMode ?? false,
     }));
 
     for (const e of entries) {

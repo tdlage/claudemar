@@ -1,6 +1,24 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { config } from "./config.js";
 
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface AskQuestion {
+  question: string;
+  header: string;
+  options: QuestionOption[];
+  multiSelect: boolean;
+}
+
+export interface PermissionDenial {
+  tool_name: string;
+  tool_use_id: string;
+  tool_input: { questions: AskQuestion[] };
+}
+
 const ANSI = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
@@ -38,6 +56,12 @@ function formatToolUse(name: string, input: Record<string, unknown>): string {
     case "Task":
       detail = `${ANSI.magenta}${input.description ?? ""}${ANSI.reset}`;
       break;
+    case "AskUserQuestion": {
+      const qs = input.questions as Array<{ question: string }> | undefined;
+      const preview = qs?.[0]?.question?.slice(0, 100) ?? "";
+      detail = `${ANSI.yellow}${preview}${ANSI.reset}`;
+      break;
+    }
     default:
       detail = `${ANSI.dim}${JSON.stringify(input).slice(0, 100)}${ANSI.reset}`;
   }
@@ -51,6 +75,7 @@ export interface ClaudeResult {
   durationMs: number;
   costUsd: number;
   isError: boolean;
+  permissionDenials: PermissionDenial[];
 }
 
 export interface SpawnHandle {
@@ -65,15 +90,22 @@ export function spawnClaude(
   timeoutMs?: number,
   onChunk?: (chunk: string) => void,
   model?: string,
+  onQuestion?: (toolUseId: string, questions: AskQuestion[]) => void,
+  planMode?: boolean,
 ): SpawnHandle {
   const timeout = timeoutMs ?? config.claudeTimeoutMs;
   const args = [
     "--print",
     "--verbose",
-    "--dangerously-skip-permissions",
     "--output-format",
     "stream-json",
   ];
+
+  if (planMode) {
+    args.push("--permission-mode", "plan");
+  } else {
+    args.push("--dangerously-skip-permissions");
+  }
 
   if (model) {
     args.push("--model", model);
@@ -130,17 +162,29 @@ export function spawnClaude(
                 resultTextSize += block.text.length;
                 onChunk?.(block.text);
               } else if (block.type === "tool_use" && block.name) {
+                if (block.name === "AskUserQuestion" && block.input?.questions) {
+                  onQuestion?.(block.id, block.input.questions as AskQuestion[]);
+                }
                 const formatted = formatToolUse(block.name, block.input ?? {});
                 onChunk?.(formatted);
               }
             }
           } else if (event.type === "result") {
+            const denials: PermissionDenial[] = [];
+            if (Array.isArray(event.permission_denials)) {
+              for (const d of event.permission_denials) {
+                if (d.tool_name === "AskUserQuestion" && d.tool_input?.questions) {
+                  denials.push(d as PermissionDenial);
+                }
+              }
+            }
             resultData = {
               output: event.result ?? resultText,
               sessionId: event.session_id ?? "",
               durationMs: event.duration_ms ?? 0,
               costUsd: event.total_cost_usd ?? 0,
               isError: event.is_error ?? false,
+              permissionDenials: denials,
             };
           }
         } catch {
@@ -213,6 +257,7 @@ export function spawnClaude(
           durationMs: 0,
           costUsd: 0,
           isError: false,
+          permissionDenials: [],
         });
       }
     });

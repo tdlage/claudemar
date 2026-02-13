@@ -13,6 +13,7 @@ interface Session {
   busy: boolean;
   mode: SessionMode;
   activeAgent: string | null;
+  nextPlanMode: boolean;
 }
 
 interface PersistedSession {
@@ -91,6 +92,7 @@ function loadPersistedSessions(): void {
         busy: false,
         mode: persisted.mode ?? "projects",
         activeAgent: persisted.activeAgent ?? null,
+        nextPlanMode: false,
       });
     }
   } catch {
@@ -109,6 +111,7 @@ function ensureSession(chatId: number): Session {
       busy: false,
       mode: "projects",
       activeAgent: null,
+      nextPlanMode: false,
     };
     sessions.set(chatId, session);
   }
@@ -242,4 +245,15 @@ export function getSessionSnapshot(chatId: number): SessionSnapshot {
     busy: s.busy,
     sessionId: s.sessionIds[sessionKey(s)] ?? null,
   };
+}
+
+export function setNextPlanMode(chatId: number, value: boolean): void {
+  ensureSession(chatId).nextPlanMode = value;
+}
+
+export function consumeNextPlanMode(chatId: number): boolean {
+  const session = ensureSession(chatId);
+  const value = session.nextPlanMode;
+  if (value) session.nextPlanMode = false;
+  return value;
 }

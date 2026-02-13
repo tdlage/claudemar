@@ -5,6 +5,10 @@ import "@xterm/xterm/css/xterm.css";
 import { getSocket } from "../../lib/socket";
 import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
 
+function formatBold(text: string): string {
+  return text.replace(/\*\*(.+?)\*\*/g, "\x1b[1m$1\x1b[22m");
+}
+
 interface TerminalProps {
   executionId: string | null;
 }
@@ -66,7 +70,7 @@ export function Terminal({ executionId }: TerminalProps) {
 
     const buffered = getOutput(executionId);
     if (buffered) {
-      term.write(buffered);
+      term.write(formatBold(buffered));
     }
 
     const socket = getSocket();
@@ -78,14 +82,14 @@ export function Terminal({ executionId }: TerminalProps) {
       if (data.output.length > current.length) {
         setOutput(executionId, data.output);
         term.clear();
-        term.write(data.output);
+        term.write(formatBold(data.output));
       }
     };
 
     const chunkHandler = (data: { id: string; chunk: string }) => {
       if (data.id !== executionId) return;
       appendOutput(data.id, data.chunk);
-      term.write(data.chunk);
+      term.write(formatBold(data.chunk));
     };
 
     socket.on("execution:catchup", catchupHandler);

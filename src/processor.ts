@@ -21,6 +21,7 @@ export interface MessageOpts {
   cwd: string;
   prompt: string;
   model?: string;
+  planMode?: boolean;
 }
 
 export async function processMessage(
@@ -48,6 +49,7 @@ export async function processMessage(
       cwd: opts.cwd,
       resumeSessionId: getSessionId(chatId),
       model: opts.model,
+      planMode: opts.planMode,
     });
 
     fireAndForgetReply(ctx, chatId, execId, statusMsg);
@@ -236,5 +238,6 @@ export function processQueueItem(item: QueueItem): string {
     cwd: item.cwd,
     resumeSessionId: item.resumeSessionId,
     model: item.model,
+    planMode: item.planMode,
   });
 }

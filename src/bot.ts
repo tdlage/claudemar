@@ -1,11 +1,12 @@
-import { Bot } from "grammy";
+import { Bot, InlineKeyboard } from "grammy";
 import { registerCommands } from "./commands.js";
 import { config } from "./config.js";
-import { executionManager } from "./execution-manager.js";
+import { type ExecutionInfo, executionManager } from "./execution-manager.js";
 import { loadOrchestratorSettings } from "./orchestrator-settings.js";
 import { processMessage } from "./processor.js";
 import { commandQueue, type QueueItem } from "./queue.js";
 import {
+  consumeNextPlanMode,
   getActiveAgent,
   getMode,
   getSession,
@@ -18,6 +19,9 @@ import { transcribeAudio } from "./transcription.js";
 const MAX_AUDIO_SIZE = 25 * 1024 * 1024;
 
 export const bot = new Bot(config.telegramBotToken);
+
+const askQuestionMap = new Map<string, { execId: string; optionLabel: string }>();
+const pendingCustomAnswers = new Map<number, string>();
 
 bot.use(async (ctx, next) => {
   if (ctx.chat?.id !== config.allowedChatId) {
@@ -41,6 +45,7 @@ function resolveTarget(chatId: number) {
 function buildExecutionOpts(chatId: number, text: string) {
   const cwd = getWorkingDirectory(chatId);
   const { targetType, targetName } = resolveTarget(chatId);
+  const planMode = consumeNextPlanMode(chatId);
 
   let finalPrompt = text;
   let model: string | undefined;
@@ -55,7 +60,7 @@ function buildExecutionOpts(chatId: number, text: string) {
     }
   }
 
-  return { targetType, targetName, cwd, finalPrompt, model };
+  return { targetType, targetName, cwd, finalPrompt, model, planMode };
 }
 
 bot.on("message:text", async (ctx) => {
@@ -63,7 +68,23 @@ bot.on("message:text", async (ctx) => {
   if (text.startsWith("/")) return;
 
   const chatId = ctx.chat.id;
-  const { targetType, targetName, cwd, finalPrompt, model } = buildExecutionOpts(chatId, text);
+
+  const pendingExecId = pendingCustomAnswers.get(chatId);
+  if (pendingExecId) {
+    pendingCustomAnswers.delete(chatId);
+    for (const [k, v] of askQuestionMap) {
+      if (v.execId === pendingExecId) askQuestionMap.delete(k);
+    }
+    const newId = executionManager.submitAnswer(pendingExecId, text);
+    if (newId) {
+      await ctx.reply("Resposta enviada. Resuming...");
+    } else {
+      await ctx.reply("Pergunta já respondida ou expirada.");
+    }
+    return;
+  }
+
+  const { targetType, targetName, cwd, finalPrompt, model, planMode } = buildExecutionOpts(chatId, text);
 
   if (executionManager.isTargetActive(targetType, targetName)) {
     const item = commandQueue.enqueue({
@@ -74,6 +95,7 @@ bot.on("message:text", async (ctx) => {
       cwd,
       resumeSessionId: getSessionId(chatId),
       model,
+      planMode,
       telegramChatId: chatId,
     });
     const preview = text.length > 60 ? text.slice(0, 60) + "..." : text;
@@ -82,8 +104,8 @@ bot.on("message:text", async (ctx) => {
   }
 
   setBusy(chatId, true);
-  const statusMsg = await ctx.reply("Executando...");
-  processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model }, statusMsg).catch((err) => {
+  const statusMsg = await ctx.reply(planMode ? "Executando (plan mode)..." : "Executando...");
+  processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model, planMode }, statusMsg).catch((err) => {
     console.error("[bot] processMessage error:", err);
     setBusy(chatId, false);
   });
@@ -135,7 +157,7 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
       : transcribedText;
 
     const prompt = `[Mensagem de áudio transcrita]: ${transcribedText}`;
-    const { targetType, targetName, cwd, finalPrompt, model } = buildExecutionOpts(chatId, prompt);
+    const { targetType, targetName, cwd, finalPrompt, model, planMode } = buildExecutionOpts(chatId, prompt);
 
     if (executionManager.isTargetActive(targetType, targetName)) {
       const item = commandQueue.enqueue({
@@ -146,6 +168,7 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
         cwd,
         resumeSessionId: getSessionId(chatId),
         model,
+        planMode,
         telegramChatId: chatId,
       });
       await ctx.api.editMessageText(
@@ -160,10 +183,10 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
     await ctx.api.editMessageText(
       chatId,
       statusMsg.message_id,
-      `"${preview}"\n\nExecutando...`,
+      `"${preview}"\n\n${planMode ? "Executando (plan mode)..." : "Executando..."}`,
     );
 
-    processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model }, statusMsg).catch((err) => {
+    processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model, planMode }, statusMsg).catch((err) => {
       console.error("[bot] processMessage error:", err);
       setBusy(chatId, false);
     });
@@ -188,6 +211,65 @@ commandQueue.on("queue:processing", (item: QueueItem) => {
     item.telegramChatId,
     `Iniciando da fila (#${item.seqId}): "${preview}"`,
   ).catch(() => {});
+});
+
+executionManager.on("question", (id: string, info: ExecutionInfo) => {
+  if (info.source !== "telegram" || !info.pendingQuestion) return;
+
+  const chatId = config.allowedChatId;
+  const pq = info.pendingQuestion;
+
+  for (const q of pq.questions) {
+    const keyboard = new InlineKeyboard();
+    for (const opt of q.options) {
+      const shortId = Math.random().toString(36).slice(2, 10);
+      askQuestionMap.set(shortId, { execId: id, optionLabel: opt.label });
+      keyboard.row().text(opt.label, `askq:${shortId}`);
+    }
+    const shortId = Math.random().toString(36).slice(2, 10);
+    askQuestionMap.set(shortId, { execId: id, optionLabel: "__custom__" });
+    keyboard.row().text("Resposta personalizada...", `askq:${shortId}`);
+
+    const header = q.header ? `[${q.header}] ` : "";
+    bot.api.sendMessage(
+      chatId,
+      `${header}${q.question}\n\n[${info.targetName}]`,
+      { reply_markup: keyboard },
+    ).catch(() => {});
+  }
+});
+
+bot.callbackQuery(/^askq:/, async (ctx) => {
+  const data = ctx.callbackQuery.data;
+  const shortId = data.replace("askq:", "");
+  const entry = askQuestionMap.get(shortId);
+
+  if (!entry) {
+    await ctx.answerCallbackQuery({ text: "Pergunta expirada." });
+    return;
+  }
+
+  if (entry.optionLabel === "__custom__") {
+    await ctx.answerCallbackQuery({ text: "Responda com uma mensagem de texto." });
+    await ctx.editMessageText(
+      `Responda com uma mensagem de texto para: ${entry.execId.slice(0, 8)}`,
+    );
+    pendingCustomAnswers.set(config.allowedChatId, entry.execId);
+    return;
+  }
+
+  askQuestionMap.delete(shortId);
+  for (const [k, v] of askQuestionMap) {
+    if (v.execId === entry.execId) askQuestionMap.delete(k);
+  }
+
+  const newId = executionManager.submitAnswer(entry.execId, entry.optionLabel);
+  if (newId) {
+    await ctx.answerCallbackQuery({ text: `Respondido: ${entry.optionLabel}` });
+    await ctx.editMessageText(`Respondido: ${entry.optionLabel}\nResuming...`);
+  } else {
+    await ctx.answerCallbackQuery({ text: "Pergunta já respondida." });
+  }
 });
 
 bot.catch((err) => {

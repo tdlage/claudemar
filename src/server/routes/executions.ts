@@ -24,7 +24,7 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", (req, res) => {
-  const { targetType, targetName, prompt, resumeSessionId, repoName } = req.body;
+  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -83,6 +83,7 @@ executionsRouter.post("/", (req, res) => {
       cwd,
       resumeSessionId,
       model,
+      planMode,
     });
     res.status(202).json({ queued: true, queueItem: { id: item.id, seqId: item.seqId } });
     return;
@@ -96,6 +97,7 @@ executionsRouter.post("/", (req, res) => {
     cwd,
     resumeSessionId,
     model,
+    planMode,
   });
 
   res.status(201).json({ id });
@@ -180,4 +182,27 @@ executionsRouter.post("/:id/stop", (req, res) => {
   }
 
   res.json({ cancelled: true });
+});
+
+executionsRouter.post("/:id/answer", (req, res) => {
+  const { id } = req.params;
+  const { answer } = req.body;
+
+  if (!answer || typeof answer !== "string") {
+    res.status(400).json({ error: "answer (string) required" });
+    return;
+  }
+
+  const newExecId = executionManager.submitAnswer(id, answer);
+  if (!newExecId) {
+    res.status(404).json({ error: "No pending question for this execution" });
+    return;
+  }
+
+  res.status(201).json({ id: newExecId });
+});
+
+executionsRouter.get("/pending-questions", (_req, res) => {
+  const questions = executionManager.getAllPendingQuestions();
+  res.json(questions);
 });
