@@ -92,7 +92,6 @@ export function spawnClaude(
   model?: string,
   onQuestion?: (toolUseId: string, questions: AskQuestion[]) => void,
   planMode?: boolean,
-  env?: Record<string, string>,
 ): SpawnHandle {
   const timeout = timeoutMs ?? config.claudeTimeoutMs;
   const args = [
@@ -121,7 +120,7 @@ export function spawnClaude(
   const proc = spawn("claude", args, {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
-    env: env ? { ...process.env, ...env } : undefined,
+    env: undefined,
   });
 
   const promise = new Promise<ClaudeResult>((resolve, reject) => {

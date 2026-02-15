@@ -104,11 +104,21 @@ bot.on("message:text", async (ctx) => {
   }
 
   setBusy(chatId, true);
-  const statusMsg = await ctx.reply(planMode ? "Executando (plan mode)..." : "Executando...");
-  processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model, planMode }, statusMsg).catch((err) => {
+  const statusMsg = await ctx.reply("Iniciando...");
+  await processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model, planMode }, statusMsg).catch((err) => {
     console.error("[bot] processMessage error:", err);
     setBusy(chatId, false);
   });
+
+  const exec = executionManager.getActiveExecutions().find((e) => e.targetType === targetType && e.targetName === targetName);
+  if (exec) {
+    const sid = exec.id.slice(0, 8);
+    const keyboard = new InlineKeyboard()
+      .text(`📡 Stream`, `stream_exec:${sid}`)
+      .text(`⛔ Stop`, `stop_exec:${sid}`);
+    const label = planMode ? "plan mode" : exec.targetType;
+    ctx.api.editMessageText(chatId, statusMsg.message_id, `▶️ [${targetName}] ${label}`, { reply_markup: keyboard }).catch(() => {});
+  }
 });
 
 bot.on(["message:voice", "message:audio"], async (ctx) => {
@@ -183,13 +193,23 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
     await ctx.api.editMessageText(
       chatId,
       statusMsg.message_id,
-      `"${preview}"\n\n${planMode ? "Executando (plan mode)..." : "Executando..."}`,
+      `"${preview}"\n\nIniciando...`,
     );
 
-    processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model, planMode }, statusMsg).catch((err) => {
+    await processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model, planMode }, statusMsg).catch((err) => {
       console.error("[bot] processMessage error:", err);
       setBusy(chatId, false);
     });
+
+    const exec = executionManager.getActiveExecutions().find((e) => e.targetType === targetType && e.targetName === targetName);
+    if (exec) {
+      const sid = exec.id.slice(0, 8);
+      const keyboard = new InlineKeyboard()
+        .text(`📡 Stream`, `stream_exec:${sid}`)
+        .text(`⛔ Stop`, `stop_exec:${sid}`);
+      const label = planMode ? "plan mode" : exec.targetType;
+      ctx.api.editMessageText(chatId, statusMsg.message_id, `▶️ [${targetName}] ${label}`, { reply_markup: keyboard }).catch(() => {});
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     try {

@@ -243,6 +243,7 @@ export function AgentDetailPage() {
         <AgentSecrets
           agentName={agent.name}
           secrets={agent.secrets}
+          secretFiles={agent.secretFiles}
           onRefresh={loadAgent}
         />
       )}

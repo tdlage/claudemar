@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync, renameSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
@@ -15,6 +15,16 @@ export interface MaskedSecret {
   name: string;
   maskedValue: string;
   description: string;
+}
+
+export interface SecretFileInfo {
+  name: string;
+  size: number;
+  description: string;
+}
+
+interface FileDescriptions {
+  [filename: string]: string;
 }
 
 function maskValue(value: string): string {
@@ -126,6 +136,88 @@ class SecretsManager {
     secrets.splice(idx, 1);
     this.markDirty(agentName);
     return true;
+  }
+
+  private filesDir(agentName: string): string {
+    return resolve(config.agentsPath, agentName, "secrets", "files");
+  }
+
+  private fileDescriptionsPath(agentName: string): string {
+    return resolve(config.agentsPath, agentName, "secrets", "file-descriptions.json");
+  }
+
+  private loadFileDescriptions(agentName: string): FileDescriptions {
+    try {
+      const path = this.fileDescriptionsPath(agentName);
+      if (existsSync(path)) {
+        return JSON.parse(readFileSync(path, "utf-8"));
+      }
+    } catch {
+      // corrupted
+    }
+    return {};
+  }
+
+  private persistFileDescriptions(agentName: string, descriptions: FileDescriptions): void {
+    const path = this.fileDescriptionsPath(agentName);
+    const tmp = path + ".tmp";
+    writeFileSync(tmp, JSON.stringify(descriptions, null, 2), "utf-8");
+    renameSync(tmp, path);
+  }
+
+  getSecretFiles(agentName: string): SecretFileInfo[] {
+    const dir = this.filesDir(agentName);
+    if (!existsSync(dir)) return [];
+    const descriptions = this.loadFileDescriptions(agentName);
+    return readdirSync(dir)
+      .filter((f) => !f.startsWith("."))
+      .map((f) => {
+        const stat = statSync(resolve(dir, f));
+        return { name: f, size: stat.size, description: descriptions[f] ?? "" };
+      });
+  }
+
+  saveSecretFile(agentName: string, filename: string, data: Buffer): SecretFileInfo {
+    const dir = this.filesDir(agentName);
+    mkdirSync(dir, { recursive: true });
+    const filePath = resolve(dir, filename);
+    writeFileSync(filePath, data);
+    const stat = statSync(filePath);
+    const descriptions = this.loadFileDescriptions(agentName);
+    return { name: filename, size: stat.size, description: descriptions[filename] ?? "" };
+  }
+
+  deleteSecretFile(agentName: string, filename: string): boolean {
+    const filePath = resolve(this.filesDir(agentName), filename);
+    if (!existsSync(filePath)) return false;
+    unlinkSync(filePath);
+    const descriptions = this.loadFileDescriptions(agentName);
+    if (descriptions[filename]) {
+      delete descriptions[filename];
+      this.persistFileDescriptions(agentName, descriptions);
+    }
+    return true;
+  }
+
+  updateSecretFileDescription(agentName: string, filename: string, description: string): boolean {
+    const filePath = resolve(this.filesDir(agentName), filename);
+    if (!existsSync(filePath)) return false;
+    const dir = resolve(config.agentsPath, agentName, "secrets");
+    mkdirSync(dir, { recursive: true });
+    const descriptions = this.loadFileDescriptions(agentName);
+    descriptions[filename] = description;
+    this.persistFileDescriptions(agentName, descriptions);
+    return true;
+  }
+
+  getSecretFilePaths(agentName: string): Record<string, string> {
+    const dir = this.filesDir(agentName);
+    if (!existsSync(dir)) return {};
+    const result: Record<string, string> = {};
+    for (const f of readdirSync(dir).filter((f) => !f.startsWith("."))) {
+      result[f] = resolve(dir, f);
+    }
+    return result;
   }
 }
 

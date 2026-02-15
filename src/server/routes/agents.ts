@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { rm } from "node:fs/promises";
-import { Router } from "express";
+import { Router, raw } from "express";
 import type { Request, Response } from "express";
 import {
   createAgentStructure,
@@ -96,6 +96,7 @@ agentsRouter.get("/:name", (req, res) => {
 
   const schedules = listSchedulesByAgent(name);
   const secrets = secretsManager.getMaskedSecrets(name);
+  const secretFiles = secretsManager.getSecretFiles(name);
 
   res.json({
     ...info,
@@ -106,6 +107,7 @@ agentsRouter.get("/:name", (req, res) => {
     contextFiles,
     schedules,
     secrets,
+    secretFiles,
   });
 });
 
@@ -421,6 +423,84 @@ agentsRouter.delete("/:name/secrets/:id", (req, res) => {
   const deleted = secretsManager.deleteSecret(name, id);
   if (!deleted) {
     res.status(404).json({ error: "Secret not found" });
+    return;
+  }
+  res.json({ deleted: true });
+});
+
+agentsRouter.get("/:name/secrets/files", (req, res) => {
+  const { name } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  const paths = getAgentPaths(name);
+  if (!paths || !existsSync(paths.root)) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  res.json(secretsManager.getSecretFiles(name));
+});
+
+agentsRouter.post("/:name/secrets/files", raw({ type: "*/*", limit: "10mb" }), (req, res) => {
+  const { name } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  const paths = getAgentPaths(name);
+  if (!paths || !existsSync(paths.root)) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+
+  const filename = req.headers["x-filename"] as string | undefined;
+  if (!filename || !safeFilename(filename)) {
+    res.status(400).json({ error: "Invalid or missing X-Filename header" });
+    return;
+  }
+
+  const data = req.body as Buffer;
+  if (!data || data.length === 0) {
+    res.status(400).json({ error: "Empty file body" });
+    return;
+  }
+
+  const info = secretsManager.saveSecretFile(name, filename, data);
+  res.status(201).json(info);
+});
+
+agentsRouter.put("/:name/secrets/files/:file/description", (req, res) => {
+  const { name, file } = req.params;
+  if (!isValidAgentName(name) || !safeFilename(file)) {
+    res.status(400).json({ error: "Invalid name or filename" });
+    return;
+  }
+
+  const { description } = req.body;
+  if (typeof description !== "string") {
+    res.status(400).json({ error: "description string required" });
+    return;
+  }
+
+  const updated = secretsManager.updateSecretFileDescription(name, file, description);
+  if (!updated) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+  res.json({ updated: true });
+});
+
+agentsRouter.delete("/:name/secrets/files/:file", (req, res) => {
+  const { name, file } = req.params;
+  if (!isValidAgentName(name) || !safeFilename(file)) {
+    res.status(400).json({ error: "Invalid name or filename" });
+    return;
+  }
+
+  const deleted = secretsManager.deleteSecretFile(name, file);
+  if (!deleted) {
+    res.status(404).json({ error: "File not found" });
     return;
   }
   res.json({ deleted: true });

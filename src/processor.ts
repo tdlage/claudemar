@@ -8,7 +8,6 @@ import {
   executionManager,
 } from "./execution-manager.js";
 import type { QueueItem } from "./queue.js";
-import { secretsManager } from "./secrets-manager.js";
 import { markdownToTelegramHtml } from "./telegram-format.js";
 import {
   getSessionId,
@@ -42,8 +41,6 @@ export async function processMessage(
       return;
     }
 
-    const env = opts.targetType === "agent" ? secretsManager.getSecretValues(opts.targetName) : undefined;
-
     const execId = executionManager.startExecution({
       source: "telegram",
       targetType: opts.targetType,
@@ -53,7 +50,6 @@ export async function processMessage(
       resumeSessionId: getSessionId(chatId),
       model: opts.model,
       planMode: opts.planMode,
-      env,
     });
 
     fireAndForgetReply(ctx, chatId, execId, statusMsg);
@@ -90,15 +86,12 @@ export async function processDelegation(
       return;
     }
 
-    const env = secretsManager.getSecretValues(agentName);
-
     const execId = executionManager.startExecution({
       source: "telegram",
       targetType: "agent",
       targetName: agentName,
       prompt,
       cwd: paths.root,
-      env,
     });
 
     fireAndForgetReply(ctx, chatId, execId, statusMsg, agentName);
@@ -237,8 +230,6 @@ function fireAndForgetReply(
 }
 
 export function processQueueItem(item: QueueItem): string {
-  const env = item.targetType === "agent" ? secretsManager.getSecretValues(item.targetName) : undefined;
-
   return executionManager.startExecution({
     source: item.source,
     targetType: item.targetType,
@@ -248,6 +239,5 @@ export function processQueueItem(item: QueueItem): string {
     resumeSessionId: item.resumeSessionId,
     model: item.model,
     planMode: item.planMode,
-    env,
   });
 }

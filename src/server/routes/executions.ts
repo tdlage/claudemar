@@ -7,7 +7,6 @@ import { loadOrchestratorSettings } from "../../orchestrator-settings.js";
 import { commandQueue } from "../../queue.js";
 import { resolveRepoPath } from "../../repositories.js";
 import { safeProjectPath } from "../../session.js";
-import { secretsManager } from "../../secrets-manager.js";
 
 export const executionsRouter = Router();
 
@@ -74,7 +73,6 @@ executionsRouter.post("/", (req, res) => {
   }
 
   const effectiveTargetName = targetName || "orchestrator";
-  const env = targetType === "agent" ? secretsManager.getSecretValues(effectiveTargetName) : undefined;
 
   if (executionManager.isTargetActive(targetType, effectiveTargetName)) {
     const item = commandQueue.enqueue({
@@ -100,7 +98,6 @@ executionsRouter.post("/", (req, res) => {
     resumeSessionId,
     model,
     planMode,
-    env,
   });
 
   res.status(201).json({ id });

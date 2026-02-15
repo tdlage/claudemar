@@ -1,6 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { Search } from "lucide-react";
 import { SystemResources } from "./SystemResources";
+import { ProcessIndicator } from "./ProcessIndicator";
 
 export function Header() {
   const location = useLocation();
@@ -28,6 +29,7 @@ export function Header() {
 
       <div className="flex items-center gap-4">
         <SystemResources />
+        <ProcessIndicator />
         <button
           onClick={() =>
             window.dispatchEvent(

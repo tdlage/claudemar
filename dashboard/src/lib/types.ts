@@ -57,6 +57,12 @@ export interface AgentSecret {
   description: string;
 }
 
+export interface SecretFile {
+  name: string;
+  size: number;
+  description: string;
+}
+
 export interface AgentDetail extends AgentInfo {
   claudeMd: string;
   inboxFiles: string[];
@@ -65,6 +71,7 @@ export interface AgentDetail extends AgentInfo {
   contextFiles: string[];
   schedules: ScheduleEntry[];
   secrets: AgentSecret[];
+  secretFiles: SecretFile[];
 }
 
 export interface ScheduleEntry {

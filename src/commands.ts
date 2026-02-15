@@ -27,6 +27,7 @@ import { loadMetrics } from "./metrics.js";
 import { processDelegation } from "./processor.js";
 import { commandQueue } from "./queue.js";
 import { cloneRepo, discoverRepos, removeRepo } from "./repositories.js";
+import { runProcessManager } from "./run-process-manager.js";
 import { tokenManager } from "./server/token-manager.js";
 import { escapeHtml, formatStreamForTelegram } from "./telegram-format.js";
 import { checkForUpdates, performUpdate, restartService } from "./updater.js";
@@ -78,6 +79,7 @@ const HELP_TEXT = [
   "<b>⚙️ Geral</b>",
   "/current — Modo, projeto/agente e sessão",
   "/running — Execuções em andamento",
+  "/stop — Listar e parar execuções",
   "/stream &lt;id&gt; — Acompanhar saída em tempo real",
   "/stop_stream — Parar stream ativo",
   "/history [N] — Histórico de execuções",
@@ -85,6 +87,7 @@ const HELP_TEXT = [
   "/clear — Resetar tudo",
   "/plan — Próxima mensagem em plan mode (read-only)",
   "/cancel — Cancelar execução",
+  "/run — Run configurations do projeto ativo",
   "/queue — Ver fila de comandos",
   "/queue_remove [id] — Remover item da fila",
   "/update — Verificar e aplicar atualizações",
@@ -101,6 +104,7 @@ export function registerCommands(bot: Bot): void {
   bot.command("reset", handleReset);
   bot.command("plan", handlePlan);
   bot.command("cancel", handleCancel);
+  bot.command("stop", handleStop);
   bot.command("running", handleRunning);
   bot.command("stream", handleStream);
   bot.command("stop_stream", handleStopStream);
@@ -118,12 +122,17 @@ export function registerCommands(bot: Bot): void {
   bot.command("metrics", handleMetrics);
   bot.command("queue", handleQueue);
   bot.command("queue_remove", handleQueueRemove);
+  bot.command("run", handleRun);
   bot.command("update", handleUpdate);
   bot.callbackQuery(/^select_project:/, handleSelectProject);
   bot.callbackQuery(/^queue_remove:/, handleQueueRemoveCallback);
   bot.callbackQuery(/^autoupdate:/, handleAutoUpdateCallback);
   bot.callbackQuery(/^select_agent:/, handleSelectAgent);
   bot.callbackQuery(/^stream_exec:/, handleStreamCallback);
+  bot.callbackQuery(/^stop_exec:/, handleStopExecCallback);
+  bot.callbackQuery(/^proc_start:/, handleProcStartCallback);
+  bot.callbackQuery(/^proc_stop:/, handleProcStopCallback);
+  bot.callbackQuery(/^proc_restart:/, handleProcRestartCallback);
   bot.callbackQuery(/^confirm_remove_project:/, handleConfirmRemoveProject);
 }
 
@@ -359,6 +368,60 @@ async function handleCancel(ctx: Context): Promise<void> {
   executionManager.cancelExecution(telegramExec.id);
   setBusy(chatId, false);
   await ctx.reply("Execução cancelada.");
+}
+
+async function handleStop(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  const activeExecs = executionManager.getActiveExecutions();
+
+  if (activeExecs.length === 0) {
+    await ctx.reply("Nenhuma execução em andamento.");
+    return;
+  }
+
+  const keyboard = new InlineKeyboard();
+  const lines = [`${activeExecs.length} execução(ões) em andamento:\n`];
+  const now = Date.now();
+
+  for (const exec of activeExecs) {
+    const elapsedMs = now - exec.startedAt.getTime();
+    const minutes = Math.floor(elapsedMs / 60000);
+    const seconds = Math.floor((elapsedMs % 60000) / 1000);
+    const elapsed = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+    lines.push(`<code>${shortId(exec.id)}</code> [${exec.targetName}] ${elapsed}`);
+
+    keyboard.row().text(
+      `⛔ ${exec.targetName} (${shortId(exec.id)})`,
+      `stop_exec:${shortId(exec.id)}`,
+    );
+  }
+
+  await ctx.reply(lines.join("\n").trimEnd(), {
+    parse_mode: "HTML",
+    reply_markup: keyboard,
+  });
+}
+
+async function handleStopExecCallback(ctx: Context): Promise<void> {
+  const data = ctx.callbackQuery?.data;
+  if (!data) return;
+
+  const prefix = data.replace("stop_exec:", "");
+  const activeExecs = executionManager.getActiveExecutions();
+  const exec = activeExecs.find((e) => e.id.startsWith(prefix));
+
+  if (!exec) {
+    await ctx.answerCallbackQuery({ text: "Execução não encontrada ou já finalizada." });
+    return;
+  }
+
+  executionManager.cancelExecution(exec.id);
+  setBusy(config.allowedChatId, false);
+  await ctx.answerCallbackQuery({ text: `Parado: ${exec.targetName}` });
+  await ctx.editMessageText(`⛔ Parado: [${exec.targetName}] ${shortId(exec.id)}`);
 }
 
 async function handleRepository(ctx: Context): Promise<void> {
@@ -1394,6 +1457,110 @@ async function handleQueueRemoveCallback(ctx: Context): Promise<void> {
   } else {
     await ctx.answerCallbackQuery({ text: `Item #${seqId} não encontrado.` });
   }
+}
+
+// --- Run Configurations ---
+
+async function handleRun(ctx: Context): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+
+  const session = getSession(chatId);
+  if (!session.activeProject) {
+    await ctx.reply("Nenhum projeto ativo. Use /project para selecionar.");
+    return;
+  }
+
+  const allConfigs = runProcessManager.getAllConfigs();
+  const status = runProcessManager.getStatus();
+  const configs = allConfigs.filter((c) => c.projectName === session.activeProject);
+
+  if (configs.length === 0) {
+    await ctx.reply(`Nenhuma run configuration em "${session.activeProject}".`);
+    return;
+  }
+
+  const keyboard = new InlineKeyboard();
+  const lines = [`<b>Run Configurations — ${session.activeProject}</b>\n`];
+
+  for (const cfg of configs) {
+    const running = status[cfg.id]?.running ?? false;
+    const icon = running ? "🟢" : "⚪";
+    const sid = cfg.id.slice(0, 8);
+    lines.push(`${icon} <b>${escapeHtml(cfg.name)}</b>`);
+    lines.push(`   <code>${escapeHtml(cfg.command)}</code>`);
+
+    if (running) {
+      keyboard.row()
+        .text(`🔄 ${cfg.name}`, `proc_restart:${sid}`)
+        .text(`⛔ ${cfg.name}`, `proc_stop:${sid}`);
+    } else {
+      keyboard.row().text(`▶️ ${cfg.name}`, `proc_start:${sid}`);
+    }
+  }
+
+  await ctx.reply(lines.join("\n"), { parse_mode: "HTML", reply_markup: keyboard });
+}
+
+async function handleProcStartCallback(ctx: Context): Promise<void> {
+  const data = ctx.callbackQuery?.data;
+  if (!data) return;
+
+  const prefix = data.replace("proc_start:", "");
+  const cfg = runProcessManager.getAllConfigs().find((c) => c.id.startsWith(prefix));
+
+  if (!cfg) {
+    await ctx.answerCallbackQuery({ text: "Configuração não encontrada." });
+    return;
+  }
+
+  const started = runProcessManager.startProcess(cfg.id);
+  if (!started) {
+    await ctx.answerCallbackQuery({ text: "Já em execução ou erro ao iniciar." });
+    return;
+  }
+
+  await ctx.answerCallbackQuery({ text: `Iniciado: ${cfg.name}` });
+  await ctx.editMessageText(`▶️ <b>${escapeHtml(cfg.name)}</b> iniciado.`, { parse_mode: "HTML" });
+}
+
+async function handleProcStopCallback(ctx: Context): Promise<void> {
+  const data = ctx.callbackQuery?.data;
+  if (!data) return;
+
+  const prefix = data.replace("proc_stop:", "");
+  const cfg = runProcessManager.getAllConfigs().find((c) => c.id.startsWith(prefix));
+
+  if (!cfg) {
+    await ctx.answerCallbackQuery({ text: "Configuração não encontrada." });
+    return;
+  }
+
+  const stopped = runProcessManager.stopProcess(cfg.id);
+  if (!stopped) {
+    await ctx.answerCallbackQuery({ text: "Não está em execução." });
+    return;
+  }
+
+  await ctx.answerCallbackQuery({ text: `Parado: ${cfg.name}` });
+  await ctx.editMessageText(`⛔ <b>${escapeHtml(cfg.name)}</b> parado.`, { parse_mode: "HTML" });
+}
+
+async function handleProcRestartCallback(ctx: Context): Promise<void> {
+  const data = ctx.callbackQuery?.data;
+  if (!data) return;
+
+  const prefix = data.replace("proc_restart:", "");
+  const cfg = runProcessManager.getAllConfigs().find((c) => c.id.startsWith(prefix));
+
+  if (!cfg) {
+    await ctx.answerCallbackQuery({ text: "Configuração não encontrada." });
+    return;
+  }
+
+  runProcessManager.restartProcess(cfg.id);
+  await ctx.answerCallbackQuery({ text: `Reiniciando: ${cfg.name}` });
+  await ctx.editMessageText(`🔄 <b>${escapeHtml(cfg.name)}</b> reiniciado.`, { parse_mode: "HTML" });
 }
 
 // --- Update ---

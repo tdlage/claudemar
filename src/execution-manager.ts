@@ -1,4 +1,6 @@
 import { type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { type AskQuestion, type ClaudeResult, type SpawnHandle, spawnClaude } from "./executor.js";
@@ -7,6 +9,7 @@ import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInbo
 import { getAgentPaths } from "./agents/manager.js";
 import { config } from "./config.js";
 import { trackExecution } from "./metrics.js";
+import { secretsManager } from "./secrets-manager.js";
 
 export type ExecutionSource = "telegram" | "web";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
@@ -41,10 +44,10 @@ export interface StartExecutionOpts {
   prompt: string;
   cwd: string;
   resumeSessionId?: string | null;
+  noResume?: boolean;
   timeoutMs?: number;
   model?: string;
   planMode?: boolean;
-  env?: Record<string, string>;
   isInboxProcessing?: boolean;
 }
 
@@ -143,12 +146,33 @@ class ExecutionManager extends EventEmitter {
       planMode: opts.planMode ?? false,
     };
 
-    const resumeId = opts.resumeSessionId
-      ?? this.getLastSessionId(opts.targetType, opts.targetName);
+    const resumeId = opts.noResume
+      ? undefined
+      : (opts.resumeSessionId ?? this.getLastSessionId(opts.targetType, opts.targetName));
 
-    const effectivePrompt = (opts.targetType === "agent" || opts.targetType === "orchestrator")
-      ? `${opts.prompt}\n\n[SYSTEM: Before executing, read your CLAUDE.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`
-      : opts.prompt;
+    let systemSuffix = `\n\n[SYSTEM: You are confined to ${opts.cwd} — do NOT read, list, or access files outside this directory or its subdirectories. Never navigate to parent directories.]`;
+    if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
+      systemSuffix += `\n[SYSTEM: Before executing, read your CLAUDE.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`;
+    }
+    if (opts.targetType === "agent") {
+      const secretsJsonPath = resolve(config.agentsPath, opts.targetName, "secrets.json");
+      const secretFilePaths = secretsManager.getSecretFilePaths(opts.targetName);
+      const hasSecrets = existsSync(secretsJsonPath);
+      const hasFiles = Object.keys(secretFilePaths).length > 0;
+      if (hasSecrets || hasFiles) {
+        let secretsInfo = `\n[SYSTEM: You have secrets configured.`;
+        if (hasSecrets) {
+          secretsInfo += ` Read ${secretsJsonPath} for API keys, tokens, and credentials stored as key-value pairs.`;
+        }
+        if (hasFiles) {
+          const fileList = Object.entries(secretFilePaths).map(([name, path]) => `  - ${name} → ${path}`).join("\n");
+          secretsInfo += ` You also have secret files available:\n${fileList}`;
+        }
+        secretsInfo += `]`;
+        systemSuffix += secretsInfo;
+      }
+    }
+    const effectivePrompt = opts.prompt + systemSuffix;
 
     const handle: SpawnHandle = spawnClaude(
       effectivePrompt,
@@ -167,7 +191,6 @@ class ExecutionManager extends EventEmitter {
         this.emit("question", id, info);
       },
       opts.planMode,
-      opts.env,
     );
 
     this.active.set(id, { info, process: handle.process, opts });

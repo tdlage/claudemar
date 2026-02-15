@@ -297,6 +297,7 @@ projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
     targetName,
     prompt: "Analyze all uncommitted changes (staged and unstaged), write a clear and concise commit message following conventional commits style, stage all changes, commit, and push to origin. If there are merge conflicts, resolve them. Show the final commit message and push result.",
     cwd: resolved.repoPath,
+    noResume: true,
   });
 
   res.status(201).json({ id });
