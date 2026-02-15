@@ -8,3 +8,12 @@ dist/
 dashboard/node_modules/
 dashboard/dist/
 .update-notified
+.serena/
+.sync-agents.lock
+history.jsonl
+metrics.json
+queue.json
+run-configs.json
+run-processes.json
+secrets.json
+sessions.json
