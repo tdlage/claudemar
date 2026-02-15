@@ -8,7 +8,7 @@ import { MonacoEditorWrapper, detectLanguage } from "../editor/MonacoEditor";
 import { ActivityBar, type ActivityView } from "../editor/ActivityBar";
 import { SearchPanel } from "../editor/SearchPanel";
 import { RunPanel } from "../editor/RunPanel";
-import type { FileEntry, FileReadResult } from "../../lib/types";
+import type { FileEntry, FileReadResult, SearchMatch } from "../../lib/types";
 
 interface FilesBrowserProps {
   projectName: string;
@@ -19,13 +19,35 @@ interface FileBuffer {
   current: string;
 }
 
+export interface SearchState {
+  query: string;
+  results: Record<string, SearchMatch[]>;
+  count: number;
+  caseSensitive: boolean;
+  useRegex: boolean;
+  wholeWord: boolean;
+  collapsedFiles: Set<string>;
+}
+
 interface CachedFileBrowserState {
   openFiles: Map<string, FileBuffer>;
   activeTab: string | null;
   expandedDirs: Set<string>;
   dirContents: Record<string, FileEntry[]>;
   tree: FileEntry[];
+  activeView: ActivityView;
+  search: SearchState;
 }
+
+const defaultSearch: SearchState = {
+  query: "",
+  results: {},
+  count: 0,
+  caseSensitive: false,
+  useRegex: false,
+  wholeWord: false,
+  collapsedFiles: new Set(),
+};
 
 export function FilesBrowser({ projectName }: FilesBrowserProps) {
   const { addToast } = useToast();
@@ -41,12 +63,13 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<ActivityView>("files");
+  const [activeView, setActiveView] = useState<ActivityView>(cached?.activeView ?? "files");
+  const [searchState, setSearchState] = useState<SearchState>(cached?.search ?? defaultSearch);
   const [goToLine, setGoToLine] = useState<number | undefined>();
   const savingRef = useRef(false);
 
-  const stateRef = useRef({ openFiles, activeTab, expandedDirs, dirContents, tree });
-  stateRef.current = { openFiles, activeTab, expandedDirs, dirContents, tree };
+  const stateRef = useRef({ openFiles, activeTab, expandedDirs, dirContents, tree, activeView, search: searchState });
+  stateRef.current = { openFiles, activeTab, expandedDirs, dirContents, tree, activeView, search: searchState };
 
   useEffect(() => {
     return () => {
@@ -310,7 +333,7 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
       case "search":
         return (
           <div className="w-64 bg-surface border-r border-border shrink-0">
-            <SearchPanel base={base} onResultClick={handleSearchResultClick} />
+            <SearchPanel base={base} onResultClick={handleSearchResultClick} state={searchState} onStateChange={setSearchState} />
           </div>
         );
       case "run":

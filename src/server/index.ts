@@ -27,7 +27,6 @@ export function createDashboardServer() {
   });
 
   app.use(securityHeaders);
-  app.use(express.json({ limit: "5mb" }));
 
   const apiLimiter = rateLimit({
     windowMs: 60_000,
@@ -40,13 +39,15 @@ export function createDashboardServer() {
   app.use("/api", apiLimiter);
   app.use("/api", authMiddleware);
 
-  app.use("/api/agents", agentsRouter);
-  app.use("/api/projects", projectsRouter);
-  app.use("/api/executions", executionsRouter);
-  app.use("/api/files", filesRouter);
-  app.use("/api/orchestrator", orchestratorRouter);
-  app.use("/api/system", systemRouter);
-  app.use("/api/run-configs", runConfigsRouter);
+  const jsonParser = express.json({ limit: "5mb" });
+
+  app.use("/api/agents", express.json({ limit: "15mb" }), agentsRouter);
+  app.use("/api/projects", jsonParser, projectsRouter);
+  app.use("/api/executions", jsonParser, executionsRouter);
+  app.use("/api/files", jsonParser, filesRouter);
+  app.use("/api/orchestrator", jsonParser, orchestratorRouter);
+  app.use("/api/system", jsonParser, systemRouter);
+  app.use("/api/run-configs", jsonParser, runConfigsRouter);
   app.use("/api/transcribe", transcriptionRouter);
 
   app.use("/api", (_req, res) => {

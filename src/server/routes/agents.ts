@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { rm } from "node:fs/promises";
-import { Router, raw } from "express";
+import { Router } from "express";
 import type { Request, Response } from "express";
 import {
   createAgentStructure,
@@ -442,7 +442,7 @@ agentsRouter.get("/:name/secrets/files", (req, res) => {
   res.json(secretsManager.getSecretFiles(name));
 });
 
-agentsRouter.post("/:name/secrets/files", raw({ type: "*/*", limit: "10mb" }), (req, res) => {
+agentsRouter.post("/:name/secrets/files", (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
@@ -454,19 +454,31 @@ agentsRouter.post("/:name/secrets/files", raw({ type: "*/*", limit: "10mb" }), (
     return;
   }
 
-  const filename = req.headers["x-filename"] as string | undefined;
-  if (!filename || !safeFilename(filename)) {
-    res.status(400).json({ error: "Invalid or missing X-Filename header" });
+  const { filename, content, description } = req.body;
+  if (!filename || typeof filename !== "string" || !safeFilename(filename)) {
+    res.status(400).json({ error: "Invalid or missing filename" });
+    return;
+  }
+  if (!content || typeof content !== "string") {
+    res.status(400).json({ error: "Missing file content (base64)" });
     return;
   }
 
-  const data = req.body as Buffer;
-  if (!data || data.length === 0) {
-    res.status(400).json({ error: "Empty file body" });
+  const data = Buffer.from(content, "base64");
+  if (data.length === 0) {
+    res.status(400).json({ error: "Empty file" });
+    return;
+  }
+  if (data.length > 10 * 1024 * 1024) {
+    res.status(413).json({ error: "File too large (max 10MB)" });
     return;
   }
 
   const info = secretsManager.saveSecretFile(name, filename, data);
+  if (description && typeof description === "string") {
+    secretsManager.updateSecretFileDescription(name, filename, description);
+    info.description = description;
+  }
   res.status(201).json(info);
 });
 

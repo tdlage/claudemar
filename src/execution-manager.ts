@@ -25,6 +25,7 @@ export interface ExecutionInfo {
   source: ExecutionSource;
   targetType: ExecutionTargetType;
   targetName: string;
+  agentName?: string;
   prompt: string;
   cwd: string;
   status: ExecutionStatus;
@@ -49,13 +50,15 @@ export interface StartExecutionOpts {
   model?: string;
   planMode?: boolean;
   isInboxProcessing?: boolean;
+  agentName?: string;
 }
 
 const MAX_RECENT = 100;
 const MAX_STREAM_OUTPUT = 1024 * 1024;
 const MAX_SESSION_HISTORY = 5;
 
-const MAX_PERSISTED_OUTPUT = 10_000;
+const MAX_PERSISTED_OUTPUT = 50_000;
+const MAX_MEMORY_OUTPUT = 200_000;
 
 function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<HistoryEntry, "costUsd" | "durationMs">>): HistoryEntry {
   const durationMs = overrides?.durationMs
@@ -99,8 +102,8 @@ class ExecutionManager extends EventEmitter {
   private lastSessionMap = new Map<string, string>();
   private sessionHistoryMap = new Map<string, string[]>();
 
-  private targetKey(targetType: string, targetName: string): string {
-    return `${targetType}:${targetName}`;
+  private targetKey(targetType: string, targetName: string, agentName?: string): string {
+    return agentName ? `${targetType}:${targetName}:${agentName}` : `${targetType}:${targetName}`;
   }
 
   getLastSessionId(targetType: string, targetName: string): string | undefined {
@@ -134,6 +137,7 @@ class ExecutionManager extends EventEmitter {
       source: opts.source,
       targetType: opts.targetType,
       targetName: opts.targetName,
+      agentName: opts.agentName,
       prompt: opts.prompt,
       cwd: opts.cwd,
       status: "running",
@@ -191,6 +195,7 @@ class ExecutionManager extends EventEmitter {
         this.emit("question", id, info);
       },
       opts.planMode,
+      opts.agentName,
     );
 
     this.active.set(id, { info, process: handle.process, opts });
@@ -331,10 +336,10 @@ class ExecutionManager extends EventEmitter {
     return this.active.get(id)?.info ?? this.recent.find((e) => e.id === id);
   }
 
-  isTargetActive(targetType: string, targetName: string): boolean {
-    const key = this.targetKey(targetType, targetName);
+  isTargetActive(targetType: string, targetName: string, agentName?: string): boolean {
+    const key = this.targetKey(targetType, targetName, agentName);
     for (const entry of this.active.values()) {
-      const entryKey = this.targetKey(entry.info.targetType, entry.info.targetName);
+      const entryKey = this.targetKey(entry.info.targetType, entry.info.targetName, entry.info.agentName);
       if (entryKey === key) return true;
     }
     return false;
@@ -390,8 +395,8 @@ class ExecutionManager extends EventEmitter {
     const entry = this.active.get(id);
     if (!entry) return;
     this.active.delete(id);
-    if (entry.info.output.length > 10_000) {
-      entry.info.output = entry.info.output.slice(0, 10_000) + "\n...(truncated)";
+    if (entry.info.output.length > MAX_MEMORY_OUTPUT) {
+      entry.info.output = entry.info.output.slice(0, MAX_MEMORY_OUTPUT) + "\n...(truncated)";
     }
     this.recent.push(entry.info);
     if (this.recent.length > MAX_RECENT) {

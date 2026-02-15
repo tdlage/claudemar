@@ -24,6 +24,7 @@ export interface ExecutionInfo {
   source: ExecutionSource;
   targetType: ExecutionTargetType;
   targetName: string;
+  agentName?: string;
   prompt: string;
   cwd: string;
   status: ExecutionStatus;
@@ -156,6 +157,7 @@ export interface QueueItem {
   seqId: number;
   targetType: ExecutionTargetType;
   targetName: string;
+  agentName?: string;
   prompt: string;
   source: ExecutionSource;
   enqueuedAt: string;

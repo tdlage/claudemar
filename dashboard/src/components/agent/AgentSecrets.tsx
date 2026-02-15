@@ -20,6 +20,17 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function toBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+const SAFE_FILENAME_RE = /^[a-zA-Z0-9._-]+$/;
+
 export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: AgentSecretsProps) {
   const { addToast } = useToast();
   const [formOpen, setFormOpen] = useState(false);
@@ -33,6 +44,11 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
   const [editingFileDesc, setEditingFileDesc] = useState<string | null>(null);
   const [fileDesc, setFileDesc] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadFilename, setUploadFilename] = useState("");
+  const [uploadDescription, setUploadDescription] = useState("");
 
   const openNew = () => {
     setEditing(null);
@@ -96,39 +112,46 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) {
       addToast("error", "File too large (max 10MB)");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setUploadFile(file);
+    setUploadFilename(file.name.replace(/[^a-zA-Z0-9._-]/g, "_"));
+    setUploadDescription("");
+    setUploadModalOpen(true);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleUploadConfirm = async () => {
+    if (!uploadFile || !uploadFilename.trim()) return;
+    if (!SAFE_FILENAME_RE.test(uploadFilename)) {
+      addToast("error", "Filename can only contain letters, numbers, dots, dashes, and underscores");
       return;
     }
 
     setUploading(true);
     try {
-      const token = localStorage.getItem("dashboard_token") || "";
-      const buffer = await file.arrayBuffer();
-      const res = await fetch(`/api/agents/${agentName}/secrets/files`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "X-Filename": file.name,
-        },
-        body: buffer,
+      const buffer = await uploadFile.arrayBuffer();
+      const content = toBase64(buffer);
+      await api.post(`/agents/${agentName}/secrets/files`, {
+        filename: uploadFilename.trim(),
+        content,
+        description: uploadDescription.trim() || undefined,
       });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(body.error || res.statusText);
-      }
-
-      addToast("success", `File "${file.name}" uploaded`);
+      addToast("success", `File "${uploadFilename}" uploaded`);
+      setUploadModalOpen(false);
+      setUploadFile(null);
       onRefresh();
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -168,7 +191,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
           </Button>
         </div>
         <p className="text-xs text-text-muted mb-3">
-          Injected as environment variables during agent execution.
+          Available to the agent via secrets.json during execution.
         </p>
 
         {secrets.length === 0 ? (
@@ -222,7 +245,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
             ref={fileInputRef}
             type="file"
             className="hidden"
-            onChange={handleFileUpload}
+            onChange={handleFileSelect}
           />
         </div>
         <p className="text-xs text-text-muted mb-3">
@@ -333,6 +356,55 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
               disabled={saving || !name.trim() || (!editing && !value)}
             >
               {saving ? "Saving..." : editing ? "Update" : "Create"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={uploadModalOpen}
+        onClose={() => { setUploadModalOpen(false); setUploadFile(null); }}
+        title="Upload Secret File"
+      >
+        <div className="space-y-3">
+          {uploadFile && (
+            <p className="text-xs text-text-muted">
+              Original: <span className="font-mono">{uploadFile.name}</span> ({formatSize(uploadFile.size)})
+            </p>
+          )}
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Filename</label>
+            <input
+              type="text"
+              value={uploadFilename}
+              onChange={(e) => setUploadFilename(e.target.value.replace(/\s/g, "_"))}
+              placeholder="e.g. google-auth.json"
+              className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary font-mono focus:outline-none focus:border-accent"
+              autoFocus
+            />
+            {uploadFilename && !SAFE_FILENAME_RE.test(uploadFilename) && (
+              <p className="text-xs text-red-400 mt-1">Only letters, numbers, dots, dashes, and underscores allowed</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Description</label>
+            <textarea
+              value={uploadDescription}
+              onChange={(e) => setUploadDescription(e.target.value)}
+              rows={3}
+              placeholder="Describe the purpose of this file..."
+              className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary resize-y focus:outline-none focus:border-accent"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => { setUploadModalOpen(false); setUploadFile(null); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUploadConfirm}
+              disabled={uploading || !uploadFilename.trim() || !SAFE_FILENAME_RE.test(uploadFilename)}
+            >
+              {uploading ? "Uploading..." : "Upload"}
             </Button>
           </div>
         </div>

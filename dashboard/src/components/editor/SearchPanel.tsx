@@ -1,22 +1,19 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { FileText, ChevronRight, ChevronDown } from "lucide-react";
 import { api } from "../../lib/api";
-import type { SearchResponse, SearchMatch } from "../../lib/types";
+import type { SearchResponse } from "../../lib/types";
+import type { SearchState } from "../project/FilesBrowser";
 
 interface SearchPanelProps {
   base: string;
   onResultClick: (path: string, line: number) => void;
+  state: SearchState;
+  onStateChange: (state: SearchState) => void;
 }
 
-export function SearchPanel({ base, onResultClick }: SearchPanelProps) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Record<string, SearchMatch[]>>({});
-  const [count, setCount] = useState(0);
+export function SearchPanel({ base, onResultClick, state, onStateChange }: SearchPanelProps) {
+  const { query, results, count, caseSensitive, useRegex, wholeWord, collapsedFiles } = state;
   const [loading, setLoading] = useState(false);
-  const [caseSensitive, setCaseSensitive] = useState(false);
-  const [useRegex, setUseRegex] = useState(false);
-  const [wholeWord, setWholeWord] = useState(false);
-  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -24,11 +21,18 @@ export function SearchPanel({ base, onResultClick }: SearchPanelProps) {
     inputRef.current?.focus();
   }, []);
 
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const update = useCallback((partial: Partial<SearchState>) => {
+    onStateChange({ ...stateRef.current, ...partial });
+  }, [onStateChange]);
+
   const doSearch = useCallback(
-    async (q: string) => {
+    async (q: string, overrides?: Partial<SearchState>) => {
+      const s = { ...stateRef.current, ...overrides };
       if (!q.trim()) {
-        setResults({});
-        setCount(0);
+        update({ query: q, results: {}, count: 0 });
         return;
       }
       setLoading(true);
@@ -36,48 +40,46 @@ export function SearchPanel({ base, onResultClick }: SearchPanelProps) {
         const params = new URLSearchParams({
           base,
           query: q,
-          caseSensitive: String(caseSensitive),
-          regex: String(useRegex),
-          wholeWord: String(wholeWord),
+          caseSensitive: String(s.caseSensitive),
+          regex: String(s.useRegex),
+          wholeWord: String(s.wholeWord),
         });
         const response = await api.get<SearchResponse>(`/files/search?${params}`);
-        setResults(response.results);
-        setCount(response.count);
+        update({ query: q, results: response.results, count: response.count, ...overrides });
       } catch {
-        setResults({});
-        setCount(0);
+        update({ query: q, results: {}, count: 0, ...overrides });
       } finally {
         setLoading(false);
       }
     },
-    [base, caseSensitive, useRegex, wholeWord],
+    [base, update],
   );
 
   const handleQueryChange = useCallback(
     (value: string) => {
-      setQuery(value);
+      update({ query: value });
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => doSearch(value), 400);
     },
-    [doSearch],
+    [doSearch, update],
   );
 
   const toggleFile = useCallback((path: string) => {
-    setCollapsedFiles((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
+    const next = new Set(stateRef.current.collapsedFiles);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    update({ collapsedFiles: next });
+  }, [update]);
 
   const handleToggle = useCallback(
-    (setter: React.Dispatch<React.SetStateAction<boolean>>) => {
-      setter((v) => !v);
+    (key: "caseSensitive" | "useRegex" | "wholeWord") => {
+      const newVal = !stateRef.current[key];
+      const overrides = { [key]: newVal };
+      update(overrides);
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => doSearch(query), 200);
+      debounceRef.current = setTimeout(() => doSearch(stateRef.current.query, overrides), 200);
     },
-    [doSearch, query],
+    [doSearch, update],
   );
 
   const fileCount = Object.keys(results).length;
@@ -98,7 +100,7 @@ export function SearchPanel({ base, onResultClick }: SearchPanelProps) {
         />
         <div className="flex items-center gap-1">
           <button
-            onClick={() => handleToggle(setCaseSensitive)}
+            onClick={() => handleToggle("caseSensitive")}
             className={`px-1.5 py-0.5 text-[10px] font-mono border rounded transition-colors ${
               caseSensitive
                 ? "bg-accent/20 border-accent text-accent"
@@ -109,7 +111,7 @@ export function SearchPanel({ base, onResultClick }: SearchPanelProps) {
             Aa
           </button>
           <button
-            onClick={() => handleToggle(setWholeWord)}
+            onClick={() => handleToggle("wholeWord")}
             className={`px-1.5 py-0.5 text-[10px] font-mono border rounded transition-colors ${
               wholeWord
                 ? "bg-accent/20 border-accent text-accent"
@@ -120,7 +122,7 @@ export function SearchPanel({ base, onResultClick }: SearchPanelProps) {
             ab
           </button>
           <button
-            onClick={() => handleToggle(setUseRegex)}
+            onClick={() => handleToggle("useRegex")}
             className={`px-1.5 py-0.5 text-[10px] font-mono border rounded transition-colors ${
               useRegex
                 ? "bg-accent/20 border-accent text-accent"

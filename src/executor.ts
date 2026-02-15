@@ -92,6 +92,7 @@ export function spawnClaude(
   model?: string,
   onQuestion?: (toolUseId: string, questions: AskQuestion[]) => void,
   planMode?: boolean,
+  agentName?: string,
 ): SpawnHandle {
   const timeout = timeoutMs ?? config.claudeTimeoutMs;
   const args = [
@@ -109,6 +110,10 @@ export function spawnClaude(
 
   if (model) {
     args.push("--model", model);
+  }
+
+  if (agentName) {
+    args.push("--agent", agentName);
   }
 
   if (resumeSessionId) {

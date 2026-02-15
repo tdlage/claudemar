@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Square, Map } from "lucide-react";
+import { Square, Map, Bot } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -14,7 +14,7 @@ import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
 import { VoiceInput } from "../components/shared/VoiceInput";
-import type { ProjectDetail } from "../lib/types";
+import type { AgentInfo, ProjectDetail } from "../lib/types";
 
 type TabKey = "terminal" | "repositories" | "files";
 
@@ -32,6 +32,8 @@ export function ProjectDetailPage() {
   const [planMode, setPlanMode] = useCachedState(`project:${name}:planMode`, false);
   const [execId, setExecId] = useCachedState<string | null>(`project:${name}:execId`, null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`project:${name}:expandedExecId`, null);
+  const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
 
@@ -57,6 +59,7 @@ export function ProjectDetailPage() {
   useEffect(() => {
     loadProject();
     loadSession();
+    api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
   }, [loadProject, loadSession]);
 
   useEffect(() => {
@@ -100,6 +103,7 @@ export function ProjectDetailPage() {
         targetName: name,
         prompt: prompt.trim(),
         planMode,
+        agentName: selectedAgent || undefined,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -187,6 +191,23 @@ export function ProjectDetailPage() {
               className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 200 }}
             />
+            <div className="flex items-center gap-1">
+              <Bot size={13} className={selectedAgent ? "text-accent" : "text-text-muted"} />
+              <select
+                value={selectedAgent}
+                onChange={(e) => setSelectedAgent(e.target.value)}
+                className={`text-xs bg-transparent border rounded-md px-1 py-1.5 focus:outline-none focus:border-accent ${
+                  selectedAgent
+                    ? "border-accent/40 text-accent"
+                    : "border-border text-text-muted"
+                }`}
+              >
+                <option value="">No agent</option>
+                {agents.map((a) => (
+                  <option key={a.name} value={a.name}>{a.name}</option>
+                ))}
+              </select>
+            </div>
             <button
               type="button"
               onClick={() => setPlanMode(!planMode)}

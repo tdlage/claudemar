@@ -201,6 +201,12 @@ function LogEntry({
               <span className="text-text-secondary font-mono">{exec.cwd}</span>
             </div>
           </div>
+          <div>
+            <p className="text-xs text-text-muted mb-1">Prompt:</p>
+            <pre className="text-xs text-text-primary font-mono whitespace-pre-wrap break-words bg-surface rounded p-2 border border-border">
+              {exec.prompt}
+            </pre>
+          </div>
           {exec.error && (
             <div className="text-xs">
               <span className="text-danger font-medium">Error: </span>
@@ -209,10 +215,10 @@ function LogEntry({
           )}
           {exec.output && (
             <div>
-              <p className="text-xs text-text-muted mb-1">Output (truncated):</p>
+              <p className="text-xs text-text-muted mb-1">Output{exec.output.length > 5000 ? " (preview)" : ""}:</p>
               <pre className="text-xs text-text-secondary font-mono whitespace-pre-wrap overflow-auto max-h-48 bg-surface rounded p-2 border border-border">
-                {exec.output.slice(0, 2000)}
-                {exec.output.length > 2000 ? "\n...(truncated)" : ""}
+                {exec.output.slice(0, 5000)}
+                {exec.output.length > 5000 ? "\n...(truncated)" : ""}
               </pre>
             </div>
           )}

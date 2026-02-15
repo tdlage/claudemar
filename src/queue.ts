@@ -17,6 +17,7 @@ export interface QueueItem {
   resumeSessionId?: string | null;
   model?: string;
   planMode?: boolean;
+  agentName?: string;
   enqueuedAt: string;
   telegramChatId?: number;
 }
@@ -42,8 +43,8 @@ class CommandQueue extends EventEmitter {
     return resolve(config.basePath, "queue.json");
   }
 
-  targetKey(targetType: string, targetName: string): string {
-    return `${targetType}:${targetName}`;
+  targetKey(targetType: string, targetName: string, agentName?: string): string {
+    return agentName ? `${targetType}:${targetName}:${agentName}` : `${targetType}:${targetName}`;
   }
 
   enqueue(opts: Omit<QueueItem, "id" | "seqId" | "enqueuedAt">): QueueItem {
@@ -54,7 +55,7 @@ class CommandQueue extends EventEmitter {
       enqueuedAt: new Date().toISOString(),
     };
 
-    const key = this.targetKey(opts.targetType, opts.targetName);
+    const key = this.targetKey(opts.targetType, opts.targetName, opts.agentName);
     const queue = this.queues.get(key) ?? [];
     queue.push(item);
     this.queues.set(key, queue);
@@ -102,8 +103,8 @@ class CommandQueue extends EventEmitter {
     return items.sort((a, b) => a.seqId - b.seqId);
   }
 
-  getByTarget(targetType: string, targetName: string): QueueItem[] {
-    const key = this.targetKey(targetType, targetName);
+  getByTarget(targetType: string, targetName: string, agentName?: string): QueueItem[] {
+    const key = this.targetKey(targetType, targetName, agentName);
     return this.queues.get(key) ?? [];
   }
 
@@ -111,8 +112,8 @@ class CommandQueue extends EventEmitter {
     return new Map(this.queues);
   }
 
-  peek(targetType: string, targetName: string): QueueItem | undefined {
-    const key = this.targetKey(targetType, targetName);
+  peek(targetType: string, targetName: string, agentName?: string): QueueItem | undefined {
+    const key = this.targetKey(targetType, targetName, agentName);
     const queue = this.queues.get(key);
     return queue?.[0];
   }
@@ -127,7 +128,7 @@ class CommandQueue extends EventEmitter {
       this.nextSeqId = data.nextSeqId ?? 1;
 
       for (const item of data.items ?? []) {
-        const key = this.targetKey(item.targetType, item.targetName);
+        const key = this.targetKey(item.targetType, item.targetName, item.agentName);
         const queue = this.queues.get(key) ?? [];
         queue.push(item);
         this.queues.set(key, queue);

@@ -239,5 +239,6 @@ export function processQueueItem(item: QueueItem): string {
     resumeSessionId: item.resumeSessionId,
     model: item.model,
     planMode: item.planMode,
+    agentName: item.agentName,
   });
 }

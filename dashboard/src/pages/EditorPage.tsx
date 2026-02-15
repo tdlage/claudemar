@@ -13,6 +13,7 @@ import { EditorTabs, type OpenFile } from "../components/editor/EditorTabs";
 import { ActivityBar, type ActivityView } from "../components/editor/ActivityBar";
 import { SearchPanel } from "../components/editor/SearchPanel";
 import { RunPanel } from "../components/editor/RunPanel";
+import type { SearchState } from "../components/project/FilesBrowser";
 import type { AgentInfo, FileReadResult, ProjectInfo } from "../lib/types";
 
 interface FileState {
@@ -47,6 +48,10 @@ export function EditorPage() {
   );
   const [saving, setSaving] = useState(false);
   const [activeView, setActiveView] = useState<ActivityView>("files");
+  const [searchState, setSearchState] = useState<SearchState>({
+    query: "", results: {}, count: 0, caseSensitive: false,
+    useRegex: false, wholeWord: false, collapsedFiles: new Set(),
+  });
   const [goToLine, setGoToLine] = useState<number | undefined>();
 
   const fileTreeRef = useRef<FileTreeHandle>(null);
@@ -275,7 +280,7 @@ export function EditorPage() {
         )}
 
         {activeView === "search" && (
-          <SearchPanel base={base} onResultClick={handleSearchResultClick} />
+          <SearchPanel base={base} onResultClick={handleSearchResultClick} state={searchState} onStateChange={setSearchState} />
         )}
 
         {activeView === "run" && <RunPanel base={base} />}
