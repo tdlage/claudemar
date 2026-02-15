@@ -14,7 +14,7 @@ import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
 import { VoiceInput } from "../components/shared/VoiceInput";
-import type { AgentInfo, ProjectDetail } from "../lib/types";
+import type { ProjectDetail } from "../lib/types";
 
 type TabKey = "terminal" | "repositories" | "files";
 
@@ -33,7 +33,7 @@ export function ProjectDetailPage() {
   const [execId, setExecId] = useCachedState<string | null>(`project:${name}:execId`, null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`project:${name}:expandedExecId`, null);
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [agents, setAgents] = useState<string[]>([]);
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
 
@@ -59,7 +59,7 @@ export function ProjectDetailPage() {
   useEffect(() => {
     loadProject();
     loadSession();
-    api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
+    api.get<string[]>(`/projects/${name}/claude-agents`).then(setAgents).catch(() => {});
   }, [loadProject, loadSession]);
 
   useEffect(() => {
@@ -204,7 +204,7 @@ export function ProjectDetailPage() {
               >
                 <option value="">No agent</option>
                 {agents.map((a) => (
-                  <option key={a.name} value={a.name}>{a.name}</option>
+                  <option key={a} value={a}>{a}</option>
                 ))}
               </select>
             </div>

@@ -1,4 +1,6 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import { rm } from "node:fs/promises";
 import type { Request, Response } from "express";
 import { Router } from "express";
@@ -283,6 +285,20 @@ projectsRouter.get("/:name/repos/:repo/diff", async (req, res) => {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: message });
   }
+});
+
+projectsRouter.get("/:name/claude-agents", (_req, res) => {
+  const agentsDir = resolve(homedir(), ".claude", "agents");
+  if (!existsSync(agentsDir)) {
+    res.json([]);
+    return;
+  }
+
+  const agents = readdirSync(agentsDir)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => f.replace(/\.md$/, ""));
+
+  res.json(agents);
 });
 
 projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
