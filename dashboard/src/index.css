@@ -48,6 +48,14 @@ body {
   background: #444;
 }
 
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 .markdown-editor .tiptap {
   color: var(--color-text-primary);
   line-height: 1.7;

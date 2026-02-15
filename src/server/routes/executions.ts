@@ -24,7 +24,7 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", (req, res) => {
-  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName } = req.body;
+  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -73,33 +73,35 @@ executionsRouter.post("/", (req, res) => {
   }
 
   const effectiveTargetName = targetName || "orchestrator";
-
-  if (executionManager.isTargetActive(targetType, effectiveTargetName, agentName)) {
-    const item = commandQueue.enqueue({
-      targetType,
-      targetName: effectiveTargetName,
-      prompt: finalPrompt,
-      source: "web",
-      cwd,
-      resumeSessionId,
-      model,
-      planMode,
-      agentName,
-    });
-    res.status(202).json({ queued: true, queueItem: { id: item.id, seqId: item.seqId } });
-    return;
-  }
-
-  const id = executionManager.startExecution({
-    source: "web",
+  const queuePayload = {
     targetType,
     targetName: effectiveTargetName,
     prompt: finalPrompt,
+    source: "web" as const,
     cwd,
     resumeSessionId,
     model,
     planMode,
     agentName,
+  };
+
+  const targetActive = executionManager.isTargetActive(targetType, effectiveTargetName);
+  const hasQueuedItems = commandQueue.getByTarget(targetType, effectiveTargetName).length > 0;
+
+  if (forceQueue && (targetActive || hasQueuedItems)) {
+    const item = commandQueue.enqueue(queuePayload);
+    res.status(202).json({ queued: true, queueItem: { id: item.id, seqId: item.seqId } });
+    return;
+  }
+
+  if (!forceQueue && targetActive) {
+    const item = commandQueue.enqueue(queuePayload);
+    res.status(202).json({ queued: true, queueItem: { id: item.id, seqId: item.seqId } });
+    return;
+  }
+
+  const id = executionManager.startExecution({
+    ...queuePayload,
   });
 
   res.status(201).json({ id });

@@ -58,8 +58,8 @@ export function LogsPage() {
     <div className="space-y-4">
       <h1 className="text-lg font-semibold">Execution Logs</h1>
 
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-[200px]">
+      <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3 items-stretch sm:items-center">
+        <div className="relative flex-1 min-w-0 sm:min-w-[200px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             type="text"
@@ -71,11 +71,11 @@ export function LogsPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Filter size={14} className="text-text-muted" />
+          <Filter size={14} className="text-text-muted shrink-0" />
           <select
             value={statusFilter}
             onChange={(e) => { setStatusFilter(e.target.value as ExecutionStatus | "all"); setPage(0); }}
-            className="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+            className="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent flex-1 sm:flex-none"
           >
             <option value="all">All statuses</option>
             {STATUS_OPTIONS.map((s) => (
@@ -86,7 +86,7 @@ export function LogsPage() {
           <select
             value={targetFilter}
             onChange={(e) => { setTargetFilter(e.target.value as ExecutionTargetType | "all"); setPage(0); }}
-            className="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+            className="bg-surface border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent flex-1 sm:flex-none"
           >
             <option value="all">All targets</option>
             {TARGET_OPTIONS.map((t) => (
@@ -157,18 +157,18 @@ function LogEntry({
     <Card className="p-0 overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left hover:bg-surface-hover transition-colors"
+        className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-3 md:px-4 py-2.5 text-sm text-left hover:bg-surface-hover transition-colors"
       >
         <Badge variant={statusVariant}>{exec.status}</Badge>
-        <span className="text-xs text-accent font-medium min-w-[60px]">{exec.targetType}</span>
-        <span className="text-xs text-text-muted min-w-[80px]">{exec.targetName}</span>
-        <span className="text-text-primary truncate flex-1">{exec.prompt}</span>
+        <span className="text-xs text-accent font-medium">{exec.targetType}</span>
+        <span className="text-xs text-text-muted hidden sm:inline">{exec.targetName}</span>
+        <span className="text-text-primary truncate flex-1 min-w-0 basis-[100px]">{exec.prompt}</span>
         {exec.result && (
           <span className="text-xs text-text-muted whitespace-nowrap">
             {(exec.result.durationMs / 1000).toFixed(1)}s · ${exec.result.costUsd.toFixed(2)}
           </span>
         )}
-        <span className="text-xs text-text-muted min-w-[70px] text-right whitespace-nowrap">
+        <span className="text-xs text-text-muted text-right whitespace-nowrap hidden sm:inline">
           {exec.completedAt
             ? formatDistanceToNow(new Date(exec.completedAt), { addSuffix: true })
             : "running"}
@@ -176,8 +176,8 @@ function LogEntry({
       </button>
 
       {expanded && (
-        <div className="border-t border-border bg-bg px-4 py-3 space-y-2">
-          <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="border-t border-border bg-bg px-3 md:px-4 py-3 space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
             <div>
               <span className="text-text-muted">ID: </span>
               <span className="text-text-secondary font-mono">{exec.id}</span>
@@ -196,9 +196,9 @@ function LogEntry({
                 <span className="text-text-secondary">{new Date(exec.completedAt).toLocaleString()}</span>
               </div>
             )}
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <span className="text-text-muted">CWD: </span>
-              <span className="text-text-secondary font-mono">{exec.cwd}</span>
+              <span className="text-text-secondary font-mono break-all">{exec.cwd}</span>
             </div>
           </div>
           <div>

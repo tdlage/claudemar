@@ -43,8 +43,8 @@ class CommandQueue extends EventEmitter {
     return resolve(config.basePath, "queue.json");
   }
 
-  targetKey(targetType: string, targetName: string, agentName?: string): string {
-    return agentName ? `${targetType}:${targetName}:${agentName}` : `${targetType}:${targetName}`;
+  targetKey(targetType: string, targetName: string): string {
+    return `${targetType}:${targetName}`;
   }
 
   enqueue(opts: Omit<QueueItem, "id" | "seqId" | "enqueuedAt">): QueueItem {
@@ -55,7 +55,7 @@ class CommandQueue extends EventEmitter {
       enqueuedAt: new Date().toISOString(),
     };
 
-    const key = this.targetKey(opts.targetType, opts.targetName, opts.agentName);
+    const key = this.targetKey(opts.targetType, opts.targetName);
     const queue = this.queues.get(key) ?? [];
     queue.push(item);
     this.queues.set(key, queue);
@@ -103,8 +103,8 @@ class CommandQueue extends EventEmitter {
     return items.sort((a, b) => a.seqId - b.seqId);
   }
 
-  getByTarget(targetType: string, targetName: string, agentName?: string): QueueItem[] {
-    const key = this.targetKey(targetType, targetName, agentName);
+  getByTarget(targetType: string, targetName: string): QueueItem[] {
+    const key = this.targetKey(targetType, targetName);
     return this.queues.get(key) ?? [];
   }
 
@@ -112,8 +112,8 @@ class CommandQueue extends EventEmitter {
     return new Map(this.queues);
   }
 
-  peek(targetType: string, targetName: string, agentName?: string): QueueItem | undefined {
-    const key = this.targetKey(targetType, targetName, agentName);
+  peek(targetType: string, targetName: string): QueueItem | undefined {
+    const key = this.targetKey(targetType, targetName);
     const queue = this.queues.get(key);
     return queue?.[0];
   }
@@ -128,7 +128,7 @@ class CommandQueue extends EventEmitter {
       this.nextSeqId = data.nextSeqId ?? 1;
 
       for (const item of data.items ?? []) {
-        const key = this.targetKey(item.targetType, item.targetName, item.agentName);
+        const key = this.targetKey(item.targetType, item.targetName);
         const queue = this.queues.get(key) ?? [];
         queue.push(item);
         this.queues.set(key, queue);

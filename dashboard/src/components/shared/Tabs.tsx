@@ -18,12 +18,12 @@ const badgeColors = {
 
 export function Tabs<K extends string>({ tabs, active, onChange }: TabsProps<K>) {
   return (
-    <div className="flex gap-1 border-b border-border">
+    <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none">
       {tabs.map((t) => (
         <button
           key={t.key}
           onClick={() => onChange(t.key)}
-          className={`px-3 py-2 text-sm border-b-2 transition-colors flex items-center gap-1.5 ${
+          className={`px-3 py-2 text-sm border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
             active === t.key
               ? "border-accent text-accent"
               : "border-transparent text-text-muted hover:text-text-primary"

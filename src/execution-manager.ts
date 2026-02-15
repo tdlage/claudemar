@@ -71,6 +71,7 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
     prompt: info.prompt,
     targetType: info.targetType,
     targetName: info.targetName,
+    agentName: info.agentName || undefined,
     status: info.status,
     startedAt: info.startedAt.toISOString(),
     completedAt: info.completedAt?.toISOString() ?? null,
@@ -102,8 +103,8 @@ class ExecutionManager extends EventEmitter {
   private lastSessionMap = new Map<string, string>();
   private sessionHistoryMap = new Map<string, string[]>();
 
-  private targetKey(targetType: string, targetName: string, agentName?: string): string {
-    return agentName ? `${targetType}:${targetName}:${agentName}` : `${targetType}:${targetName}`;
+  private targetKey(targetType: string, targetName: string): string {
+    return `${targetType}:${targetName}`;
   }
 
   getLastSessionId(targetType: string, targetName: string): string | undefined {
@@ -336,11 +337,9 @@ class ExecutionManager extends EventEmitter {
     return this.active.get(id)?.info ?? this.recent.find((e) => e.id === id);
   }
 
-  isTargetActive(targetType: string, targetName: string, agentName?: string): boolean {
-    const key = this.targetKey(targetType, targetName, agentName);
+  isTargetActive(targetType: string, targetName: string): boolean {
     for (const entry of this.active.values()) {
-      const entryKey = this.targetKey(entry.info.targetType, entry.info.targetName, entry.info.agentName);
-      if (entryKey === key) return true;
+      if (entry.info.targetType === targetType && entry.info.targetName === targetName) return true;
     }
     return false;
   }
@@ -364,6 +363,7 @@ class ExecutionManager extends EventEmitter {
       source: (e.source as ExecutionSource) || "telegram",
       targetType: (e.targetType as ExecutionTargetType) || "orchestrator",
       targetName: e.targetName || "orchestrator",
+      agentName: e.agentName,
       prompt: e.prompt,
       cwd: "",
       status: (e.status as ExecutionStatus) || "completed",

@@ -1,5 +1,5 @@
 import { formatDistanceToNow } from "date-fns";
-import { ChevronDown, Square, X } from "lucide-react";
+import { Bot, ChevronDown, Square, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
 import { ansiToHtml } from "../../lib/ansi";
@@ -30,18 +30,24 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle }: A
   return (
     <div className="space-y-1.5">
       {queue.map((item) => (
-        <div key={`q-${item.id}`} className="flex items-center gap-3 px-3 py-2 rounded-md text-sm min-w-0 hover:bg-surface-hover">
+        <div key={`q-${item.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 rounded-md text-sm min-w-0 hover:bg-surface-hover">
           <Badge variant="warning">queued</Badge>
-          <span className="text-text-muted text-xs min-w-[70px]">
+          <span className="text-text-muted text-xs">
             {item.targetName}
           </span>
-          <span className="text-text-primary truncate flex-1">
+          {item.agentName && (
+            <span className="inline-flex items-center gap-0.5 text-xs text-accent bg-accent/10 border border-accent/30 rounded px-1 py-0.5">
+              <Bot size={10} />
+              {item.agentName}
+            </span>
+          )}
+          <span className="text-text-primary truncate flex-1 min-w-0 basis-[120px]">
             {item.prompt}
           </span>
           <span className="text-xs text-text-muted font-mono">
             #{item.seqId}
           </span>
-          <span className="text-xs text-text-muted min-w-[60px] text-right">
+          <span className="text-xs text-text-muted text-right">
             {formatDistanceToNow(new Date(item.enqueuedAt), { addSuffix: true })}
           </span>
           <button
@@ -65,33 +71,41 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle }: A
         const isExpanded = expandedId === exec.id;
         const clickable = !!onToggle;
 
+        const sanitizedOutput = ansiToHtml(exec.output || "(sem output)");
+
         return (
           <div key={exec.id}>
             <div
-              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm min-w-0 ${clickable ? "cursor-pointer" : ""} ${isExpanded ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
+              className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 rounded-md text-sm min-w-0 ${clickable ? "cursor-pointer" : ""} ${isExpanded ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
               onClick={clickable ? () => onToggle(exec.id) : undefined}
             >
               <Badge variant={statusVariant}>{exec.status}</Badge>
-              <span className="text-text-muted text-xs min-w-[70px]">
+              <span className="text-text-muted text-xs hidden md:inline">
                 {exec.targetName}
               </span>
-              <span className="text-text-primary truncate flex-1">
+              {exec.agentName && (
+                <span className="inline-flex items-center gap-0.5 text-xs text-accent bg-accent/10 border border-accent/30 rounded px-1 py-0.5">
+                  <Bot size={10} />
+                  {exec.agentName}
+                </span>
+              )}
+              <span className="text-text-primary truncate flex-1 min-w-0 basis-[120px]">
                 {exec.prompt}
                 {exec.status === "error" && exec.error && (
                   <span className="text-danger ml-2">— {exec.error}</span>
                 )}
               </span>
               {exec.result?.sessionId && (
-                <span className="text-xs text-text-muted font-mono" title={exec.result.sessionId}>
+                <span className="text-xs text-text-muted font-mono hidden md:inline" title={exec.result.sessionId}>
                   {exec.result.sessionId.slice(0, 8)}
                 </span>
               )}
               {exec.result && (
-                <span className="text-xs text-text-muted">
+                <span className="text-xs text-text-muted whitespace-nowrap">
                   {(exec.result.durationMs / 1000).toFixed(1)}s · ${exec.result.costUsd.toFixed(2)}
                 </span>
               )}
-              <span className="text-xs text-text-muted min-w-[60px] text-right">
+              <span className="text-xs text-text-muted text-right hidden sm:inline">
                 {exec.completedAt
                   ? formatDistanceToNow(new Date(exec.completedAt), { addSuffix: true })
                   : "running"}
@@ -116,15 +130,15 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle }: A
               )}
             </div>
             {isExpanded && (
-              <div className="mx-3 mt-1 mb-2 space-y-1">
+              <div className="mx-2 md:mx-3 mt-1 mb-2 space-y-1">
                 {exec.status === "error" && exec.error && (
                   <div className="p-2 bg-danger/10 border border-danger/30 rounded-md text-xs text-danger">
                     {exec.error}
                   </div>
                 )}
                 <pre
-                  className="p-3 bg-bg rounded-md border border-border text-xs text-text-primary max-h-[400px] overflow-auto whitespace-pre-wrap break-words"
-                  dangerouslySetInnerHTML={{ __html: ansiToHtml(exec.output || "(sem output)") }}
+                  className="p-2 md:p-3 bg-bg rounded-md border border-border text-xs text-text-primary max-h-[400px] overflow-auto whitespace-pre-wrap break-words"
+                  dangerouslySetInnerHTML={{ __html: sanitizedOutput }}
                 />
               </div>
             )}

@@ -8,6 +8,7 @@ export interface HistoryEntry {
   prompt: string;
   targetType: string;
   targetName: string;
+  agentName?: string;
   status: string;
   startedAt: string;
   completedAt: string | null;

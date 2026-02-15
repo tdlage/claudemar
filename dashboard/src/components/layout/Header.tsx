@@ -1,34 +1,47 @@
 import { useLocation } from "react-router-dom";
-import { Search } from "lucide-react";
+import { Menu, Search } from "lucide-react";
 import { SystemResources } from "./SystemResources";
 import { ProcessIndicator } from "./ProcessIndicator";
+import { useSidebar } from "./Sidebar";
 
 export function Header() {
   const location = useLocation();
+  const { isMobile, setMobileOpen } = useSidebar();
 
   const breadcrumbs = buildBreadcrumbs(location.pathname);
 
   return (
-    <header className="h-12 border-b border-border bg-surface/50 backdrop-blur-sm flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
-      <nav className="flex items-center gap-1.5 text-sm">
-        {breadcrumbs.map((crumb, i) => (
-          <span key={i} className="flex items-center gap-1.5">
-            {i > 0 && <span className="text-text-muted">/</span>}
-            <span
-              className={
-                i === breadcrumbs.length - 1
-                  ? "text-text-primary"
-                  : "text-text-muted"
-              }
-            >
-              {crumb}
+    <header className="h-12 border-b border-border bg-surface/50 backdrop-blur-sm flex items-center justify-between px-3 md:px-6 sticky top-0 z-10">
+      <div className="flex items-center gap-2 min-w-0">
+        {isMobile && (
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors shrink-0"
+            title="Open menu"
+          >
+            <Menu size={18} />
+          </button>
+        )}
+        <nav className="flex items-center gap-1.5 text-sm min-w-0 truncate">
+          {breadcrumbs.map((crumb, i) => (
+            <span key={i} className="flex items-center gap-1.5">
+              {i > 0 && <span className="text-text-muted">/</span>}
+              <span
+                className={
+                  i === breadcrumbs.length - 1
+                    ? "text-text-primary truncate"
+                    : "text-text-muted"
+                }
+              >
+                {crumb}
+              </span>
             </span>
-          </span>
-        ))}
-      </nav>
+          ))}
+        </nav>
+      </div>
 
-      <div className="flex items-center gap-4">
-        <SystemResources />
+      <div className="flex items-center gap-2 md:gap-4 shrink-0">
+        <span className="hidden sm:block"><SystemResources /></span>
         <ProcessIndicator />
         <button
           onClick={() =>

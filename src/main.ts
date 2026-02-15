@@ -16,8 +16,8 @@ ensureAllAgentGitRepos();
 await executionManager.loadRecent();
 
 function drainQueue(_id: string, info: ExecutionInfo) {
-  const key = commandQueue.targetKey(info.targetType, info.targetName, info.agentName);
-  if (executionManager.isTargetActive(info.targetType, info.targetName, info.agentName)) return;
+  const key = commandQueue.targetKey(info.targetType, info.targetName);
+  if (executionManager.isTargetActive(info.targetType, info.targetName)) return;
   const next = commandQueue.dequeue(key);
   if (!next) return;
   commandQueue.emit("queue:processing", next);
