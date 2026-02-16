@@ -53,8 +53,8 @@ export function TokenUsage({ collapsed }: TokenUsageProps) {
   if (!data || data.error) return null;
 
   const bars = [
-    { label: "5h", pct: Math.round(data.fiveHour.utilization * 100), reset: data.fiveHour.resetsAt },
-    { label: "7d", pct: Math.round(data.sevenDay.utilization * 100), reset: data.sevenDay.resetsAt },
+    { label: "5h", pct: Math.round(data.fiveHour.utilization), reset: data.fiveHour.resetsAt },
+    { label: "7d", pct: Math.round(data.sevenDay.utilization), reset: data.sevenDay.resetsAt },
   ];
 
   if (collapsed) {
