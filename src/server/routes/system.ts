@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { cpus } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
+import { cpus, homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Router } from "express";
@@ -108,6 +108,66 @@ systemRouter.post("/update", async (_req, res) => {
     }
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Update failed" });
+  }
+});
+
+let tokenUsageCache: { data: unknown; fetchedAt: number } | null = null;
+const TOKEN_USAGE_TTL = 60_000;
+
+function getClaudeAccessToken(): string | null {
+  const credPath = resolve(homedir(), ".claude", ".credentials.json");
+  if (!existsSync(credPath)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(credPath, "utf-8"));
+    return raw?.claudeAiOauth?.accessToken || null;
+  } catch {
+    return null;
+  }
+}
+
+systemRouter.get("/token-usage", async (req, res) => {
+  const force = req.query.force === "1";
+  if (!force && tokenUsageCache && Date.now() - tokenUsageCache.fetchedAt < TOKEN_USAGE_TTL) {
+    res.json(tokenUsageCache.data);
+    return;
+  }
+
+  const token = getClaudeAccessToken();
+  if (!token) {
+    res.json({ error: "No Claude credentials found" });
+    return;
+  }
+
+  try {
+    const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "anthropic-beta": "oauth-2025-04-20",
+        "User-Agent": "claudemar/1.0",
+      },
+    });
+
+    if (!response.ok) {
+      res.json({ error: `API returned ${response.status}` });
+      return;
+    }
+
+    const json = await response.json() as Record<string, Record<string, unknown>>;
+    const data = {
+      fiveHour: {
+        utilization: (json.five_hour?.utilization as number) ?? 0,
+        resetsAt: (json.five_hour?.resets_at as string) ?? null,
+      },
+      sevenDay: {
+        utilization: (json.seven_day?.utilization as number) ?? 0,
+        resetsAt: (json.seven_day?.resets_at as string) ?? null,
+      },
+    };
+
+    tokenUsageCache = { data, fetchedAt: Date.now() };
+    res.json(data);
+  } catch (err) {
+    res.json({ error: err instanceof Error ? err.message : "Failed to fetch usage" });
   }
 });
 

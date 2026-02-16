@@ -24,7 +24,7 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", (req, res) => {
-  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue } = req.body;
+  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue, model: requestModel } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -60,14 +60,14 @@ executionsRouter.post("/", (req, res) => {
   }
 
   let finalPrompt = prompt;
-  let model: string | undefined;
+  let model: string | undefined = requestModel || undefined;
 
   if (targetType === "orchestrator") {
     const settings = loadOrchestratorSettings();
     if (settings.prependPrompt) {
       finalPrompt = `${settings.prependPrompt}\n\n${prompt}`;
     }
-    if (settings.model) {
+    if (!model && settings.model) {
       model = settings.model;
     }
   }

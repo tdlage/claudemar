@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../hooks/useAuth";
+import { TokenUsage } from "./TokenUsage";
 import { useSocketEvent, useSocketRoom } from "../../hooks/useSocket";
 import type { AgentInfo, ProjectInfo, ExecutionInfo } from "../../lib/types";
 
@@ -374,15 +375,18 @@ export function Sidebar() {
           </div>
         </nav>
 
-        <div className="px-2 py-3 border-t border-border">
-          <button
-            onClick={logout}
-            className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors w-full ${!isMobile && collapsed ? "justify-center" : ""}`}
-            title="Logout"
-          >
-            <LogOut size={16} />
-            {showExpanded && "Logout"}
-          </button>
+        <div className="border-t border-border">
+          <TokenUsage collapsed={!isMobile && collapsed} />
+          <div className="px-2 pb-3">
+            <button
+              onClick={logout}
+              className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors w-full ${!isMobile && collapsed ? "justify-center" : ""}`}
+              title="Logout"
+            >
+              <LogOut size={16} />
+              {showExpanded && "Logout"}
+            </button>
+          </div>
         </div>
         {createAgentOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">

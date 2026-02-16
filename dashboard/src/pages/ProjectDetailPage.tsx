@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Square, Map, Bot, ListOrdered } from "lucide-react";
+import { Square, Map, Bot, ListOrdered, Cpu } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -33,6 +33,7 @@ export function ProjectDetailPage() {
   const [execId, setExecId] = useCachedState<string | null>(`project:${name}:execId`, null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`project:${name}:expandedExecId`, null);
   const [sequential, setSequential] = useCachedState(`project:${name}:sequential`, true);
+  const [selectedModel, setSelectedModel] = useCachedState(`project:${name}:model`, "claude-opus-4-6");
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
   const [agents, setAgents] = useState<string[]>([]);
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
@@ -106,6 +107,7 @@ export function ProjectDetailPage() {
         planMode,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
+        model: selectedModel || undefined,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -250,6 +252,18 @@ export function ProjectDetailPage() {
                 <ListOrdered size={13} />
                 Queue
               </button>
+              <div className="flex items-center gap-1">
+                <Cpu size={13} className="text-text-muted" />
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="text-xs bg-transparent border border-border rounded-md px-1 py-1.5 text-text-muted focus:outline-none focus:border-accent"
+                >
+                  <option value="claude-opus-4-6">Opus 4.6</option>
+                  <option value="claude-sonnet-4-5-20250929">Sonnet 4.5</option>
+                  <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+                </select>
+              </div>
             </div>
           </form>
           <div className="h-[300px] md:h-[500px]">
