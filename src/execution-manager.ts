@@ -309,6 +309,24 @@ class ExecutionManager extends EventEmitter {
       entry.info.status = "cancelled";
       entry.info.completedAt = new Date();
       entry.info.error = "Cancelado pelo usuário.";
+
+      const sessionId = entry.opts.resumeSessionId
+        ?? this.getLastSessionId(entry.opts.targetType, entry.opts.targetName)
+        ?? "";
+      if (sessionId) {
+        const durationMs = entry.info.completedAt.getTime() - entry.info.startedAt.getTime();
+        entry.info.result = {
+          output: entry.info.output,
+          sessionId,
+          durationMs,
+          costUsd: 0,
+          isError: false,
+          permissionDenials: [],
+        };
+        this.lastSessionMap.set(this.targetKey(entry.opts.targetType, entry.opts.targetName), sessionId);
+        this.pushSessionHistory(entry.opts.targetType, entry.opts.targetName, sessionId);
+      }
+
       entry.process.kill("SIGTERM");
       setTimeout(() => {
         if (!entry.process.killed) {

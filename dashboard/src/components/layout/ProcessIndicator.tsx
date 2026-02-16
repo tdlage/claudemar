@@ -56,7 +56,7 @@ export function ProcessIndicator() {
     <div ref={ref} className="relative hidden sm:block">
       <button
         onClick={() => setOpen(!open)}
-        className={`flex items-center gap-1 text-xs font-mono transition-colors ${
+        className={`flex items-center gap-1 text-xs font-mono transition-colors cursor-pointer ${
           runningCount > 0 ? "text-success" : "text-text-muted"
         } hover:text-text-primary`}
       >

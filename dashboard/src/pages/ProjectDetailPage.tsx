@@ -32,7 +32,7 @@ export function ProjectDetailPage() {
   const [planMode, setPlanMode] = useCachedState(`project:${name}:planMode`, false);
   const [execId, setExecId] = useCachedState<string | null>(`project:${name}:execId`, null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`project:${name}:expandedExecId`, null);
-  const [sequential, setSequential] = useCachedState(`project:${name}:sequential`, false);
+  const [sequential, setSequential] = useCachedState(`project:${name}:sequential`, true);
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
   const [agents, setAgents] = useState<string[]>([]);
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });

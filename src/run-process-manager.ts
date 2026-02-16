@@ -163,22 +163,33 @@ class RunProcessManager extends EventEmitter {
 
   stopProcess(configId: string): boolean {
     const entry = this.active.get(configId);
-    if (!entry) return false;
+    if (entry) {
+      entry.process.kill("SIGTERM");
+      setTimeout(() => {
+        try { entry.process.kill("SIGKILL"); } catch { /* already dead */ }
+      }, 5000);
+      return true;
+    }
 
-    entry.process.kill("SIGTERM");
-    setTimeout(() => {
+    const orphanPid = this.findOrphanPid(configId);
+    if (orphanPid) {
       try {
-        entry.process.kill("SIGKILL");
-      } catch {
-        // already dead
-      }
-    }, 5000);
+        process.kill(orphanPid, "SIGTERM");
+        setTimeout(() => {
+          try { process.kill(orphanPid, "SIGKILL"); } catch { /* already dead */ }
+        }, 5000);
+      } catch { /* already dead */ }
+      this.persistProcessStates();
+      this.emit("stop", configId, 0);
+      return true;
+    }
 
-    return true;
+    return false;
   }
 
   restartProcess(configId: string): boolean {
-    const wasRunning = this.active.has(configId);
+    const hasOrphan = this.findOrphanPid(configId) !== null;
+    const wasRunning = this.active.has(configId) || hasOrphan;
     if (wasRunning) {
       this.stopProcess(configId);
     }
@@ -188,9 +199,23 @@ class RunProcessManager extends EventEmitter {
         this.startProcess(configId);
       });
     } else {
-      this.startProcess(configId);
+      setTimeout(() => this.startProcess(configId), wasRunning ? 1000 : 0);
     }
     return true;
+  }
+
+  private findOrphanPid(configId: string): number | null {
+    const path = this.processesPath();
+    if (!existsSync(path)) return null;
+    try {
+      const states: RunProcessState[] = JSON.parse(readFileSync(path, "utf-8"));
+      const state = states.find((s) => s.configId === configId);
+      if (!state) return null;
+      process.kill(state.pid, 0);
+      return state.pid;
+    } catch {
+      return null;
+    }
   }
 
   isRunning(configId: string): boolean {

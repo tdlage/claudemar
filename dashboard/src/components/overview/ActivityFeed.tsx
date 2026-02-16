@@ -5,6 +5,16 @@ import { api } from "../../lib/api";
 import { ansiToHtml } from "../../lib/ansi";
 import type { ExecutionInfo, QueueItem } from "../../lib/types";
 
+function formatDuration(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (hours > 0) return `${hours}h${minutes}m${seconds}s`;
+  return `${minutes}m${seconds}s`;
+}
+
 interface ActivityFeedProps {
   executions: ExecutionInfo[];
   queue?: QueueItem[];
@@ -29,7 +39,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle }: A
 
   return (
     <div className="space-y-1.5">
-      {queue.map((item) => (
+      {[...queue].reverse().map((item) => (
         <div key={`q-${item.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 rounded-md text-sm min-w-0 hover:bg-surface-hover">
           <Badge variant="warning">queued</Badge>
           <span className="text-text-muted text-xs">
@@ -102,7 +112,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle }: A
               )}
               {exec.result && (
                 <span className="text-xs text-text-muted whitespace-nowrap">
-                  {(exec.result.durationMs / 1000).toFixed(1)}s · ${exec.result.costUsd.toFixed(2)}
+                  {formatDuration(exec.result.durationMs)} · ${exec.result.costUsd.toFixed(2)}
                 </span>
               )}
               <span className="text-xs text-text-muted text-right hidden sm:inline">
@@ -131,6 +141,9 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle }: A
             </div>
             {isExpanded && (
               <div className="mx-2 md:mx-3 mt-1 mb-2 space-y-1">
+                <pre className="p-2 md:p-3 bg-surface rounded-md border border-border text-xs text-text-secondary max-h-[200px] overflow-auto whitespace-pre-wrap break-words">
+                  {exec.prompt}
+                </pre>
                 {exec.status === "error" && exec.error && (
                   <div className="p-2 bg-danger/10 border border-danger/30 rounded-md text-xs text-danger">
                     {exec.error}
