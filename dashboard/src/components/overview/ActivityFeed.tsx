@@ -20,9 +20,10 @@ interface ActivityFeedProps {
   queue?: QueueItem[];
   expandedId?: string | null;
   onToggle?: (id: string) => void;
+  sessionNames?: Record<string, string>;
 }
 
-export function ActivityFeed({ executions, queue = [], expandedId, onToggle }: ActivityFeedProps) {
+export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {} }: ActivityFeedProps) {
   const sorted = [...executions]
     .sort((a, b) => {
       if (a.status === "running" && b.status !== "running") return -1;
@@ -107,7 +108,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle }: A
               </span>
               {exec.result?.sessionId && (
                 <span className="text-xs text-text-muted font-mono hidden md:inline" title={exec.result.sessionId}>
-                  {exec.result.sessionId.slice(0, 8)}
+                  {sessionNames[exec.result.sessionId] ?? exec.result.sessionId.slice(0, 8)}
                 </span>
               )}
               {exec.result && (

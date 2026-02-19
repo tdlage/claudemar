@@ -16,6 +16,7 @@ export function OverviewPage() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [viewingExecId, setViewingExecId] = useState<string | null>(null);
+  const [sessionNames, setSessionNames] = useState<Record<string, string>>({});
   const prevActiveCount = useRef(active.length);
 
   const loadProjects = useCallback(() => {
@@ -24,12 +25,14 @@ export function OverviewPage() {
 
   useEffect(() => {
     api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
+    api.get<Record<string, string>>("/executions/session-names").then(setSessionNames).catch(() => {});
     loadProjects();
   }, [loadProjects]);
 
   useEffect(() => {
     if (prevActiveCount.current > 0 && active.length < prevActiveCount.current) {
       loadProjects();
+      api.get<Record<string, string>>("/executions/session-names").then(setSessionNames).catch(() => {});
     }
     prevActiveCount.current = active.length;
   }, [active.length, loadProjects]);
@@ -94,7 +97,7 @@ export function OverviewPage() {
       <div>
         <h2 className="text-sm font-medium text-text-muted mb-3 uppercase tracking-wider">Recent Activity</h2>
         <div className="bg-surface border border-border rounded-lg overflow-hidden">
-          <ActivityFeed executions={recent} queue={queue} />
+          <ActivityFeed executions={recent} queue={queue} sessionNames={sessionNames} />
         </div>
       </div>
 

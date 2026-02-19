@@ -251,6 +251,7 @@ export function AgentDetailPage() {
                 queue={agentQueue}
                 expandedId={expandedExecId}
                 onToggle={toggleExpanded}
+                sessionNames={sessionData.names}
               />
             </div>
           )}

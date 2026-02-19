@@ -181,6 +181,10 @@ executionsRouter.get("/target-status", (req, res) => {
   res.json(statusMap);
 });
 
+executionsRouter.get("/session-names", (_req, res) => {
+  res.json(sessionNamesManager.getAllNames());
+});
+
 executionsRouter.get("/session/:targetType/:targetName", (req, res) => {
   const { targetType, targetName } = req.params;
   const sessionId = executionManager.getLastSessionId(targetType, targetName);

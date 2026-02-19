@@ -62,6 +62,10 @@ class SessionNamesManager {
     return result;
   }
 
+  getAllNames(): Record<string, string> {
+    return Object.fromEntries(this.names);
+  }
+
   private toJSON(): PersistedData {
     return {
       nextNumber: this.nextNumber,

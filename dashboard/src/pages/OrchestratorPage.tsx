@@ -303,6 +303,7 @@ export function OrchestratorPage() {
                 queue={orchQueue}
                 expandedId={expandedExecId}
                 onToggle={toggleExpanded}
+                sessionNames={sessionData.names}
               />
             </div>
           )}

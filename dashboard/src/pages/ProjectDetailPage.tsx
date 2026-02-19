@@ -299,6 +299,7 @@ export function ProjectDetailPage() {
                 queue={projectQueue}
                 expandedId={expandedExecId}
                 onToggle={toggleExpanded}
+                sessionNames={sessionData.names}
               />
             </div>
           )}

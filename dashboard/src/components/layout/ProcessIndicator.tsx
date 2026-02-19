@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Activity, Square, RotateCw } from "lucide-react";
+import { Activity, Square, RotateCw, Play } from "lucide-react";
 import { api } from "../../lib/api";
 import { useSocketEvent } from "../../hooks/useSocket";
 import type { RunConfig } from "../../lib/types";
@@ -43,6 +43,10 @@ export function ProcessIndicator() {
     list.push(c);
     grouped.set(key, list);
   }
+
+  const handleStart = async (id: string) => {
+    await api.post(`/run-configs/${id}/start`).catch(() => {});
+  };
 
   const handleStop = async (id: string) => {
     await api.post(`/run-configs/${id}/stop`).catch(() => {});
@@ -94,24 +98,34 @@ export function ProcessIndicator() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-text-primary truncate">{cfg.name}</p>
                       </div>
-                      {running && (
-                        <div className="flex items-center gap-0.5 shrink-0">
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        {running ? (
+                          <>
+                            <button
+                              onClick={() => handleRestart(cfg.id)}
+                              className="p-1 text-text-muted hover:text-warning transition-colors cursor-pointer"
+                              title="Restart"
+                            >
+                              <RotateCw size={11} />
+                            </button>
+                            <button
+                              onClick={() => handleStop(cfg.id)}
+                              className="p-1 text-text-muted hover:text-danger transition-colors cursor-pointer"
+                              title="Stop"
+                            >
+                              <Square size={11} />
+                            </button>
+                          </>
+                        ) : (
                           <button
-                            onClick={() => handleRestart(cfg.id)}
-                            className="p-1 text-text-muted hover:text-warning transition-colors cursor-pointer"
-                            title="Restart"
+                            onClick={() => handleStart(cfg.id)}
+                            className="p-1 text-text-muted hover:text-success transition-colors cursor-pointer"
+                            title="Start"
                           >
-                            <RotateCw size={11} />
+                            <Play size={11} />
                           </button>
-                          <button
-                            onClick={() => handleStop(cfg.id)}
-                            className="p-1 text-text-muted hover:text-danger transition-colors cursor-pointer"
-                            title="Stop"
-                          >
-                            <Square size={11} />
-                          </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   );
                 })}
