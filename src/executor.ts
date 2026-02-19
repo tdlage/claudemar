@@ -93,9 +93,10 @@ export function spawnClaude(
   onQuestion?: (toolUseId: string, questions: AskQuestion[]) => void,
   planMode?: boolean,
   agentName?: string,
+  useDocker?: boolean,
 ): SpawnHandle {
   const timeout = timeoutMs ?? config.claudeTimeoutMs;
-  const args = [
+  const claudeArgs = [
     "--print",
     "--verbose",
     "--output-format",
@@ -103,30 +104,50 @@ export function spawnClaude(
   ];
 
   if (planMode) {
-    args.push("--permission-mode", "plan");
+    claudeArgs.push("--permission-mode", "plan");
   } else {
-    args.push("--dangerously-skip-permissions");
+    claudeArgs.push("--dangerously-skip-permissions");
   }
 
   if (model) {
-    args.push("--model", model);
+    claudeArgs.push("--model", model);
   }
 
   if (agentName) {
-    args.push("--agent", agentName);
+    claudeArgs.push("--agent", agentName);
   }
 
   if (resumeSessionId) {
-    args.push("--resume", resumeSessionId);
+    claudeArgs.push("--resume", resumeSessionId);
   }
 
-  args.push(prompt);
+  claudeArgs.push(prompt);
 
-  const proc = spawn("claude", args, {
-    cwd,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: undefined,
-  });
+  let proc: ChildProcess;
+
+  if (useDocker) {
+    const escapedArgs = claudeArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
+    const dockerArgs = [
+      "run", "--rm",
+      "--cap-add=NET_ADMIN", "--cap-add=NET_RAW",
+      "-v", `${cwd}:/workspace`,
+      "-v", `${config.claudeConfigDir}:/home/node/.claude`,
+      "-w", "/workspace",
+      "-e", "NODE_OPTIONS=--max-old-space-size=4096",
+      config.dockerImage,
+      "bash", "-c",
+      `sudo /usr/local/bin/init-firewall.sh 2>/dev/null; claude ${escapedArgs}`,
+    ];
+    proc = spawn("docker", dockerArgs, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } else {
+    proc = spawn("claude", claudeArgs, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: undefined,
+    });
+  }
 
   const promise = new Promise<ClaudeResult>((resolve, reject) => {
     let stderr = "";

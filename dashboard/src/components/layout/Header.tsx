@@ -3,10 +3,12 @@ import { Menu, Search } from "lucide-react";
 import { SystemResources } from "./SystemResources";
 import { ProcessIndicator } from "./ProcessIndicator";
 import { useSidebar } from "./Sidebar";
+import { isAdmin } from "../../hooks/useAuth";
 
 export function Header() {
   const location = useLocation();
   const { isMobile, setMobileOpen } = useSidebar();
+  const admin = isAdmin();
 
   const breadcrumbs = buildBreadcrumbs(location.pathname);
 
@@ -41,8 +43,8 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2 md:gap-4 shrink-0">
-        <span className="hidden sm:block"><SystemResources /></span>
-        <ProcessIndicator />
+        {admin && <span className="hidden sm:block"><SystemResources /></span>}
+        {admin && <ProcessIndicator />}
         <button
           onClick={() =>
             window.dispatchEvent(

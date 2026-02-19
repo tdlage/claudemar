@@ -5,7 +5,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import rateLimit from "express-rate-limit";
 import { Server as SocketServer } from "socket.io";
 import { config } from "../config.js";
-import { authMiddleware, securityHeaders } from "./middleware.js";
+import { authMiddleware, requireAdmin, securityHeaders } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { setupWebSocket } from "./websocket.js";
 import { agentsRouter } from "./routes/agents.js";
@@ -16,6 +16,8 @@ import { orchestratorRouter } from "./routes/orchestrator.js";
 import { systemRouter } from "./routes/system.js";
 import { runConfigsRouter } from "./routes/run-configs.js";
 import { transcriptionRouter } from "./routes/transcription.js";
+import { usersRouter } from "./routes/users.js";
+import { authRouter } from "./routes/auth.js";
 
 export function createDashboardServer() {
   const app = express();
@@ -41,13 +43,15 @@ export function createDashboardServer() {
 
   const jsonParser = express.json({ limit: "5mb" });
 
+  app.use("/api/auth", jsonParser, authRouter);
   app.use("/api/agents", express.json({ limit: "15mb" }), agentsRouter);
   app.use("/api/projects", jsonParser, projectsRouter);
   app.use("/api/executions", jsonParser, executionsRouter);
   app.use("/api/files", jsonParser, filesRouter);
-  app.use("/api/orchestrator", jsonParser, orchestratorRouter);
-  app.use("/api/system", jsonParser, systemRouter);
-  app.use("/api/run-configs", jsonParser, runConfigsRouter);
+  app.use("/api/orchestrator", jsonParser, requireAdmin, orchestratorRouter);
+  app.use("/api/system", jsonParser, requireAdmin, systemRouter);
+  app.use("/api/run-configs", jsonParser, requireAdmin, runConfigsRouter);
+  app.use("/api/users", jsonParser, requireAdmin, usersRouter);
   app.use("/api/transcribe", transcriptionRouter);
 
   app.use("/api", (_req, res) => {

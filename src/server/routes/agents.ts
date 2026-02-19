@@ -16,6 +16,14 @@ import { secretsManager } from "../../secrets-manager.js";
 
 export const agentsRouter = Router();
 
+agentsRouter.param("name", (req, res, next) => {
+  if (req.ctx?.role === "user" && !req.ctx.agents.includes(req.params.name)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  next();
+});
+
 const SAFE_FILENAME_RE = /^[a-zA-Z0-9._-]+$/;
 
 function safeFilename(filename: string): boolean {
@@ -49,8 +57,12 @@ function resolveAgentFile(
   return { paths, filePath };
 }
 
-agentsRouter.get("/", (_req, res) => {
-  const agents = listAgentInfos();
+agentsRouter.get("/", (req, res) => {
+  let agents = listAgentInfos();
+  if (req.ctx?.role === "user") {
+    const allowed = req.ctx.agents;
+    agents = agents.filter((a) => allowed.includes(a.name));
+  }
   res.json(agents);
 });
 
@@ -112,6 +124,10 @@ agentsRouter.get("/:name", (req, res) => {
 });
 
 agentsRouter.post("/", (req, res) => {
+  if (req.ctx?.role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   const { name } = req.body;
   if (!name || !isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
@@ -134,6 +150,10 @@ agentsRouter.post("/", (req, res) => {
 });
 
 agentsRouter.delete("/:name", async (req, res) => {
+  if (req.ctx?.role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   const { name } = req.params;
   if (!isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });

@@ -10,10 +10,19 @@ import { safeProjectPath } from "../../session.js";
 
 export const executionsRouter = Router();
 
+function filterExecutionsByAccess(executions: ReturnType<typeof executionManager.getActiveExecutions>, ctx: import("../middleware.js").RequestContext | undefined) {
+  if (!ctx || ctx.role === "admin") return executions;
+  return executions.filter((e) => {
+    if (e.targetType === "project") return ctx.projects.includes(e.targetName);
+    if (e.targetType === "agent") return ctx.agents.includes(e.targetName);
+    return false;
+  });
+}
+
 executionsRouter.get("/", (req, res) => {
   const status = req.query.status as string | undefined;
-  const active = executionManager.getActiveExecutions();
-  const recent = executionManager.getRecentExecutions(100);
+  const active = filterExecutionsByAccess(executionManager.getActiveExecutions(), req.ctx);
+  const recent = filterExecutionsByAccess(executionManager.getRecentExecutions(100), req.ctx);
 
   if (status === "active") {
     res.json(active);
@@ -24,11 +33,26 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", (req, res) => {
-  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue, model: requestModel } = req.body;
+  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue, model: requestModel, useDocker: requestDocker } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
     return;
+  }
+
+  if (req.ctx?.role === "user") {
+    if (targetType === "orchestrator") {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    if (targetType === "project" && !req.ctx.projects.includes(targetName)) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    if (targetType === "agent" && !req.ctx.agents.includes(targetName)) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
   }
 
   let cwd: string;
@@ -73,6 +97,9 @@ executionsRouter.post("/", (req, res) => {
   }
 
   const effectiveTargetName = targetName || "orchestrator";
+  const useDocker = (req.ctx?.role === "user" && targetType === "project")
+    ? true
+    : (requestDocker ?? false);
   const queuePayload = {
     targetType,
     targetName: effectiveTargetName,
@@ -83,6 +110,7 @@ executionsRouter.post("/", (req, res) => {
     model,
     planMode,
     agentName,
+    useDocker,
   };
 
   const targetActive = executionManager.isTargetActive(targetType, effectiveTargetName);
@@ -127,9 +155,9 @@ executionsRouter.delete("/queue/:seqId", (req, res) => {
   res.json({ removed: true, item: removed });
 });
 
-executionsRouter.get("/target-status", (_req, res) => {
-  const active = executionManager.getActiveExecutions();
-  const recent = executionManager.getRecentExecutions(100);
+executionsRouter.get("/target-status", (req, res) => {
+  const active = filterExecutionsByAccess(executionManager.getActiveExecutions(), req.ctx);
+  const recent = filterExecutionsByAccess(executionManager.getRecentExecutions(100), req.ctx);
 
   const statusMap: Record<string, { running: boolean; lastStatus: "completed" | "error" | "cancelled" | null }> = {};
 

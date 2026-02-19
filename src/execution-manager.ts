@@ -51,6 +51,7 @@ export interface StartExecutionOpts {
   planMode?: boolean;
   isInboxProcessing?: boolean;
   agentName?: string;
+  useDocker?: boolean;
 }
 
 const MAX_RECENT = 100;
@@ -155,7 +156,9 @@ class ExecutionManager extends EventEmitter {
       ? undefined
       : (opts.resumeSessionId ?? this.getLastSessionId(opts.targetType, opts.targetName));
 
-    let systemSuffix = `\n\n[SYSTEM: You are confined to ${opts.cwd} — do NOT read, list, or access files outside this directory or its subdirectories. Never navigate to parent directories.]`;
+    let systemSuffix = opts.useDocker
+      ? ""
+      : `\n\n[SYSTEM: You are confined to ${opts.cwd} — do NOT read, list, or access files outside this directory or its subdirectories. Never navigate to parent directories.]`;
     if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
       systemSuffix += `\n[SYSTEM: Before executing, read your CLAUDE.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`;
     }
@@ -197,6 +200,7 @@ class ExecutionManager extends EventEmitter {
       },
       opts.planMode,
       opts.agentName,
+      opts.useDocker,
     );
 
     this.active.set(id, { info, process: handle.process, opts });

@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 function requiredEnv(key: string): string {
@@ -38,6 +39,8 @@ export const config = Object.freeze({
   dashboardPort: numericEnv("DASHBOARD_PORT", 3000),
   dashboardToken: process.env.DASHBOARD_TOKEN || "",
   tokenRotationHours: numericEnv("TOKEN_ROTATION_HOURS", 24),
+  dockerImage: process.env.DOCKER_IMAGE || "claudemar-devcontainer",
+  claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || resolve(homedir(), ".claude"),
 });
 
 if (Number.isNaN(config.allowedChatId)) {

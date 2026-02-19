@@ -7,13 +7,14 @@ import {
   Folder,
   ScrollText,
   GitCommitHorizontal,
+  Users,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
 } from "lucide-react";
 import { api } from "../../lib/api";
-import { useAuth } from "../../hooks/useAuth";
+import { useAuth, getMe } from "../../hooks/useAuth";
 import { TokenUsage } from "./TokenUsage";
 import { useSocketEvent, useSocketRoom } from "../../hooks/useSocket";
 import type { AgentInfo, ProjectInfo, ExecutionInfo } from "../../lib/types";
@@ -84,6 +85,8 @@ function StatusDot({ targetKey, statusMap }: { targetKey: string; statusMap: Tar
 export function Sidebar() {
   const { logout } = useAuth();
   const { collapsed, setCollapsed, mobileOpen, setMobileOpen, isMobile } = useSidebar();
+  const me = getMe();
+  const admin = !me || me.role === "admin";
   const navigate = useNavigate();
   const location = useLocation();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -240,16 +243,18 @@ export function Sidebar() {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-5">
-          <div className="space-y-0.5">
-            <NavLink to="/" end className={linkClass} title="Overview">
-              <LayoutDashboard size={16} />
-              {showExpanded && "Overview"}
-            </NavLink>
-            <NavLink to="/orchestrator" className={linkClass} title="Claudemar">
-              <Crown size={16} />
-              {showExpanded && "Claudemar"}
-            </NavLink>
-          </div>
+          {admin && (
+            <div className="space-y-0.5">
+              <NavLink to="/" end className={linkClass} title="Overview">
+                <LayoutDashboard size={16} />
+                {showExpanded && "Overview"}
+              </NavLink>
+              <NavLink to="/orchestrator" className={linkClass} title="Claudemar">
+                <Crown size={16} />
+                {showExpanded && "Claudemar"}
+              </NavLink>
+            </div>
+          )}
 
           <div>
             {showExpanded && (
@@ -257,16 +262,18 @@ export function Sidebar() {
                 <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
                   Agents
                 </p>
-                <button
-                  onClick={() => setCreateAgentOpen(true)}
-                  className="text-text-muted hover:text-accent transition-colors"
-                  title="Create agent"
-                >
-                  <Plus size={14} />
-                </button>
+                {admin && (
+                  <button
+                    onClick={() => setCreateAgentOpen(true)}
+                    className="text-text-muted hover:text-accent transition-colors"
+                    title="Create agent"
+                  >
+                    <Plus size={14} />
+                  </button>
+                )}
               </div>
             )}
-            {!isMobile && collapsed && (
+            {admin && !isMobile && collapsed && (
               <button
                 onClick={() => setCreateAgentOpen(true)}
                 className="flex items-center justify-center w-full h-8 text-text-muted hover:text-accent transition-colors"
@@ -312,16 +319,18 @@ export function Sidebar() {
                 <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
                   Projects
                 </p>
-                <button
-                  onClick={() => setCreateProjectOpen(true)}
-                  className="text-text-muted hover:text-accent transition-colors"
-                  title="Create project"
-                >
-                  <Plus size={14} />
-                </button>
+                {admin && (
+                  <button
+                    onClick={() => setCreateProjectOpen(true)}
+                    className="text-text-muted hover:text-accent transition-colors"
+                    title="Create project"
+                  >
+                    <Plus size={14} />
+                  </button>
+                )}
               </div>
             )}
-            {!isMobile && collapsed && (
+            {admin && !isMobile && collapsed && (
               <button
                 onClick={() => setCreateProjectOpen(true)}
                 className="flex items-center justify-center w-full h-8 text-text-muted hover:text-accent transition-colors"
@@ -358,25 +367,31 @@ export function Sidebar() {
             </div>
           </div>
 
-          <div>
-            {showExpanded && (
-              <p className="px-3 mb-1.5 text-xs font-medium text-text-muted uppercase tracking-wider">
-                Tools
-              </p>
-            )}
-            <NavLink to="/logs" className={linkClass} title="Logs">
-              <ScrollText size={16} />
-              {showExpanded && "Logs"}
-            </NavLink>
-            <NavLink to="/changelog" className={linkClass} title="Changelog">
-              <GitCommitHorizontal size={16} />
-              {showExpanded && "Changelog"}
-            </NavLink>
-          </div>
+          {admin && (
+            <div>
+              {showExpanded && (
+                <p className="px-3 mb-1.5 text-xs font-medium text-text-muted uppercase tracking-wider">
+                  Tools
+                </p>
+              )}
+              <NavLink to="/logs" className={linkClass} title="Logs">
+                <ScrollText size={16} />
+                {showExpanded && "Logs"}
+              </NavLink>
+              <NavLink to="/changelog" className={linkClass} title="Changelog">
+                <GitCommitHorizontal size={16} />
+                {showExpanded && "Changelog"}
+              </NavLink>
+              <NavLink to="/users" className={linkClass} title="Users">
+                <Users size={16} />
+                {showExpanded && "Users"}
+              </NavLink>
+            </div>
+          )}
         </nav>
 
         <div className="border-t border-border">
-          <TokenUsage collapsed={!isMobile && collapsed} />
+          {admin && <TokenUsage collapsed={!isMobile && collapsed} />}
           <div className="px-2 pb-3">
             <button
               onClick={logout}

@@ -240,5 +240,6 @@ export function processQueueItem(item: QueueItem): string {
     model: item.model,
     planMode: item.planMode,
     agentName: item.agentName,
+    useDocker: item.useDocker,
   });
 }

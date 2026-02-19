@@ -192,3 +192,7 @@ export interface SearchResponse {
   results: Record<string, SearchMatch[]>;
   count: number;
 }
+
+export type MeResponse =
+  | { role: "admin" }
+  | { role: "user"; id: string; name: string; projects: string[]; agents: string[] };

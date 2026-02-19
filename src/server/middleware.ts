@@ -1,20 +1,50 @@
 import type { Request, Response, NextFunction } from "express";
 import { tokenManager } from "./token-manager.js";
+import { usersManager } from "../users-manager.js";
+
+export type RequestContext =
+  | { role: "admin" }
+  | { role: "user"; userId: string; name: string; projects: string[]; agents: string[] };
+
+declare global {
+  namespace Express {
+    interface Request {
+      ctx?: RequestContext;
+    }
+  }
+}
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice(7) : "";
 
-  if (!tokenManager.validate(token)) {
-    res.status(401).json({ error: "Unauthorized" });
+  if (tokenManager.validate(token)) {
+    req.ctx = { role: "admin" };
+    next();
     return;
   }
 
+  const user = token ? usersManager.findByToken(token) : null;
+  if (user) {
+    req.ctx = { role: "user", userId: user.id, name: user.name, projects: user.projects, agents: user.agents };
+    next();
+    return;
+  }
+
+  res.status(401).json({ error: "Unauthorized" });
+}
+
+export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
+  if (!req.ctx || req.ctx.role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   next();
 }
 
 export function validateSocketToken(token: string): boolean {
-  return tokenManager.validate(token);
+  if (tokenManager.validate(token)) return true;
+  return !!usersManager.findByToken(token);
 }
 
 export function securityHeaders(_req: Request, res: Response, next: NextFunction): void {

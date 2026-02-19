@@ -9,6 +9,7 @@ import { createDashboardServer } from "./server/index.js";
 import { tokenManager } from "./server/token-manager.js";
 import { regenerateOrchestratorClaudeMd } from "./orchestrator-init.js";
 import { flushSessions } from "./session.js";
+import { usersManager } from "./users-manager.js";
 import { ensureAllAgentGitRepos } from "./agents/manager.js";
 
 regenerateOrchestratorClaudeMd();
@@ -49,6 +50,7 @@ function shutdown() {
   commandQueue.flush();
   runProcessManager.flush();
   secretsManager.flush();
+  usersManager.flush();
   flushSessions();
   tokenManager.stop();
   bot.stop();

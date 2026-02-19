@@ -27,6 +27,14 @@ import { executionManager } from "../../execution-manager.js";
 
 export const projectsRouter = Router();
 
+projectsRouter.param("name", (req, res, next) => {
+  if (req.ctx?.role === "user" && !req.ctx.projects.includes(req.params.name)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  next();
+});
+
 function resolveProject(req: Request, res: Response): string | null {
   const { name } = req.params;
   const projectPath = safeProjectPath(name);
@@ -51,8 +59,12 @@ function resolveProjectAndRepo(req: Request, res: Response): { projectPath: stri
   return { projectPath, repoPath };
 }
 
-projectsRouter.get("/", async (_req, res) => {
-  const projects = listProjects();
+projectsRouter.get("/", async (req, res) => {
+  let projects = listProjects();
+  if (req.ctx?.role === "user") {
+    const allowed = req.ctx.projects;
+    projects = projects.filter((name) => allowed.includes(name));
+  }
   const results = await Promise.all(
     projects.map(async (name) => {
       const projectPath = safeProjectPath(name);
@@ -88,6 +100,10 @@ projectsRouter.get("/:name", async (req, res) => {
 });
 
 projectsRouter.post("/", async (req, res) => {
+  if (req.ctx?.role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   const { name } = req.body;
   if (!name) {
     res.status(400).json({ error: "Name required" });
@@ -120,6 +136,10 @@ projectsRouter.post("/", async (req, res) => {
 });
 
 projectsRouter.delete("/:name", async (req, res) => {
+  if (req.ctx?.role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
 

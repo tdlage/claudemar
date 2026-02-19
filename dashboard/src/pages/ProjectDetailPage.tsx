@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Square, Map, Bot, ListOrdered, Cpu } from "lucide-react";
+import { Square, Map, Bot, ListOrdered, Cpu, Container } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -14,6 +14,7 @@ import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
 import { VoiceInput } from "../components/shared/VoiceInput";
+import { isAdmin } from "../hooks/useAuth";
 import type { ProjectDetail } from "../lib/types";
 
 type TabKey = "terminal" | "repositories" | "files";
@@ -33,6 +34,7 @@ export function ProjectDetailPage() {
   const [execId, setExecId] = useCachedState<string | null>(`project:${name}:execId`, null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`project:${name}:expandedExecId`, null);
   const [sequential, setSequential] = useCachedState(`project:${name}:sequential`, true);
+  const [dockerMode, setDockerMode] = useCachedState(`project:${name}:dockerMode`, false);
   const [selectedModel, setSelectedModel] = useCachedState(`project:${name}:model`, "claude-opus-4-6");
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
   const [agents, setAgents] = useState<string[]>([]);
@@ -108,6 +110,7 @@ export function ProjectDetailPage() {
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
         model: selectedModel || undefined,
+        useDocker: isAdmin() ? dockerMode : true,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -252,6 +255,21 @@ export function ProjectDetailPage() {
                 <ListOrdered size={13} />
                 Queue
               </button>
+              {isAdmin() && (
+                <button
+                  type="button"
+                  onClick={() => setDockerMode(!dockerMode)}
+                  title={dockerMode ? "Docker mode ON (runs in container)" : "Docker mode OFF (runs natively)"}
+                  className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all select-none whitespace-nowrap ${
+                    dockerMode
+                      ? "bg-accent/20 text-accent border border-accent/40 shadow-[0_0_6px_rgba(var(--accent-rgb),0.15)]"
+                      : "text-text-muted hover:text-text-secondary hover:bg-surface-hover border border-transparent"
+                  }`}
+                >
+                  <Container size={13} />
+                  Docker
+                </button>
+              )}
               <div className="flex items-center gap-1">
                 <Cpu size={13} className="text-text-muted" />
                 <select

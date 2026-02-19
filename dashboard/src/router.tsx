@@ -7,6 +7,8 @@ import { AgentDetailPage } from "./pages/AgentDetailPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { LogsPage } from "./pages/LogsPage";
 import { ChangelogPage } from "./pages/ChangelogPage";
+import { UsersPage } from "./pages/UsersPage";
+import { getMe } from "./hooks/useAuth";
 
 function KeyedProjectPage() {
   const { name } = useParams();
@@ -24,6 +26,19 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AdminGuard({ children }: { children: React.ReactNode }) {
+  const me = getMe();
+  if (me && me.role === "user") {
+    const first = me.projects[0] || me.agents[0];
+    if (first) {
+      const prefix = me.projects[0] ? "projects" : "agents";
+      return <Navigate to={`/${prefix}/${first}`} replace />;
+    }
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
+
 export const router = createBrowserRouter([
   {
     path: "/login",
@@ -37,12 +52,13 @@ export const router = createBrowserRouter([
       </AuthGuard>
     ),
     children: [
-      { index: true, element: <OverviewPage /> },
-      { path: "orchestrator", element: <OrchestratorPage /> },
+      { index: true, element: <AdminGuard><OverviewPage /></AdminGuard> },
+      { path: "orchestrator", element: <AdminGuard><OrchestratorPage /></AdminGuard> },
       { path: "agents/:name", element: <KeyedAgentPage /> },
       { path: "projects/:name", element: <KeyedProjectPage /> },
-      { path: "logs", element: <LogsPage /> },
-      { path: "changelog", element: <ChangelogPage /> },
+      { path: "logs", element: <AdminGuard><LogsPage /></AdminGuard> },
+      { path: "changelog", element: <AdminGuard><ChangelogPage /></AdminGuard> },
+      { path: "users", element: <AdminGuard><UsersPage /></AdminGuard> },
     ],
   },
 ]);

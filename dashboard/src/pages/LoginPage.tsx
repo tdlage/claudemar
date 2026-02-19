@@ -14,7 +14,7 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/system/status", {
+      const res = await fetch("/api/auth/me", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -23,7 +23,7 @@ export function LoginPage() {
         return;
       }
 
-      login(token);
+      await login(token);
     } catch {
       setError("Connection failed");
     } finally {
