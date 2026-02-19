@@ -2,7 +2,6 @@ import { Download, FileText, Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { Card } from "../shared/Card";
 import { useToast } from "../shared/Toast";
-import type { AgentFileContent } from "../../lib/types";
 
 export interface OutputFile {
   name: string;
@@ -21,8 +20,12 @@ export function OutputBrowser({ agentName, files, onRefresh }: OutputBrowserProp
 
   const handleDownload = async (fileName: string) => {
     try {
-      const data = await api.get<AgentFileContent>(`/agents/${agentName}/output/${fileName}`);
-      const blob = new Blob([data.content], { type: "text/plain" });
+      const token = localStorage.getItem("dashboard_token") || "";
+      const res = await fetch(`/api/agents/${agentName}/output/${fileName}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

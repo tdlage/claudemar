@@ -316,6 +316,18 @@ agentsRouter.get("/:name/output/:file", (req, res) => {
   res.json({ name: req.params.file, content, size: stat.size, mtime: stat.mtime.toISOString() });
 });
 
+agentsRouter.get("/:name/output/:file/download", (req, res) => {
+  const result = resolveAgentFile(req, res, "output");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  res.download(result.filePath, req.params.file);
+});
+
 agentsRouter.delete("/:name/output/:file", (req, res) => {
   const result = resolveAgentFile(req, res, "output");
   if (!result) return;
