@@ -9,7 +9,7 @@ import { Button } from "../components/shared/Button";
 import { Badge } from "../components/shared/Badge";
 import { InboxList } from "../components/agent/InboxList";
 import { OutboxList } from "../components/agent/OutboxList";
-import { OutputBrowser } from "../components/agent/OutputBrowser";
+import { OutputBrowser, type OutputFile } from "../components/agent/OutputBrowser";
 import { AgentConfig } from "../components/agent/AgentConfig";
 import { AgentContextFiles } from "../components/agent/AgentContextFiles";
 import { AgentSecrets } from "../components/agent/AgentSecrets";
@@ -34,6 +34,7 @@ export function AgentDetailPage() {
   const [execId, setExecId] = useCachedState<string | null>(`agent:${name}:execId`, null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`agent:${name}:expandedExecId`, null);
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
+  const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
 
   const agentActive = active.filter((e) => e.targetType === "agent" && e.targetName === name);
@@ -45,7 +46,10 @@ export function AgentDetailPage() {
 
   const loadAgent = useCallback(() => {
     if (!name) return;
-    api.get<AgentDetail>(`/agents/${name}`).then(setAgent).catch(() => {});
+    api.get<AgentDetail>(`/agents/${name}`).then((data) => {
+      setAgent(data);
+      setOutputFiles(data.outputFiles);
+    }).catch(() => {});
   }, [name]);
 
   const loadSession = useCallback(() => {
@@ -55,10 +59,18 @@ export function AgentDetailPage() {
       .catch(() => {});
   }, [name]);
 
+  const loadOutputs = useCallback(() => {
+    if (!name) return;
+    api.get<OutputFile[]>(`/agents/${name}/output`)
+      .then(setOutputFiles)
+      .catch(() => {});
+  }, [name]);
+
   useEffect(() => {
     loadAgent();
     loadSession();
-  }, [loadAgent, loadSession]);
+    loadOutputs();
+  }, [loadAgent, loadSession, loadOutputs]);
 
   useEffect(() => {
     const running = active.find((e) => e.targetType === "agent" && e.targetName === name);
@@ -66,8 +78,9 @@ export function AgentDetailPage() {
       setExecId(running.id);
     } else if (execId && !active.some((e) => e.id === execId)) {
       loadSession();
+      loadOutputs();
     }
-  }, [name, active, execId, loadSession]);
+  }, [name, active, execId, loadSession, loadOutputs]);
 
   const handleSessionChange = async (value: string) => {
     if (!name) return;
@@ -138,7 +151,7 @@ export function AgentDetailPage() {
     { key: "terminal", label: "Terminal" },
     { key: "inbox", label: `Inbox (${agent.inboxFiles.length})` },
     { key: "outbox", label: `Outbox (${agent.outboxFiles.length})` },
-    { key: "output", label: `Output (${agent.outputFiles.length})` },
+    { key: "output", label: `Output (${outputFiles.length})` },
     { key: "config", label: "Config" },
     { key: "context", label: `Context (${agent.contextFiles.length})` },
     { key: "secrets", label: `Secrets (${agent.secrets.length})` },
@@ -267,7 +280,7 @@ export function AgentDetailPage() {
       )}
 
       {tab === "output" && (
-        <OutputBrowser agentName={agent.name} files={agent.outputFiles} />
+        <OutputBrowser agentName={agent.name} files={outputFiles} onRefresh={loadOutputs} />
       )}
 
       {tab === "config" && (
