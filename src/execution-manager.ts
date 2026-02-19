@@ -10,6 +10,7 @@ import { getAgentPaths } from "./agents/manager.js";
 import { config } from "./config.js";
 import { trackExecution } from "./metrics.js";
 import { secretsManager } from "./secrets-manager.js";
+import { sessionNamesManager } from "./session-names-manager.js";
 
 export type ExecutionSource = "telegram" | "web";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
@@ -217,6 +218,9 @@ class ExecutionManager extends EventEmitter {
         if (result.sessionId) {
           this.lastSessionMap.set(this.targetKey(opts.targetType, opts.targetName), result.sessionId);
           this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
+          if (!sessionNamesManager.getName(result.sessionId)) {
+            sessionNamesManager.setName(result.sessionId, sessionNamesManager.getNextAutoName());
+          }
         }
 
         const askDenial = result.permissionDenials.find(

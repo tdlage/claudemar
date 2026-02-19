@@ -183,6 +183,12 @@ export interface RunConfig {
   status?: { running: boolean; pid?: number; startedAt?: string };
 }
 
+export interface SessionData {
+  sessionId: string | null;
+  history: string[];
+  names: Record<string, string>;
+}
+
 export interface SearchMatch {
   line: number;
   content: string;

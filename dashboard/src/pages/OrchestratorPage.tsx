@@ -12,6 +12,8 @@ import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
 import { VoiceInput } from "../components/shared/VoiceInput";
+import { SessionSelector } from "../components/shared/SessionSelector";
+import type { SessionData } from "../lib/types";
 
 interface OrchestratorSettings {
   prependPrompt: string;
@@ -33,11 +35,6 @@ const MODEL_OPTIONS = [
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
 ];
 
-interface SessionData {
-  sessionId: string | null;
-  history: string[];
-}
-
 type TabKey = "terminal" | "claude-md" | "settings";
 
 export function OrchestratorPage() {
@@ -47,7 +44,7 @@ export function OrchestratorPage() {
   const [planMode, setPlanMode] = useCachedState("orchestrator:planMode", false);
   const [execId, setExecId] = useCachedState<string | null>("orchestrator:execId", null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>("orchestrator:expandedExecId", null);
-  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
+  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
 
   const orchActive = active.filter((e) => e.targetType === "orchestrator");
@@ -113,10 +110,20 @@ export function OrchestratorPage() {
       try {
         await api.put("/executions/session/orchestrator/orchestrator", { sessionId: value });
         setSessionData((prev) => ({ ...prev, sessionId: value }));
-        addToast("success", `Session switched to ${value.slice(0, 8)}`);
+        addToast("success", `Session: ${sessionData.names[value] ?? value.slice(0, 8)}`);
       } catch {
         addToast("error", "Failed to switch session");
       }
+    }
+  };
+
+  const handleSessionRename = async (sessionId: string, newName: string) => {
+    try {
+      await api.patch("/executions/session/orchestrator/orchestrator/rename", { sessionId, name: newName });
+      setSessionData((prev) => ({ ...prev, names: { ...prev.names, [sessionId]: newName } }));
+      addToast("success", "Session renamed");
+    } catch {
+      addToast("error", "Failed to rename session");
     }
   };
 
@@ -214,18 +221,11 @@ export function OrchestratorPage() {
       <div className="flex items-center gap-3">
         <Crown size={20} className="text-amber-400" />
         <h1 className="text-lg font-semibold">Claudemar</h1>
-        <select
-          value={sessionData.sessionId ?? "__new"}
-          onChange={(e) => handleSessionChange(e.target.value)}
-          className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
-        >
-          <option value="__new">New session</option>
-          {sessionData.history.map((sid) => (
-            <option key={sid} value={sid}>
-              {sid.slice(0, 8)}{sid === sessionData.sessionId ? " (active)" : ""}
-            </option>
-          ))}
-        </select>
+        <SessionSelector
+          sessionData={sessionData}
+          onChange={handleSessionChange}
+          onRename={handleSessionRename}
+        />
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />

@@ -7,6 +7,7 @@ import { loadOrchestratorSettings } from "../../orchestrator-settings.js";
 import { commandQueue } from "../../queue.js";
 import { resolveRepoPath } from "../../repositories.js";
 import { safeProjectPath } from "../../session.js";
+import { sessionNamesManager } from "../../session-names-manager.js";
 
 export const executionsRouter = Router();
 
@@ -184,7 +185,9 @@ executionsRouter.get("/session/:targetType/:targetName", (req, res) => {
   const { targetType, targetName } = req.params;
   const sessionId = executionManager.getLastSessionId(targetType, targetName);
   const history = executionManager.getSessionHistory(targetType, targetName);
-  res.json({ sessionId: sessionId ?? null, history });
+  const allIds = sessionId ? [sessionId, ...history] : history;
+  const names = sessionNamesManager.getNames([...new Set(allIds)]);
+  res.json({ sessionId: sessionId ?? null, history, names });
 });
 
 executionsRouter.put("/session/:targetType/:targetName", (req, res) => {
@@ -201,6 +204,20 @@ executionsRouter.put("/session/:targetType/:targetName", (req, res) => {
 executionsRouter.delete("/session/:targetType/:targetName", (req, res) => {
   const { targetType, targetName } = req.params;
   executionManager.clearSessionId(targetType, targetName);
+  res.json({ ok: true });
+});
+
+executionsRouter.patch("/session/:targetType/:targetName/rename", (req, res) => {
+  const { sessionId, name } = req.body;
+  if (!sessionId || typeof sessionId !== "string") {
+    res.status(400).json({ error: "sessionId required" });
+    return;
+  }
+  if (!name || typeof name !== "string" || !name.trim()) {
+    res.status(400).json({ error: "name required" });
+    return;
+  }
+  sessionNamesManager.setName(sessionId, name.trim());
   res.json({ ok: true });
 });
 

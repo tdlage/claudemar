@@ -33,6 +33,7 @@ const PERSIST_DEBOUNCE_MS = 1000;
 class RunProcessManager extends EventEmitter {
   private configs = new Map<string, RunConfig>();
   private active = new Map<string, ActiveProcess>();
+  private lastOutput = new Map<string, string>();
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
@@ -132,6 +133,7 @@ class RunProcessManager extends EventEmitter {
 
     const entry: ActiveProcess = { process: child, config: cfg, output: "" };
     this.active.set(configId, entry);
+    this.lastOutput.delete(configId);
 
     const appendOutput = (chunk: string) => {
       entry.output += chunk;
@@ -145,12 +147,14 @@ class RunProcessManager extends EventEmitter {
     child.stderr?.on("data", (data: Buffer) => appendOutput(data.toString()));
 
     child.on("close", (code) => {
+      this.lastOutput.set(configId, entry.output);
       this.active.delete(configId);
       this.persistProcessStates();
       this.emit("stop", configId, code ?? 0);
     });
 
     child.on("error", (err) => {
+      this.lastOutput.set(configId, entry.output);
       this.active.delete(configId);
       this.persistProcessStates();
       this.emit("error", configId, err.message);
@@ -223,7 +227,7 @@ class RunProcessManager extends EventEmitter {
   }
 
   getOutput(configId: string): string {
-    return this.active.get(configId)?.output ?? "";
+    return this.active.get(configId)?.output ?? this.lastOutput.get(configId) ?? "";
   }
 
   getStatus(): Record<string, { running: boolean; pid?: number; startedAt?: string }> {

@@ -14,15 +14,11 @@ import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
 import { VoiceInput } from "../components/shared/VoiceInput";
+import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin } from "../hooks/useAuth";
-import type { ProjectDetail } from "../lib/types";
+import type { ProjectDetail, SessionData } from "../lib/types";
 
 type TabKey = "terminal" | "repositories" | "files";
-
-interface SessionData {
-  sessionId: string | null;
-  history: string[];
-}
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -38,8 +34,9 @@ export function ProjectDetailPage() {
   const [selectedModel, setSelectedModel] = useCachedState(`project:${name}:model`, "claude-opus-4-6");
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
   const [agents, setAgents] = useState<string[]>([]);
-  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
+  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
+  const admin = isAdmin();
 
   const projectActive = active.filter((e) => e.targetName === name);
   const projectRecent = recent.filter((e) => e.targetName === name);
@@ -90,10 +87,21 @@ export function ProjectDetailPage() {
       try {
         await api.put(`/executions/session/project/${name}`, { sessionId: value });
         setSessionData((prev) => ({ ...prev, sessionId: value }));
-        addToast("success", `Session switched to ${value.slice(0, 8)}`);
+        addToast("success", `Session: ${sessionData.names[value] ?? value.slice(0, 8)}`);
       } catch {
         addToast("error", "Failed to switch session");
       }
+    }
+  };
+
+  const handleSessionRename = async (sessionId: string, newName: string) => {
+    if (!name) return;
+    try {
+      await api.patch(`/executions/session/project/${name}/rename`, { sessionId, name: newName });
+      setSessionData((prev) => ({ ...prev, names: { ...prev.names, [sessionId]: newName } }));
+      addToast("success", "Session renamed");
+    } catch {
+      addToast("error", "Failed to rename session");
     }
   };
 
@@ -110,7 +118,7 @@ export function ProjectDetailPage() {
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
         model: selectedModel || undefined,
-        useDocker: isAdmin() ? dockerMode : true,
+        useDocker: admin ? dockerMode : true,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -137,8 +145,10 @@ export function ProjectDetailPage() {
 
   const tabs: { key: TabKey; label: string; badge?: number; badgeVariant?: "warning" }[] = [
     { key: "terminal", label: "Terminal" },
-    { key: "repositories", label: "Repositories", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) },
-    { key: "files", label: "Code" },
+    ...(admin ? [
+      { key: "repositories" as const, label: "Repositories", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) },
+      { key: "files" as const, label: "Code" },
+    ] : []),
   ];
 
   return (
@@ -146,18 +156,11 @@ export function ProjectDetailPage() {
       <div className="flex items-center gap-2 md:gap-3 shrink-0 flex-wrap">
         <h1 className="text-base md:text-lg font-semibold">{project.name}</h1>
         <Badge variant="default">{project.repos.length} repos</Badge>
-        <select
-          value={sessionData.sessionId ?? "__new"}
-          onChange={(e) => handleSessionChange(e.target.value)}
-          className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
-        >
-          <option value="__new">New session</option>
-          {sessionData.history.map((sid) => (
-            <option key={sid} value={sid}>
-              {sid.slice(0, 8)}{sid === sessionData.sessionId ? " (active)" : ""}
-            </option>
-          ))}
-        </select>
+        <SessionSelector
+          sessionData={sessionData}
+          onChange={handleSessionChange}
+          onRename={handleSessionRename}
+        />
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
@@ -255,7 +258,7 @@ export function ProjectDetailPage() {
                 <ListOrdered size={13} />
                 Queue
               </button>
-              {isAdmin() && (
+              {admin && (
                 <button
                   type="button"
                   onClick={() => setDockerMode(!dockerMode)}

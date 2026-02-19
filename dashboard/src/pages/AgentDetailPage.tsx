@@ -18,14 +18,10 @@ import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
 import { VoiceInput } from "../components/shared/VoiceInput";
-import type { AgentDetail } from "../lib/types";
+import { SessionSelector } from "../components/shared/SessionSelector";
+import type { AgentDetail, SessionData } from "../lib/types";
 
 type TabKey = "terminal" | "inbox" | "outbox" | "output" | "config" | "context" | "secrets";
-
-interface SessionData {
-  sessionId: string | null;
-  history: string[];
-}
 
 export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -37,7 +33,7 @@ export function AgentDetailPage() {
   const [sequential, setSequential] = useCachedState(`agent:${name}:sequential`, false);
   const [execId, setExecId] = useCachedState<string | null>(`agent:${name}:execId`, null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`agent:${name}:expandedExecId`, null);
-  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [] });
+  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
 
   const agentActive = active.filter((e) => e.targetType === "agent" && e.targetName === name);
@@ -87,10 +83,21 @@ export function AgentDetailPage() {
       try {
         await api.put(`/executions/session/agent/${name}`, { sessionId: value });
         setSessionData((prev) => ({ ...prev, sessionId: value }));
-        addToast("success", `Session switched to ${value.slice(0, 8)}`);
+        addToast("success", `Session: ${sessionData.names[value] ?? value.slice(0, 8)}`);
       } catch {
         addToast("error", "Failed to switch session");
       }
+    }
+  };
+
+  const handleSessionRename = async (sessionId: string, newName: string) => {
+    if (!name) return;
+    try {
+      await api.patch(`/executions/session/agent/${name}/rename`, { sessionId, name: newName });
+      setSessionData((prev) => ({ ...prev, names: { ...prev.names, [sessionId]: newName } }));
+      addToast("success", "Session renamed");
+    } catch {
+      addToast("error", "Failed to rename session");
     }
   };
 
@@ -145,18 +152,11 @@ export function AgentDetailPage() {
         {agent.schedules.length > 0 && (
           <Badge variant="info">{agent.schedules.length} schedules</Badge>
         )}
-        <select
-          value={sessionData.sessionId ?? "__new"}
-          onChange={(e) => handleSessionChange(e.target.value)}
-          className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
-        >
-          <option value="__new">New session</option>
-          {sessionData.history.map((sid) => (
-            <option key={sid} value={sid}>
-              {sid.slice(0, 8)}{sid === sessionData.sessionId ? " (active)" : ""}
-            </option>
-          ))}
-        </select>
+        <SessionSelector
+          sessionData={sessionData}
+          onChange={handleSessionChange}
+          onRename={handleSessionRename}
+        />
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />

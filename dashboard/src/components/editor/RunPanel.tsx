@@ -15,6 +15,7 @@ export function RunPanel({ base }: RunPanelProps) {
   const [showForm, setShowForm] = useState(false);
   const [editingConfig, setEditingConfig] = useState<RunConfig | null>(null);
   const [selectedConfig, setSelectedConfig] = useState<string | null>(null);
+  const [terminalKey, setTerminalKey] = useState(0);
 
   const projectName = base.startsWith("project:") ? base.split(":").slice(1).join(":") : "";
 
@@ -45,17 +46,25 @@ export function RunPanel({ base }: RunPanelProps) {
   );
 
   const handleStart = useCallback(async (id: string) => {
-    await api.post(`/run-configs/${id}/start`);
-    setSelectedConfig(id);
+    try {
+      await api.post(`/run-configs/${id}/start`);
+      setSelectedConfig(id);
+      setTerminalKey((k) => k + 1);
+    } catch { /* handled by socket events */ }
   }, []);
 
   const handleStop = useCallback(async (id: string) => {
-    await api.post(`/run-configs/${id}/stop`);
+    try {
+      await api.post(`/run-configs/${id}/stop`);
+    } catch { /* handled by socket events */ }
   }, []);
 
   const handleRestart = useCallback(async (id: string) => {
-    await api.post(`/run-configs/${id}/restart`);
-    setSelectedConfig(id);
+    try {
+      await api.post(`/run-configs/${id}/restart`);
+      setSelectedConfig(id);
+      setTerminalKey((k) => k + 1);
+    } catch { /* handled by socket events */ }
   }, []);
 
   const handleDelete = useCallback(
@@ -92,7 +101,7 @@ export function RunPanel({ base }: RunPanelProps) {
         <span className="text-xs font-medium text-text-primary">Run Configurations</span>
         <button
           onClick={() => setShowForm(true)}
-          className="text-text-muted hover:text-accent transition-colors"
+          className="text-text-muted hover:text-accent transition-colors cursor-pointer"
           title="Add Configuration"
         >
           <Plus size={14} />
@@ -105,7 +114,7 @@ export function RunPanel({ base }: RunPanelProps) {
             <p className="text-xs text-text-muted mb-2">No run configurations</p>
             <button
               onClick={() => setShowForm(true)}
-              className="text-xs text-accent hover:text-accent/80 transition-colors"
+              className="text-xs text-accent hover:text-accent/80 transition-colors cursor-pointer"
             >
               Create one
             </button>
@@ -142,7 +151,7 @@ export function RunPanel({ base }: RunPanelProps) {
                           e.stopPropagation();
                           handleRestart(cfg.id);
                         }}
-                        className="p-1 text-text-muted hover:text-warning transition-colors"
+                        className="p-1 text-text-muted hover:text-warning transition-colors cursor-pointer"
                         title="Restart"
                       >
                         <RotateCw size={12} />
@@ -152,7 +161,7 @@ export function RunPanel({ base }: RunPanelProps) {
                           e.stopPropagation();
                           handleStop(cfg.id);
                         }}
-                        className="p-1 text-text-muted hover:text-danger transition-colors"
+                        className="p-1 text-text-muted hover:text-danger transition-colors cursor-pointer"
                         title="Stop"
                       >
                         <Square size={12} />
@@ -164,7 +173,7 @@ export function RunPanel({ base }: RunPanelProps) {
                         e.stopPropagation();
                         handleStart(cfg.id);
                       }}
-                      className="p-1 text-text-muted hover:text-success transition-colors"
+                      className="p-1 text-text-muted hover:text-success transition-colors cursor-pointer"
                       title="Start"
                     >
                       <Play size={12} />
@@ -175,7 +184,7 @@ export function RunPanel({ base }: RunPanelProps) {
                       e.stopPropagation();
                       setEditingConfig(cfg);
                     }}
-                    className="p-1 text-text-muted hover:text-text-primary transition-colors"
+                    className="p-1 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
                     title="Edit"
                   >
                     <Pencil size={12} />
@@ -185,7 +194,7 @@ export function RunPanel({ base }: RunPanelProps) {
                       e.stopPropagation();
                       handleDelete(cfg.id);
                     }}
-                    className="p-1 text-text-muted hover:text-danger transition-colors"
+                    className="p-1 text-text-muted hover:text-danger transition-colors cursor-pointer"
                     title="Delete"
                   >
                     <Trash2 size={12} />
@@ -193,9 +202,9 @@ export function RunPanel({ base }: RunPanelProps) {
                 </div>
               </div>
 
-              {isSelected && isRunning && (
+              {isSelected && (
                 <div className="h-48 border-t border-border">
-                  <RunTerminal configId={cfg.id} />
+                  <RunTerminal key={`${cfg.id}-${terminalKey}`} configId={cfg.id} />
                 </div>
               )}
             </div>

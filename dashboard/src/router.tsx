@@ -26,6 +26,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function NoAccessPage() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <p className="text-text-muted text-sm">No projects or agents assigned. Contact your admin.</p>
+    </div>
+  );
+}
+
 function AdminGuard({ children }: { children: React.ReactNode }) {
   const me = getMe();
   if (me && me.role === "user") {
@@ -34,7 +42,7 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
       const prefix = me.projects[0] ? "projects" : "agents";
       return <Navigate to={`/${prefix}/${first}`} replace />;
     }
-    return <Navigate to="/login" replace />;
+    return <NoAccessPage />;
   }
   return <>{children}</>;
 }

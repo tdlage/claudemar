@@ -98,14 +98,14 @@ export function ProcessIndicator() {
                         <div className="flex items-center gap-0.5 shrink-0">
                           <button
                             onClick={() => handleRestart(cfg.id)}
-                            className="p-1 text-text-muted hover:text-warning transition-colors"
+                            className="p-1 text-text-muted hover:text-warning transition-colors cursor-pointer"
                             title="Restart"
                           >
                             <RotateCw size={11} />
                           </button>
                           <button
                             onClick={() => handleStop(cfg.id)}
-                            className="p-1 text-text-muted hover:text-danger transition-colors"
+                            className="p-1 text-text-muted hover:text-danger transition-colors cursor-pointer"
                             title="Stop"
                           >
                             <Square size={11} />
