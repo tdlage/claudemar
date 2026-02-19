@@ -129,6 +129,7 @@ class RunProcessManager extends EventEmitter {
       cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
     });
 
     const entry: ActiveProcess = { process: child, config: cfg, output: "" };
@@ -168,19 +169,24 @@ class RunProcessManager extends EventEmitter {
   stopProcess(configId: string): boolean {
     const entry = this.active.get(configId);
     if (entry) {
-      entry.process.kill("SIGTERM");
-      setTimeout(() => {
-        try { entry.process.kill("SIGKILL"); } catch { /* already dead */ }
-      }, 5000);
+      const pid = entry.process.pid;
+      if (pid) {
+        try { process.kill(-pid, "SIGTERM"); } catch { /* already dead */ }
+        setTimeout(() => {
+          try { process.kill(-pid, "SIGKILL"); } catch { /* already dead */ }
+        }, 5000);
+      } else {
+        entry.process.kill("SIGTERM");
+      }
       return true;
     }
 
     const orphanPid = this.findOrphanPid(configId);
     if (orphanPid) {
       try {
-        process.kill(orphanPid, "SIGTERM");
+        process.kill(-orphanPid, "SIGTERM");
         setTimeout(() => {
-          try { process.kill(orphanPid, "SIGKILL"); } catch { /* already dead */ }
+          try { process.kill(-orphanPid, "SIGKILL"); } catch { /* already dead */ }
         }, 5000);
       } catch { /* already dead */ }
       this.persistProcessStates();
