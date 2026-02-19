@@ -243,7 +243,9 @@ export function spawnClaude(
     proc.on("error", (err: NodeJS.ErrnoException) => {
       if (timer) clearTimeout(timer);
       if (err.code === "ENOENT") {
-        reject(new Error("Claude CLI não encontrado no PATH."));
+        reject(new Error(useDocker
+          ? "Docker não encontrado no PATH. Instale o Docker ou desative o modo Docker."
+          : "Claude CLI não encontrado no PATH."));
       } else {
         reject(err);
       }

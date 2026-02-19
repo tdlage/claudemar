@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -41,6 +42,14 @@ export const config = Object.freeze({
   tokenRotationHours: numericEnv("TOKEN_ROTATION_HOURS", 24),
   dockerImage: process.env.DOCKER_IMAGE || "claudemar-devcontainer",
   claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || resolve(homedir(), ".claude"),
+  dockerAvailable: (() => {
+    try {
+      execFileSync("docker", ["--version"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  })(),
 });
 
 if (Number.isNaN(config.allowedChatId)) {

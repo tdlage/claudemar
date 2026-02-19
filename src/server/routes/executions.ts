@@ -99,8 +99,8 @@ executionsRouter.post("/", (req, res) => {
 
   const effectiveTargetName = targetName || "orchestrator";
   const useDocker = (req.ctx?.role === "user" && targetType === "project")
-    ? true
-    : (requestDocker ?? false);
+    ? config.dockerAvailable
+    : (requestDocker ? config.dockerAvailable : false);
   const queuePayload = {
     targetType,
     targetName: effectiveTargetName,

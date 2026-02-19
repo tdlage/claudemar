@@ -22,6 +22,7 @@ systemRouter.get("/status", (_req, res) => {
     ...snapshot,
     activeExecutions,
     uptime: process.uptime(),
+    dockerAvailable: config.dockerAvailable,
   });
 });
 
