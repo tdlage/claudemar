@@ -1,4 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import { config } from "./config.js";
 
 export interface QuestionOption {
@@ -127,12 +129,17 @@ export function spawnClaude(
 
   if (useDocker) {
     const escapedArgs = claudeArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
+    const uid = process.getuid?.() ?? 1000;
+    const gid = process.getgid?.() ?? 1000;
     const dockerArgs = [
       "run", "--rm",
+      "-u", `${uid}:${gid}`,
       "--cap-add=NET_ADMIN", "--cap-add=NET_RAW",
       "-v", `${cwd}:/workspace`,
-      "-v", `${config.claudeConfigDir}:/home/node/.claude`,
+      "-v", `${config.claudeConfigDir}:/home/claude-user/.claude`,
+      "-v", `${resolve(homedir(), ".claude.json")}:/home/claude-user/.claude.json:ro`,
       "-w", "/workspace",
+      "-e", "HOME=/home/claude-user",
       "-e", "NODE_OPTIONS=--max-old-space-size=4096",
       config.dockerImage,
       "bash", "-c",
