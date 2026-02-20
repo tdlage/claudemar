@@ -63,7 +63,7 @@ function resolveOutputPath(
   res: Response,
 ): { paths: AgentPaths; filePath: string } | null {
   const name = req.params.name;
-  const relativePath = req.params[0];
+  const relativePath = req.params[0] || req.params.wildcard;
   if (!isValidAgentName(name) || !relativePath) {
     res.status(400).json({ error: "Invalid name or path" });
     return null;
@@ -382,7 +382,7 @@ agentsRouter.get("/:name/output/:file", (req, res) => {
   res.json({ name: req.params.file, content, size: stat.size, mtime: stat.mtime.toISOString() });
 });
 
-agentsRouter.get("/:name/output-dl/*", (req, res) => {
+agentsRouter.get("/:name/output-dl/*wildcard", (req, res) => {
   const result = resolveOutputPath(req, res);
   if (!result) return;
 
@@ -409,7 +409,7 @@ agentsRouter.get("/:name/output-dl/*", (req, res) => {
   res.download(result.filePath, basename);
 });
 
-agentsRouter.delete("/:name/output-rm/*", async (req, res) => {
+agentsRouter.delete("/:name/output-rm/*wildcard", async (req, res) => {
   const result = resolveOutputPath(req, res);
   if (!result) return;
 
