@@ -68,7 +68,7 @@ export interface AgentDetail extends AgentInfo {
   claudeMd: string;
   inboxFiles: string[];
   outboxFiles: string[];
-  outputFiles: { name: string; size: number; mtime: string }[];
+  outputFiles: { name: string; type: "file" | "directory"; size: number; mtime: string }[];
   inputFiles: { name: string; size: number; mtime: string }[];
   contextFiles: string[];
   schedules: ScheduleEntry[];

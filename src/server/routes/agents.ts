@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, unlinkSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { rm } from "node:fs/promises";
+import archiver from "archiver";
 import { Router } from "express";
 import type { Request, Response } from "express";
 import {
@@ -57,6 +58,38 @@ function resolveAgentFile(
   return { paths, filePath };
 }
 
+function resolveOutputPath(
+  req: Request,
+  res: Response,
+): { paths: AgentPaths; filePath: string } | null {
+  const name = req.params.name;
+  const relativePath = req.params[0];
+  if (!isValidAgentName(name) || !relativePath) {
+    res.status(400).json({ error: "Invalid name or path" });
+    return null;
+  }
+
+  const segments = relativePath.split("/");
+  if (segments.some((s) => !safeFilename(s))) {
+    res.status(400).json({ error: "Invalid path segment" });
+    return null;
+  }
+
+  const paths = getAgentPaths(name);
+  if (!paths) {
+    res.status(404).json({ error: "Agent not found" });
+    return null;
+  }
+
+  const filePath = resolve(paths.output, ...segments);
+  if (!filePath.startsWith(paths.output + sep)) {
+    res.status(400).json({ error: "Invalid path" });
+    return null;
+  }
+
+  return { paths, filePath };
+}
+
 agentsRouter.get("/", (req, res) => {
   let agents = listAgentInfos();
   if (req.ctx?.role === "user") {
@@ -92,15 +125,18 @@ agentsRouter.get("/:name", (req, res) => {
   let outboxFiles: string[] = [];
   try { outboxFiles = readdirSync(paths.outbox).filter((f) => !f.startsWith(".")).sort(); } catch { /* empty */ }
 
-  let outputFiles: { name: string; size: number; mtime: string }[] = [];
+  let outputFiles: { name: string; type: "file" | "directory"; size: number; mtime: string }[] = [];
   try {
     outputFiles = readdirSync(paths.output)
       .filter((f) => !f.startsWith("."))
       .map((f) => {
         const stat = statSync(resolve(paths.output, f));
-        return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
+        return { name: f, type: stat.isDirectory() ? "directory" as const : "file" as const, size: stat.size, mtime: stat.mtime.toISOString() };
       })
-      .sort((a, b) => b.mtime.localeCompare(a.mtime));
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+        return b.mtime.localeCompare(a.mtime);
+      });
   } catch { /* empty */ }
 
   let inputFiles: { name: string; size: number; mtime: string }[] = [];
@@ -284,6 +320,19 @@ agentsRouter.delete("/:name/outbox/:file", (req, res) => {
   res.json({ deleted: true });
 });
 
+function listOutputDir(dir: string) {
+  return readdirSync(dir)
+    .filter((f) => !f.startsWith("."))
+    .map((f) => {
+      const stat = statSync(resolve(dir, f));
+      return { name: f, type: stat.isDirectory() ? "directory" as const : "file" as const, size: stat.size, mtime: stat.mtime.toISOString() };
+    })
+    .sort((a, b) => {
+      if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+      return b.mtime.localeCompare(a.mtime);
+    });
+}
+
 agentsRouter.get("/:name/output", (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {
@@ -295,15 +344,20 @@ agentsRouter.get("/:name/output", (req, res) => {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
+
+  const subpath = typeof req.query.path === "string" ? req.query.path : "";
+  const targetDir = subpath ? resolve(paths.output, subpath) : paths.output;
+  if (!targetDir.startsWith(paths.output + sep) && targetDir !== paths.output) {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+  if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
+    res.status(404).json({ error: "Directory not found" });
+    return;
+  }
+
   try {
-    const files = readdirSync(paths.output)
-      .filter((f) => !f.startsWith("."))
-      .map((f) => {
-        const stat = statSync(resolve(paths.output, f));
-        return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
-      })
-      .sort((a, b) => b.mtime.localeCompare(a.mtime));
-    res.json(files);
+    res.json(listOutputDir(targetDir));
   } catch {
     res.json([]);
   }
@@ -328,8 +382,8 @@ agentsRouter.get("/:name/output/:file", (req, res) => {
   res.json({ name: req.params.file, content, size: stat.size, mtime: stat.mtime.toISOString() });
 });
 
-agentsRouter.get("/:name/output/:file/download", (req, res) => {
-  const result = resolveAgentFile(req, res, "output");
+agentsRouter.get("/:name/output-dl/*", (req, res) => {
+  const result = resolveOutputPath(req, res);
   if (!result) return;
 
   if (!existsSync(result.filePath)) {
@@ -337,11 +391,26 @@ agentsRouter.get("/:name/output/:file/download", (req, res) => {
     return;
   }
 
-  res.download(result.filePath, req.params.file);
+  const stat = statSync(result.filePath);
+  const basename = result.filePath.split(sep).pop()!;
+  if (stat.isDirectory()) {
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${basename}.zip"`);
+    const archive = archiver("zip", { zlib: { level: 6 } });
+    archive.on("error", () => {
+      if (!res.headersSent) res.status(500).json({ error: "Zip failed" });
+    });
+    archive.pipe(res);
+    archive.directory(result.filePath, basename);
+    archive.finalize();
+    return;
+  }
+
+  res.download(result.filePath, basename);
 });
 
-agentsRouter.delete("/:name/output/:file", (req, res) => {
-  const result = resolveAgentFile(req, res, "output");
+agentsRouter.delete("/:name/output-rm/*", async (req, res) => {
+  const result = resolveOutputPath(req, res);
   if (!result) return;
 
   if (!existsSync(result.filePath)) {
@@ -349,7 +418,12 @@ agentsRouter.delete("/:name/output/:file", (req, res) => {
     return;
   }
 
-  unlinkSync(result.filePath);
+  const stat = statSync(result.filePath);
+  if (stat.isDirectory()) {
+    await rm(result.filePath, { recursive: true, force: true });
+  } else {
+    unlinkSync(result.filePath);
+  }
   res.json({ deleted: true });
 });
 
