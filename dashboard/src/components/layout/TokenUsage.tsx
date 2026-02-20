@@ -24,8 +24,10 @@ function formatReset(resetsAt: string | null): string {
   const diff = new Date(resetsAt).getTime() - Date.now();
   if (diff <= 0) return "now";
   const totalMin = Math.floor(diff / 60000);
-  const hours = Math.floor(totalMin / 60);
+  const days = Math.floor(totalMin / 1440);
+  const hours = Math.floor((totalMin % 1440) / 60);
   const minutes = totalMin % 60;
+  if (days > 0) return `${days}d${hours}h${minutes}m`;
   if (hours > 0) return `${hours}h${minutes}m`;
   return `${minutes}m`;
 }

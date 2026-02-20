@@ -12,4 +12,5 @@ export interface AgentPaths {
   inbox: string;
   outbox: string;
   output: string;
+  input: string;
 }

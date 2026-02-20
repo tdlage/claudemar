@@ -69,6 +69,7 @@ export interface AgentDetail extends AgentInfo {
   inboxFiles: string[];
   outboxFiles: string[];
   outputFiles: { name: string; size: number; mtime: string }[];
+  inputFiles: { name: string; size: number; mtime: string }[];
   contextFiles: string[];
   schedules: ScheduleEntry[];
   secrets: AgentSecret[];

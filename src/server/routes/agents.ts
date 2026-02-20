@@ -33,7 +33,7 @@ function safeFilename(filename: string): boolean {
 function resolveAgentFile(
   req: Request,
   res: Response,
-  subdir: keyof Pick<AgentPaths, "inbox" | "outbox" | "output" | "context">,
+  subdir: keyof Pick<AgentPaths, "inbox" | "outbox" | "output" | "input" | "context">,
 ): { paths: AgentPaths; filePath: string } | null {
   const { name, file } = req.params;
   if (!isValidAgentName(name) || !safeFilename(file)) {
@@ -103,6 +103,17 @@ agentsRouter.get("/:name", (req, res) => {
       .sort((a, b) => b.mtime.localeCompare(a.mtime));
   } catch { /* empty */ }
 
+  let inputFiles: { name: string; size: number; mtime: string }[] = [];
+  try {
+    inputFiles = readdirSync(paths.input)
+      .filter((f) => !f.startsWith("."))
+      .map((f) => {
+        const stat = statSync(resolve(paths.input, f));
+        return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
+      })
+      .sort((a, b) => b.mtime.localeCompare(a.mtime));
+  } catch { /* empty */ }
+
   let contextFiles: string[] = [];
   try { contextFiles = readdirSync(paths.context).filter((f) => !f.startsWith(".")).sort(); } catch { /* empty */ }
 
@@ -116,6 +127,7 @@ agentsRouter.get("/:name", (req, res) => {
     inboxFiles,
     outboxFiles,
     outputFiles,
+    inputFiles,
     contextFiles,
     schedules,
     secrets,
@@ -330,6 +342,100 @@ agentsRouter.get("/:name/output/:file/download", (req, res) => {
 
 agentsRouter.delete("/:name/output/:file", (req, res) => {
   const result = resolveAgentFile(req, res, "output");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  unlinkSync(result.filePath);
+  res.json({ deleted: true });
+});
+
+agentsRouter.get("/:name/input", (req, res) => {
+  const { name } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  const paths = getAgentPaths(name);
+  if (!paths) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  try {
+    const files = readdirSync(paths.input)
+      .filter((f) => !f.startsWith("."))
+      .map((f) => {
+        const stat = statSync(resolve(paths.input, f));
+        return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
+      })
+      .sort((a, b) => b.mtime.localeCompare(a.mtime));
+    res.json(files);
+  } catch {
+    res.json([]);
+  }
+});
+
+agentsRouter.post("/:name/input", (req, res) => {
+  const { name } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  const paths = getAgentPaths(name);
+  if (!paths) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+
+  const { filename, content } = req.body;
+  if (!filename || typeof filename !== "string" || !safeFilename(filename)) {
+    res.status(400).json({ error: "Invalid or missing filename" });
+    return;
+  }
+  if (!content || typeof content !== "string") {
+    res.status(400).json({ error: "Missing file content (base64)" });
+    return;
+  }
+
+  const data = Buffer.from(content, "base64");
+  if (data.length === 0) {
+    res.status(400).json({ error: "Empty file" });
+    return;
+  }
+  if (data.length > 10 * 1024 * 1024) {
+    res.status(413).json({ error: "File too large (max 10MB)" });
+    return;
+  }
+
+  mkdirSync(paths.input, { recursive: true });
+  const filePath = resolve(paths.input, filename);
+  if (!filePath.startsWith(paths.input + "/")) {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+
+  writeFileSync(filePath, data);
+  const stat = statSync(filePath);
+  res.status(201).json({ name: filename, size: stat.size, mtime: stat.mtime.toISOString() });
+});
+
+agentsRouter.get("/:name/input/:file/download", (req, res) => {
+  const result = resolveAgentFile(req, res, "input");
+  if (!result) return;
+
+  if (!existsSync(result.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  res.download(result.filePath, req.params.file);
+});
+
+agentsRouter.delete("/:name/input/:file", (req, res) => {
+  const result = resolveAgentFile(req, res, "input");
   if (!result) return;
 
   if (!existsSync(result.filePath)) {

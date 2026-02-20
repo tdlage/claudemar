@@ -26,6 +26,7 @@ export function getAgentPaths(name: string): AgentPaths | null {
     inbox: resolve(root, "inbox"),
     outbox: resolve(root, "outbox"),
     output: resolve(root, "output"),
+    input: resolve(root, "input"),
   };
 }
 
@@ -38,6 +39,7 @@ export function createAgentStructure(name: string): AgentPaths | null {
   mkdirSync(paths.inbox, { recursive: true });
   mkdirSync(paths.outbox, { recursive: true });
   mkdirSync(paths.output, { recursive: true });
+  mkdirSync(paths.input, { recursive: true });
 
   ensureAgentGitRepo(paths.root);
 
