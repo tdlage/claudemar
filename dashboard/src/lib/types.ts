@@ -203,3 +203,16 @@ export interface SearchResponse {
 export type MeResponse =
   | { role: "admin" }
   | { role: "user"; id: string; name: string; projects: string[]; agents: string[] };
+
+export interface RuntimeSettings {
+  sesFrom: string;
+  adminEmail: string;
+}
+
+export interface EmailProfileMasked {
+  name: string;
+  awsAccessKeyId: string;
+  awsSecretAccessKeyMasked: string;
+  region: string;
+  from: string;
+}

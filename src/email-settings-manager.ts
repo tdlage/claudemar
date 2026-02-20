@@ -1,0 +1,166 @@
+import { chmodSync, existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { getCredentialsPath, getEmailScriptPath } from "./email-init.js";
+
+export interface EmailProfile {
+  name: string;
+  awsAccessKeyId: string;
+  awsSecretAccessKey: string;
+  region: string;
+  from: string;
+}
+
+export interface EmailProfileMasked {
+  name: string;
+  awsAccessKeyId: string;
+  awsSecretAccessKeyMasked: string;
+  region: string;
+  from: string;
+}
+
+function maskKey(value: string): string {
+  if (value.length < 8) return "****";
+  return "****" + value.slice(-4);
+}
+
+function parseCredentials(raw: string): EmailProfile[] {
+  const profiles: EmailProfile[] = [];
+  let current: Partial<EmailProfile> | null = null;
+
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    const sectionMatch = trimmed.match(/^\[(.+)\]$/);
+    if (sectionMatch) {
+      if (current?.name) profiles.push(current as EmailProfile);
+      current = { name: sectionMatch[1], awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "" };
+      continue;
+    }
+    if (!current) continue;
+    const kvMatch = trimmed.match(/^([^=]+)=(.*)$/);
+    if (!kvMatch) continue;
+    const [, key, value] = kvMatch;
+    if (key === "aws_access_key_id") current.awsAccessKeyId = value;
+    else if (key === "aws_secret_access_key") current.awsSecretAccessKey = value;
+    else if (key === "region") current.region = value;
+    else if (key === "from") current.from = value;
+  }
+  if (current?.name) profiles.push(current as EmailProfile);
+  return profiles;
+}
+
+function serializeCredentials(profiles: EmailProfile[]): string {
+  return profiles
+    .map((p) =>
+      `[${p.name}]\naws_access_key_id=${p.awsAccessKeyId}\naws_secret_access_key=${p.awsSecretAccessKey}\nregion=${p.region}\nfrom=${p.from}`,
+    )
+    .join("\n\n") + "\n";
+}
+
+function loadProfiles(): EmailProfile[] {
+  const path = getCredentialsPath();
+  if (!existsSync(path)) return [];
+  try {
+    return parseCredentials(readFileSync(path, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+function saveProfiles(profiles: EmailProfile[]): void {
+  const path = getCredentialsPath();
+  const tmp = path + ".tmp";
+  writeFileSync(tmp, serializeCredentials(profiles), "utf-8");
+  renameSync(tmp, path);
+  chmodSync(path, 0o600);
+}
+
+function toMasked(p: EmailProfile): EmailProfileMasked {
+  return {
+    name: p.name,
+    awsAccessKeyId: p.awsAccessKeyId,
+    awsSecretAccessKeyMasked: maskKey(p.awsSecretAccessKey),
+    region: p.region,
+    from: p.from,
+  };
+}
+
+class EmailSettingsManager {
+  getProfiles(): EmailProfileMasked[] {
+    return loadProfiles().map(toMasked);
+  }
+
+  createProfile(profile: EmailProfile): EmailProfileMasked {
+    const profiles = loadProfiles();
+    if (profiles.some((p) => p.name === profile.name)) {
+      throw new Error(`Profile '${profile.name}' already exists`);
+    }
+    profiles.push(profile);
+    saveProfiles(profiles);
+    return toMasked(profile);
+  }
+
+  updateProfile(name: string, updates: Partial<EmailProfile>): EmailProfileMasked | null {
+    const profiles = loadProfiles();
+    const idx = profiles.findIndex((p) => p.name === name);
+    if (idx === -1) return null;
+    const existing = profiles[idx];
+    const updated: EmailProfile = {
+      name: updates.name ?? existing.name,
+      awsAccessKeyId: updates.awsAccessKeyId ?? existing.awsAccessKeyId,
+      awsSecretAccessKey: updates.awsSecretAccessKey && updates.awsSecretAccessKey !== ""
+        ? updates.awsSecretAccessKey
+        : existing.awsSecretAccessKey,
+      region: updates.region ?? existing.region,
+      from: updates.from ?? existing.from,
+    };
+    profiles[idx] = updated;
+    saveProfiles(profiles);
+    return toMasked(updated);
+  }
+
+  deleteProfile(name: string): boolean {
+    const profiles = loadProfiles();
+    const filtered = profiles.filter((p) => p.name !== name);
+    if (filtered.length === profiles.length) return false;
+    if (filtered.length === 0) {
+      const path = getCredentialsPath();
+      if (existsSync(path)) unlinkSync(path);
+    } else {
+      saveProfiles(filtered);
+    }
+    return true;
+  }
+
+  testProfile(name: string, to: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const scriptPath = getEmailScriptPath();
+      if (!existsSync(scriptPath)) {
+        reject(new Error("Email script not found. Restart the server to regenerate it."));
+        return;
+      }
+      const profiles = loadProfiles();
+      const profile = profiles.find((p) => p.name === name);
+      if (!profile) {
+        reject(new Error(`Profile '${name}' not found`));
+        return;
+      }
+      const args = [
+        "--to", to,
+        "--subject", "Claudemar email test",
+        "--body", `Test email from profile [${name}] at ${new Date().toISOString()}`,
+        "--from", profile.from,
+      ];
+      execFile(
+        scriptPath,
+        args,
+        { timeout: 15000 },
+        (err, stdout, stderr) => {
+          if (err) reject(new Error(stderr || err.message));
+          else resolve(stdout.trim());
+        },
+      );
+    });
+  }
+}
+
+export const emailSettingsManager = new EmailSettingsManager();

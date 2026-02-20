@@ -1,6 +1,7 @@
 import { existsSync, writeFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "./config.js";
+import { settingsManager } from "./settings-manager.js";
 
 const CLAUDE_MD_PATH = resolve(config.orchestratorPath, "CLAUDE.md");
 
@@ -212,6 +213,25 @@ Key variables you may need to adjust:
 - \`MAX_OUTPUT_LENGTH\` — max Telegram message length (current: ${config.maxOutputLength})
 
 Do NOT modify \`TELEGRAM_BOT_TOKEN\` or \`ALLOWED_CHAT_ID\` unless explicitly asked.
+
+## Email
+
+If email is configured (\`.email-credentials\` exists in \`${config.basePath}\`), you and agents can send emails:
+
+\`\`\`bash
+sudo ${config.basePath}/send-email.sh --to "recipient@email.com" --subject "Subject" --body "Content"
+\`\`\`
+
+Options:
+- \`--from "sender@domain.com"\` — send from a specific verified address (must have a matching profile in .email-credentials)
+- \`--html\` — treat body as HTML
+- \`--cc "copy@email.com"\` — add CC recipient
+
+Without \`--from\`, uses the default sender configured in Settings${settingsManager.get().sesFrom ? ` (current: ${settingsManager.get().sesFrom})` : ""}.
+
+The \`.email-credentials\` file contains profiles with AWS SES credentials for each sender domain. Each profile has: aws_access_key_id, aws_secret_access_key, region, and from (verified sender email). Profiles can be managed via the dashboard Settings page.
+
+Admin email for system notifications${settingsManager.get().adminEmail ? ` (current: ${settingsManager.get().adminEmail})` : ""}, configurable in dashboard Settings.
 
 ## Execution History
 

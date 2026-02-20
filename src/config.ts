@@ -42,6 +42,8 @@ export const config = Object.freeze({
   tokenRotationHours: numericEnv("TOKEN_ROTATION_HOURS", 24),
   dockerImage: process.env.DOCKER_IMAGE || "claudemar-devcontainer",
   claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || resolve(homedir(), ".claude"),
+  sesFrom: process.env.AWS_SES_FROM || "",
+  adminEmail: process.env.ADMIN_EMAIL || "",
   dockerAvailable: (() => {
     try {
       execFileSync("docker", ["--version"], { stdio: "ignore" });

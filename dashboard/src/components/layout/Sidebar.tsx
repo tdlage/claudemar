@@ -8,6 +8,7 @@ import {
   ScrollText,
   GitCommitHorizontal,
   Users,
+  Settings,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
@@ -385,6 +386,10 @@ export function Sidebar() {
               <NavLink to="/users" className={linkClass} title="Users">
                 <Users size={16} />
                 {showExpanded && "Users"}
+              </NavLink>
+              <NavLink to="/settings" className={linkClass} title="Settings">
+                <Settings size={16} />
+                {showExpanded && "Settings"}
               </NavLink>
             </div>
           )}

@@ -11,6 +11,8 @@ import { config } from "./config.js";
 import { trackExecution } from "./metrics.js";
 import { secretsManager } from "./secrets-manager.js";
 import { sessionNamesManager } from "./session-names-manager.js";
+import { isEmailEnabled, getEmailScriptPath } from "./email-init.js";
+import { settingsManager } from "./settings-manager.js";
 
 export type ExecutionSource = "telegram" | "web";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
@@ -181,6 +183,12 @@ class ExecutionManager extends EventEmitter {
         secretsInfo += `]`;
         systemSuffix += secretsInfo;
       }
+    }
+    if (isEmailEnabled() && (opts.targetType === "agent" || opts.targetType === "orchestrator")) {
+      const scriptPath = getEmailScriptPath();
+      const { sesFrom } = settingsManager.get();
+      const defaultFrom = sesFrom ? ` Default sender: ${sesFrom}.` : "";
+      systemSuffix += `\n[SYSTEM: You can send emails. Usage: sudo ${scriptPath} --to <email> --subject "<subject>" --body "<body>" [--from <sender-email>] [--html] [--cc <email>].${defaultFrom} To send from a specific address, use --from (the address must be configured in .email-credentials).]`;
     }
     const effectivePrompt = opts.prompt + systemSuffix;
 

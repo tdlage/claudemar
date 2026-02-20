@@ -12,8 +12,11 @@ import { flushSessions } from "./session.js";
 import { usersManager } from "./users-manager.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { ensureAllAgentGitRepos } from "./agents/manager.js";
+import { generateSendEmailScript } from "./email-init.js";
+import { settingsManager } from "./settings-manager.js";
 
 regenerateOrchestratorClaudeMd();
+generateSendEmailScript();
 ensureAllAgentGitRepos();
 await executionManager.loadRecent();
 
@@ -53,6 +56,7 @@ function shutdown() {
   secretsManager.flush();
   usersManager.flush();
   sessionNamesManager.flush();
+  settingsManager.flush();
   flushSessions();
   tokenManager.stop();
   bot.stop();

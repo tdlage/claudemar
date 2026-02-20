@@ -18,6 +18,7 @@ import { runConfigsRouter } from "./routes/run-configs.js";
 import { transcriptionRouter } from "./routes/transcription.js";
 import { usersRouter } from "./routes/users.js";
 import { authRouter } from "./routes/auth.js";
+import { settingsRouter } from "./routes/settings.js";
 
 export function createDashboardServer() {
   const app = express();
@@ -52,6 +53,7 @@ export function createDashboardServer() {
   app.use("/api/system", jsonParser, requireAdmin, systemRouter);
   app.use("/api/run-configs", jsonParser, requireAdmin, runConfigsRouter);
   app.use("/api/users", jsonParser, requireAdmin, usersRouter);
+  app.use("/api/settings", jsonParser, requireAdmin, settingsRouter);
   app.use("/api/transcribe", transcriptionRouter);
 
   app.use("/api", (_req, res) => {

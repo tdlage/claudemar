@@ -8,6 +8,7 @@ import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { LogsPage } from "./pages/LogsPage";
 import { ChangelogPage } from "./pages/ChangelogPage";
 import { UsersPage } from "./pages/UsersPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { getMe } from "./hooks/useAuth";
 
 function KeyedProjectPage() {
@@ -67,6 +68,7 @@ export const router = createBrowserRouter([
       { path: "logs", element: <AdminGuard><LogsPage /></AdminGuard> },
       { path: "changelog", element: <AdminGuard><ChangelogPage /></AdminGuard> },
       { path: "users", element: <AdminGuard><UsersPage /></AdminGuard> },
+      { path: "settings", element: <AdminGuard><SettingsPage /></AdminGuard> },
     ],
   },
 ]);
