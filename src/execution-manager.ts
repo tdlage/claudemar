@@ -90,6 +90,7 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
 interface ActiveEntry {
   info: ExecutionInfo;
   process: ChildProcess;
+  handle: SpawnHandle;
   opts: StartExecutionOpts;
 }
 
@@ -204,7 +205,7 @@ class ExecutionManager extends EventEmitter {
       opts.useDocker,
     );
 
-    this.active.set(id, { info, process: handle.process, opts });
+    this.active.set(id, { info, process: handle.process, handle, opts });
     this.emit("start", id, info);
 
     handle.promise
@@ -318,7 +319,8 @@ class ExecutionManager extends EventEmitter {
       entry.info.completedAt = new Date();
       entry.info.error = "Cancelado pelo usuário.";
 
-      const sessionId = entry.opts.resumeSessionId
+      const sessionId = entry.handle.sessionId
+        ?? entry.opts.resumeSessionId
         ?? this.getLastSessionId(entry.opts.targetType, entry.opts.targetName)
         ?? "";
       if (sessionId) {

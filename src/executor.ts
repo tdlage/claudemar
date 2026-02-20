@@ -83,6 +83,7 @@ export interface ClaudeResult {
 export interface SpawnHandle {
   process: ChildProcess;
   promise: Promise<ClaudeResult>;
+  sessionId?: string;
 }
 
 export function spawnClaude(
@@ -156,6 +157,8 @@ export function spawnClaude(
     });
   }
 
+  let earlySessionId: string | undefined;
+
   const promise = new Promise<ClaudeResult>((resolve, reject) => {
     let stderr = "";
     let bufferExceeded = false;
@@ -183,7 +186,9 @@ export function spawnClaude(
         if (!trimmed) continue;
         try {
           const event = JSON.parse(trimmed);
-          if (event.type === "assistant" && event.message?.content) {
+          if (event.type === "system" && event.session_id) {
+            earlySessionId = event.session_id;
+          } else if (event.type === "assistant" && event.message?.content) {
             for (const block of event.message.content) {
               if (block.type === "text" && block.text) {
                 const needsNewline = resultText.length > 0 && !resultText.endsWith("\n") && !block.text.startsWith("\n");
@@ -299,7 +304,8 @@ export function spawnClaude(
     });
   });
 
-  return { process: proc, promise };
+  const handle: SpawnHandle = { process: proc, promise, get sessionId() { return earlySessionId; } };
+  return handle;
 }
 
 interface ShellResult {
