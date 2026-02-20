@@ -122,6 +122,9 @@ export async function performUpdate(): Promise<{ success: boolean; output: strin
     steps.push("git clean...");
     await run("git", ["clean", "-fd", "scripts/"]).catch(() => {});
 
+    steps.push("git stash...");
+    await run("git", ["stash", "--include-untracked"]).catch(() => {});
+
     steps.push("git pull...");
     const pullOutput = await run("git", ["pull", "--ff-only", "origin", "main"]);
     steps.push(pullOutput);
