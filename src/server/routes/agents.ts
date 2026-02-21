@@ -63,7 +63,8 @@ function resolveOutputPath(
   res: Response,
 ): { paths: AgentPaths; filePath: string } | null {
   const name = req.params.name;
-  const relativePath = req.params[0] || req.params.wildcard;
+  const rawWildcard = req.params.wildcard ?? req.params[0];
+  const relativePath = Array.isArray(rawWildcard) ? rawWildcard.join("/") : rawWildcard;
   if (!isValidAgentName(name) || !relativePath) {
     res.status(400).json({ error: "Invalid name or path" });
     return null;
