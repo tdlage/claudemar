@@ -1,6 +1,6 @@
-import { chmodSync, existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
-import { execFile } from "node:child_process";
-import { getCredentialsPath, getEmailScriptPath } from "./email-init.js";
+import { execFileSync, execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { getCredentialsPath, getEmailScriptPath, isEmailEnabled } from "./email-init.js";
 
 export interface EmailProfile {
   name: string;
@@ -56,22 +56,38 @@ function serializeCredentials(profiles: EmailProfile[]): string {
     .join("\n\n") + "\n";
 }
 
-function loadProfiles(): EmailProfile[] {
-  const path = getCredentialsPath();
-  if (!existsSync(path)) return [];
+function sudoRead(): string {
   try {
-    return parseCredentials(readFileSync(path, "utf-8"));
+    return execFileSync("sudo", ["cat", getCredentialsPath()], { timeout: 5000, encoding: "utf-8" });
   } catch {
-    return [];
+    return "";
   }
 }
 
-function saveProfiles(profiles: EmailProfile[]): void {
+function sudoWrite(content: string): void {
   const path = getCredentialsPath();
-  const tmp = path + ".tmp";
-  writeFileSync(tmp, serializeCredentials(profiles), "utf-8");
-  renameSync(tmp, path);
-  chmodSync(path, 0o600);
+  execFileSync("sudo", ["tee", path], { input: content, timeout: 5000, stdio: ["pipe", "pipe", "pipe"] });
+  execFileSync("sudo", ["chmod", "600", path], { timeout: 3000 });
+  execFileSync("sudo", ["chown", "root:root", path], { timeout: 3000 });
+}
+
+function sudoDelete(): void {
+  try {
+    execFileSync("sudo", ["rm", "-f", getCredentialsPath()], { timeout: 5000 });
+  } catch {
+    // ignore
+  }
+}
+
+function loadProfiles(): EmailProfile[] {
+  if (!isEmailEnabled()) return [];
+  const raw = sudoRead();
+  if (!raw) return [];
+  return parseCredentials(raw);
+}
+
+function saveProfiles(profiles: EmailProfile[]): void {
+  sudoWrite(serializeCredentials(profiles));
 }
 
 function toMasked(p: EmailProfile): EmailProfileMasked {
@@ -123,8 +139,7 @@ class EmailSettingsManager {
     const filtered = profiles.filter((p) => p.name !== name);
     if (filtered.length === profiles.length) return false;
     if (filtered.length === 0) {
-      const path = getCredentialsPath();
-      if (existsSync(path)) unlinkSync(path);
+      sudoDelete();
     } else {
       saveProfiles(filtered);
     }

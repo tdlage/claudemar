@@ -1,23 +1,53 @@
+import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "./config.js";
 
-const CREDENTIALS_FILE = ".email-credentials";
+const CREDENTIALS_DIR = "/etc/claudemar";
+const CREDENTIALS_PATH = `${CREDENTIALS_DIR}/.email-credentials`;
+const LEGACY_CREDENTIALS_FILE = ".email-credentials";
 
 export function getEmailScriptPath(): string {
   return resolve(config.basePath, "send-email.sh");
 }
 
 export function getCredentialsPath(): string {
-  return resolve(config.basePath, CREDENTIALS_FILE);
+  return CREDENTIALS_PATH;
 }
 
 export function isEmailEnabled(): boolean {
-  return existsSync(getCredentialsPath());
+  try {
+    execFileSync("sudo", ["test", "-f", CREDENTIALS_PATH], { timeout: 3000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function ensureCredentialsDir(): void {
+  try {
+    execFileSync("sudo", ["mkdir", "-p", CREDENTIALS_DIR], { timeout: 5000 });
+    execFileSync("sudo", ["chmod", "700", CREDENTIALS_DIR], { timeout: 3000 });
+    execFileSync("sudo", ["chown", "root:root", CREDENTIALS_DIR], { timeout: 3000 });
+  } catch (err) {
+    console.error("[email] Failed to create credentials directory:", err);
+  }
+
+  const legacyPath = resolve(config.basePath, LEGACY_CREDENTIALS_FILE);
+  if (existsSync(legacyPath) && !isEmailEnabled()) {
+    try {
+      execFileSync("sudo", ["mv", legacyPath, CREDENTIALS_PATH], { timeout: 5000 });
+      execFileSync("sudo", ["chmod", "600", CREDENTIALS_PATH], { timeout: 3000 });
+      execFileSync("sudo", ["chown", "root:root", CREDENTIALS_PATH], { timeout: 3000 });
+      console.log(`[email] Migrated ${legacyPath} → ${CREDENTIALS_PATH}`);
+    } catch (err) {
+      console.error("[email] Failed to migrate credentials:", err);
+    }
+  }
 }
 
 export function generateSendEmailScript(): void {
-  const credPath = getCredentialsPath();
+  const credPath = CREDENTIALS_PATH;
   const scriptPath = getEmailScriptPath();
 
   const script = `#!/usr/bin/env bash
@@ -43,18 +73,19 @@ if [ -z "\$TO" ] || [ -z "\$SUBJECT" ] || [ -z "\$BODY" ]; then
   exit 1
 fi
 
-if [ ! -f "\$CRED_FILE" ]; then
-  echo "ERROR: Credentials file not found: \$CRED_FILE" >&2
+CRED_CONTENT=\$(sudo cat "\$CRED_FILE" 2>/dev/null)
+if [ -z "\$CRED_CONTENT" ]; then
+  echo "ERROR: Cannot read credentials file: \$CRED_FILE" >&2
   exit 1
 fi
 
 parse_profile() {
   local profile="\$1" key="\$2"
-  sed -n "/^\\[\$profile\\]/,/^\\[/p" "\$CRED_FILE" | grep "^\$key=" | head -1 | cut -d= -f2-
+  echo "\$CRED_CONTENT" | sed -n "/^\\[\$profile\\]/,/^\\[/p" | grep "^\$key=" | head -1 | cut -d= -f2-
 }
 
 if [ -n "\$FROM" ]; then
-  PROFILE=\$(awk -v from="\$FROM" '/^\\[/{p=substr(\$0,2,length(\$0)-2)} \$0=="from="from{print p; exit}' "\$CRED_FILE" || true)
+  PROFILE=\$(echo "\$CRED_CONTENT" | awk -v from="\$FROM" '/^\\[/{p=substr(\$0,2,length(\$0)-2)} \$0=="from="from{print p; exit}' || true)
   if [ -z "\$PROFILE" ]; then
     echo "ERROR: No credentials found for sender \$FROM" >&2
     exit 1

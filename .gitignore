@@ -17,3 +17,9 @@ run-configs.json
 run-processes.json
 secrets.json
 sessions.json
+session-names.json
+settings.json
+users.json
+.email-credentials
+send-email.sh
+schedules.json

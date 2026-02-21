@@ -12,10 +12,11 @@ import { flushSessions } from "./session.js";
 import { usersManager } from "./users-manager.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { ensureAllAgentGitRepos } from "./agents/manager.js";
-import { generateSendEmailScript } from "./email-init.js";
+import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 
 regenerateOrchestratorClaudeMd();
+ensureCredentialsDir();
 generateSendEmailScript();
 ensureAllAgentGitRepos();
 await executionManager.loadRecent();
