@@ -89,7 +89,7 @@ MSG="{\\"Subject\\":{\\"Data\\":\$SUBJ_ESC,\\"Charset\\":\\"UTF-8\\"},\\"Body\\"
 
 aws ses send-email \\
   --region "\$REGION" \\
-  --source "\$FROM" \\
+  --from "\$FROM" \\
   --destination "\$DEST" \\
   --message "\$MSG" \\
   --output json 2>&1
