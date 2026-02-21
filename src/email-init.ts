@@ -178,9 +178,20 @@ else
     echo "--\$BOUNDARY--"
   } > "\$TMPFILE"
 
+  JSONFILE=\$(mktemp)
+  trap "rm -f \$TMPFILE \$JSONFILE" EXIT
+  python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    data = f.read()
+with open(sys.argv[2], 'w') as f:
+    json.dump({'Data': data}, f)
+" "\$TMPFILE" "\$JSONFILE"
+
   aws ses send-raw-email \\
     --region "\$REGION" \\
-    --raw-message fileb://"\$TMPFILE" \\
+    --cli-binary-format raw-in-base64-out \\
+    --raw-message file://"\$JSONFILE" \\
     --output json 2>&1
 fi
 
