@@ -13,6 +13,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  RefreshCw,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth, getMe } from "../../hooks/useAuth";
@@ -99,6 +100,7 @@ export function Sidebar() {
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
+  const [refreshingContext, setRefreshingContext] = useState(false);
 
   const loadAgents = useCallback(() => {
     api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
@@ -127,6 +129,18 @@ export function Sidebar() {
       // ignore
     } finally {
       setCreatingAgent(false);
+    }
+  };
+
+  const handleRefreshContext = async () => {
+    if (refreshingContext) return;
+    setRefreshingContext(true);
+    try {
+      await api.post("/agents/regenerate-context");
+    } catch {
+      // ignore
+    } finally {
+      setRefreshingContext(false);
     }
   };
 
@@ -264,13 +278,23 @@ export function Sidebar() {
                   Agents
                 </p>
                 {admin && (
-                  <button
-                    onClick={() => setCreateAgentOpen(true)}
-                    className="text-text-muted hover:text-accent transition-colors"
-                    title="Create agent"
-                  >
-                    <Plus size={14} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={handleRefreshContext}
+                      className="text-text-muted hover:text-accent transition-colors"
+                      title="Regenerate agents context"
+                      disabled={refreshingContext}
+                    >
+                      <RefreshCw size={13} className={refreshingContext ? "animate-spin" : ""} />
+                    </button>
+                    <button
+                      onClick={() => setCreateAgentOpen(true)}
+                      className="text-text-muted hover:text-accent transition-colors"
+                      title="Create agent"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
                 )}
               </div>
             )}

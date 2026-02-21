@@ -6,6 +6,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import {
   createAgentStructure,
+  generateAgentsContext,
   getAgentInfo,
   getAgentPaths,
   isValidAgentName,
@@ -196,6 +197,15 @@ agentsRouter.post("/", (req, res) => {
   }
 
   res.status(201).json({ name, paths: created });
+});
+
+agentsRouter.post("/regenerate-context", (req, res) => {
+  if (req.ctx?.role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const updated = generateAgentsContext();
+  res.json({ updated });
 });
 
 agentsRouter.delete("/:name", async (req, res) => {
