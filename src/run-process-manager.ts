@@ -70,15 +70,27 @@ class RunProcessManager extends EventEmitter {
     try {
       const states: RunProcessState[] = JSON.parse(readFileSync(path, "utf-8"));
       const alive: RunProcessState[] = [];
+      const toRestart: string[] = [];
       for (const state of states) {
         try {
           process.kill(state.pid, 0);
           alive.push(state);
         } catch {
-          // process no longer running
+          if (this.configs.has(state.configId)) {
+            toRestart.push(state.configId);
+          }
         }
       }
       this.persistProcesses(alive);
+
+      if (toRestart.length > 0) {
+        console.log(`[run-process] Restarting ${toRestart.length} previously running config(s)...`);
+        for (const configId of toRestart) {
+          const cfg = this.configs.get(configId);
+          console.log(`[run-process] Auto-restarting: ${cfg?.name ?? configId}`);
+          this.startProcess(configId);
+        }
+      }
     } catch {
       // corrupted
     }
