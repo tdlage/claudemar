@@ -29,7 +29,7 @@ let lineCount = -1;
 let trimTimer: ReturnType<typeof setTimeout> | null = null;
 
 function historyPath(): string {
-  return resolve(config.basePath, "history.jsonl");
+  return resolve(config.dataPath, "history.jsonl");
 }
 
 async function trimIfNeeded(): Promise<void> {

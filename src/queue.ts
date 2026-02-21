@@ -41,7 +41,7 @@ class CommandQueue extends EventEmitter {
   }
 
   private filePath(): string {
-    return resolve(config.basePath, "queue.json");
+    return resolve(config.dataPath, "queue.json");
   }
 
   targetKey(targetType: string, targetName: string): string {

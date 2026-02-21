@@ -1,3 +1,4 @@
+import "./migrate-data.js";
 import { config } from "./config.js";
 import { bot } from "./bot.js";
 import { executionManager, type ExecutionInfo } from "./execution-manager.js";

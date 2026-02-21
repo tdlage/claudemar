@@ -26,7 +26,7 @@ interface PersistedSession {
 export const sessions = new Map<number, Session>();
 
 function sessionsPath(): string {
-  return resolve(config.basePath, "sessions.json");
+  return resolve(config.dataPath, "sessions.json");
 }
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;

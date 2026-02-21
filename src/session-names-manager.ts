@@ -20,7 +20,7 @@ class SessionNamesManager {
   }
 
   private filePath(): string {
-    return resolve(config.basePath, "session-names.json");
+    return resolve(config.dataPath, "session-names.json");
   }
 
   private load(): void {

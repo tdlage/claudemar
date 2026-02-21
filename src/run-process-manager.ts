@@ -35,6 +35,7 @@ class RunProcessManager extends EventEmitter {
   private active = new Map<string, ActiveProcess>();
   private lastOutput = new Map<string, string>();
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private shuttingDown = false;
 
   constructor() {
     super();
@@ -44,11 +45,11 @@ class RunProcessManager extends EventEmitter {
   }
 
   private configsPath(): string {
-    return resolve(config.basePath, "run-configs.json");
+    return resolve(config.dataPath, "run-configs.json");
   }
 
   private processesPath(): string {
-    return resolve(config.basePath, "run-processes.json");
+    return resolve(config.dataPath, "run-processes.json");
   }
 
   private loadConfigs(): void {
@@ -162,14 +163,14 @@ class RunProcessManager extends EventEmitter {
     child.on("close", (code) => {
       this.lastOutput.set(configId, entry.output);
       this.active.delete(configId);
-      this.persistProcessStates();
+      if (!this.shuttingDown) this.persistProcessStates();
       this.emit("stop", configId, code ?? 0);
     });
 
     child.on("error", (err) => {
       this.lastOutput.set(configId, entry.output);
       this.active.delete(configId);
-      this.persistProcessStates();
+      if (!this.shuttingDown) this.persistProcessStates();
       this.emit("error", configId, err.message);
     });
 
@@ -322,6 +323,7 @@ class RunProcessManager extends EventEmitter {
   }
 
   flush(): void {
+    this.shuttingDown = true;
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
@@ -335,7 +337,6 @@ class RunProcessManager extends EventEmitter {
     } catch (err) {
       console.error("[run-process] flush failed:", err);
     }
-    this.persistProcessStates();
   }
 }
 

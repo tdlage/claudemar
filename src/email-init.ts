@@ -111,6 +111,13 @@ if [ -z "\$AWS_ACCESS_KEY_ID" ] || [ -z "\$AWS_SECRET_ACCESS_KEY" ] || [ -z "\$R
   exit 1
 fi
 
+SENDER_NAME=\$(parse_profile "\$PROFILE" sender_name)
+if [ -n "\$SENDER_NAME" ]; then
+  FROM_HEADER="\$SENDER_NAME <\$FROM>"
+else
+  FROM_HEADER="\$FROM"
+fi
+
 if [ \${#ATTACHMENTS[@]} -eq 0 ]; then
   DEST="{\\"ToAddresses\\":[\\"\$TO\\"]}"
   if [ -n "\$CC" ]; then
@@ -130,7 +137,7 @@ if [ \${#ATTACHMENTS[@]} -eq 0 ]; then
 
   aws ses send-email \\
     --region "\$REGION" \\
-    --from "\$FROM" \\
+    --from "\$FROM_HEADER" \\
     --destination "\$DEST" \\
     --message "\$MSG" \\
     --output json 2>&1
@@ -140,7 +147,7 @@ else
   trap "rm -f \$TMPFILE" EXIT
 
   {
-    echo "From: \$FROM"
+    echo "From: \$FROM_HEADER"
     echo "To: \$TO"
     [ -n "\$CC" ] && echo "Cc: \$CC"
     echo "Subject: \$SUBJECT"
@@ -171,11 +178,9 @@ else
     echo "--\$BOUNDARY--"
   } > "\$TMPFILE"
 
-  RAW_B64=\$(base64 -w 0 "\$TMPFILE")
-
   aws ses send-raw-email \\
     --region "\$REGION" \\
-    --raw-message "Data=\$RAW_B64" \\
+    --raw-message fileb://"\$TMPFILE" \\
     --output json 2>&1
 fi
 

@@ -16,7 +16,7 @@ export interface ScheduleEntry {
   createdAt: string;
 }
 
-const SCHEDULES_FILE = resolve(config.basePath, "schedules.json");
+const SCHEDULES_FILE = resolve(config.dataPath, "schedules.json");
 
 function loadSchedules(): ScheduleEntry[] {
   try {

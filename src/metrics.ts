@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "./config.js";
 
-const METRICS_FILE = resolve(config.basePath, "metrics.json");
+const METRICS_FILE = resolve(config.dataPath, "metrics.json");
 
 export interface AgentMetrics {
   executions: number;

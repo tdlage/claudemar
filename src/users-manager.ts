@@ -25,7 +25,7 @@ class UsersManager {
   }
 
   private filePath(): string {
-    return resolve(config.basePath, "users.json");
+    return resolve(config.dataPath, "users.json");
   }
 
   private load(): void {

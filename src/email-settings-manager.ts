@@ -8,6 +8,7 @@ export interface EmailProfile {
   awsSecretAccessKey: string;
   region: string;
   from: string;
+  senderName: string;
 }
 
 export interface EmailProfileMasked {
@@ -16,6 +17,7 @@ export interface EmailProfileMasked {
   awsSecretAccessKeyMasked: string;
   region: string;
   from: string;
+  senderName: string;
 }
 
 function maskKey(value: string): string {
@@ -32,7 +34,7 @@ function parseCredentials(raw: string): EmailProfile[] {
     const sectionMatch = trimmed.match(/^\[(.+)\]$/);
     if (sectionMatch) {
       if (current?.name) profiles.push(current as EmailProfile);
-      current = { name: sectionMatch[1], awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "" };
+      current = { name: sectionMatch[1], awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" };
       continue;
     }
     if (!current) continue;
@@ -43,6 +45,7 @@ function parseCredentials(raw: string): EmailProfile[] {
     else if (key === "aws_secret_access_key") current.awsSecretAccessKey = value;
     else if (key === "region") current.region = value;
     else if (key === "from") current.from = value;
+    else if (key === "sender_name") current.senderName = value;
   }
   if (current?.name) profiles.push(current as EmailProfile);
   return profiles;
@@ -50,9 +53,11 @@ function parseCredentials(raw: string): EmailProfile[] {
 
 function serializeCredentials(profiles: EmailProfile[]): string {
   return profiles
-    .map((p) =>
-      `[${p.name}]\naws_access_key_id=${p.awsAccessKeyId}\naws_secret_access_key=${p.awsSecretAccessKey}\nregion=${p.region}\nfrom=${p.from}`,
-    )
+    .map((p) => {
+      let lines = `[${p.name}]\naws_access_key_id=${p.awsAccessKeyId}\naws_secret_access_key=${p.awsSecretAccessKey}\nregion=${p.region}\nfrom=${p.from}`;
+      if (p.senderName) lines += `\nsender_name=${p.senderName}`;
+      return lines;
+    })
     .join("\n\n") + "\n";
 }
 
@@ -97,6 +102,7 @@ function toMasked(p: EmailProfile): EmailProfileMasked {
     awsSecretAccessKeyMasked: maskKey(p.awsSecretAccessKey),
     region: p.region,
     from: p.from,
+    senderName: p.senderName,
   };
 }
 
@@ -128,6 +134,7 @@ class EmailSettingsManager {
         : existing.awsSecretAccessKey,
       region: updates.region ?? existing.region,
       from: updates.from ?? existing.from,
+      senderName: updates.senderName ?? existing.senderName,
     };
     profiles[idx] = updated;
     saveProfiles(profiles);

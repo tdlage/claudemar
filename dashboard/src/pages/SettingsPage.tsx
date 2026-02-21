@@ -8,6 +8,7 @@ interface ProfileFormState {
   awsSecretAccessKey: string;
   region: string;
   from: string;
+  senderName: string;
 }
 
 export function SettingsPage() {
@@ -18,11 +19,11 @@ export function SettingsPage() {
 
   const [profiles, setProfiles] = useState<EmailProfileMasked[]>([]);
   const [editingProfile, setEditingProfile] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<ProfileFormState>({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "" });
+  const [editForm, setEditForm] = useState<ProfileFormState>({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" });
 
   const [creating, setCreating] = useState(false);
   const [createName, setCreateName] = useState("");
-  const [createForm, setCreateForm] = useState<ProfileFormState>({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "" });
+  const [createForm, setCreateForm] = useState<ProfileFormState>({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" });
 
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
@@ -60,7 +61,7 @@ export function SettingsPage() {
       await api.post("/settings/email/profiles", { name: createName.trim(), ...createForm });
       setCreating(false);
       setCreateName("");
-      setCreateForm({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "" });
+      setCreateForm({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" });
       loadProfiles();
     } catch {
       // ignore
@@ -71,7 +72,7 @@ export function SettingsPage() {
 
   const handleEditStart = (profile: EmailProfileMasked) => {
     setEditingProfile(profile.name);
-    setEditForm({ awsAccessKeyId: profile.awsAccessKeyId, awsSecretAccessKey: "", region: profile.region, from: profile.from });
+    setEditForm({ awsAccessKeyId: profile.awsAccessKeyId, awsSecretAccessKey: "", region: profile.region, from: profile.from, senderName: profile.senderName });
   };
 
   const handleEditSave = async (name: string) => {
@@ -186,7 +187,7 @@ export function SettingsPage() {
           <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-text-primary">New Profile</span>
-              <button onClick={() => { setCreating(false); setCreateName(""); setCreateForm({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "" }); }} className="text-text-muted hover:text-text-primary">
+              <button onClick={() => { setCreating(false); setCreateName(""); setCreateForm({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" }); }} className="text-text-muted hover:text-text-primary">
                 <X size={14} />
               </button>
             </div>
@@ -209,6 +210,16 @@ export function SettingsPage() {
                   value={createForm.from}
                   onChange={(e) => setCreateForm({ ...createForm, from: e.target.value })}
                   placeholder="noreply@example.com"
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-1">Sender Name</label>
+                <input
+                  type="text"
+                  value={createForm.senderName}
+                  onChange={(e) => setCreateForm({ ...createForm, senderName: e.target.value })}
+                  placeholder="My Company"
                   className={inputClass}
                 />
               </div>
@@ -269,6 +280,7 @@ export function SettingsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-text-primary font-mono">[{profile.name}]</span>
+                      {profile.senderName && <span className="text-xs text-text-secondary">{profile.senderName}</span>}
                       <span className="text-xs text-text-muted">{profile.from}</span>
                       <span className="text-xs text-text-muted">{profile.region}</span>
                     </div>
@@ -344,6 +356,16 @@ export function SettingsPage() {
                           type="email"
                           value={editForm.from}
                           onChange={(e) => setEditForm({ ...editForm, from: e.target.value })}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-text-muted mb-1">Sender Name</label>
+                        <input
+                          type="text"
+                          value={editForm.senderName}
+                          onChange={(e) => setEditForm({ ...editForm, senderName: e.target.value })}
+                          placeholder="My Company"
                           className={inputClass}
                         />
                       </div>

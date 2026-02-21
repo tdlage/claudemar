@@ -22,7 +22,7 @@ class SettingsManager {
   }
 
   private filePath(): string {
-    return resolve(config.basePath, "settings.json");
+    return resolve(config.dataPath, "settings.json");
   }
 
   private load(): void {

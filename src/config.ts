@@ -25,11 +25,13 @@ function numericEnv(key: string, fallback: number): number {
 }
 
 const basePath = process.env.BASE_PATH || process.cwd();
+const dataPath = resolve(basePath, "data");
 
 export const config = Object.freeze({
   telegramBotToken: requiredEnv("TELEGRAM_BOT_TOKEN"),
   allowedChatId: Number(requiredEnv("ALLOWED_CHAT_ID")),
   basePath,
+  dataPath,
   claudeTimeoutMs: numericEnv("CLAUDE_TIMEOUT_MS", 0),
   maxOutputLength: numericEnv("MAX_OUTPUT_LENGTH", 4096),
   maxBufferSize: numericEnv("MAX_BUFFER_SIZE", 10 * 1024 * 1024),
@@ -59,6 +61,7 @@ if (Number.isNaN(config.allowedChatId)) {
   process.exit(1);
 }
 
+mkdirSync(config.dataPath, { recursive: true });
 mkdirSync(config.orchestratorPath, { recursive: true });
 mkdirSync(config.projectsPath, { recursive: true });
 mkdirSync(config.agentsPath, { recursive: true });

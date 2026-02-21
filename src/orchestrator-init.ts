@@ -54,8 +54,9 @@ ${config.basePath}/
 │       └── schedules/     # Cron scripts and logs
 ├── projects/              # Project folders (may contain multiple repos)
 │   └── <name>/            # Project folder with one or more git repositories
-├── schedules.json         # Global schedule metadata
-├── history.jsonl          # Execution history log
+├── data/                  # Runtime persistence (JSON state files)
+│   ├── schedules.json     # Global schedule metadata
+│   └── history.jsonl      # Execution history log
 └── .env                   # Environment configuration
 \`\`\`
 
@@ -162,7 +163,7 @@ Read files in \`${config.agentsPath}/<name>/inbox/\`
 
 ## Scheduling
 
-Schedule metadata is stored in \`${config.basePath}/schedules.json\`:
+Schedule metadata is stored in \`${config.dataPath}/schedules.json\`:
 \`\`\`json
 [{
   "id": "8-char-uuid",
@@ -186,7 +187,7 @@ Schedule metadata is stored in \`${config.basePath}/schedules.json\`:
 3. Remove entry from crontab
 
 ### List schedules
-Read \`${config.basePath}/schedules.json\`
+Read \`${config.dataPath}/schedules.json\`
 
 ## Orchestrator Settings
 
@@ -235,7 +236,7 @@ Admin email for system notifications${settingsManager.get().adminEmail ? ` (curr
 
 ## Execution History
 
-File: \`${config.basePath}/history.jsonl\` (one JSON object per line, most recent at end)
+File: \`${config.dataPath}/history.jsonl\` (one JSON object per line, most recent at end)
 
 Each entry contains: id, prompt, targetType, targetName, status, startedAt, completedAt, costUsd, durationMs, source, output, error, sessionId.
 

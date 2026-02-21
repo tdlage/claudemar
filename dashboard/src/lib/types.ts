@@ -217,4 +217,5 @@ export interface EmailProfileMasked {
   awsSecretAccessKeyMasked: string;
   region: string;
   from: string;
+  senderName: string;
 }
