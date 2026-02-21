@@ -35,6 +35,7 @@ export interface ExecutionInfo {
   error: string | null;
   pendingQuestion?: PendingQuestion | null;
   planMode?: boolean;
+  resumeSessionId?: string | null;
 }
 
 export interface ClaudeResult {
@@ -162,6 +163,7 @@ export interface QueueItem {
   prompt: string;
   source: ExecutionSource;
   enqueuedAt: string;
+  resumeSessionId?: string | null;
 }
 
 export interface GitFileStatus {

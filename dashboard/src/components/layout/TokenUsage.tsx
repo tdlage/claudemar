@@ -86,25 +86,25 @@ export function TokenUsage({ collapsed }: TokenUsageProps) {
   return (
     <div className="px-3 py-2 space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Usage</span>
+        <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Usage</span>
         <button
           onClick={() => load(true)}
           className="text-text-muted hover:text-text-primary transition-colors"
           title="Refresh usage"
         >
-          <RefreshCw size={10} className={loading ? "animate-spin" : ""} />
+          <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
         </button>
       </div>
       {bars.map((b) => (
         <div key={b.label}>
           <div className="flex items-center justify-between mb-0.5">
-            <span className="text-[10px] font-medium text-text-muted">{b.label}</span>
-            <span className="text-[10px] text-text-muted">
+            <span className="text-[11px] font-semibold text-text-secondary">{b.label}</span>
+            <span className="text-[11px] font-medium text-text-secondary">
               {b.pct}%
-              {b.reset && <span className="ml-1 opacity-60">· {formatReset(b.reset)}</span>}
+              {b.reset && <span className="ml-1 opacity-70">· {formatReset(b.reset)}</span>}
             </span>
           </div>
-          <div className="h-1.5 bg-border rounded-full overflow-hidden">
+          <div className="h-2 bg-border rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${barColor(b.pct)}`}
               style={{ width: `${Math.min(b.pct, 100)}%` }}

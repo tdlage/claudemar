@@ -55,23 +55,32 @@ set -euo pipefail
 
 CRED_FILE="${credPath}"
 TO="" SUBJECT="" BODY="" FROM="" HTML=false CC="" PROFILE="default"
+ATTACHMENTS=()
 
 while [[ \$# -gt 0 ]]; do
   case \$1 in
-    --to)      TO="\$2"; shift 2;;
-    --subject) SUBJECT="\$2"; shift 2;;
-    --body)    BODY="\$2"; shift 2;;
-    --from)    FROM="\$2"; shift 2;;
-    --html)    HTML=true; shift;;
-    --cc)      CC="\$2"; shift 2;;
-    *)         echo "Unknown option: \$1" >&2; exit 1;;
+    --to)         TO="\$2"; shift 2;;
+    --subject)    SUBJECT="\$2"; shift 2;;
+    --body)       BODY="\$2"; shift 2;;
+    --from)       FROM="\$2"; shift 2;;
+    --html)       HTML=true; shift;;
+    --cc)         CC="\$2"; shift 2;;
+    --attachment) ATTACHMENTS+=("\$2"); shift 2;;
+    *)            echo "Unknown option: \$1" >&2; exit 1;;
   esac
 done
 
 if [ -z "\$TO" ] || [ -z "\$SUBJECT" ] || [ -z "\$BODY" ]; then
-  echo "Usage: send-email.sh --to <email> --subject <subject> --body <body> [--from <sender>] [--html] [--cc <email>]" >&2
+  echo "Usage: send-email.sh --to <email> --subject <subject> --body <body> [--from <sender>] [--html] [--cc <email>] [--attachment <file> ...]" >&2
   exit 1
 fi
+
+for f in "\${ATTACHMENTS[@]+\${ATTACHMENTS[@]}}"; do
+  if [ ! -f "\$f" ]; then
+    echo "ERROR: Attachment not found: \$f" >&2
+    exit 1
+  fi
+done
 
 CRED_CONTENT=\$(sudo cat "\$CRED_FILE" 2>/dev/null)
 if [ -z "\$CRED_CONTENT" ]; then
@@ -102,28 +111,73 @@ if [ -z "\$AWS_ACCESS_KEY_ID" ] || [ -z "\$AWS_SECRET_ACCESS_KEY" ] || [ -z "\$R
   exit 1
 fi
 
-DEST="{\\"ToAddresses\\":[\\"\$TO\\"]}"
-if [ -n "\$CC" ]; then
-  DEST="{\\"ToAddresses\\":[\\"\$TO\\"],\\"CcAddresses\\":[\\"\$CC\\"]}"
-fi
+if [ \${#ATTACHMENTS[@]} -eq 0 ]; then
+  DEST="{\\"ToAddresses\\":[\\"\$TO\\"]}"
+  if [ -n "\$CC" ]; then
+    DEST="{\\"ToAddresses\\":[\\"\$TO\\"],\\"CcAddresses\\":[\\"\$CC\\"]}"
+  fi
 
-SUBJ_ESC=\$(printf '%s' "\$SUBJECT" | jq -Rs .)
-BODY_ESC=\$(printf '%s' "\$BODY" | jq -Rs .)
+  SUBJ_ESC=\$(printf '%s' "\$SUBJECT" | jq -Rs .)
+  BODY_ESC=\$(printf '%s' "\$BODY" | jq -Rs .)
 
-if [ "\$HTML" = true ]; then
-  BODY_JSON="{\\"Html\\":{\\"Data\\":\$BODY_ESC,\\"Charset\\":\\"UTF-8\\"}}"
+  if [ "\$HTML" = true ]; then
+    BODY_JSON="{\\"Html\\":{\\"Data\\":\$BODY_ESC,\\"Charset\\":\\"UTF-8\\"}}"
+  else
+    BODY_JSON="{\\"Text\\":{\\"Data\\":\$BODY_ESC,\\"Charset\\":\\"UTF-8\\"}}"
+  fi
+
+  MSG="{\\"Subject\\":{\\"Data\\":\$SUBJ_ESC,\\"Charset\\":\\"UTF-8\\"},\\"Body\\":\$BODY_JSON}"
+
+  aws ses send-email \\
+    --region "\$REGION" \\
+    --from "\$FROM" \\
+    --destination "\$DEST" \\
+    --message "\$MSG" \\
+    --output json 2>&1
 else
-  BODY_JSON="{\\"Text\\":{\\"Data\\":\$BODY_ESC,\\"Charset\\":\\"UTF-8\\"}}"
+  BOUNDARY="boundary-\$(date +%s%N)-\$RANDOM"
+  TMPFILE=\$(mktemp)
+  trap "rm -f \$TMPFILE" EXIT
+
+  {
+    echo "From: \$FROM"
+    echo "To: \$TO"
+    [ -n "\$CC" ] && echo "Cc: \$CC"
+    echo "Subject: \$SUBJECT"
+    echo "MIME-Version: 1.0"
+    echo "Content-Type: multipart/mixed; boundary=\\"\$BOUNDARY\\""
+    echo ""
+    echo "--\$BOUNDARY"
+    if [ "\$HTML" = true ]; then
+      echo "Content-Type: text/html; charset=UTF-8"
+    else
+      echo "Content-Type: text/plain; charset=UTF-8"
+    fi
+    echo "Content-Transfer-Encoding: base64"
+    echo ""
+    printf '%s' "\$BODY" | base64
+    echo ""
+    for att in "\${ATTACHMENTS[@]}"; do
+      FILENAME=\$(basename "\$att")
+      MIME_TYPE=\$(file --mime-type -b "\$att" 2>/dev/null || echo "application/octet-stream")
+      echo "--\$BOUNDARY"
+      echo "Content-Type: \$MIME_TYPE; name=\\"\$FILENAME\\""
+      echo "Content-Disposition: attachment; filename=\\"\$FILENAME\\""
+      echo "Content-Transfer-Encoding: base64"
+      echo ""
+      base64 "\$att"
+      echo ""
+    done
+    echo "--\$BOUNDARY--"
+  } > "\$TMPFILE"
+
+  RAW_B64=\$(base64 -w 0 "\$TMPFILE")
+
+  aws ses send-raw-email \\
+    --region "\$REGION" \\
+    --raw-message "Data=\$RAW_B64" \\
+    --output json 2>&1
 fi
-
-MSG="{\\"Subject\\":{\\"Data\\":\$SUBJ_ESC,\\"Charset\\":\\"UTF-8\\"},\\"Body\\":\$BODY_JSON}"
-
-aws ses send-email \\
-  --region "\$REGION" \\
-  --from "\$FROM" \\
-  --destination "\$DEST" \\
-  --message "\$MSG" \\
-  --output json 2>&1
 
 echo "Email sent from \$FROM to \$TO"
 `;

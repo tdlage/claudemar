@@ -22,6 +22,7 @@ export interface MessageOpts {
   prompt: string;
   model?: string;
   planMode?: boolean;
+  resumeSessionId?: string;
 }
 
 export async function processMessage(
@@ -47,7 +48,7 @@ export async function processMessage(
       targetName: opts.targetName,
       prompt: opts.prompt,
       cwd: opts.cwd,
-      resumeSessionId: getSessionId(chatId),
+      resumeSessionId: opts.resumeSessionId ?? getSessionId(chatId),
       model: opts.model,
       planMode: opts.planMode,
     });

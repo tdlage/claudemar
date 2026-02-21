@@ -46,6 +46,7 @@ function buildExecutionOpts(chatId: number, text: string) {
   const cwd = getWorkingDirectory(chatId);
   const { targetType, targetName } = resolveTarget(chatId);
   const planMode = consumeNextPlanMode(chatId);
+  const resumeSessionId = getSessionId(chatId);
 
   let finalPrompt = text;
   let model: string | undefined;
@@ -60,7 +61,7 @@ function buildExecutionOpts(chatId: number, text: string) {
     }
   }
 
-  return { targetType, targetName, cwd, finalPrompt, model, planMode };
+  return { targetType, targetName, cwd, finalPrompt, model, planMode, resumeSessionId };
 }
 
 bot.on("message:text", async (ctx) => {
@@ -84,7 +85,7 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  const { targetType, targetName, cwd, finalPrompt, model, planMode } = buildExecutionOpts(chatId, text);
+  const { targetType, targetName, cwd, finalPrompt, model, planMode, resumeSessionId } = buildExecutionOpts(chatId, text);
 
   if (executionManager.isTargetActive(targetType, targetName)) {
     const item = commandQueue.enqueue({
@@ -93,7 +94,7 @@ bot.on("message:text", async (ctx) => {
       prompt: finalPrompt,
       source: "telegram",
       cwd,
-      resumeSessionId: getSessionId(chatId),
+      resumeSessionId,
       model,
       planMode,
       telegramChatId: chatId,
@@ -105,7 +106,7 @@ bot.on("message:text", async (ctx) => {
 
   setBusy(chatId, true);
   const statusMsg = await ctx.reply("Iniciando...");
-  await processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model, planMode }, statusMsg).catch((err) => {
+  await processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model, planMode, resumeSessionId }, statusMsg).catch((err) => {
     console.error("[bot] processMessage error:", err);
     setBusy(chatId, false);
   });
@@ -167,7 +168,7 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
       : transcribedText;
 
     const prompt = `[Mensagem de áudio transcrita]: ${transcribedText}`;
-    const { targetType, targetName, cwd, finalPrompt, model, planMode } = buildExecutionOpts(chatId, prompt);
+    const { targetType, targetName, cwd, finalPrompt, model, planMode, resumeSessionId } = buildExecutionOpts(chatId, prompt);
 
     if (executionManager.isTargetActive(targetType, targetName)) {
       const item = commandQueue.enqueue({
@@ -176,7 +177,7 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
         prompt: finalPrompt,
         source: "telegram",
         cwd,
-        resumeSessionId: getSessionId(chatId),
+        resumeSessionId,
         model,
         planMode,
         telegramChatId: chatId,
@@ -196,7 +197,7 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
       `"${preview}"\n\nIniciando...`,
     );
 
-    await processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model, planMode }, statusMsg).catch((err) => {
+    await processMessage(ctx, chatId, { targetType, targetName, cwd, prompt: finalPrompt, model, planMode, resumeSessionId }, statusMsg).catch((err) => {
       console.error("[bot] processMessage error:", err);
       setBusy(chatId, false);
     });

@@ -40,6 +40,7 @@ export interface ExecutionInfo {
   error: string | null;
   pendingQuestion: PendingQuestion | null;
   planMode: boolean;
+  resumeSessionId?: string | null;
 }
 
 export interface StartExecutionOpts {
@@ -155,11 +156,14 @@ class ExecutionManager extends EventEmitter {
       error: null,
       pendingQuestion: null,
       planMode: opts.planMode ?? false,
+      resumeSessionId: null,
     };
 
     const resumeId = opts.noResume
       ? undefined
       : (opts.resumeSessionId ?? this.getLastSessionId(opts.targetType, opts.targetName));
+
+    info.resumeSessionId = resumeId ?? null;
 
     let systemSuffix = opts.useDocker
       ? ""
@@ -192,7 +196,7 @@ class ExecutionManager extends EventEmitter {
       const profiles = emailSettingsManager.getProfiles();
       const senderList = profiles.map((p) => p.from).join(", ");
       const availableSenders = senderList ? ` Available senders: ${senderList}.` : "";
-      systemSuffix += `\n[SYSTEM: You can send emails. Usage: ${scriptPath} --to <email> --subject "<subject>" --body "<body>" [--from <sender-email>] [--html] [--cc <email>].${defaultFrom}${availableSenders}]`;
+      systemSuffix += `\n[SYSTEM: You can send emails. Usage: ${scriptPath} --to <email> --subject "<subject>" --body "<body>" [--from <sender-email>] [--html] [--cc <email>] [--attachment <filepath> ...]. Multiple --attachment flags supported.${defaultFrom}${availableSenders}]`;
     }
     const effectivePrompt = opts.prompt + systemSuffix;
 

@@ -55,6 +55,11 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
           <span className="text-text-primary truncate flex-1 min-w-0 basis-[120px]">
             {item.prompt}
           </span>
+          {item.resumeSessionId && (
+            <span className="text-xs text-text-muted font-mono hidden md:inline" title={item.resumeSessionId}>
+              {sessionNames[item.resumeSessionId] ?? item.resumeSessionId.slice(0, 8)}
+            </span>
+          )}
           <span className="text-xs text-text-muted font-mono">
             #{item.seqId}
           </span>
@@ -83,6 +88,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
         const clickable = !!onToggle;
 
         const sanitizedOutput = ansiToHtml(exec.output || "(sem output)");
+        const sessionId = exec.result?.sessionId ?? exec.resumeSessionId;
 
         return (
           <div key={exec.id}>
@@ -106,9 +112,9 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
                   <span className="text-danger ml-2">— {exec.error}</span>
                 )}
               </span>
-              {exec.result?.sessionId && (
-                <span className="text-xs text-text-muted font-mono hidden md:inline" title={exec.result.sessionId}>
-                  {sessionNames[exec.result.sessionId] ?? exec.result.sessionId.slice(0, 8)}
+              {sessionId && (
+                <span className="text-xs text-text-muted font-mono hidden md:inline" title={sessionId}>
+                  {sessionNames[sessionId] ?? sessionId.slice(0, 8)}
                 </span>
               )}
               {exec.result && (
