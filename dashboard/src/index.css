@@ -17,6 +17,15 @@
   --color-danger: #ef4444;
 }
 
+button,
+[role="button"],
+a,
+summary,
+select,
+[tabindex]:not([tabindex="-1"]) {
+  cursor: pointer;
+}
+
 body {
   margin: 0;
   background-color: var(--color-bg);

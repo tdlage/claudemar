@@ -2,8 +2,9 @@
 set -euo pipefail
 
 INSTALL_DIR="${CLAUDEMAR_DIR:-$HOME/claudemar}"
+DATA_DIR="${CLAUDEMAR_DATA:-$HOME/.claudemar}"
 ENV_FILE="$INSTALL_DIR/.env"
-NOTIFIED_FILE="$INSTALL_DIR/.update-notified"
+NOTIFIED_FILE="$DATA_DIR/.update-notified"
 
 if [[ ! -f "$ENV_FILE" ]]; then
     exit 0

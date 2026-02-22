@@ -2,11 +2,12 @@
 set -euo pipefail
 
 INSTALL_DIR="${CLAUDEMAR_DIR:-$HOME/claudemar}"
+DATA_DIR="${CLAUDEMAR_DATA:-$HOME/.claudemar}"
 ENV_FILE="$INSTALL_DIR/.env"
-AGENTS_DIR="$INSTALL_DIR/agents"
-ORCHESTRATOR_DIR="$INSTALL_DIR/orchestrator"
+AGENTS_DIR="$DATA_DIR/agents"
+ORCHESTRATOR_DIR="$DATA_DIR/orchestrator"
 AGENTS_MD="$ORCHESTRATOR_DIR/agents.md"
-LOCK_FILE="$INSTALL_DIR/.sync-agents.lock"
+LOCK_FILE="$DATA_DIR/.sync-agents.lock"
 
 if [[ ! -d "$AGENTS_DIR" ]]; then
     exit 0

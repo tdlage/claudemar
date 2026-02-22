@@ -9,7 +9,8 @@ services:
       - ./data/orchestrator:/app/orchestrator
       - ./data/agents:/app/agents
       - ./data/projects:/app/projects
+      - ./data/data:/app/data
     env_file: .env
     environment:
       - DASHBOARD_PORT=3000
-      - BASE_PATH=/app
+      - CLAUDEMAR_DATA=/app

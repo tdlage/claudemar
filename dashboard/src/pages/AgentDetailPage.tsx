@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Square, Map, ListOrdered } from "lucide-react";
+import { Square, Map, ListOrdered, Zap } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -34,6 +34,8 @@ export function AgentDetailPage() {
   const [sequential, setSequential] = useCachedState(`agent:${name}:sequential`, false);
   const [execId, setExecId] = useCachedState<string | null>(`agent:${name}:execId`, null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`agent:${name}:expandedExecId`, null);
+  const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
+  const [selectedSkill, setSelectedSkill] = useCachedState(`agent:${name}:skill`, "");
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
   const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
@@ -81,6 +83,7 @@ export function AgentDetailPage() {
     loadSession();
     loadOutputs();
     loadInputs();
+    api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
   }, [loadAgent, loadSession, loadOutputs, loadInputs]);
 
   useEffect(() => {
@@ -130,10 +133,11 @@ export function AgentDetailPage() {
     if (!prompt.trim() || !name) return;
 
     try {
+      const finalPrompt = selectedSkill ? `/${selectedSkill} ${prompt.trim()}` : prompt.trim();
       const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
         targetType: "agent",
         targetName: name,
-        prompt: prompt.trim(),
+        prompt: finalPrompt,
         planMode,
         forceQueue: sequential || undefined,
       });
@@ -262,6 +266,26 @@ export function AgentDetailPage() {
                 <ListOrdered size={13} />
                 Queue
               </button>
+              {skills.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <Zap size={13} className={selectedSkill ? "text-accent" : "text-text-muted"} />
+                  <select
+                    value={selectedSkill}
+                    onChange={(e) => setSelectedSkill(e.target.value)}
+                    title={selectedSkill ? skills.find((s) => s.name === selectedSkill)?.description : ""}
+                    className={`text-xs bg-transparent border rounded-md px-1 py-1.5 focus:outline-none focus:border-accent ${
+                      selectedSkill
+                        ? "border-accent/40 text-accent"
+                        : "border-border text-text-muted"
+                    }`}
+                  >
+                    <option value="">No skill</option>
+                    {skills.map((s) => (
+                      <option key={s.name} value={s.name}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </form>
           <div className="h-[300px] md:h-[500px]">

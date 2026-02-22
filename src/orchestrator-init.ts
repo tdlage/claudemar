@@ -207,7 +207,7 @@ File: \`orchestrator/settings.json\`
 
 ## Environment Configuration
 
-File: \`${config.basePath}/.env\`
+File: \`${config.installDir}/.env\`
 
 Key variables you may need to adjust:
 - \`DASHBOARD_PORT\` — dashboard web port (current: ${config.dashboardPort})
@@ -217,7 +217,7 @@ Do NOT modify \`TELEGRAM_BOT_TOKEN\` or \`ALLOWED_CHAT_ID\` unless explicitly as
 
 ## Email
 
-If email is configured (\`.email-credentials\` exists in \`${config.basePath}\`), you and agents can send emails:
+If email is configured (\`.email-credentials\` exists in \`/etc/claudemar/\`), you and agents can send emails:
 
 \`\`\`bash
 sudo ${config.basePath}/send-email.sh --to "recipient@email.com" --subject "Subject" --body "Content"

@@ -1,8 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { cpus, homedir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { Router } from "express";
 import { config } from "../../config.js";
 import { getSessionSnapshot } from "../../session.js";
@@ -10,7 +9,7 @@ import { loadMetrics } from "../../metrics.js";
 import { executionManager } from "../../execution-manager.js";
 import { checkForUpdates, performUpdate, restartService } from "../../updater.js";
 
-const INSTALL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const INSTALL_DIR = config.installDir;
 
 export const systemRouter = Router();
 

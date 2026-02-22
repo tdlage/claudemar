@@ -2,14 +2,7 @@ node_modules/
 dist/
 .env
 .localfiles/
-/orchestrator/
-/projects/
-/agents/
-/data/
 dashboard/node_modules/
 dashboard/dist/
 .update-notified
 .serena/
-.sync-agents.lock
-.email-credentials
-send-email.sh

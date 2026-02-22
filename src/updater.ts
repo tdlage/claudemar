@@ -1,11 +1,11 @@
 import { execFile } from "node:child_process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs";
+import { config } from "./config.js";
 import { executionManager } from "./execution-manager.js";
 
-const INSTALL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const NOTIFIED_FILE = resolve(INSTALL_DIR, ".update-notified");
+const INSTALL_DIR = config.installDir;
+const NOTIFIED_FILE = resolve(config.basePath, ".update-notified");
 const UPDATE_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface UpdateInfo {
@@ -91,7 +91,7 @@ async function syncCronJobs(): Promise<void> {
     const scriptPath = resolve(scriptsDir, script);
     if (!existsSync(scriptPath)) continue;
     chmodSync(scriptPath, 0o755);
-    entries.push(`*/10 * * * * CLAUDEMAR_DIR=${INSTALL_DIR} ${scriptPath} >/dev/null 2>&1`);
+    entries.push(`*/10 * * * * CLAUDEMAR_DIR=${INSTALL_DIR} CLAUDEMAR_DATA=${config.basePath} ${scriptPath} >/dev/null 2>&1`);
   }
 
   if (entries.length === 0) return;

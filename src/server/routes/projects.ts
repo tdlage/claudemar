@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { rm } from "node:fs/promises";
@@ -320,6 +320,54 @@ projectsRouter.get("/:name/claude-agents", (_req, res) => {
 
   res.json(agents);
 });
+
+projectsRouter.get("/claude-skills", (_req, res) => {
+  const skillsDirs = [
+    resolve(homedir(), ".claude", "skills"),
+    resolve(homedir(), ".claude", "commands"),
+  ];
+
+  const skills: { name: string; description: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const dir of skillsDirs) {
+    if (!existsSync(dir)) continue;
+    const entries = readdirSync(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const skillMd = resolve(dir, entry.name, "SKILL.md");
+        if (!existsSync(skillMd)) continue;
+        if (seen.has(entry.name)) continue;
+        seen.add(entry.name);
+        try {
+          const content = readFileSync(skillMd, "utf-8");
+          const desc = extractSkillDescription(content);
+          skills.push({ name: entry.name, description: desc });
+        } catch { /* skip unreadable */ }
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        const name = entry.name.replace(/\.md$/, "");
+        if (seen.has(name)) continue;
+        seen.add(name);
+        try {
+          const content = readFileSync(resolve(dir, entry.name), "utf-8");
+          const desc = extractSkillDescription(content);
+          skills.push({ name, description: desc });
+        } catch { /* skip unreadable */ }
+      }
+    }
+  }
+
+  skills.sort((a, b) => a.name.localeCompare(b.name));
+  res.json(skills);
+});
+
+function extractSkillDescription(content: string): string {
+  const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!fmMatch) return "";
+  const descMatch = fmMatch[1].match(/^description:\s*(.+)$/m);
+  return descMatch ? descMatch[1].trim() : "";
+}
 
 projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
   const resolved = resolveProjectAndRepo(req, res);

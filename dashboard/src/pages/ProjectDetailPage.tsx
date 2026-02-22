@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Square, Map, Bot, ListOrdered, Cpu, Container } from "lucide-react";
+import { Square, Map, Bot, ListOrdered, Cpu, Container, Zap } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -34,6 +34,8 @@ export function ProjectDetailPage() {
   const [selectedModel, setSelectedModel] = useCachedState(`project:${name}:model`, "claude-opus-4-6");
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
   const [agents, setAgents] = useState<string[]>([]);
+  const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
+  const [selectedSkill, setSelectedSkill] = useCachedState(`project:${name}:skill`, "");
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
   const admin = isAdmin();
@@ -61,6 +63,7 @@ export function ProjectDetailPage() {
     loadProject();
     loadSession();
     api.get<string[]>(`/projects/${name}/claude-agents`).then(setAgents).catch(() => {});
+    api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
   }, [loadProject, loadSession]);
 
   useEffect(() => {
@@ -110,10 +113,11 @@ export function ProjectDetailPage() {
     if (!prompt.trim() || !name) return;
 
     try {
+      const finalPrompt = selectedSkill ? `/${selectedSkill} ${prompt.trim()}` : prompt.trim();
       const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
         targetType: "project",
         targetName: name,
-        prompt: prompt.trim(),
+        prompt: finalPrompt,
         planMode,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
@@ -232,6 +236,26 @@ export function ProjectDetailPage() {
                   ))}
                 </select>
               </div>
+              {skills.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <Zap size={13} className={selectedSkill ? "text-accent" : "text-text-muted"} />
+                  <select
+                    value={selectedSkill}
+                    onChange={(e) => setSelectedSkill(e.target.value)}
+                    title={selectedSkill ? skills.find((s) => s.name === selectedSkill)?.description : ""}
+                    className={`text-xs bg-transparent border rounded-md px-1 py-1.5 focus:outline-none focus:border-accent ${
+                      selectedSkill
+                        ? "border-accent/40 text-accent"
+                        : "border-border text-text-muted"
+                    }`}
+                  >
+                    <option value="">No skill</option>
+                    {skills.map((s) => (
+                      <option key={s.name} value={s.name}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => setPlanMode(!planMode)}

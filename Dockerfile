@@ -16,6 +16,7 @@ RUN npx tsup src/main.ts --format esm
 FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
+ENV CLAUDEMAR_DATA=/app
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
@@ -23,7 +24,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=backend-build /app/dist ./dist
 COPY --from=dashboard-build /app/dashboard/dist ./dashboard/dist
 
-RUN mkdir -p orchestrator agents projects
+RUN mkdir -p orchestrator agents projects data
 
 EXPOSE 3000
 

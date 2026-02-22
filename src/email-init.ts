@@ -33,15 +33,21 @@ export function ensureCredentialsDir(): void {
     console.error("[email] Failed to create credentials directory:", err);
   }
 
-  const legacyPath = resolve(config.basePath, LEGACY_CREDENTIALS_FILE);
-  if (existsSync(legacyPath) && !isEmailEnabled()) {
-    try {
-      execFileSync("sudo", ["mv", legacyPath, CREDENTIALS_PATH], { timeout: 5000 });
-      execFileSync("sudo", ["chmod", "600", CREDENTIALS_PATH], { timeout: 3000 });
-      execFileSync("sudo", ["chown", "root:root", CREDENTIALS_PATH], { timeout: 3000 });
-      console.log(`[email] Migrated ${legacyPath} → ${CREDENTIALS_PATH}`);
-    } catch (err) {
-      console.error("[email] Failed to migrate credentials:", err);
+  if (!isEmailEnabled()) {
+    const legacyPaths = [
+      resolve(config.basePath, LEGACY_CREDENTIALS_FILE),
+      resolve(config.installDir, LEGACY_CREDENTIALS_FILE),
+    ];
+    const legacyPath = legacyPaths.find((p) => existsSync(p));
+    if (legacyPath) {
+      try {
+        execFileSync("sudo", ["mv", legacyPath, CREDENTIALS_PATH], { timeout: 5000 });
+        execFileSync("sudo", ["chmod", "600", CREDENTIALS_PATH], { timeout: 3000 });
+        execFileSync("sudo", ["chown", "root:root", CREDENTIALS_PATH], { timeout: 3000 });
+        console.log(`[email] Migrated ${legacyPath} → ${CREDENTIALS_PATH}`);
+      } catch (err) {
+        console.error("[email] Failed to migrate credentials:", err);
+      }
     }
   }
 }

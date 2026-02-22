@@ -2,7 +2,8 @@ import "dotenv/config";
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 function requiredEnv(key: string): string {
   const value = process.env[key];
@@ -24,12 +25,14 @@ function numericEnv(key: string, fallback: number): number {
   return parsed;
 }
 
-const basePath = process.env.BASE_PATH || process.cwd();
+const installDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const basePath = process.env.CLAUDEMAR_DATA || process.env.BASE_PATH || resolve(homedir(), ".claudemar");
 const dataPath = resolve(basePath, "data");
 
 export const config = Object.freeze({
   telegramBotToken: requiredEnv("TELEGRAM_BOT_TOKEN"),
   allowedChatId: Number(requiredEnv("ALLOWED_CHAT_ID")),
+  installDir,
   basePath,
   dataPath,
   claudeTimeoutMs: numericEnv("CLAUDE_TIMEOUT_MS", 0),

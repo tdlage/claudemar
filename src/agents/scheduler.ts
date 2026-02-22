@@ -125,7 +125,7 @@ Responda APENAS com o conteúdo do script, sem explicações. Comece com #!/usr/
   chmodSync(scriptPath, 0o755);
 
   const logPath = resolve(schedulesDir, `${slug}-${id}.log`);
-  const envFile = resolve(config.basePath, ".env");
+  const envFile = resolve(config.installDir, ".env");
   const cronLine = `${cron} cd ${agentPaths.root} && set -a && . ${envFile} && set +a && bash ${scriptPath} >> ${logPath} 2>&1`;
 
   const currentCrontab = getCurrentCrontab();

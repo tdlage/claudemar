@@ -2,6 +2,7 @@
 set -euo pipefail
 
 INSTALL_DIR="$HOME/claudemar"
+DATA_DIR="$HOME/.claudemar"
 REPO_URL="https://github.com/tdlage/claudemar.git"
 SERVICE_NAME="claudemar"
 NODE_MAJOR=22
@@ -294,6 +295,9 @@ auto_detect_chat_id() {
 setup_env() {
     step 6 "Configuring environment"
 
+    mkdir -p "$DATA_DIR"
+    success "Data directory: $DATA_DIR"
+
     local env_file="$INSTALL_DIR/.env"
 
     if [[ -f "$env_file" ]]; then
@@ -314,6 +318,11 @@ setup_env() {
                 info "Removing timeout (CLAUDE_TIMEOUT_MS=${current_timeout} -> 0). Claude Code should not have a timeout."
                 sed -i "s/^CLAUDE_TIMEOUT_MS=.*/CLAUDE_TIMEOUT_MS=0/" "$env_file"
             fi
+        fi
+
+        if ! grep -q '^CLAUDEMAR_DATA=' "$env_file" 2>/dev/null; then
+            printf 'CLAUDEMAR_DATA=%s\n' "$DATA_DIR" >> "$env_file"
+            info "Added CLAUDEMAR_DATA=$DATA_DIR to .env"
         fi
         return
     fi
@@ -434,6 +443,7 @@ setup_env() {
         printf 'MAX_OUTPUT_LENGTH=4096\n' >> "$env_file"
         printf 'DASHBOARD_TOKEN=%s\n' "$dashboard_token" >> "$env_file"
         printf 'DASHBOARD_PORT=%s\n' "${dashboard_port:-3000}" >> "$env_file"
+        printf 'CLAUDEMAR_DATA=%s\n' "$DATA_DIR" >> "$env_file"
         ENV_CREATED=true
 
         if [[ -n "$token" ]]; then
@@ -448,6 +458,7 @@ CLAUDE_TIMEOUT_MS=0
 MAX_OUTPUT_LENGTH=4096
 DASHBOARD_TOKEN=
 DASHBOARD_PORT=3000
+CLAUDEMAR_DATA=${DATA_DIR}
 EOF
         ENV_CREATED=true
         warn "Non-interactive mode: .env created with empty values"
@@ -476,7 +487,7 @@ setup_cron() {
     local update_script="$INSTALL_DIR/scripts/check-update.sh"
     if [[ -f "$update_script" ]]; then
         chmod +x "$update_script"
-        entries+="*/10 * * * * CLAUDEMAR_DIR=$INSTALL_DIR $update_script >/dev/null 2>&1"$'\n'
+        entries+="*/10 * * * * CLAUDEMAR_DIR=$INSTALL_DIR CLAUDEMAR_DATA=$DATA_DIR $update_script >/dev/null 2>&1"$'\n'
         success "Auto-update cron configured (every 10 minutes)"
     else
         warn "check-update.sh not found — skipping auto-update cron"
@@ -485,7 +496,7 @@ setup_cron() {
     local sync_script="$INSTALL_DIR/scripts/sync-agents.sh"
     if [[ -f "$sync_script" ]]; then
         chmod +x "$sync_script"
-        entries+="*/10 * * * * CLAUDEMAR_DIR=$INSTALL_DIR $sync_script >/dev/null 2>&1"$'\n'
+        entries+="*/10 * * * * CLAUDEMAR_DIR=$INSTALL_DIR CLAUDEMAR_DATA=$DATA_DIR $sync_script >/dev/null 2>&1"$'\n'
         success "Agent sync cron configured (every 10 minutes)"
     else
         warn "sync-agents.sh not found — skipping agent sync cron"
@@ -550,6 +561,7 @@ Environment=PATH=${path_entries}
 Environment=HOME=${HOME}
 
 ReadWritePaths=${INSTALL_DIR}
+ReadWritePaths=${DATA_DIR}
 
 StandardOutput=journal
 StandardError=journal
@@ -618,7 +630,8 @@ print_summary() {
         echo -e "${BOLD}║${NC}  Mode:      ${GREEN}Fresh install${NC}"
     fi
 
-    echo -e "${BOLD}║${NC}  Directory: ${INSTALL_DIR}"
+    echo -e "${BOLD}║${NC}  Code:      ${INSTALL_DIR}"
+    echo -e "${BOLD}║${NC}  Data:      ${DATA_DIR}"
     echo -e "${BOLD}║${NC}  Node:      $(node -v)"
 
     if [[ "$CLAUDE_FOUND" == true ]]; then
