@@ -86,6 +86,47 @@ projectsRouter.get("/", async (req, res) => {
   res.json(results);
 });
 
+projectsRouter.get("/claude-skills", (_req, res) => {
+  const skillsDirs = [
+    resolve(homedir(), ".claude", "skills"),
+    resolve(homedir(), ".claude", "commands"),
+  ];
+
+  const skills: { name: string; description: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const dir of skillsDirs) {
+    if (!existsSync(dir)) continue;
+    const entries = readdirSync(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const skillMd = resolve(dir, entry.name, "SKILL.md");
+        if (!existsSync(skillMd)) continue;
+        if (seen.has(entry.name)) continue;
+        seen.add(entry.name);
+        try {
+          const content = readFileSync(skillMd, "utf-8");
+          const desc = extractSkillDescription(content);
+          skills.push({ name: entry.name, description: desc });
+        } catch { /* skip unreadable */ }
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        const name = entry.name.replace(/\.md$/, "");
+        if (seen.has(name)) continue;
+        seen.add(name);
+        try {
+          const content = readFileSync(resolve(dir, entry.name), "utf-8");
+          const desc = extractSkillDescription(content);
+          skills.push({ name, description: desc });
+        } catch { /* skip unreadable */ }
+      }
+    }
+  }
+
+  skills.sort((a, b) => a.name.localeCompare(b.name));
+  res.json(skills);
+});
+
 projectsRouter.get("/:name", async (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
@@ -319,47 +360,6 @@ projectsRouter.get("/:name/claude-agents", (_req, res) => {
     .map((f) => f.replace(/\.md$/, ""));
 
   res.json(agents);
-});
-
-projectsRouter.get("/claude-skills", (_req, res) => {
-  const skillsDirs = [
-    resolve(homedir(), ".claude", "skills"),
-    resolve(homedir(), ".claude", "commands"),
-  ];
-
-  const skills: { name: string; description: string }[] = [];
-  const seen = new Set<string>();
-
-  for (const dir of skillsDirs) {
-    if (!existsSync(dir)) continue;
-    const entries = readdirSync(dir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const skillMd = resolve(dir, entry.name, "SKILL.md");
-        if (!existsSync(skillMd)) continue;
-        if (seen.has(entry.name)) continue;
-        seen.add(entry.name);
-        try {
-          const content = readFileSync(skillMd, "utf-8");
-          const desc = extractSkillDescription(content);
-          skills.push({ name: entry.name, description: desc });
-        } catch { /* skip unreadable */ }
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        const name = entry.name.replace(/\.md$/, "");
-        if (seen.has(name)) continue;
-        seen.add(name);
-        try {
-          const content = readFileSync(resolve(dir, entry.name), "utf-8");
-          const desc = extractSkillDescription(content);
-          skills.push({ name, description: desc });
-        } catch { /* skip unreadable */ }
-      }
-    }
-  }
-
-  skills.sort((a, b) => a.name.localeCompare(b.name));
-  res.json(skills);
 });
 
 function extractSkillDescription(content: string): string {

@@ -6,3 +6,8 @@ dashboard/node_modules/
 dashboard/dist/
 .update-notified
 .serena/
+orchestrator/
+agents/
+projects/
+data/
+send-email.sh
