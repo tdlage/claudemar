@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, unlinkSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, unlinkSync } from "node:fs";
+import { extname, resolve, sep } from "node:path";
 import { rm } from "node:fs/promises";
 import archiver from "archiver";
 import { Router } from "express";
@@ -417,7 +417,17 @@ agentsRouter.get("/:name/output-dl/{*wildcard}", (req, res) => {
     return;
   }
 
-  res.download(result.filePath, basename);
+  const MIME: Record<string, string> = {
+    ".json": "application/json", ".csv": "text/csv", ".txt": "text/plain",
+    ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
+    ".xml": "application/xml", ".html": "text/html", ".md": "text/markdown",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  };
+  const contentType = MIME[extname(basename).toLowerCase()] || "application/octet-stream";
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(basename)}"`);
+  res.setHeader("Content-Length", stat.size);
+  createReadStream(result.filePath).pipe(res);
 });
 
 agentsRouter.delete("/:name/output-rm/{*wildcard}", async (req, res) => {
@@ -516,7 +526,11 @@ agentsRouter.get("/:name/input/:file/download", (req, res) => {
     return;
   }
 
-  res.download(result.filePath, req.params.file);
+  const stat = statSync(result.filePath);
+  const filename = req.params.file;
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
+  res.setHeader("Content-Length", stat.size);
+  createReadStream(result.filePath).pipe(res);
 });
 
 agentsRouter.delete("/:name/input/:file", (req, res) => {
