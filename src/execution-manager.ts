@@ -14,6 +14,7 @@ import { sessionNamesManager } from "./session-names-manager.js";
 import { isEmailEnabled, getEmailScriptPath } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 import { emailSettingsManager } from "./email-settings-manager.js";
+import { modelPreferences } from "./model-preferences.js";
 
 export type ExecutionSource = "telegram" | "web";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
@@ -238,6 +239,9 @@ class ExecutionManager extends EventEmitter {
           if (!sessionNamesManager.getName(result.sessionId)) {
             sessionNamesManager.setName(result.sessionId, sessionNamesManager.getNextAutoName());
           }
+        }
+        if (opts.model) {
+          modelPreferences.setLastModel(opts.targetType, opts.targetName, opts.model);
         }
 
         const askDenial = result.permissionDenials.find(

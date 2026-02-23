@@ -14,6 +14,7 @@ import { usersManager } from "./users-manager.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { ensureAllAgentGitRepos, generateAgentsContext } from "./agents/manager.js";
 import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
+import { modelPreferences } from "./model-preferences.js";
 import { settingsManager } from "./settings-manager.js";
 
 regenerateOrchestratorClaudeMd();
@@ -60,6 +61,7 @@ function shutdown() {
   usersManager.flush();
   sessionNamesManager.flush();
   settingsManager.flush();
+  modelPreferences.flush();
   flushSessions();
   tokenManager.stop();
   bot.stop();

@@ -8,6 +8,7 @@ import { commandQueue } from "../../queue.js";
 import { resolveRepoPath } from "../../repositories.js";
 import { safeProjectPath } from "../../session.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
+import { modelPreferences } from "../../model-preferences.js";
 
 export const executionsRouter = Router();
 
@@ -98,6 +99,10 @@ executionsRouter.post("/", (req, res) => {
   }
 
   const effectiveTargetName = targetName || "orchestrator";
+  if (!model) {
+    const saved = modelPreferences.getLastModel(targetType, effectiveTargetName);
+    if (saved) model = saved;
+  }
   const useDocker = (req.ctx?.role === "user" && targetType === "project")
     ? config.dockerAvailable
     : (requestDocker ? config.dockerAvailable : false);
@@ -183,6 +188,12 @@ executionsRouter.get("/target-status", (req, res) => {
 
 executionsRouter.get("/session-names", (_req, res) => {
   res.json(sessionNamesManager.getAllNames());
+});
+
+executionsRouter.get("/model-preference/:targetType/:targetName", (req, res) => {
+  const { targetType, targetName } = req.params;
+  const model = modelPreferences.getLastModel(targetType, targetName);
+  res.json({ model: model ?? null });
 });
 
 executionsRouter.get("/session/:targetType/:targetName", (req, res) => {

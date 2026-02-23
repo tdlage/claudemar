@@ -64,6 +64,9 @@ export function ProjectDetailPage() {
     loadSession();
     api.get<string[]>(`/projects/${name}/claude-agents`).then(setAgents).catch(() => {});
     api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
+    api.get<{ model: string | null }>(`/executions/model-preference/project/${name}`)
+      .then((data) => { if (data.model) setSelectedModel(data.model); })
+      .catch(() => {});
   }, [loadProject, loadSession]);
 
   useEffect(() => {
@@ -305,7 +308,7 @@ export function ProjectDetailPage() {
                   className="text-xs bg-transparent border border-border rounded-md px-1 py-1.5 text-text-muted focus:outline-none focus:border-accent"
                 >
                   <option value="claude-opus-4-6">Opus 4.6</option>
-                  <option value="claude-sonnet-4-5-20250929">Sonnet 4.5</option>
+                  <option value="claude-sonnet-4-6">Sonnet 4.6</option>
                   <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
                 </select>
               </div>

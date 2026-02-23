@@ -2,6 +2,7 @@ import { Bot, InlineKeyboard } from "grammy";
 import { registerCommands } from "./commands.js";
 import { config } from "./config.js";
 import { type ExecutionInfo, executionManager } from "./execution-manager.js";
+import { modelPreferences } from "./model-preferences.js";
 import { loadOrchestratorSettings } from "./orchestrator-settings.js";
 import { processMessage } from "./processor.js";
 import { commandQueue, type QueueItem } from "./queue.js";
@@ -59,6 +60,11 @@ function buildExecutionOpts(chatId: number, text: string) {
     if (settings.model) {
       model = settings.model;
     }
+  }
+
+  if (!model) {
+    const saved = modelPreferences.getLastModel(targetType, targetName);
+    if (saved) model = saved;
   }
 
   return { targetType, targetName, cwd, finalPrompt, model, planMode, resumeSessionId };

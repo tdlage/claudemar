@@ -202,7 +202,7 @@ File: \`orchestrator/settings.json\`
 - **prependPrompt**: Text prepended to every orchestrator execution prompt
 - **model**: Claude model ID. Options:
   - \`claude-opus-4-6\` (most capable)
-  - \`claude-sonnet-4-5-20250929\` (balanced)
+  - \`claude-sonnet-4-6\` (balanced)
   - \`claude-haiku-4-5-20251001\` (fastest)
 
 ## Environment Configuration

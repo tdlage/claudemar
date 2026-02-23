@@ -393,7 +393,7 @@ agentsRouter.get("/:name/output/:file", (req, res) => {
   res.json({ name: req.params.file, content, size: stat.size, mtime: stat.mtime.toISOString() });
 });
 
-agentsRouter.get("/:name/output-dl/*wildcard", (req, res) => {
+agentsRouter.get("/:name/output-dl/{*wildcard}", (req, res) => {
   const result = resolveOutputPath(req, res);
   if (!result) return;
 
@@ -420,7 +420,7 @@ agentsRouter.get("/:name/output-dl/*wildcard", (req, res) => {
   res.download(result.filePath, basename);
 });
 
-agentsRouter.delete("/:name/output-rm/*wildcard", async (req, res) => {
+agentsRouter.delete("/:name/output-rm/{*wildcard}", async (req, res) => {
   const result = resolveOutputPath(req, res);
   if (!result) return;
 
