@@ -40,7 +40,9 @@ function loadSecrets(agentName: string): SecretEntry[] {
   try {
     const path = secretsPath(agentName);
     if (existsSync(path)) {
-      return JSON.parse(readFileSync(path, "utf-8"));
+      const raw = JSON.parse(readFileSync(path, "utf-8"));
+      if (Array.isArray(raw)) return raw;
+      if (raw && Array.isArray(raw.secrets)) return raw.secrets;
     }
   } catch {
     // corrupted file
@@ -48,10 +50,12 @@ function loadSecrets(agentName: string): SecretEntry[] {
   return [];
 }
 
-function persistSecrets(agentName: string, secrets: SecretEntry[]): void {
+function persistSecrets(agentName: string, secrets: SecretEntry[], secretFiles?: { name: string; path: string; description: string }[]): void {
   const path = secretsPath(agentName);
   const tmp = path + ".tmp";
-  writeFileSync(tmp, JSON.stringify(secrets, null, 2), "utf-8");
+  const data: { secrets: SecretEntry[]; files?: { name: string; path: string; description: string }[] } = { secrets };
+  if (secretFiles && secretFiles.length > 0) data.files = secretFiles;
+  writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
   renameSync(tmp, path);
 }
 
@@ -70,6 +74,7 @@ class SecretsManager {
   }
 
   private markDirty(agentName: string): void {
+    this.getSecrets(agentName);
     this.dirty.add(agentName);
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => this.persistAll(), 1000);
@@ -78,9 +83,18 @@ class SecretsManager {
   private persistAll(): void {
     for (const agentName of this.dirty) {
       const secrets = this.cache.get(agentName);
-      if (secrets) persistSecrets(agentName, secrets);
+      if (secrets) persistSecrets(agentName, secrets, this.buildSecretFilesList(agentName));
     }
     this.dirty.clear();
+  }
+
+  private buildSecretFilesList(agentName: string): { name: string; path: string; description: string }[] {
+    const dir = this.filesDir(agentName);
+    if (!existsSync(dir)) return [];
+    const descriptions = this.loadFileDescriptions(agentName);
+    return readdirSync(dir)
+      .filter((f) => !f.startsWith("."))
+      .map((f) => ({ name: f, path: resolve(dir, f), description: descriptions[f] ?? "" }));
   }
 
   flush(): void {
@@ -89,6 +103,24 @@ class SecretsManager {
       this.persistTimer = null;
     }
     this.persistAll();
+  }
+
+  migrateAll(): void {
+    if (!existsSync(config.agentsPath)) return;
+    for (const dir of readdirSync(config.agentsPath, { withFileTypes: true })) {
+      if (!dir.isDirectory()) continue;
+      const agentName = dir.name;
+      const path = secretsPath(agentName);
+      if (!existsSync(path)) continue;
+      try {
+        const raw = JSON.parse(readFileSync(path, "utf-8"));
+        if (Array.isArray(raw)) {
+          persistSecrets(agentName, raw, this.buildSecretFilesList(agentName));
+        }
+      } catch {
+        // skip corrupted
+      }
+    }
   }
 
   getMaskedSecrets(agentName: string): MaskedSecret[] {
@@ -184,6 +216,7 @@ class SecretsManager {
     writeFileSync(filePath, data);
     const stat = statSync(filePath);
     const descriptions = this.loadFileDescriptions(agentName);
+    this.markDirty(agentName);
     return { name: filename, size: stat.size, description: descriptions[filename] ?? "" };
   }
 
@@ -196,6 +229,7 @@ class SecretsManager {
       delete descriptions[filename];
       this.persistFileDescriptions(agentName, descriptions);
     }
+    this.markDirty(agentName);
     return true;
   }
 
@@ -207,6 +241,7 @@ class SecretsManager {
     const descriptions = this.loadFileDescriptions(agentName);
     descriptions[filename] = description;
     this.persistFileDescriptions(agentName, descriptions);
+    this.markDirty(agentName);
     return true;
   }
 

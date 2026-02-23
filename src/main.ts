@@ -22,6 +22,7 @@ ensureCredentialsDir();
 generateSendEmailScript();
 ensureAllAgentGitRepos();
 generateAgentsContext();
+secretsManager.migrateAll();
 await executionManager.loadRecent();
 
 function drainQueue(_id: string, info: ExecutionInfo) {

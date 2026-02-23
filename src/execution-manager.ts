@@ -9,7 +9,6 @@ import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInbo
 import { getAgentPaths } from "./agents/manager.js";
 import { config } from "./config.js";
 import { trackExecution } from "./metrics.js";
-import { secretsManager } from "./secrets-manager.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { isEmailEnabled, getEmailScriptPath } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
@@ -174,20 +173,8 @@ class ExecutionManager extends EventEmitter {
     }
     if (opts.targetType === "agent") {
       const secretsJsonPath = resolve(config.agentsPath, opts.targetName, "secrets.json");
-      const secretFilePaths = secretsManager.getSecretFilePaths(opts.targetName);
-      const hasSecrets = existsSync(secretsJsonPath);
-      const hasFiles = Object.keys(secretFilePaths).length > 0;
-      if (hasSecrets || hasFiles) {
-        let secretsInfo = `\n[SYSTEM: You have secrets configured.`;
-        if (hasSecrets) {
-          secretsInfo += ` Read ${secretsJsonPath} for API keys, tokens, and credentials stored as key-value pairs.`;
-        }
-        if (hasFiles) {
-          const fileList = Object.entries(secretFilePaths).map(([name, path]) => `  - ${name} → ${path}`).join("\n");
-          secretsInfo += ` You also have secret files available:\n${fileList}`;
-        }
-        secretsInfo += `]`;
-        systemSuffix += secretsInfo;
+      if (existsSync(secretsJsonPath)) {
+        systemSuffix += `\n[SYSTEM: You have secrets configured. Read ${secretsJsonPath} for credentials, API keys, and secret file paths.]`;
       }
     }
     if (isEmailEnabled() && (opts.targetType === "agent" || opts.targetType === "orchestrator")) {
