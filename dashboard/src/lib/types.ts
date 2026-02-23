@@ -102,6 +102,7 @@ export interface ProjectInfo {
 export interface ProjectDetail {
   name: string;
   repos: RepoInfo[];
+  inputFiles: { name: string; size: number; mtime: string }[];
 }
 
 export interface RepoInfo {

@@ -12,14 +12,14 @@ export interface InputFile {
 }
 
 interface InputBrowserProps {
-  agentName: string;
+  apiBasePath: string;
   files: InputFile[];
   onRefresh: () => void;
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-export function InputBrowser({ agentName, files, onRefresh }: InputBrowserProps) {
+export function InputBrowser({ apiBasePath, files, onRefresh }: InputBrowserProps) {
   const { addToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -40,7 +40,7 @@ export function InputBrowser({ agentName, files, onRefresh }: InputBrowserProps)
       const base64 = btoa(
         new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), ""),
       );
-      await api.post(`/agents/${agentName}/input`, { filename: sanitized, content: base64 });
+      await api.post(`${apiBasePath}/input`, { filename: sanitized, content: base64 });
       addToast("success", `Uploaded ${sanitized}`);
       onRefresh();
     } catch {
@@ -54,7 +54,7 @@ export function InputBrowser({ agentName, files, onRefresh }: InputBrowserProps)
   const handleDownload = async (fileName: string) => {
     try {
       const token = localStorage.getItem("dashboard_token") || "";
-      const res = await fetch(`/api/agents/${agentName}/input/${fileName}/download`, {
+      const res = await fetch(`/api${apiBasePath}/input/${fileName}/download`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error();
@@ -72,7 +72,7 @@ export function InputBrowser({ agentName, files, onRefresh }: InputBrowserProps)
 
   const handleDelete = async (fileName: string) => {
     try {
-      await api.delete(`/agents/${agentName}/input/${fileName}`);
+      await api.delete(`${apiBasePath}/input/${fileName}`);
       onRefresh();
       addToast("success", "File deleted");
     } catch {

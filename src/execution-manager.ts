@@ -1,5 +1,5 @@
 import { type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -175,6 +175,17 @@ class ExecutionManager extends EventEmitter {
       const secretsJsonPath = resolve(config.agentsPath, opts.targetName, "secrets.json");
       if (existsSync(secretsJsonPath)) {
         systemSuffix += `\n[SYSTEM: You have secrets configured. Read ${secretsJsonPath} for credentials, API keys, and secret file paths.]`;
+      }
+    }
+    if (opts.targetType === "project") {
+      const projectInputDir = resolve(opts.cwd, ".input");
+      if (existsSync(projectInputDir)) {
+        try {
+          const files = readdirSync(projectInputDir).filter((f) => !f.startsWith("."));
+          if (files.length > 0) {
+            systemSuffix += `\n[SYSTEM: You have ${files.length} reference file(s) in ${projectInputDir}/. Check them if relevant to your task.]`;
+          }
+        } catch { /* ignore */ }
       }
     }
     if (isEmailEnabled() && (opts.targetType === "agent" || opts.targetType === "orchestrator")) {

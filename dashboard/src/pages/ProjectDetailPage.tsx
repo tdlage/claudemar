@@ -9,6 +9,7 @@ import { Button } from "../components/shared/Button";
 import { Badge } from "../components/shared/Badge";
 import { FilesBrowser } from "../components/project/FilesBrowser";
 import { RepositoriesTab } from "../components/project/RepositoriesTab";
+import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { useExecutions } from "../hooks/useExecution";
 import { useToast } from "../components/shared/Toast";
@@ -18,7 +19,7 @@ import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin } from "../hooks/useAuth";
 import type { ProjectDetail, SessionData } from "../lib/types";
 
-type TabKey = "terminal" | "repositories" | "files";
+type TabKey = "terminal" | "repositories" | "files" | "input";
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -36,6 +37,7 @@ export function ProjectDetailPage() {
   const [agents, setAgents] = useState<string[]>([]);
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
   const [selectedSkill, setSelectedSkill] = useCachedState(`project:${name}:skill`, "");
+  const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
   const admin = isAdmin();
@@ -49,7 +51,17 @@ export function ProjectDetailPage() {
 
   const loadProject = useCallback(() => {
     if (!name) return;
-    api.get<ProjectDetail>(`/projects/${name}`).then(setProject).catch(() => {});
+    api.get<ProjectDetail>(`/projects/${name}`).then((data) => {
+      setProject(data);
+      setInputFiles(data.inputFiles ?? []);
+    }).catch(() => {});
+  }, [name]);
+
+  const loadInputs = useCallback(() => {
+    if (!name) return;
+    api.get<InputFile[]>(`/projects/${name}/input`)
+      .then(setInputFiles)
+      .catch(() => {});
   }, [name]);
 
   const loadSession = useCallback(() => {
@@ -152,6 +164,7 @@ export function ProjectDetailPage() {
 
   const tabs: { key: TabKey; label: string; badge?: number; badgeVariant?: "warning" }[] = [
     { key: "terminal", label: "Terminal" },
+    { key: "input" as const, label: `Input (${inputFiles.length})` },
     ...(admin ? [
       { key: "repositories" as const, label: "Repositories", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) },
       { key: "files" as const, label: "Code" },
@@ -331,6 +344,10 @@ export function ProjectDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === "input" && (
+        <InputBrowser apiBasePath={`/projects/${project.name}`} files={inputFiles} onRefresh={loadInputs} />
       )}
 
       {tab === "repositories" && (

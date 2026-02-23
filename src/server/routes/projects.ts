@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { rm } from "node:fs/promises";
 import type { Request, Response } from "express";
 import { Router } from "express";
@@ -133,7 +133,20 @@ projectsRouter.get("/:name", async (req, res) => {
 
   try {
     const repos = await discoverRepos(projectPath);
-    res.json({ name: req.params.name, repos });
+    const dir = inputDir(projectPath);
+    let inputFiles: { name: string; size: number; mtime: string }[] = [];
+    if (existsSync(dir)) {
+      try {
+        inputFiles = readdirSync(dir)
+          .filter((f) => !f.startsWith("."))
+          .map((f) => {
+            const stat = statSync(resolve(dir, f));
+            return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
+          })
+          .sort((a, b) => b.mtime.localeCompare(a.mtime));
+      } catch { /* ignore */ }
+    }
+    res.json({ name: req.params.name, repos, inputFiles });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: message });
@@ -360,6 +373,129 @@ projectsRouter.get("/:name/claude-agents", (_req, res) => {
     .map((f) => f.replace(/\.md$/, ""));
 
   res.json(agents);
+});
+
+const SAFE_FILENAME_RE = /^[a-zA-Z0-9._-]+$/;
+
+function safeFilename(filename: string): boolean {
+  return SAFE_FILENAME_RE.test(filename) && !filename.includes("..");
+}
+
+function inputDir(projectPath: string): string {
+  return resolve(projectPath, ".input");
+}
+
+projectsRouter.get("/:name/input", (req, res) => {
+  const projectPath = resolveProject(req, res);
+  if (!projectPath) return;
+
+  const dir = inputDir(projectPath);
+  if (!existsSync(dir)) {
+    res.json([]);
+    return;
+  }
+
+  try {
+    const files = readdirSync(dir)
+      .filter((f) => !f.startsWith("."))
+      .map((f) => {
+        const stat = statSync(resolve(dir, f));
+        return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
+      })
+      .sort((a, b) => b.mtime.localeCompare(a.mtime));
+    res.json(files);
+  } catch {
+    res.json([]);
+  }
+});
+
+projectsRouter.post("/:name/input", (req, res) => {
+  const projectPath = resolveProject(req, res);
+  if (!projectPath) return;
+
+  const { filename, content } = req.body;
+  if (!filename || typeof filename !== "string" || !safeFilename(filename)) {
+    res.status(400).json({ error: "Invalid or missing filename" });
+    return;
+  }
+  if (!content || typeof content !== "string") {
+    res.status(400).json({ error: "Missing file content (base64)" });
+    return;
+  }
+
+  const data = Buffer.from(content, "base64");
+  if (data.length === 0) {
+    res.status(400).json({ error: "Empty file" });
+    return;
+  }
+  if (data.length > 10 * 1024 * 1024) {
+    res.status(413).json({ error: "File too large (max 10MB)" });
+    return;
+  }
+
+  const dir = inputDir(projectPath);
+  mkdirSync(dir, { recursive: true });
+  const filePath = resolve(dir, filename);
+  if (!filePath.startsWith(dir + sep)) {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+
+  writeFileSync(filePath, data);
+  const stat = statSync(filePath);
+  res.status(201).json({ name: filename, size: stat.size, mtime: stat.mtime.toISOString() });
+});
+
+projectsRouter.get("/:name/input/:file/download", (req, res) => {
+  const projectPath = resolveProject(req, res);
+  if (!projectPath) return;
+
+  const { file } = req.params;
+  if (!safeFilename(file)) {
+    res.status(400).json({ error: "Invalid filename" });
+    return;
+  }
+
+  const filePath = resolve(inputDir(projectPath), file);
+  if (!filePath.startsWith(inputDir(projectPath) + sep)) {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+
+  if (!existsSync(filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const stat = statSync(filePath);
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file)}"`);
+  res.setHeader("Content-Length", stat.size);
+  createReadStream(filePath).pipe(res);
+});
+
+projectsRouter.delete("/:name/input/:file", (req, res) => {
+  const projectPath = resolveProject(req, res);
+  if (!projectPath) return;
+
+  const { file } = req.params;
+  if (!safeFilename(file)) {
+    res.status(400).json({ error: "Invalid filename" });
+    return;
+  }
+
+  const filePath = resolve(inputDir(projectPath), file);
+  if (!filePath.startsWith(inputDir(projectPath) + sep)) {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+
+  if (!existsSync(filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  unlinkSync(filePath);
+  res.json({ deleted: true });
 });
 
 function extractSkillDescription(content: string): string {
