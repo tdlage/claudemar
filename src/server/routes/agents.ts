@@ -15,6 +15,7 @@ import {
 import type { AgentPaths } from "../../agents/types.js";
 import { listSchedulesByAgent, removeSchedulesByAgent } from "../../agents/scheduler.js";
 import { secretsManager } from "../../secrets-manager.js";
+import { safeFilename, listFiles, listDirEntries } from "../route-utils.js";
 
 export const agentsRouter = Router();
 
@@ -25,12 +26,6 @@ agentsRouter.param("name", (req, res, next) => {
   }
   next();
 });
-
-const SAFE_FILENAME_RE = /^[a-zA-Z0-9._-]+$/;
-
-function safeFilename(filename: string): boolean {
-  return SAFE_FILENAME_RE.test(filename) && !filename.includes("..");
-}
 
 function resolveAgentFile(
   req: Request,
@@ -122,38 +117,16 @@ agentsRouter.get("/:name", (req, res) => {
   }
 
   let inboxFiles: string[] = [];
-  try { inboxFiles = readdirSync(paths.inbox).filter((f) => !f.startsWith(".")).sort(); } catch { /* empty */ }
+  try { inboxFiles = readdirSync(paths.inbox).filter((f) => !f.startsWith(".")).sort(); } catch { }
 
   let outboxFiles: string[] = [];
-  try { outboxFiles = readdirSync(paths.outbox).filter((f) => !f.startsWith(".")).sort(); } catch { /* empty */ }
+  try { outboxFiles = readdirSync(paths.outbox).filter((f) => !f.startsWith(".")).sort(); } catch { }
 
-  let outputFiles: { name: string; type: "file" | "directory"; size: number; mtime: string }[] = [];
-  try {
-    outputFiles = readdirSync(paths.output)
-      .filter((f) => !f.startsWith("."))
-      .map((f) => {
-        const stat = statSync(resolve(paths.output, f));
-        return { name: f, type: stat.isDirectory() ? "directory" as const : "file" as const, size: stat.size, mtime: stat.mtime.toISOString() };
-      })
-      .sort((a, b) => {
-        if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
-        return b.mtime.localeCompare(a.mtime);
-      });
-  } catch { /* empty */ }
-
-  let inputFiles: { name: string; size: number; mtime: string }[] = [];
-  try {
-    inputFiles = readdirSync(paths.input)
-      .filter((f) => !f.startsWith("."))
-      .map((f) => {
-        const stat = statSync(resolve(paths.input, f));
-        return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
-      })
-      .sort((a, b) => b.mtime.localeCompare(a.mtime));
-  } catch { /* empty */ }
+  const outputFiles = listDirEntries(paths.output);
+  const inputFiles = listFiles(paths.input);
 
   let contextFiles: string[] = [];
-  try { contextFiles = readdirSync(paths.context).filter((f) => !f.startsWith(".")).sort(); } catch { /* empty */ }
+  try { contextFiles = readdirSync(paths.context).filter((f) => !f.startsWith(".")).sort(); } catch { }
 
   const schedules = listSchedulesByAgent(name);
   const secrets = secretsManager.getMaskedSecrets(name);
@@ -331,19 +304,6 @@ agentsRouter.delete("/:name/outbox/:file", (req, res) => {
   res.json({ deleted: true });
 });
 
-function listOutputDir(dir: string) {
-  return readdirSync(dir)
-    .filter((f) => !f.startsWith("."))
-    .map((f) => {
-      const stat = statSync(resolve(dir, f));
-      return { name: f, type: stat.isDirectory() ? "directory" as const : "file" as const, size: stat.size, mtime: stat.mtime.toISOString() };
-    })
-    .sort((a, b) => {
-      if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
-      return b.mtime.localeCompare(a.mtime);
-    });
-}
-
 agentsRouter.get("/:name/output", (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {
@@ -367,11 +327,7 @@ agentsRouter.get("/:name/output", (req, res) => {
     return;
   }
 
-  try {
-    res.json(listOutputDir(targetDir));
-  } catch {
-    res.json([]);
-  }
+  res.json(listDirEntries(targetDir));
 });
 
 agentsRouter.get("/:name/output/:file", (req, res) => {
@@ -459,18 +415,7 @@ agentsRouter.get("/:name/input", (req, res) => {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
-  try {
-    const files = readdirSync(paths.input)
-      .filter((f) => !f.startsWith("."))
-      .map((f) => {
-        const stat = statSync(resolve(paths.input, f));
-        return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
-      })
-      .sort((a, b) => b.mtime.localeCompare(a.mtime));
-    res.json(files);
-  } catch {
-    res.json([]);
-  }
+  res.json(listFiles(paths.input));
 });
 
 agentsRouter.post("/:name/input", (req, res) => {

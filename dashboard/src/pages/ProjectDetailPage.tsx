@@ -11,25 +11,21 @@ import { FilesBrowser } from "../components/project/FilesBrowser";
 import { RepositoriesTab } from "../components/project/RepositoriesTab";
 import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
-import { useExecutions } from "../hooks/useExecution";
-import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
+import { useExecutionPage } from "../hooks/useExecutionPage";
 import { VoiceInput } from "../components/shared/VoiceInput";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin } from "../hooks/useAuth";
-import type { ProjectDetail, SessionData } from "../lib/types";
+import type { ProjectDetail } from "../lib/types";
 
 type TabKey = "terminal" | "repositories" | "files" | "input";
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
-  const { addToast } = useToast();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [tab, setTab] = useCachedState<TabKey>(`project:${name}:tab`, "terminal");
   const [prompt, setPrompt] = useCachedState(`project:${name}:prompt`, "");
   const [planMode, setPlanMode] = useCachedState(`project:${name}:planMode`, false);
-  const [execId, setExecId] = useCachedState<string | null>(`project:${name}:execId`, null);
-  const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`project:${name}:expandedExecId`, null);
   const [sequential, setSequential] = useCachedState(`project:${name}:sequential`, true);
   const [dockerMode, setDockerMode] = useCachedState(`project:${name}:dockerMode`, false);
   const [selectedModel, setSelectedModel] = useCachedState(`project:${name}:model`, "claude-opus-4-6");
@@ -38,16 +34,7 @@ export function ProjectDetailPage() {
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
   const [selectedSkill, setSelectedSkill] = useCachedState(`project:${name}:skill`, "");
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
-  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
-  const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
   const admin = isAdmin();
-
-  const projectActive = active.filter((e) => e.targetName === name);
-  const projectRecent = recent.filter((e) => e.targetName === name);
-  const projectActivity = [...projectActive, ...projectRecent];
-  const projectQueue = queue.filter((q) => q.targetName === name);
-  const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
-  const isRunning = !!activeExec;
 
   const loadProject = useCallback(() => {
     if (!name) return;
@@ -59,17 +46,20 @@ export function ProjectDetailPage() {
 
   const loadInputs = useCallback(() => {
     if (!name) return;
-    api.get<InputFile[]>(`/projects/${name}/input`)
-      .then(setInputFiles)
-      .catch(() => {});
+    api.get<InputFile[]>(`/projects/${name}/input`).then(setInputFiles).catch(() => {});
   }, [name]);
 
-  const loadSession = useCallback(() => {
-    if (!name) return;
-    api.get<SessionData>(`/executions/session/project/${name}`)
-      .then(setSessionData)
-      .catch(() => {});
-  }, [name]);
+  const {
+    execId, setExecId, isRunning, sessionData, loadSession,
+    handleSessionChange, handleSessionRename,
+    activity, filteredQueue, filteredQuestions, submitAnswer,
+    expandedExecId, toggleExpanded, addToast,
+  } = useExecutionPage({
+    targetType: "project",
+    targetName: name ?? "",
+    cachePrefix: `project:${name}`,
+    onExecutionComplete: loadProject,
+  });
 
   useEffect(() => {
     loadProject();
@@ -80,48 +70,6 @@ export function ProjectDetailPage() {
       .then((data) => { if (data.model) setSelectedModel(data.model); })
       .catch(() => {});
   }, [loadProject, loadSession]);
-
-  useEffect(() => {
-    const running = active.find((e) => e.targetType === "project" && e.targetName === name);
-    if (running) {
-      setExecId(running.id);
-    } else if (execId && !active.some((e) => e.id === execId)) {
-      loadSession();
-      loadProject();
-    }
-  }, [name, active, execId, loadSession, loadProject]);
-
-  const handleSessionChange = async (value: string) => {
-    if (!name) return;
-    if (value === "__new") {
-      try {
-        await api.delete(`/executions/session/project/${name}`);
-        setSessionData((prev) => ({ ...prev, sessionId: null }));
-        addToast("success", "New session");
-      } catch {
-        addToast("error", "Failed to reset session");
-      }
-    } else {
-      try {
-        await api.put(`/executions/session/project/${name}`, { sessionId: value });
-        setSessionData((prev) => ({ ...prev, sessionId: value }));
-        addToast("success", `Session: ${sessionData.names[value] ?? value.slice(0, 8)}`);
-      } catch {
-        addToast("error", "Failed to switch session");
-      }
-    }
-  };
-
-  const handleSessionRename = async (sessionId: string, newName: string) => {
-    if (!name) return;
-    try {
-      await api.patch(`/executions/session/project/${name}/rename`, { sessionId, name: newName });
-      setSessionData((prev) => ({ ...prev, names: { ...prev.names, [sessionId]: newName } }));
-      addToast("success", "Session renamed");
-    } catch {
-      addToast("error", "Failed to rename session");
-    }
-  };
 
   const handleExecute = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,10 +98,6 @@ export function ProjectDetailPage() {
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
     }
-  };
-
-  const toggleExpanded = (id: string) => {
-    setExpandedExecId((prev) => (prev === id ? null : id));
   };
 
   if (!project) {
@@ -187,20 +131,18 @@ export function ProjectDetailPage() {
 
       {tab === "terminal" && (
         <div className="space-y-3">
-          {pendingQuestions
-            .filter((pq) => pq.info.targetType === "project" && pq.info.targetName === name)
-            .map((pq) => (
-              <QuestionPanel
-                key={pq.execId}
-                execId={pq.execId}
-                question={pq.question}
-                targetName={name!}
-                onSubmit={submitAnswer}
-                onDismiss={(id) => {
-                  api.post(`/executions/${id}/stop`).catch(() => {});
-                }}
-              />
-            ))}
+          {filteredQuestions.map((pq) => (
+            <QuestionPanel
+              key={pq.execId}
+              execId={pq.execId}
+              question={pq.question}
+              targetName={name!}
+              onSubmit={submitAnswer}
+              onDismiss={(id) => {
+                api.post(`/executions/${id}/stop`).catch(() => {});
+              }}
+            />
+          ))}
           <form onSubmit={handleExecute} className="space-y-2">
             <div className="flex gap-2 items-end">
               <VoiceInput onTranscription={(text) => setPrompt((prev) => prev ? `${prev} ${text}` : text)} />
@@ -331,12 +273,12 @@ export function ProjectDetailPage() {
             <Terminal key={name} executionId={execId} />
           </div>
 
-          {(projectActivity.length > 0 || projectQueue.length > 0) && (
+          {(activity.length > 0 || filteredQueue.length > 0) && (
             <div>
               <h2 className="text-sm font-medium text-text-muted mb-2">Activity</h2>
               <ActivityFeed
-                executions={projectActivity}
-                queue={projectQueue}
+                executions={activity}
+                queue={filteredQueue}
                 expandedId={expandedExecId}
                 onToggle={toggleExpanded}
                 sessionNames={sessionData.names}

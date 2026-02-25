@@ -50,7 +50,7 @@ export function Terminal({ executionId }: TerminalProps) {
     fitRef.current = fitAddon;
 
     const resizeObserver = new ResizeObserver(() => {
-      try { fitAddon.fit(); } catch { /* ignore */ }
+      try { fitAddon.fit(); } catch { }
     });
     resizeObserver.observe(containerRef.current);
 

@@ -126,7 +126,6 @@ export function Sidebar() {
       loadAgents();
       navigate(`/agents/${newAgentName.trim()}`);
     } catch {
-      // ignore
     } finally {
       setCreatingAgent(false);
     }
@@ -138,7 +137,6 @@ export function Sidebar() {
     try {
       await api.post("/agents/regenerate-context");
     } catch {
-      // ignore
     } finally {
       setRefreshingContext(false);
     }
@@ -154,7 +152,6 @@ export function Sidebar() {
       loadProjects();
       navigate(`/projects/${newProjectName.trim()}`);
     } catch {
-      // ignore
     } finally {
       setCreatingProject(false);
     }

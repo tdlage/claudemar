@@ -45,7 +45,6 @@ function loadSecrets(agentName: string): SecretEntry[] {
       if (raw && Array.isArray(raw.secrets)) return raw.secrets;
     }
   } catch {
-    // corrupted file
   }
   return [];
 }
@@ -185,7 +184,6 @@ class SecretsManager {
         return JSON.parse(readFileSync(path, "utf-8"));
       }
     } catch {
-      // corrupted
     }
     return {};
   }

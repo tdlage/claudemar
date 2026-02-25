@@ -63,7 +63,6 @@ export async function processMessage(
         `Erro: ${message}`,
       );
     } catch {
-      // non-critical
     }
     setBusy(chatId, false);
   }
@@ -105,7 +104,6 @@ export async function processDelegation(
         `[${agentName}] Erro: ${message}`,
       );
     } catch {
-      // non-critical
     }
     setBusy(chatId, false);
   }
@@ -143,7 +141,7 @@ function fireAndForgetReply(
             statusMsg.message_id,
             `${prefix}Executado sem output.\n\n${footer}`,
           );
-        } catch { /* non-critical */ }
+        } catch { }
         return;
       }
 
@@ -177,7 +175,7 @@ function fireAndForgetReply(
 
       try {
         await ctx.api.editMessageText(chatId, statusMsg.message_id, footer);
-      } catch { /* non-critical */ }
+      } catch { }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[fireAndForgetReply] onComplete error: ${msg}`);

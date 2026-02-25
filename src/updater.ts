@@ -77,7 +77,6 @@ export function clearNotifiedCommit(): void {
   try {
     writeFileSync(NOTIFIED_FILE, "", "utf-8");
   } catch {
-    // non-critical
   }
 }
 

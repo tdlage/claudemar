@@ -64,7 +64,6 @@ export function SettingsPage() {
       setCreateForm({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" });
       loadProfiles();
     } catch {
-      // ignore
     } finally {
       setSaving(false);
     }
@@ -83,7 +82,6 @@ export function SettingsPage() {
       setEditingProfile(null);
       loadProfiles();
     } catch {
-      // ignore
     } finally {
       setSaving(false);
     }
@@ -95,7 +93,6 @@ export function SettingsPage() {
       if (editingProfile === name) setEditingProfile(null);
       loadProfiles();
     } catch {
-      // ignore
     }
   };
 

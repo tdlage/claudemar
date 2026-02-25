@@ -15,38 +15,47 @@ import { AgentConfig } from "../components/agent/AgentConfig";
 import { AgentContextFiles } from "../components/agent/AgentContextFiles";
 import { AgentSecrets } from "../components/agent/AgentSecrets";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
-import { useExecutions } from "../hooks/useExecution";
-import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
+import { useExecutionPage } from "../hooks/useExecutionPage";
 import { VoiceInput } from "../components/shared/VoiceInput";
 import { SessionSelector } from "../components/shared/SessionSelector";
-import type { AgentDetail, SessionData } from "../lib/types";
+import type { AgentDetail } from "../lib/types";
 
 type TabKey = "terminal" | "inbox" | "outbox" | "input" | "output" | "config" | "context" | "secrets";
 
 export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
-  const { addToast } = useToast();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [tab, setTab] = useCachedState<TabKey>(`agent:${name}:tab`, "terminal");
   const [prompt, setPrompt] = useCachedState(`agent:${name}:prompt`, "");
   const [planMode, setPlanMode] = useCachedState(`agent:${name}:planMode`, false);
   const [sequential, setSequential] = useCachedState(`agent:${name}:sequential`, false);
-  const [execId, setExecId] = useCachedState<string | null>(`agent:${name}:execId`, null);
-  const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`agent:${name}:expandedExecId`, null);
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
   const [selectedSkill, setSelectedSkill] = useCachedState(`agent:${name}:skill`, "");
-  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
   const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
-  const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
 
-  const agentActive = active.filter((e) => e.targetType === "agent" && e.targetName === name);
-  const agentRecent = recent.filter((e) => e.targetType === "agent" && e.targetName === name);
-  const agentActivity = [...agentActive, ...agentRecent];
-  const agentQueue = queue.filter((q) => q.targetName === name);
-  const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
-  const isRunning = !!activeExec;
+  const loadOutputs = useCallback(() => {
+    if (!name) return;
+    api.get<OutputFile[]>(`/agents/${name}/output`).then(setOutputFiles).catch(() => {});
+  }, [name]);
+
+  const loadInputs = useCallback(() => {
+    if (!name) return;
+    api.get<InputFile[]>(`/agents/${name}/input`).then(setInputFiles).catch(() => {});
+  }, [name]);
+
+  const {
+    execId, setExecId, isRunning, sessionData, loadSession,
+    handleSessionChange, handleSessionRename,
+    activity, filteredQueue, filteredQuestions, submitAnswer,
+    expandedExecId, toggleExpanded, addToast,
+  } = useExecutionPage({
+    targetType: "agent",
+    targetName: name ?? "",
+    cachePrefix: `agent:${name}`,
+    onExecutionComplete: loadOutputs,
+  });
 
   const loadAgent = useCallback(() => {
     if (!name) return;
@@ -57,27 +66,6 @@ export function AgentDetailPage() {
     }).catch(() => {});
   }, [name]);
 
-  const loadSession = useCallback(() => {
-    if (!name) return;
-    api.get<SessionData>(`/executions/session/agent/${name}`)
-      .then(setSessionData)
-      .catch(() => {});
-  }, [name]);
-
-  const loadOutputs = useCallback(() => {
-    if (!name) return;
-    api.get<OutputFile[]>(`/agents/${name}/output`)
-      .then(setOutputFiles)
-      .catch(() => {});
-  }, [name]);
-
-  const loadInputs = useCallback(() => {
-    if (!name) return;
-    api.get<InputFile[]>(`/agents/${name}/input`)
-      .then(setInputFiles)
-      .catch(() => {});
-  }, [name]);
-
   useEffect(() => {
     loadAgent();
     loadSession();
@@ -85,48 +73,6 @@ export function AgentDetailPage() {
     loadInputs();
     api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
   }, [loadAgent, loadSession, loadOutputs, loadInputs]);
-
-  useEffect(() => {
-    const running = active.find((e) => e.targetType === "agent" && e.targetName === name);
-    if (running) {
-      setExecId(running.id);
-    } else if (execId && !active.some((e) => e.id === execId)) {
-      loadSession();
-      loadOutputs();
-    }
-  }, [name, active, execId, loadSession, loadOutputs]);
-
-  const handleSessionChange = async (value: string) => {
-    if (!name) return;
-    if (value === "__new") {
-      try {
-        await api.delete(`/executions/session/agent/${name}`);
-        setSessionData((prev) => ({ ...prev, sessionId: null }));
-        addToast("success", "New session");
-      } catch {
-        addToast("error", "Failed to reset session");
-      }
-    } else {
-      try {
-        await api.put(`/executions/session/agent/${name}`, { sessionId: value });
-        setSessionData((prev) => ({ ...prev, sessionId: value }));
-        addToast("success", `Session: ${sessionData.names[value] ?? value.slice(0, 8)}`);
-      } catch {
-        addToast("error", "Failed to switch session");
-      }
-    }
-  };
-
-  const handleSessionRename = async (sessionId: string, newName: string) => {
-    if (!name) return;
-    try {
-      await api.patch(`/executions/session/agent/${name}/rename`, { sessionId, name: newName });
-      setSessionData((prev) => ({ ...prev, names: { ...prev.names, [sessionId]: newName } }));
-      addToast("success", "Session renamed");
-    } catch {
-      addToast("error", "Failed to rename session");
-    }
-  };
 
   const handleExecute = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,10 +98,6 @@ export function AgentDetailPage() {
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
     }
-  };
-
-  const toggleExpanded = (id: string) => {
-    setExpandedExecId((prev) => (prev === id ? null : id));
   };
 
   if (!agent) {
@@ -192,20 +134,18 @@ export function AgentDetailPage() {
 
       {tab === "terminal" && (
         <div className="space-y-3">
-          {pendingQuestions
-            .filter((pq) => pq.info.targetType === "agent" && pq.info.targetName === name)
-            .map((pq) => (
-              <QuestionPanel
-                key={pq.execId}
-                execId={pq.execId}
-                question={pq.question}
-                targetName={name!}
-                onSubmit={submitAnswer}
-                onDismiss={(id) => {
-                  api.post(`/executions/${id}/stop`).catch(() => {});
-                }}
-              />
-            ))}
+          {filteredQuestions.map((pq) => (
+            <QuestionPanel
+              key={pq.execId}
+              execId={pq.execId}
+              question={pq.question}
+              targetName={name!}
+              onSubmit={submitAnswer}
+              onDismiss={(id) => {
+                api.post(`/executions/${id}/stop`).catch(() => {});
+              }}
+            />
+          ))}
           <form onSubmit={handleExecute} className="space-y-2">
             <div className="flex gap-2 items-end">
               <VoiceInput onTranscription={(text) => setPrompt((prev) => prev ? `${prev} ${text}` : text)} />
@@ -292,12 +232,12 @@ export function AgentDetailPage() {
             <Terminal key={name} executionId={execId} />
           </div>
 
-          {(agentActivity.length > 0 || agentQueue.length > 0) && (
+          {(activity.length > 0 || filteredQueue.length > 0) && (
             <div>
               <h2 className="text-sm font-medium text-text-muted mb-2">Activity</h2>
               <ActivityFeed
-                executions={agentActivity}
-                queue={agentQueue}
+                executions={activity}
+                queue={filteredQueue}
                 expandedId={expandedExecId}
                 onToggle={toggleExpanded}
                 sessionNames={sessionData.names}

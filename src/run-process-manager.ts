@@ -1,10 +1,10 @@
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
-import { writeFile, rename } from "node:fs/promises";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
+import { JsonPersister } from "./json-persister.js";
 
 export interface RunConfig {
   id: string;
@@ -28,13 +28,12 @@ interface ActiveProcess {
 }
 
 const MAX_OUTPUT = 1024 * 1024;
-const PERSIST_DEBOUNCE_MS = 1000;
 
 class RunProcessManager extends EventEmitter {
   private configs = new Map<string, RunConfig>();
   private active = new Map<string, ActiveProcess>();
   private lastOutput = new Map<string, string>();
-  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private configsPersister = new JsonPersister(resolve(config.dataPath, "run-configs.json"), "run-configs");
   private shuttingDown = false;
 
   constructor() {
@@ -44,30 +43,21 @@ class RunProcessManager extends EventEmitter {
     this.reconcileProcesses();
   }
 
-  private configsPath(): string {
-    return resolve(config.dataPath, "run-configs.json");
-  }
-
-  private processesPath(): string {
-    return resolve(config.dataPath, "run-processes.json");
-  }
-
   private loadConfigs(): void {
-    const path = this.configsPath();
-    if (!existsSync(path)) return;
-    try {
-      const data: RunConfig[] = JSON.parse(readFileSync(path, "utf-8"));
-      for (const c of data) {
-        this.configs.set(c.id, c);
-      }
-    } catch {
-      // corrupted, start fresh
+    const data = this.configsPersister.readSync() as RunConfig[] | null;
+    if (!data) return;
+    for (const c of data) {
+      this.configs.set(c.id, c);
     }
   }
 
   reload(): void {
     this.configs.clear();
     this.loadConfigs();
+  }
+
+  private processesPath(): string {
+    return resolve(config.dataPath, "run-processes.json");
   }
 
   private reconcileProcesses(): void {
@@ -98,7 +88,6 @@ class RunProcessManager extends EventEmitter {
         }
       }
     } catch {
-      // corrupted
     }
   }
 
@@ -113,7 +102,7 @@ class RunProcessManager extends EventEmitter {
   createConfig(opts: Omit<RunConfig, "id">): RunConfig {
     const cfg: RunConfig = { ...opts, id: randomUUID() };
     this.configs.set(cfg.id, cfg);
-    this.schedulePersistConfigs();
+    this.configsPersister.scheduleWrite(() => this.getAllConfigs());
     return cfg;
   }
 
@@ -121,7 +110,7 @@ class RunProcessManager extends EventEmitter {
     const cfg = this.configs.get(id);
     if (!cfg) return null;
     Object.assign(cfg, updates);
-    this.schedulePersistConfigs();
+    this.configsPersister.scheduleWrite(() => this.getAllConfigs());
     return cfg;
   }
 
@@ -130,7 +119,7 @@ class RunProcessManager extends EventEmitter {
       this.stopProcess(id);
     }
     const deleted = this.configs.delete(id);
-    if (deleted) this.schedulePersistConfigs();
+    if (deleted) this.configsPersister.scheduleWrite(() => this.getAllConfigs());
     return deleted;
   }
 
@@ -189,9 +178,9 @@ class RunProcessManager extends EventEmitter {
     if (entry) {
       const pid = entry.process.pid;
       if (pid) {
-        try { process.kill(-pid, "SIGTERM"); } catch { /* already dead */ }
+        try { process.kill(-pid, "SIGTERM"); } catch { }
         setTimeout(() => {
-          try { process.kill(-pid, "SIGKILL"); } catch { /* already dead */ }
+          try { process.kill(-pid, "SIGKILL"); } catch { }
         }, 5000);
       } else {
         entry.process.kill("SIGTERM");
@@ -204,9 +193,9 @@ class RunProcessManager extends EventEmitter {
       try {
         process.kill(-orphanPid, "SIGTERM");
         setTimeout(() => {
-          try { process.kill(-orphanPid, "SIGKILL"); } catch { /* already dead */ }
+          try { process.kill(-orphanPid, "SIGKILL"); } catch { }
         }, 5000);
-      } catch { /* already dead */ }
+      } catch { }
       this.persistProcessStates();
       this.emit("stop", configId, 0);
       return true;
@@ -272,14 +261,10 @@ class RunProcessManager extends EventEmitter {
             try {
               process.kill(s.pid, 0);
               result[s.configId] = { running: true, pid: s.pid, startedAt: s.startedAt };
-            } catch {
-              // not running
-            }
+            } catch { }
           }
         }
-      } catch {
-        // ignore
-      }
+      } catch { }
     }
 
     return result;
@@ -289,11 +274,7 @@ class RunProcessManager extends EventEmitter {
     const states: RunProcessState[] = [];
     for (const [configId, entry] of this.active) {
       if (entry.process.pid) {
-        states.push({
-          configId,
-          pid: entry.process.pid,
-          startedAt: new Date().toISOString(),
-        });
+        states.push({ configId, pid: entry.process.pid, startedAt: new Date().toISOString() });
       }
     }
     this.persistProcesses(states);
@@ -310,38 +291,9 @@ class RunProcessManager extends EventEmitter {
     }
   }
 
-  private schedulePersistConfigs(): void {
-    if (this.persistTimer) return;
-    this.persistTimer = setTimeout(() => {
-      this.persistTimer = null;
-      this.persistConfigs();
-    }, PERSIST_DEBOUNCE_MS);
-  }
-
-  private persistConfigs(): void {
-    const data = this.getAllConfigs();
-    const target = this.configsPath();
-    const tmp = target + ".tmp";
-    writeFile(tmp, JSON.stringify(data, null, 2), "utf-8")
-      .then(() => rename(tmp, target))
-      .catch((err) => console.error("[run-process] persist configs failed:", err));
-  }
-
   flush(): void {
     this.shuttingDown = true;
-    if (this.persistTimer) {
-      clearTimeout(this.persistTimer);
-      this.persistTimer = null;
-    }
-    const data = this.getAllConfigs();
-    const target = this.configsPath();
-    const tmp = target + ".tmp";
-    try {
-      writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
-      renameSync(tmp, target);
-    } catch (err) {
-      console.error("[run-process] flush failed:", err);
-    }
+    this.configsPersister.flushSync(this.getAllConfigs());
   }
 }
 

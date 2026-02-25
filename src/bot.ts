@@ -226,7 +226,6 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
         `Erro: ${message}`,
       );
     } catch {
-      // non-critical
     }
   }
 });

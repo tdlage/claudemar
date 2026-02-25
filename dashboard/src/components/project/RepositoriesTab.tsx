@@ -141,14 +141,14 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
       try {
         const b = await api.get<RepoBranches>(`/projects/${projectName}/repos/${repoName}/branches`);
         setBranches((prev) => ({ ...prev, [repoName]: b }));
-      } catch { /* ignore */ }
+      } catch { }
     }
 
     if (!logs[repoName]) {
       try {
         const l = await api.get<GitCommit[]>(`/projects/${projectName}/repos/${repoName}/log`);
         setLogs((prev) => ({ ...prev, [repoName]: l }));
-      } catch { /* ignore */ }
+      } catch { }
     }
   };
 

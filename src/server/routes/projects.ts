@@ -4,6 +4,7 @@ import { resolve, sep } from "node:path";
 import { rm } from "node:fs/promises";
 import type { Request, Response } from "express";
 import { Router } from "express";
+import { safeFilename, listFiles } from "../route-utils.js";
 import {
   isValidProjectName,
   listProjects,
@@ -109,7 +110,7 @@ projectsRouter.get("/claude-skills", (_req, res) => {
           const content = readFileSync(skillMd, "utf-8");
           const desc = extractSkillDescription(content);
           skills.push({ name: entry.name, description: desc });
-        } catch { /* skip unreadable */ }
+        } catch { }
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         const name = entry.name.replace(/\.md$/, "");
         if (seen.has(name)) continue;
@@ -118,7 +119,7 @@ projectsRouter.get("/claude-skills", (_req, res) => {
           const content = readFileSync(resolve(dir, entry.name), "utf-8");
           const desc = extractSkillDescription(content);
           skills.push({ name, description: desc });
-        } catch { /* skip unreadable */ }
+        } catch { }
       }
     }
   }
@@ -133,19 +134,7 @@ projectsRouter.get("/:name", async (req, res) => {
 
   try {
     const repos = await discoverRepos(projectPath);
-    const dir = inputDir(projectPath);
-    let inputFiles: { name: string; size: number; mtime: string }[] = [];
-    if (existsSync(dir)) {
-      try {
-        inputFiles = readdirSync(dir)
-          .filter((f) => !f.startsWith("."))
-          .map((f) => {
-            const stat = statSync(resolve(dir, f));
-            return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
-          })
-          .sort((a, b) => b.mtime.localeCompare(a.mtime));
-      } catch { /* ignore */ }
-    }
+    const inputFiles = listFiles(inputDir(projectPath));
     res.json({ name: req.params.name, repos, inputFiles });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -375,12 +364,6 @@ projectsRouter.get("/:name/claude-agents", (_req, res) => {
   res.json(agents);
 });
 
-const SAFE_FILENAME_RE = /^[a-zA-Z0-9._-]+$/;
-
-function safeFilename(filename: string): boolean {
-  return SAFE_FILENAME_RE.test(filename) && !filename.includes("..");
-}
-
 function inputDir(projectPath: string): string {
   return resolve(projectPath, ".input");
 }
@@ -389,24 +372,7 @@ projectsRouter.get("/:name/input", (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
 
-  const dir = inputDir(projectPath);
-  if (!existsSync(dir)) {
-    res.json([]);
-    return;
-  }
-
-  try {
-    const files = readdirSync(dir)
-      .filter((f) => !f.startsWith("."))
-      .map((f) => {
-        const stat = statSync(resolve(dir, f));
-        return { name: f, size: stat.size, mtime: stat.mtime.toISOString() };
-      })
-      .sort((a, b) => b.mtime.localeCompare(a.mtime));
-    res.json(files);
-  } catch {
-    res.json([]);
-  }
+  res.json(listFiles(inputDir(projectPath)));
 });
 
 projectsRouter.post("/:name/input", (req, res) => {

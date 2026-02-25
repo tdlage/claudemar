@@ -185,7 +185,7 @@ class ExecutionManager extends EventEmitter {
           if (files.length > 0) {
             systemSuffix += `\n[SYSTEM: You have ${files.length} reference file(s) in ${projectInputDir}/. Check them if relevant to your task.]`;
           }
-        } catch { /* ignore */ }
+        } catch { }
       }
     }
     if (isEmailEnabled() && (opts.targetType === "agent" || opts.targetType === "orchestrator")) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Save, RefreshCw, Download, CheckCircle, Square, Map, Crown } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
@@ -8,12 +8,10 @@ import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
 import { Badge } from "../components/shared/Badge";
 import { MarkdownEditor } from "../components/shared/MarkdownEditor";
-import { useExecutions } from "../hooks/useExecution";
-import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "../hooks/useCachedState";
+import { useExecutionPage } from "../hooks/useExecutionPage";
 import { VoiceInput } from "../components/shared/VoiceInput";
 import { SessionSelector } from "../components/shared/SessionSelector";
-import type { SessionData } from "../lib/types";
 
 interface OrchestratorSettings {
   prependPrompt: string;
@@ -38,21 +36,20 @@ const MODEL_OPTIONS = [
 type TabKey = "terminal" | "claude-md" | "settings";
 
 export function OrchestratorPage() {
-  const { addToast } = useToast();
   const [tab, setTab] = useCachedState<TabKey>("orchestrator:tab", "terminal");
   const [prompt, setPrompt] = useCachedState("orchestrator:prompt", "");
   const [planMode, setPlanMode] = useCachedState("orchestrator:planMode", false);
-  const [execId, setExecId] = useCachedState<string | null>("orchestrator:execId", null);
-  const [expandedExecId, setExpandedExecId] = useCachedState<string | null>("orchestrator:expandedExecId", null);
-  const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
-  const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
 
-  const orchActive = active.filter((e) => e.targetType === "orchestrator");
-  const orchRecent = recent.filter((e) => e.targetType === "orchestrator");
-  const orchActivity = [...orchActive, ...orchRecent];
-  const orchQueue = queue.filter((q) => q.targetType === "orchestrator");
-  const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
-  const isRunning = !!activeExec;
+  const {
+    execId, setExecId, isRunning, sessionData, loadSession,
+    handleSessionChange, handleSessionRename,
+    activity, filteredQueue, filteredQuestions, submitAnswer,
+    expandedExecId, toggleExpanded, addToast,
+  } = useExecutionPage({
+    targetType: "orchestrator",
+    targetName: "orchestrator",
+    cachePrefix: "orchestrator",
+  });
 
   const [mdContent, setMdContent] = useState("");
   const [mdDirty, setMdDirty] = useState(false);
@@ -66,12 +63,6 @@ export function OrchestratorPage() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
-
-  const loadSession = useCallback(() => {
-    api.get<SessionData>("/executions/session/orchestrator/orchestrator")
-      .then(setSessionData)
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     api.get<{ content: string }>("/orchestrator/claude-md")
@@ -87,45 +78,6 @@ export function OrchestratorPage() {
 
     loadSession();
   }, [loadSession]);
-
-  useEffect(() => {
-    const running = active.find((e) => e.targetType === "orchestrator");
-    if (running) {
-      setExecId(running.id);
-    } else if (execId && !active.some((e) => e.id === execId)) {
-      loadSession();
-    }
-  }, [active, execId, loadSession]);
-
-  const handleSessionChange = async (value: string) => {
-    if (value === "__new") {
-      try {
-        await api.delete("/executions/session/orchestrator/orchestrator");
-        setSessionData((prev) => ({ ...prev, sessionId: null }));
-        addToast("success", "New session");
-      } catch {
-        addToast("error", "Failed to reset session");
-      }
-    } else {
-      try {
-        await api.put("/executions/session/orchestrator/orchestrator", { sessionId: value });
-        setSessionData((prev) => ({ ...prev, sessionId: value }));
-        addToast("success", `Session: ${sessionData.names[value] ?? value.slice(0, 8)}`);
-      } catch {
-        addToast("error", "Failed to switch session");
-      }
-    }
-  };
-
-  const handleSessionRename = async (sessionId: string, newName: string) => {
-    try {
-      await api.patch("/executions/session/orchestrator/orchestrator/rename", { sessionId, name: newName });
-      setSessionData((prev) => ({ ...prev, names: { ...prev.names, [sessionId]: newName } }));
-      addToast("success", "Session renamed");
-    } catch {
-      addToast("error", "Failed to rename session");
-    }
-  };
 
   const handleExecute = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,10 +101,6 @@ export function OrchestratorPage() {
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
     }
-  };
-
-  const toggleExpanded = (id: string) => {
-    setExpandedExecId((prev) => (prev === id ? null : id));
   };
 
   const handleSaveMd = async () => {
@@ -232,20 +180,18 @@ export function OrchestratorPage() {
 
       {tab === "terminal" && (
         <div className="space-y-3">
-          {pendingQuestions
-            .filter((pq) => pq.info.targetType === "orchestrator")
-            .map((pq) => (
-              <QuestionPanel
-                key={pq.execId}
-                execId={pq.execId}
-                question={pq.question}
-                targetName="orchestrator"
-                onSubmit={submitAnswer}
-                onDismiss={(id) => {
-                  api.post(`/executions/${id}/stop`).catch(() => {});
-                }}
-              />
-            ))}
+          {filteredQuestions.map((pq) => (
+            <QuestionPanel
+              key={pq.execId}
+              execId={pq.execId}
+              question={pq.question}
+              targetName="orchestrator"
+              onSubmit={submitAnswer}
+              onDismiss={(id) => {
+                api.post(`/executions/${id}/stop`).catch(() => {});
+              }}
+            />
+          ))}
           <form onSubmit={handleExecute} className="flex gap-2 items-end">
             <VoiceInput onTranscription={(text) => setPrompt((prev) => prev ? `${prev} ${text}` : text)} />
             <textarea
@@ -295,12 +241,12 @@ export function OrchestratorPage() {
             <Terminal executionId={execId} />
           </div>
 
-          {(orchActivity.length > 0 || orchQueue.length > 0) && (
+          {(activity.length > 0 || filteredQueue.length > 0) && (
             <div>
               <h2 className="text-sm font-medium text-text-muted mb-2">Activity</h2>
               <ActivityFeed
-                executions={orchActivity}
-                queue={orchQueue}
+                executions={activity}
+                queue={filteredQueue}
                 expandedId={expandedExecId}
                 onToggle={toggleExpanded}
                 sessionNames={sessionData.names}

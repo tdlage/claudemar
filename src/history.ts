@@ -45,7 +45,6 @@ async function trimIfNeeded(): Promise<void> {
       lineCount = lines.length;
     }
   } catch {
-    // non-critical
   }
 }
 
@@ -60,7 +59,6 @@ export function appendHistory(entry: HistoryEntry): void {
       }, TRIM_DEBOUNCE_MS);
     }
   }).catch(() => {
-    // non-critical
   });
 }
 

@@ -51,7 +51,6 @@ export function UsersPage() {
       setNewEmail("");
       loadUsers();
     } catch {
-      // ignore
     } finally {
       setSaving(false);
     }
@@ -66,7 +65,6 @@ export function UsersPage() {
       }
       loadUsers();
     } catch {
-      // ignore
     }
   };
 
@@ -89,7 +87,6 @@ export function UsersPage() {
       setSelectedId(null);
       setEditing(null);
     } catch {
-      // ignore
     } finally {
       setSaving(false);
     }

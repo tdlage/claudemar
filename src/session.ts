@@ -96,7 +96,6 @@ function loadPersistedSessions(): void {
       });
     }
   } catch {
-    // corrupted file, start fresh
   }
 }
 

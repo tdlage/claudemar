@@ -80,7 +80,6 @@ function sudoDelete(): void {
   try {
     execFileSync("sudo", ["rm", "-f", getCredentialsPath()], { timeout: 5000 });
   } catch {
-    // ignore
   }
 }
 

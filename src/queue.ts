@@ -1,9 +1,8 @@
 import { EventEmitter } from "node:events";
-import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
-import { writeFile, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { config } from "./config.js";
+import { JsonPersister } from "./json-persister.js";
 import type { ExecutionSource, ExecutionTargetType } from "./execution-manager.js";
 
 export interface QueueItem {
@@ -28,20 +27,14 @@ interface PersistedQueue {
   items: QueueItem[];
 }
 
-const PERSIST_DEBOUNCE_MS = 1000;
-
 class CommandQueue extends EventEmitter {
   private queues = new Map<string, QueueItem[]>();
   private nextSeqId = 1;
-  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private persister = new JsonPersister(resolve(config.dataPath, "queue.json"), "queue");
 
   constructor() {
     super();
     this.load();
-  }
-
-  private filePath(): string {
-    return resolve(config.dataPath, "queue.json");
   }
 
   targetKey(targetType: string, targetName: string): string {
@@ -61,7 +54,7 @@ class CommandQueue extends EventEmitter {
     queue.push(item);
     this.queues.set(key, queue);
 
-    this.schedulePersist();
+    this.persist();
     this.emit("queue:add", item);
     return item;
   }
@@ -75,7 +68,7 @@ class CommandQueue extends EventEmitter {
       this.queues.delete(targetKey);
     }
 
-    this.schedulePersist();
+    this.persist();
     this.emit("queue:remove", item);
     return item;
   }
@@ -88,7 +81,7 @@ class CommandQueue extends EventEmitter {
         if (queue.length === 0) {
           this.queues.delete(key);
         }
-        this.schedulePersist();
+        this.persist();
         this.emit("queue:remove", item);
         return item;
       }
@@ -120,61 +113,27 @@ class CommandQueue extends EventEmitter {
   }
 
   private load(): void {
-    const path = this.filePath();
-    if (!existsSync(path)) return;
-
-    try {
-      const raw = readFileSync(path, "utf-8");
-      const data: PersistedQueue = JSON.parse(raw);
-      this.nextSeqId = data.nextSeqId ?? 1;
-
-      for (const item of data.items ?? []) {
-        const key = this.targetKey(item.targetType, item.targetName);
-        const queue = this.queues.get(key) ?? [];
-        queue.push(item);
-        this.queues.set(key, queue);
-      }
-    } catch {
-      // corrupted file, start fresh
+    const data = this.persister.readSync() as PersistedQueue | null;
+    if (!data) return;
+    this.nextSeqId = data.nextSeqId ?? 1;
+    for (const item of data.items ?? []) {
+      const key = this.targetKey(item.targetType, item.targetName);
+      const queue = this.queues.get(key) ?? [];
+      queue.push(item);
+      this.queues.set(key, queue);
     }
   }
 
-  private schedulePersist(): void {
-    if (this.persistTimer) return;
-    this.persistTimer = setTimeout(() => {
-      this.persistTimer = null;
-      this.persist();
-    }, PERSIST_DEBOUNCE_MS);
+  private persistData(): PersistedQueue {
+    return { nextSeqId: this.nextSeqId, items: this.getAll() };
   }
 
   private persist(): void {
-    const items = this.getAll();
-    const data: PersistedQueue = {
-      nextSeqId: this.nextSeqId,
-      items,
-    };
-    const target = this.filePath();
-    const tmp = target + ".tmp";
-    writeFile(tmp, JSON.stringify(data, null, 2), "utf-8")
-      .then(() => rename(tmp, target))
-      .catch((err) => console.error("[queue] persist failed:", err));
+    this.persister.scheduleWrite(() => this.persistData());
   }
 
   flush(): void {
-    if (this.persistTimer) {
-      clearTimeout(this.persistTimer);
-      this.persistTimer = null;
-    }
-    const items = this.getAll();
-    const data: PersistedQueue = { nextSeqId: this.nextSeqId, items };
-    const target = this.filePath();
-    const tmp = target + ".tmp";
-    try {
-      writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
-      renameSync(tmp, target);
-    } catch (err) {
-      console.error("[queue] flush failed:", err);
-    }
+    this.persister.flushSync(this.persistData());
   }
 }
 

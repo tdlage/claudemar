@@ -53,7 +53,7 @@ export function Header() {
               setReloading(true);
               try {
                 await api.post("/system/reload-configs");
-              } catch { /* ignore */ }
+              } catch { }
               setTimeout(() => setReloading(false), 600);
             }}
             title="Reload configs from disk"

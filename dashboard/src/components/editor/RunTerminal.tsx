@@ -51,7 +51,6 @@ export function RunTerminal({ configId }: RunTerminalProps) {
       try {
         fitAddon.fit();
       } catch {
-        // ignore
       }
     });
     resizeObserver.observe(containerRef.current);

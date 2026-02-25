@@ -648,7 +648,6 @@ async function startStreamFromExec(chatId: number, botApi: Context["api"], exec:
     try {
       await botApi.editMessageText(chatId, msg.message_id, formatStreamForTelegram(header + finalText + footer), { parse_mode: "HTML" });
     } catch {
-      // non-critical
     }
   };
 
@@ -955,7 +954,6 @@ async function handleAgentInfo(ctx: Context, name: string): Promise<void> {
   try {
     outputCount = readdirSync(paths.output).length;
   } catch {
-    // empty
   }
   lines.push(`Output: ${outputCount} arquivo(s)`);
 
@@ -1199,7 +1197,6 @@ async function handleCouncil(ctx: Context): Promise<void> {
     try {
       await ctx.api.editMessageText(chatId, statusMsg.message_id, "Council finalizado.");
     } catch {
-      // non-critical
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1210,7 +1207,6 @@ async function handleCouncil(ctx: Context): Promise<void> {
         `Erro no council: ${message}`,
       );
     } catch {
-      // non-critical
     }
   } finally {
     setBusy(chatId, false);
@@ -1279,7 +1275,6 @@ async function handleSchedule(ctx: Context): Promise<void> {
     try {
       await ctx.api.editMessageText(chatId, statusMsg.message_id, "Agendamento criado.");
     } catch {
-      // non-critical
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1290,7 +1285,6 @@ async function handleSchedule(ctx: Context): Promise<void> {
         `Erro ao criar agendamento: ${message}`,
       );
     } catch {
-      // non-critical
     }
   } finally {
     setBusy(chatId, false);
@@ -1453,7 +1447,7 @@ async function handleQueueRemoveCallback(ctx: Context): Promise<void> {
     await ctx.answerCallbackQuery({ text: `Item #${seqId} removido.` });
     try {
       await ctx.editMessageText(`Item #${seqId} removido da fila.`);
-    } catch { /* non-critical */ }
+    } catch { }
   } else {
     await ctx.answerCallbackQuery({ text: `Item #${seqId} não encontrado.` });
   }
@@ -1632,7 +1626,7 @@ async function handleAutoUpdateCallback(ctx: Context): Promise<void> {
     await ctx.answerCallbackQuery({ text: "Atualização ignorada." });
     try {
       await ctx.editMessageText("Atualização ignorada.");
-    } catch { /* non-critical */ }
+    } catch { }
     return;
   }
 
@@ -1641,7 +1635,7 @@ async function handleAutoUpdateCallback(ctx: Context): Promise<void> {
   await ctx.answerCallbackQuery({ text: "Iniciando atualização..." });
   try {
     await ctx.editMessageText("Atualizando... (isso pode levar alguns minutos)");
-  } catch { /* non-critical */ }
+  } catch { }
 
   try {
     const result = await performUpdate();
