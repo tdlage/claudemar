@@ -65,6 +65,11 @@ class RunProcessManager extends EventEmitter {
     }
   }
 
+  reload(): void {
+    this.configs.clear();
+    this.loadConfigs();
+  }
+
   private reconcileProcesses(): void {
     const path = this.processesPath();
     if (!existsSync(path)) return;

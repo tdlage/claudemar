@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Menu, Search } from "lucide-react";
+import { Menu, RefreshCw, Search } from "lucide-react";
+import { api } from "../../lib/api";
 import { SystemResources } from "./SystemResources";
 import { ProcessIndicator } from "./ProcessIndicator";
 import { useSidebar } from "./Sidebar";
@@ -9,6 +11,7 @@ export function Header() {
   const location = useLocation();
   const { isMobile, setMobileOpen } = useSidebar();
   const admin = isAdmin();
+  const [reloading, setReloading] = useState(false);
 
   const breadcrumbs = buildBreadcrumbs(location.pathname);
 
@@ -44,6 +47,21 @@ export function Header() {
 
       <div className="flex items-center gap-2 md:gap-4 shrink-0">
         {admin && <span className="hidden sm:block"><SystemResources /></span>}
+        {admin && (
+          <button
+            onClick={async () => {
+              setReloading(true);
+              try {
+                await api.post("/system/reload-configs");
+              } catch { /* ignore */ }
+              setTimeout(() => setReloading(false), 600);
+            }}
+            title="Reload configs from disk"
+            className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+          >
+            <RefreshCw size={14} className={reloading ? "animate-spin" : ""} />
+          </button>
+        )}
         {admin && <ProcessIndicator />}
         <button
           onClick={() =>

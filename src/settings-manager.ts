@@ -37,6 +37,11 @@ class SettingsManager {
     }
   }
 
+  reload(): void {
+    this.data = { sesFrom: config.sesFrom, adminEmail: config.adminEmail };
+    this.load();
+  }
+
   get(): RuntimeSettings {
     return { ...this.data };
   }

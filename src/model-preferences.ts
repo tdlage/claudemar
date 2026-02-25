@@ -29,6 +29,11 @@ class ModelPreferences {
     }
   }
 
+  reload(): void {
+    this.prefs = {};
+    this.load();
+  }
+
   private targetKey(targetType: string, targetName: string): string {
     return `${targetType}:${targetName}`;
   }

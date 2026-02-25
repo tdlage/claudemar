@@ -8,6 +8,11 @@ import { getSessionSnapshot } from "../../session.js";
 import { loadMetrics } from "../../metrics.js";
 import { executionManager } from "../../execution-manager.js";
 import { checkForUpdates, performUpdate, restartService } from "../../updater.js";
+import { runProcessManager } from "../../run-process-manager.js";
+import { settingsManager } from "../../settings-manager.js";
+import { sessionNamesManager } from "../../session-names-manager.js";
+import { modelPreferences } from "../../model-preferences.js";
+import { usersManager } from "../../users-manager.js";
 
 const INSTALL_DIR = config.installDir;
 
@@ -197,4 +202,14 @@ systemRouter.get("/changelog", (req, res) => {
       res.json(entries);
     },
   );
+});
+
+systemRouter.post("/reload-configs", (_req, res) => {
+  runProcessManager.reload();
+  settingsManager.reload();
+  sessionNamesManager.reload();
+  modelPreferences.reload();
+  usersManager.reload();
+  console.log("[system] All configs reloaded from disk");
+  res.json({ reloaded: true });
 });

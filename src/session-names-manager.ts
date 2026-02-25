@@ -37,6 +37,12 @@ class SessionNamesManager {
     }
   }
 
+  reload(): void {
+    this.nextNumber = 1;
+    this.names.clear();
+    this.load();
+  }
+
   getName(sessionId: string): string | undefined {
     return this.names.get(sessionId);
   }

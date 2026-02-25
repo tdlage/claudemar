@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ChevronRight, File, Folder, Save, SaveAll } from "lucide-react";
+import { ChevronRight, Eye, EyeOff, File, Folder, Save, SaveAll } from "lucide-react";
 import { api } from "../../lib/api";
 import { getCached, setCached } from "../../lib/stateCache";
 import { useToast } from "../shared/Toast";
@@ -37,6 +37,7 @@ interface CachedFileBrowserState {
   tree: FileEntry[];
   activeView: ActivityView;
   search: SearchState;
+  showHidden?: boolean;
 }
 
 const defaultSearch: SearchState = {
@@ -65,11 +66,12 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<ActivityView>(cached?.activeView ?? "files");
   const [searchState, setSearchState] = useState<SearchState>(cached?.search ?? defaultSearch);
+  const [showHidden, setShowHidden] = useState(cached?.showHidden ?? false);
   const [goToLine, setGoToLine] = useState<number | undefined>();
   const savingRef = useRef(false);
 
-  const stateRef = useRef({ openFiles, activeTab, expandedDirs, dirContents, tree, activeView, search: searchState });
-  stateRef.current = { openFiles, activeTab, expandedDirs, dirContents, tree, activeView, search: searchState };
+  const stateRef = useRef({ openFiles, activeTab, expandedDirs, dirContents, tree, activeView, search: searchState, showHidden });
+  stateRef.current = { openFiles, activeTab, expandedDirs, dirContents, tree, activeView, search: searchState, showHidden };
 
   useEffect(() => {
     return () => {
@@ -79,7 +81,8 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
 
   const loadDir = useCallback(async (path: string) => {
     try {
-      const result = await api.get<FileReadResult>(`/files?base=${base}&path=${encodeURIComponent(path)}`);
+      const hiddenParam = stateRef.current.showHidden ? "&showHidden=true" : "";
+      const result = await api.get<FileReadResult>(`/files?base=${base}&path=${encodeURIComponent(path)}${hiddenParam}`);
       if (result.type === "directory" && result.entries) {
         if (path === "") {
           setTree(result.entries);
@@ -104,6 +107,18 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
     setError(null);
     loadDir("");
   }, [loadDir, cacheKey]);
+
+  const toggleHidden = useCallback(() => {
+    setShowHidden((prev) => {
+      const next = !prev;
+      stateRef.current.showHidden = next;
+      loadDir("");
+      for (const dir of expandedDirs) {
+        loadDir(dir);
+      }
+      return next;
+    });
+  }, [loadDir, expandedDirs]);
 
   const toggleDir = (path: string) => {
     const next = new Set(expandedDirs);
@@ -320,14 +335,30 @@ export function FilesBrowser({ projectName }: FilesBrowserProps) {
     switch (activeView) {
       case "files":
         return (
-          <div className="w-64 bg-surface border-r border-border overflow-y-auto p-1 shrink-0">
-            {error ? (
-              <p className="text-xs text-danger p-2">{error}</p>
-            ) : tree.length === 0 ? (
-              <p className="text-xs text-text-muted p-2">No files found.</p>
-            ) : (
-              renderEntries(tree)
-            )}
+          <div className="w-64 bg-surface border-r border-border overflow-y-auto shrink-0 flex flex-col">
+            <div className="flex items-center justify-between px-2 py-1 border-b border-border shrink-0">
+              <span className="text-[10px] uppercase tracking-wider text-text-muted font-medium">Explorer</span>
+              <button
+                onClick={toggleHidden}
+                title={showHidden ? "Hide hidden files" : "Show hidden files"}
+                className={`p-1 rounded transition-colors ${
+                  showHidden
+                    ? "text-accent hover:bg-accent/10"
+                    : "text-text-muted hover:text-text-secondary hover:bg-surface-hover"
+                }`}
+              >
+                {showHidden ? <Eye size={13} /> : <EyeOff size={13} />}
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-1">
+              {error ? (
+                <p className="text-xs text-danger p-2">{error}</p>
+              ) : tree.length === 0 ? (
+                <p className="text-xs text-text-muted p-2">No files found.</p>
+              ) : (
+                renderEntries(tree)
+              )}
+            </div>
           </div>
         );
       case "search":

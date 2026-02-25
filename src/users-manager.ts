@@ -47,6 +47,11 @@ class UsersManager {
     }
   }
 
+  reload(): void {
+    this.users.clear();
+    this.load();
+  }
+
   getAll(): User[] {
     return [...this.users.values()].sort((a, b) => a.name.localeCompare(b.name));
   }

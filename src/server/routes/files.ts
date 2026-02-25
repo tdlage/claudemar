@@ -74,8 +74,9 @@ filesRouter.get("/", (req, res) => {
   const stat = statSync(resolved);
 
   if (stat.isDirectory()) {
+    const showHidden = req.query.showHidden === "true";
     const entries = readdirSync(resolved, { withFileTypes: true })
-      .filter((e) => !e.name.startsWith(".") || e.name === ".claude")
+      .filter((e) => showHidden || !e.name.startsWith(".") || e.name === ".claude")
       .map((e) => ({
         name: e.name,
         type: e.isDirectory() ? "directory" as const : "file" as const,
