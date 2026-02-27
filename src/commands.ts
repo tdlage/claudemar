@@ -1057,6 +1057,7 @@ async function handleDelegate(ctx: Context): Promise<void> {
       source: "telegram",
       cwd: paths.root,
       telegramChatId: chatId,
+      username: "telegram",
     });
     const preview = prompt.length > 60 ? prompt.slice(0, 60) + "..." : prompt;
     await ctx.reply(`[${agentName}] Adicionado a fila (#${item.seqId}). "${preview}"\nUse /queue para ver a fila.`);

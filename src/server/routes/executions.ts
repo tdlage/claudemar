@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { Request } from "express";
 import { Router } from "express";
 import { executionManager } from "../../execution-manager.js";
 import { getAgentPaths } from "../../agents/manager.js";
@@ -106,6 +107,7 @@ executionsRouter.post("/", (req, res) => {
   const useDocker = (req.ctx?.role === "user" && targetType === "project")
     ? config.dockerAvailable
     : (requestDocker ? config.dockerAvailable : false);
+  const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
   const queuePayload = {
     targetType,
     targetName: effectiveTargetName,
@@ -117,6 +119,7 @@ executionsRouter.post("/", (req, res) => {
     planMode,
     agentName,
     useDocker,
+    username,
   };
 
   const targetActive = executionManager.isTargetActive(targetType, effectiveTargetName);
@@ -196,9 +199,14 @@ executionsRouter.get("/model-preference/:targetType/:targetName", (req, res) => 
   res.json({ model: model ?? null });
 });
 
+function reqUsername(req: Request): string {
+  return req.ctx?.role === "admin" ? "admin" : (req.ctx as { name: string })?.name ?? "admin";
+}
+
 executionsRouter.get("/session/:targetType/:targetName", (req, res) => {
   const { targetType, targetName } = req.params;
-  const sessionId = executionManager.getLastSessionId(targetType, targetName);
+  const user = reqUsername(req);
+  const sessionId = executionManager.getLastSessionId(targetType, targetName, user);
   const history = executionManager.getSessionHistory(targetType, targetName);
   const allIds = sessionId ? [sessionId, ...history] : history;
   const names = sessionNamesManager.getNames([...new Set(allIds)]);
@@ -212,13 +220,13 @@ executionsRouter.put("/session/:targetType/:targetName", (req, res) => {
     res.status(400).json({ error: "sessionId required" });
     return;
   }
-  executionManager.setActiveSessionId(targetType, targetName, sessionId);
+  executionManager.setActiveSessionId(targetType, targetName, reqUsername(req), sessionId);
   res.json({ ok: true });
 });
 
 executionsRouter.delete("/session/:targetType/:targetName", (req, res) => {
   const { targetType, targetName } = req.params;
-  executionManager.clearSessionId(targetType, targetName);
+  executionManager.clearSessionId(targetType, targetName, reqUsername(req));
   res.json({ ok: true });
 });
 

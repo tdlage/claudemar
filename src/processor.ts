@@ -51,6 +51,7 @@ export async function processMessage(
       resumeSessionId: opts.resumeSessionId ?? getSessionId(chatId),
       model: opts.model,
       planMode: opts.planMode,
+      username: "telegram",
     });
 
     fireAndForgetReply(ctx, chatId, execId, statusMsg);
@@ -92,6 +93,7 @@ export async function processDelegation(
       targetName: agentName,
       prompt,
       cwd: paths.root,
+      username: "telegram",
     });
 
     fireAndForgetReply(ctx, chatId, execId, statusMsg, agentName);
@@ -240,5 +242,6 @@ export function processQueueItem(item: QueueItem): string {
     planMode: item.planMode,
     agentName: item.agentName,
     useDocker: item.useDocker,
+    username: item.username,
   });
 }

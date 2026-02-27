@@ -477,6 +477,7 @@ projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
 
   const targetName = `__commitpush:${req.params.name}:${req.params.repo}`;
 
+  const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
   const id = executionManager.startExecution({
     source: "web",
     targetType: "project",
@@ -485,6 +486,7 @@ projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
     cwd: resolved.repoPath,
     noResume: true,
     model: "claude-sonnet-4-6",
+    username,
   });
 
   res.status(201).json({ id });

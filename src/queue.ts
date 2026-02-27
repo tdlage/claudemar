@@ -17,6 +17,7 @@ export interface QueueItem {
   model?: string;
   planMode?: boolean;
   agentName?: string;
+  username?: string;
   useDocker?: boolean;
   enqueuedAt: string;
   telegramChatId?: number;

@@ -1,5 +1,5 @@
 import { formatDistanceToNow } from "date-fns";
-import { Bot, ChevronDown, Square, X } from "lucide-react";
+import { Bot, ChevronDown, Square, User, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
 import { ansiToHtml } from "../../lib/ansi";
@@ -46,6 +46,12 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
           <span className="text-text-muted text-xs">
             {item.targetName}
           </span>
+          {item.username && (
+            <span className="inline-flex items-center gap-0.5 text-xs text-text-muted bg-surface-hover rounded px-1 py-0.5">
+              <User size={10} />
+              {item.username}
+            </span>
+          )}
           {item.agentName && (
             <span className="inline-flex items-center gap-0.5 text-xs text-accent bg-accent/10 border border-accent/30 rounded px-1 py-0.5">
               <Bot size={10} />
@@ -100,6 +106,12 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
               <span className="text-text-muted text-xs hidden md:inline">
                 {exec.targetName}
               </span>
+              {exec.username && (
+                <span className="inline-flex items-center gap-0.5 text-xs text-text-muted bg-surface-hover rounded px-1 py-0.5">
+                  <User size={10} />
+                  {exec.username}
+                </span>
+              )}
               {exec.agentName && (
                 <span className="inline-flex items-center gap-0.5 text-xs text-accent bg-accent/10 border border-accent/30 rounded px-1 py-0.5">
                   <Bot size={10} />

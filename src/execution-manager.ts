@@ -30,6 +30,7 @@ export interface ExecutionInfo {
   targetType: ExecutionTargetType;
   targetName: string;
   agentName?: string;
+  username?: string;
   prompt: string;
   cwd: string;
   status: ExecutionStatus;
@@ -57,6 +58,7 @@ export interface StartExecutionOpts {
   isInboxProcessing?: boolean;
   agentName?: string;
   useDocker?: boolean;
+  username?: string;
 }
 
 const MAX_RECENT = 100;
@@ -114,20 +116,24 @@ class ExecutionManager extends EventEmitter {
     return `${targetType}:${targetName}`;
   }
 
-  getLastSessionId(targetType: string, targetName: string): string | undefined {
-    return this.lastSessionMap.get(this.targetKey(targetType, targetName));
+  private userTargetKey(targetType: string, targetName: string, username?: string): string {
+    return `${targetType}:${targetName}:${username ?? "admin"}`;
+  }
+
+  getLastSessionId(targetType: string, targetName: string, username?: string): string | undefined {
+    return this.lastSessionMap.get(this.userTargetKey(targetType, targetName, username));
   }
 
   getSessionHistory(targetType: string, targetName: string): string[] {
     return this.sessionHistoryMap.get(this.targetKey(targetType, targetName)) ?? [];
   }
 
-  setActiveSessionId(targetType: string, targetName: string, sessionId: string): void {
-    this.lastSessionMap.set(this.targetKey(targetType, targetName), sessionId);
+  setActiveSessionId(targetType: string, targetName: string, username: string, sessionId: string): void {
+    this.lastSessionMap.set(this.userTargetKey(targetType, targetName, username), sessionId);
   }
 
-  clearSessionId(targetType: string, targetName: string): void {
-    this.lastSessionMap.delete(this.targetKey(targetType, targetName));
+  clearSessionId(targetType: string, targetName: string, username: string): void {
+    this.lastSessionMap.delete(this.userTargetKey(targetType, targetName, username));
   }
 
   private pushSessionHistory(targetType: string, targetName: string, sessionId: string): void {
@@ -146,6 +152,7 @@ class ExecutionManager extends EventEmitter {
       targetType: opts.targetType,
       targetName: opts.targetName,
       agentName: opts.agentName,
+      username: opts.username,
       prompt: opts.prompt,
       cwd: opts.cwd,
       status: "running",
@@ -161,7 +168,7 @@ class ExecutionManager extends EventEmitter {
 
     const resumeId = opts.noResume
       ? undefined
-      : (opts.resumeSessionId ?? this.getLastSessionId(opts.targetType, opts.targetName));
+      : (opts.resumeSessionId ?? this.getLastSessionId(opts.targetType, opts.targetName, opts.username));
 
     info.resumeSessionId = resumeId ?? null;
 
@@ -232,10 +239,10 @@ class ExecutionManager extends EventEmitter {
           info.output = result.output;
         }
         if (result.sessionId) {
-          this.lastSessionMap.set(this.targetKey(opts.targetType, opts.targetName), result.sessionId);
+          this.lastSessionMap.set(this.userTargetKey(opts.targetType, opts.targetName, opts.username), result.sessionId);
           this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
           if (!sessionNamesManager.getName(result.sessionId)) {
-            sessionNamesManager.setName(result.sessionId, sessionNamesManager.getNextAutoName());
+            sessionNamesManager.setName(result.sessionId, sessionNamesManager.getNextAutoName(opts.username));
           }
         }
         if (opts.model) {
@@ -339,7 +346,7 @@ class ExecutionManager extends EventEmitter {
 
       const sessionId = entry.handle.sessionId
         ?? entry.opts.resumeSessionId
-        ?? this.getLastSessionId(entry.opts.targetType, entry.opts.targetName)
+        ?? this.getLastSessionId(entry.opts.targetType, entry.opts.targetName, entry.opts.username)
         ?? "";
       if (sessionId) {
         const durationMs = entry.info.completedAt.getTime() - entry.info.startedAt.getTime();
@@ -351,7 +358,7 @@ class ExecutionManager extends EventEmitter {
           isError: false,
           permissionDenials: [],
         };
-        this.lastSessionMap.set(this.targetKey(entry.opts.targetType, entry.opts.targetName), sessionId);
+        this.lastSessionMap.set(this.userTargetKey(entry.opts.targetType, entry.opts.targetName, entry.opts.username), sessionId);
         this.pushSessionHistory(entry.opts.targetType, entry.opts.targetName, sessionId);
       }
 
@@ -431,7 +438,6 @@ class ExecutionManager extends EventEmitter {
 
     for (const e of entries) {
       if (e.sessionId && e.status === "completed") {
-        this.lastSessionMap.set(this.targetKey(e.targetType, e.targetName), e.sessionId);
         this.pushSessionHistory(e.targetType, e.targetName, e.sessionId);
       }
     }
@@ -471,6 +477,7 @@ class ExecutionManager extends EventEmitter {
         prompt: inboxPrompt,
         cwd: paths.root,
         isInboxProcessing: true,
+        username: "system",
       });
     }
   }
