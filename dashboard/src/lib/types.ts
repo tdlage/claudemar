@@ -186,6 +186,8 @@ export interface RunConfig {
   workingDirectory: string;
   envVars: Record<string, string>;
   projectName: string;
+  proxyDomain?: string;
+  proxyPort?: number;
   status?: { running: boolean; pid?: number; startedAt?: string };
 }
 

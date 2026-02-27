@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Plus, Trash2, X } from "lucide-react";
+import { Globe, Plus, Trash2, X } from "lucide-react";
 import type { RunConfig } from "../../lib/types";
 
 interface RunConfigFormProps {
@@ -13,6 +13,8 @@ export function RunConfigForm({ initial, projectName, onSave, onCancel }: RunCon
   const [name, setName] = useState(initial?.name ?? "");
   const [command, setCommand] = useState(initial?.command ?? "");
   const [workingDirectory, setWorkingDirectory] = useState(initial?.workingDirectory ?? "");
+  const [proxyDomain, setProxyDomain] = useState(initial?.proxyDomain ?? "");
+  const [proxyPort, setProxyPort] = useState(initial?.proxyPort?.toString() ?? "");
   const [envPairs, setEnvPairs] = useState<Array<{ key: string; value: string }>>(
     initial?.envVars
       ? Object.entries(initial.envVars).map(([key, value]) => ({ key, value }))
@@ -44,8 +46,18 @@ export function RunConfigForm({ initial, projectName, onSave, onCancel }: RunCon
         envVars[pair.key.trim()] = pair.value;
       }
     }
-    onSave({ name, command, workingDirectory, envVars, projectName });
-  }, [name, command, workingDirectory, envPairs, projectName, onSave]);
+    const domain = proxyDomain.trim();
+    const port = proxyPort.trim() ? Number(proxyPort) : 0;
+    onSave({
+      name,
+      command,
+      workingDirectory,
+      envVars,
+      projectName,
+      proxyDomain: domain && port ? domain : "",
+      proxyPort: domain && port ? port : undefined,
+    });
+  }, [name, command, workingDirectory, envPairs, projectName, proxyDomain, proxyPort, onSave]);
 
   const inputClass =
     "w-full bg-bg border border-border rounded px-2 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent";
@@ -94,6 +106,29 @@ export function RunConfigForm({ initial, projectName, onSave, onCancel }: RunCon
             placeholder="/path/to/project"
             className={inputClass}
           />
+        </div>
+
+        <div>
+          <div className="flex items-center gap-1 mb-1">
+            <Globe size={11} className="text-text-muted" />
+            <label className="text-[11px] text-text-muted">Reverse Proxy (Caddy)</label>
+          </div>
+          <div className="flex gap-1">
+            <input
+              type="text"
+              value={proxyDomain}
+              onChange={(e) => setProxyDomain(e.target.value)}
+              placeholder="app.example.com"
+              className={`${inputClass} flex-[3]`}
+            />
+            <input
+              type="number"
+              value={proxyPort}
+              onChange={(e) => setProxyPort(e.target.value)}
+              placeholder="Port"
+              className={`${inputClass} flex-1`}
+            />
+          </div>
         </div>
 
         <div>

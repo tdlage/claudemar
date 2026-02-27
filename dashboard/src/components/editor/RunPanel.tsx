@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Play, Square, RotateCw, Plus, Pencil, Trash2 } from "lucide-react";
+import { Globe, Play, Square, RotateCw, Plus, Pencil, Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useSocketEvent } from "../../hooks/useSocket";
 import type { RunConfig } from "../../lib/types";
@@ -142,6 +142,12 @@ export function RunPanel({ base }: RunPanelProps) {
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-text-primary truncate">{cfg.name}</p>
                   <p className="text-[10px] text-text-muted truncate font-mono">{cfg.command}</p>
+                  {cfg.proxyDomain && (
+                    <p className="text-[10px] text-accent truncate flex items-center gap-0.5">
+                      <Globe size={9} />
+                      {cfg.proxyDomain}:{cfg.proxyPort}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-0.5 shrink-0">
                   {isRunning ? (

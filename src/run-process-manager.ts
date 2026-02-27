@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { JsonPersister } from "./json-persister.js";
+import { syncCaddyProxy } from "./caddy-proxy.js";
 
 export interface RunConfig {
   id: string;
@@ -13,6 +14,8 @@ export interface RunConfig {
   workingDirectory: string;
   envVars: Record<string, string>;
   projectName: string;
+  proxyDomain?: string;
+  proxyPort?: number;
 }
 
 interface RunProcessState {
@@ -102,7 +105,7 @@ class RunProcessManager extends EventEmitter {
   createConfig(opts: Omit<RunConfig, "id">): RunConfig {
     const cfg: RunConfig = { ...opts, id: randomUUID() };
     this.configs.set(cfg.id, cfg);
-    this.configsPersister.scheduleWrite(() => this.getAllConfigs());
+    this.persistConfigs();
     return cfg;
   }
 
@@ -110,7 +113,8 @@ class RunProcessManager extends EventEmitter {
     const cfg = this.configs.get(id);
     if (!cfg) return null;
     Object.assign(cfg, updates);
-    this.configsPersister.scheduleWrite(() => this.getAllConfigs());
+    if (!cfg.proxyDomain) { delete cfg.proxyDomain; delete cfg.proxyPort; }
+    this.persistConfigs();
     return cfg;
   }
 
@@ -119,8 +123,13 @@ class RunProcessManager extends EventEmitter {
       this.stopProcess(id);
     }
     const deleted = this.configs.delete(id);
-    if (deleted) this.configsPersister.scheduleWrite(() => this.getAllConfigs());
+    if (deleted) this.persistConfigs();
     return deleted;
+  }
+
+  private persistConfigs(): void {
+    this.configsPersister.scheduleWrite(() => this.getAllConfigs());
+    syncCaddyProxy(this.getAllConfigs());
   }
 
   startProcess(configId: string): boolean {

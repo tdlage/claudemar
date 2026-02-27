@@ -10,7 +10,7 @@ runConfigsRouter.get("/", (_req, res) => {
 });
 
 runConfigsRouter.post("/", (req, res) => {
-  const { name, command, workingDirectory, envVars, projectName } = req.body;
+  const { name, command, workingDirectory, envVars, projectName, proxyDomain, proxyPort } = req.body;
   if (!name || !command) {
     res.status(400).json({ error: "name and command are required" });
     return;
@@ -21,6 +21,8 @@ runConfigsRouter.post("/", (req, res) => {
     workingDirectory: workingDirectory || "",
     envVars: envVars || {},
     projectName: projectName || "",
+    proxyDomain: proxyDomain && proxyPort ? proxyDomain : undefined,
+    proxyPort: proxyDomain && proxyPort ? Number(proxyPort) : undefined,
   });
   res.json(cfg);
 });
