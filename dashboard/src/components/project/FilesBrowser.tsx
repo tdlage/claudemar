@@ -11,7 +11,8 @@ import { RunPanel } from "../editor/RunPanel";
 import type { FileEntry, FileReadResult, SearchMatch } from "../../lib/types";
 
 interface FilesBrowserProps {
-  projectName: string;
+  projectName?: string;
+  base?: string;
 }
 
 interface FileBuffer {
@@ -50,10 +51,10 @@ const defaultSearch: SearchState = {
   collapsedFiles: new Set(),
 };
 
-export function FilesBrowser({ projectName }: FilesBrowserProps) {
+export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps) {
   const { addToast } = useToast();
-  const base = `project:${projectName}`;
-  const cacheKey = `filebrowser:${projectName}`;
+  const base = baseProp ?? `project:${projectName}`;
+  const cacheKey = `filebrowser:${base}`;
   const cached = getCached<CachedFileBrowserState>(cacheKey);
 
   const [tree, setTree] = useState<FileEntry[]>(cached?.tree ?? []);

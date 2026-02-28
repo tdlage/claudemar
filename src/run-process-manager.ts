@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { JsonPersister } from "./json-persister.js";
-import { syncCaddyProxy } from "./caddy-proxy.js";
+import { syncNginxProxy } from "./nginx-proxy.js";
 
 export interface RunConfig {
   id: string;
@@ -129,7 +129,7 @@ class RunProcessManager extends EventEmitter {
 
   private persistConfigs(): void {
     this.configsPersister.scheduleWrite(() => this.getAllConfigs());
-    syncCaddyProxy(this.getAllConfigs());
+    syncNginxProxy(this.getAllConfigs());
   }
 
   startProcess(configId: string): boolean {

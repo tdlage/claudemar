@@ -81,6 +81,7 @@ export function ProjectDetailPage() {
         targetType: "project",
         targetName: name,
         prompt: finalPrompt,
+        resumeSessionId: sessionData.sessionId,
         planMode,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,

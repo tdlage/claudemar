@@ -88,6 +88,7 @@ export function OrchestratorPage() {
         targetType: "orchestrator",
         targetName: "orchestrator",
         prompt: prompt.trim(),
+        resumeSessionId: sessionData.sessionId,
         planMode,
       });
       if (result.queued) {

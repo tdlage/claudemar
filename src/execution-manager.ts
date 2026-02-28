@@ -168,7 +168,9 @@ class ExecutionManager extends EventEmitter {
 
     const resumeId = opts.noResume
       ? undefined
-      : (opts.resumeSessionId ?? this.getLastSessionId(opts.targetType, opts.targetName, opts.username));
+      : opts.resumeSessionId === null
+        ? undefined
+        : (opts.resumeSessionId ?? this.getLastSessionId(opts.targetType, opts.targetName, opts.username));
 
     info.resumeSessionId = resumeId ?? null;
 

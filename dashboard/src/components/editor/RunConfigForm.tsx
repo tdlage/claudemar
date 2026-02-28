@@ -111,7 +111,7 @@ export function RunConfigForm({ initial, projectName, onSave, onCancel }: RunCon
         <div>
           <div className="flex items-center gap-1 mb-1">
             <Globe size={11} className="text-text-muted" />
-            <label className="text-[11px] text-text-muted">Reverse Proxy (Caddy)</label>
+            <label className="text-[11px] text-text-muted">Reverse Proxy (Nginx)</label>
           </div>
           <div className="flex gap-1">
             <input

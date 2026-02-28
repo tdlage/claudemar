@@ -61,11 +61,11 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
           <span className="text-text-primary truncate flex-1 min-w-0 basis-[120px]">
             {item.prompt}
           </span>
-          {item.resumeSessionId && (
-            <span className="text-xs text-text-muted font-mono hidden md:inline" title={item.resumeSessionId}>
-              {sessionNames[item.resumeSessionId] ?? item.resumeSessionId.slice(0, 8)}
-            </span>
-          )}
+          <span className="text-xs text-text-muted font-mono hidden md:inline" title={item.resumeSessionId ?? "new"}>
+            {item.resumeSessionId
+              ? (sessionNames[item.resumeSessionId] ?? item.resumeSessionId.slice(0, 8))
+              : "New session"}
+          </span>
           <span className="text-xs text-text-muted font-mono">
             #{item.seqId}
           </span>

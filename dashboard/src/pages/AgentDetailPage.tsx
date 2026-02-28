@@ -14,6 +14,7 @@ import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
 import { AgentConfig } from "../components/agent/AgentConfig";
 import { AgentContextFiles } from "../components/agent/AgentContextFiles";
 import { AgentSecrets } from "../components/agent/AgentSecrets";
+import { FilesBrowser } from "../components/project/FilesBrowser";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
@@ -21,7 +22,7 @@ import { VoiceInput } from "../components/shared/VoiceInput";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import type { AgentDetail } from "../lib/types";
 
-type TabKey = "terminal" | "inbox" | "outbox" | "input" | "output" | "config" | "context" | "secrets";
+type TabKey = "terminal" | "code" | "inbox" | "outbox" | "input" | "output" | "config" | "context" | "secrets";
 
 export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -84,6 +85,7 @@ export function AgentDetailPage() {
         targetType: "agent",
         targetName: name,
         prompt: finalPrompt,
+        resumeSessionId: sessionData.sessionId,
         planMode,
         forceQueue: sequential || undefined,
       });
@@ -106,6 +108,7 @@ export function AgentDetailPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "terminal", label: "Terminal" },
+    { key: "code", label: "Code" },
     { key: "inbox", label: `Inbox (${agent.inboxFiles.length})` },
     { key: "outbox", label: `Outbox (${agent.outboxFiles.length})` },
     { key: "input", label: `Input (${inputFiles.length})` },
@@ -244,6 +247,12 @@ export function AgentDetailPage() {
               />
             </div>
           )}
+        </div>
+      )}
+
+      {tab === "code" && name && (
+        <div className="flex-1 min-h-0">
+          <FilesBrowser base={`agent:${name}`} />
         </div>
       )}
 
