@@ -1,10 +1,8 @@
-import { execFile } from "node:child_process";
-import { writeFileSync, renameSync, existsSync, readFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { execFile, execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import type { RunConfig } from "./run-process-manager.js";
 
 const PROXY_FILE = process.env.NGINX_PROXY_FILE || "/etc/nginx/conf.d/claudemar-proxies.conf";
-const RELOAD_CMD = process.env.NGINX_RELOAD_CMD || "systemctl reload nginx";
 const SSL_CERT = process.env.NGINX_SSL_CERT || "/etc/letsencrypt/live/claudemar.com.br/fullchain.pem";
 const SSL_KEY = process.env.NGINX_SSL_KEY || "/etc/letsencrypt/live/claudemar.com.br/privkey.pem";
 
@@ -54,9 +52,16 @@ function generateNginxConfig(configs: RunConfig[]): string {
   return blocks.join("\n\n") + "\n";
 }
 
+function sudoWrite(filePath: string, content: string): void {
+  execFileSync("sudo", ["tee", filePath], {
+    input: content,
+    stdio: ["pipe", "ignore", "pipe"],
+    timeout: 10_000,
+  });
+}
+
 function reloadNginx(): void {
-  const [cmd, ...args] = RELOAD_CMD.split(" ");
-  execFile(cmd, args, (err) => {
+  execFile("sudo", ["systemctl", "reload", "nginx"], (err) => {
     if (err) {
       console.error("[nginx-proxy] reload failed:", err.message);
     } else {
@@ -73,13 +78,8 @@ export function syncNginxProxy(configs: RunConfig[]): void {
 
   if (content === existing) return;
 
-  const dir = dirname(PROXY_FILE);
-  mkdirSync(dir, { recursive: true });
-
-  const tmp = PROXY_FILE + ".tmp";
   try {
-    writeFileSync(tmp, content, "utf-8");
-    renameSync(tmp, PROXY_FILE);
+    sudoWrite(PROXY_FILE, content);
     console.log(`[nginx-proxy] Updated ${PROXY_FILE}`);
     reloadNginx();
   } catch (err) {

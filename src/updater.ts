@@ -1,6 +1,7 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs";
+import { userInfo } from "node:os";
 import { config } from "./config.js";
 import { executionManager } from "./execution-manager.js";
 
@@ -80,6 +81,43 @@ export function clearNotifiedCommit(): void {
   }
 }
 
+const SUDOERS_FILE = "/etc/sudoers.d/claudemar";
+
+function syncNginxSudoers(): void {
+  if (process.getuid?.() === 0) return;
+
+  const username = userInfo().username;
+  const expected = [
+    `${username} ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/conf.d/claudemar-proxies.conf`,
+    `${username} ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx`,
+    `${username} ALL=(root) NOPASSWD: /usr/bin/systemctl restart claudemar`,
+    `${username} ALL=(root) NOPASSWD: /usr/bin/tee /etc/sudoers.d/claudemar`,
+    `${username} ALL=(root) NOPASSWD: /bin/chmod 0440 /etc/sudoers.d/claudemar`,
+  ].join("\n") + "\n";
+
+  try {
+    const existing = execFileSync("sudo", ["cat", SUDOERS_FILE], {
+      encoding: "utf-8",
+      timeout: 5_000,
+    }).trim() + "\n";
+    if (existing === expected) return;
+  } catch {
+    // file doesn't exist yet
+  }
+
+  try {
+    execFileSync("sudo", ["tee", SUDOERS_FILE], {
+      input: expected,
+      stdio: ["pipe", "ignore", "pipe"],
+      timeout: 5_000,
+    });
+    execFileSync("sudo", ["chmod", "0440", SUDOERS_FILE], { timeout: 5_000 });
+    console.log("[updater] nginx sudoers configured");
+  } catch (err) {
+    console.error("[updater] failed to configure nginx sudoers:", err);
+  }
+}
+
 const CRON_SCRIPTS = ["check-update.sh", "sync-agents.sh"];
 
 async function syncCronJobs(): Promise<void> {
@@ -143,6 +181,10 @@ export async function performUpdate(): Promise<{ success: boolean; output: strin
     steps.push("syncing cron jobs...");
     await syncCronJobs();
     steps.push("cron jobs synced");
+
+    steps.push("syncing nginx sudoers...");
+    syncNginxSudoers();
+    steps.push("nginx sudoers synced");
 
     clearNotifiedCommit();
 

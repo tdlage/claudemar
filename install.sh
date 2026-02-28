@@ -24,7 +24,7 @@ OS=""
 DISTRO=""
 NODE_BIN_DIR=""
 CLAUDE_BIN_DIR=""
-TOTAL_STEPS=8
+TOTAL_STEPS=9
 
 info()    { echo -e "${BLUE}ℹ${NC} $*"; }
 success() { echo -e "${GREEN}✔${NC} $*"; }
@@ -517,8 +517,63 @@ setup_cron() {
     CRON_INSTALLED=true
 }
 
+setup_nginx_sudoers() {
+    step 8 "Configuring nginx proxy permissions"
+
+    if [[ "$OS" != "linux" ]]; then
+        info "Skipping nginx sudoers setup (not Linux)"
+        return
+    fi
+
+    if ! command -v nginx &>/dev/null; then
+        warn "nginx not found — skipping sudoers setup"
+        info "Install nginx and re-run the installer to enable reverse proxy"
+        return
+    fi
+
+    local service_user
+    if [[ $EUID -eq 0 ]]; then
+        info "Running as root — nginx proxy permissions not needed"
+        return
+    fi
+    service_user="$(whoami)"
+
+    local sudoers_file="/etc/sudoers.d/claudemar"
+    local sudoers_content
+    sudoers_content="$(cat <<SUDOERS
+${service_user} ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/conf.d/claudemar-proxies.conf
+${service_user} ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+${service_user} ALL=(root) NOPASSWD: /usr/bin/systemctl restart claudemar
+${service_user} ALL=(root) NOPASSWD: /usr/bin/tee /etc/sudoers.d/claudemar
+${service_user} ALL=(root) NOPASSWD: /bin/chmod 0440 /etc/sudoers.d/claudemar
+SUDOERS
+)"
+
+    if [[ -f "$sudoers_file" ]]; then
+        local existing
+        existing="$(sudo cat "$sudoers_file" 2>/dev/null || true)"
+        if [[ "$existing" == "$sudoers_content" ]]; then
+            success "Sudoers already configured for nginx proxy"
+            return
+        fi
+    fi
+
+    echo "$sudoers_content" | sudo tee "$sudoers_file" > /dev/null
+    sudo chmod 0440 "$sudoers_file"
+
+    if sudo visudo -cf "$sudoers_file" &>/dev/null; then
+        success "Sudoers configured: ${service_user} can write nginx config and reload"
+    else
+        sudo rm -f "$sudoers_file"
+        error "Invalid sudoers file generated — removed. Please check manually."
+    fi
+
+    sudo mkdir -p /etc/nginx/conf.d
+    success "nginx conf.d directory ensured"
+}
+
 setup_systemd() {
-    step 8 "Setting up systemd service"
+    step 9 "Setting up systemd service"
 
     if ! command -v systemctl &>/dev/null; then
         warn "systemctl not found — skipping service setup"
@@ -600,7 +655,7 @@ EOF
 }
 
 macos_instructions() {
-    step 8 "Run instructions (macOS)"
+    step 9 "Run instructions (macOS)"
 
     echo ""
     info "macOS detected — no systemd available"
@@ -789,6 +844,8 @@ main() {
     build_project
     setup_env
     setup_cron
+
+    setup_nginx_sudoers
 
     if [[ "$OS" == "linux" ]]; then
         setup_systemd
