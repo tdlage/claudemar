@@ -300,9 +300,37 @@ class RunProcessManager extends EventEmitter {
     }
   }
 
+  stopAll(): void {
+    const pids = new Set<number>();
+
+    for (const [, entry] of this.active) {
+      if (entry.process.pid) pids.add(entry.process.pid);
+    }
+
+    const processesPath = this.processesPath();
+    if (existsSync(processesPath)) {
+      try {
+        const states: RunProcessState[] = JSON.parse(readFileSync(processesPath, "utf-8"));
+        for (const s of states) pids.add(s.pid);
+      } catch { }
+    }
+
+    for (const pid of pids) {
+      try { process.kill(-pid, "SIGTERM"); } catch { }
+    }
+
+    setTimeout(() => {
+      for (const pid of pids) {
+        try { process.kill(-pid, "SIGKILL"); } catch { }
+      }
+    }, 3000);
+  }
+
   flush(): void {
     this.shuttingDown = true;
+    this.persistProcessStates();
     this.configsPersister.flushSync(this.getAllConfigs());
+    this.stopAll();
   }
 }
 

@@ -119,7 +119,7 @@ export function AgentDetailPage() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className={`flex flex-col gap-4 ${tab === "code" ? "h-full" : ""}`}>
       <div className="flex items-center gap-2 md:gap-3 flex-wrap">
         <h1 className="text-base md:text-lg font-semibold">{agent.name}</h1>
         <Badge>{agent.inboxCount} inbox</Badge>
