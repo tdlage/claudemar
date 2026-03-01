@@ -96,7 +96,12 @@ export function ProcessIndicator() {
                         }`}
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs text-text-primary truncate">{cfg.name}</p>
+                        <p className="text-[12px] text-text-primary truncate">{cfg.name}</p>
+                        {cfg.proxyDomain && (
+                          <p className="text-[11px] text-text-muted truncate">
+                            {cfg.proxyDomain}{cfg.proxyPort ? `:${cfg.proxyPort}` : ""}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-0.5 shrink-0">
                         {running ? (

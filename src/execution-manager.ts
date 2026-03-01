@@ -14,6 +14,7 @@ import { isEmailEnabled, getEmailScriptPath } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 import { emailSettingsManager } from "./email-settings-manager.js";
 import { modelPreferences } from "./model-preferences.js";
+import { JsonPersister } from "./json-persister.js";
 
 export type ExecutionSource = "telegram" | "web";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
@@ -111,6 +112,7 @@ class ExecutionManager extends EventEmitter {
   }
   private lastSessionMap = new Map<string, string>();
   private sessionHistoryMap = new Map<string, string[]>();
+  private lastSessionPersister = new JsonPersister(resolve(config.dataPath, "last-sessions.json"), "last-sessions");
 
   private targetKey(targetType: string, targetName: string): string {
     return `${targetType}:${targetName}`;
@@ -130,10 +132,24 @@ class ExecutionManager extends EventEmitter {
 
   setActiveSessionId(targetType: string, targetName: string, username: string, sessionId: string): void {
     this.lastSessionMap.set(this.userTargetKey(targetType, targetName, username), sessionId);
+    this.persistLastSessions();
   }
 
   clearSessionId(targetType: string, targetName: string, username: string): void {
     this.lastSessionMap.delete(this.userTargetKey(targetType, targetName, username));
+    this.persistLastSessions();
+  }
+
+  private persistLastSessions(): void {
+    this.lastSessionPersister.scheduleWrite(() => Object.fromEntries(this.lastSessionMap));
+  }
+
+  private restoreLastSessions(): void {
+    const data = this.lastSessionPersister.readSync() as Record<string, string> | null;
+    if (!data) return;
+    for (const [key, sessionId] of Object.entries(data)) {
+      this.lastSessionMap.set(key, sessionId);
+    }
   }
 
   private pushSessionHistory(targetType: string, targetName: string, sessionId: string): void {
@@ -242,6 +258,7 @@ class ExecutionManager extends EventEmitter {
         }
         if (result.sessionId) {
           this.lastSessionMap.set(this.userTargetKey(opts.targetType, opts.targetName, opts.username), result.sessionId);
+          this.persistLastSessions();
           this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
           if (!sessionNamesManager.getName(result.sessionId)) {
             sessionNamesManager.setName(result.sessionId, sessionNamesManager.getNextAutoName(opts.username));
@@ -361,6 +378,7 @@ class ExecutionManager extends EventEmitter {
           permissionDenials: [],
         };
         this.lastSessionMap.set(this.userTargetKey(entry.opts.targetType, entry.opts.targetName, entry.opts.username), sessionId);
+        this.persistLastSessions();
         this.pushSessionHistory(entry.opts.targetType, entry.opts.targetName, sessionId);
       }
 
@@ -412,6 +430,7 @@ class ExecutionManager extends EventEmitter {
   }
 
   async loadRecent(): Promise<void> {
+    this.restoreLastSessions();
     const entries = await loadHistory(MAX_RECENT);
     this.recent = entries.map((e) => ({
       id: e.id,
