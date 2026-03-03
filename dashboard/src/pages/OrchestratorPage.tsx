@@ -239,7 +239,7 @@ export function OrchestratorPage() {
             )}
           </form>
           <div className="h-[500px]">
-            <Terminal executionId={execId} />
+            <Terminal executionId={execId} base="orchestrator" />
           </div>
 
           {(activity.length > 0 || filteredQueue.length > 0) && (

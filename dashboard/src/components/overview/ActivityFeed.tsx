@@ -1,8 +1,10 @@
+import { useState, useCallback } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Bot, ChevronDown, Square, User, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
-import { ansiToHtml } from "../../lib/ansi";
+import { ansiToHtml, linkifyMdPaths } from "../../lib/ansi";
+import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
 import type { ExecutionInfo, QueueItem } from "../../lib/types";
 
 function formatDuration(ms: number): string {
@@ -24,6 +26,19 @@ interface ActivityFeedProps {
 }
 
 export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {} }: ActivityFeedProps) {
+  const [mdViewer, setMdViewer] = useState<{ path: string; base: string } | null>(null);
+
+  const handleOutputClick = useCallback((e: React.MouseEvent, exec: ExecutionInfo) => {
+    const target = e.target as HTMLElement;
+    const link = target.closest("a[data-md-path]") as HTMLAnchorElement | null;
+    if (!link) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const path = link.getAttribute("data-md-path") ?? "";
+    const base = exec.targetType === "orchestrator" ? "orchestrator" : `${exec.targetType}:${exec.targetName}`;
+    setMdViewer({ path, base });
+  }, []);
+
   const sorted = [...executions]
     .sort((a, b) => {
       if (a.status === "running" && b.status !== "running") return -1;
@@ -93,7 +108,8 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
         const isExpanded = expandedId === exec.id;
         const clickable = !!onToggle;
 
-        const sanitizedOutput = ansiToHtml(exec.output || "(sem output)");
+        // ansiToHtml already escapes &, <, > before processing ANSI codes (safe for innerHTML)
+        const sanitizedOutput = linkifyMdPaths(ansiToHtml(exec.output || "(sem output)"));
         const sessionId = exec.result?.sessionId ?? exec.resumeSessionId;
 
         return (
@@ -171,12 +187,22 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
                 <pre
                   className="p-2 md:p-3 bg-bg rounded-md border border-border text-xs text-text-primary max-h-[400px] overflow-auto whitespace-pre-wrap break-words"
                   dangerouslySetInnerHTML={{ __html: sanitizedOutput }}
+                  onClick={(e) => handleOutputClick(e, exec)}
                 />
               </div>
             )}
           </div>
         );
       })}
+
+      {mdViewer && (
+        <MarkdownViewerModal
+          open
+          onClose={() => setMdViewer(null)}
+          filePath={mdViewer.path}
+          base={mdViewer.base}
+        />
+      )}
     </div>
   );
 }

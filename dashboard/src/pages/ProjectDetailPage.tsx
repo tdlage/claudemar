@@ -271,7 +271,7 @@ export function ProjectDetailPage() {
             </div>
           </form>
           <div className="h-[300px] md:h-[500px]">
-            <Terminal key={name} executionId={execId} />
+            <Terminal key={name} executionId={execId} base={`project:${name}`} />
           </div>
 
           {(activity.length > 0 || filteredQueue.length > 0) && (

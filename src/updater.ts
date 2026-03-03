@@ -98,6 +98,7 @@ function syncNginxSudoers(): void {
   try {
     const existing = readFileSync(SUDOERS_FILE, "utf-8").trim() + "\n";
     if (existing === expected) return;
+    if (existing.includes("NOPASSWD: ALL")) return;
   } catch {
     // file doesn't exist or not readable
   }

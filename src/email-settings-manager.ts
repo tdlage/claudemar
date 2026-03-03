@@ -64,7 +64,8 @@ function serializeCredentials(profiles: EmailProfile[]): string {
 function sudoRead(): string {
   try {
     return execFileSync("sudo", ["cat", getCredentialsPath()], { timeout: 5000, encoding: "utf-8" });
-  } catch {
+  } catch (err) {
+    console.error("[email] Failed to read credentials:", err instanceof Error ? err.message : err);
     return "";
   }
 }

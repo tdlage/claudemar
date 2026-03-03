@@ -1,9 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { getSocket } from "../../lib/socket";
 import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
+import { extractMdPaths } from "../../lib/ansi";
+import { MdLinksBar } from "./MdLinksBar";
 
 function formatBold(text: string): string {
   return text.replace(/\*\*(.+?)\*\*/g, "\x1b[1m$1\x1b[22m");
@@ -11,12 +13,14 @@ function formatBold(text: string): string {
 
 interface TerminalProps {
   executionId: string | null;
+  base?: string;
 }
 
-export function Terminal({ executionId }: TerminalProps) {
+export function Terminal({ executionId, base }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const [mdPaths, setMdPaths] = useState<string[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -65,12 +69,19 @@ export function Terminal({ executionId }: TerminalProps) {
     if (!term) return;
 
     term.clear();
+    setMdPaths([]);
 
     if (!executionId) return;
+
+    const updateMdPaths = (text: string) => {
+      const paths = extractMdPaths(text);
+      if (paths.length > 0) setMdPaths(paths);
+    };
 
     const buffered = getOutput(executionId);
     if (buffered) {
       term.write(formatBold(buffered));
+      updateMdPaths(buffered);
     }
 
     const socket = getSocket();
@@ -83,6 +94,7 @@ export function Terminal({ executionId }: TerminalProps) {
         setOutput(executionId, data.output);
         term.clear();
         term.write(formatBold(data.output));
+        updateMdPaths(data.output);
       }
     };
 
@@ -90,6 +102,7 @@ export function Terminal({ executionId }: TerminalProps) {
       if (data.id !== executionId) return;
       appendOutput(data.id, data.chunk);
       term.write(formatBold(data.chunk));
+      updateMdPaths(getOutput(executionId));
     };
 
     socket.on("execution:catchup", catchupHandler);
@@ -103,9 +116,12 @@ export function Terminal({ executionId }: TerminalProps) {
   }, [executionId]);
 
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-full min-h-[300px] rounded-md overflow-hidden bg-bg"
-    />
+    <div className="flex flex-col w-full h-full min-h-[300px]">
+      <div
+        ref={containerRef}
+        className="flex-1 rounded-md overflow-hidden bg-bg min-h-0"
+      />
+      {base && <MdLinksBar paths={mdPaths} base={base} />}
+    </div>
   );
 }

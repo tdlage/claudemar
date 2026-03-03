@@ -16,6 +16,7 @@ export function getCredentialsPath(): string {
 }
 
 export function isEmailEnabled(): boolean {
+  if (existsSync(CREDENTIALS_PATH)) return true;
   try {
     execFileSync("sudo", ["test", "-f", CREDENTIALS_PATH], { timeout: 3000 });
     return true;
