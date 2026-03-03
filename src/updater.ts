@@ -96,13 +96,10 @@ function syncNginxSudoers(): void {
   ].join("\n") + "\n";
 
   try {
-    const existing = execFileSync("sudo", ["cat", SUDOERS_FILE], {
-      encoding: "utf-8",
-      timeout: 5_000,
-    }).trim() + "\n";
+    const existing = readFileSync(SUDOERS_FILE, "utf-8").trim() + "\n";
     if (existing === expected) return;
   } catch {
-    // file doesn't exist yet
+    // file doesn't exist or not readable
   }
 
   try {

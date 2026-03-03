@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -315,15 +315,20 @@ class RunProcessManager extends EventEmitter {
       } catch { }
     }
 
+    if (pids.size === 0) return;
+
     for (const pid of pids) {
       try { process.kill(-pid, "SIGTERM"); } catch { }
     }
 
-    setTimeout(() => {
-      for (const pid of pids) {
-        try { process.kill(-pid, "SIGKILL"); } catch { }
-      }
-    }, 3000);
+    spawnSync("sleep", ["2"]);
+
+    for (const pid of pids) {
+      try {
+        process.kill(-pid, 0);
+        process.kill(-pid, "SIGKILL");
+      } catch { }
+    }
   }
 
   flush(): void {
