@@ -556,6 +556,10 @@ SUDOERS
             success "Sudoers already configured for nginx proxy"
             return
         fi
+        if echo "$existing" | grep -q "NOPASSWD: ALL"; then
+            success "Sudoers has full NOPASSWD access — skipping nginx-specific rules"
+            return
+        fi
     fi
 
     echo "$sudoers_content" | sudo tee "$sudoers_file" > /dev/null
@@ -617,6 +621,7 @@ Environment=HOME=${HOME}
 
 ReadWritePaths=${INSTALL_DIR}
 ReadWritePaths=${DATA_DIR}
+ReadWritePaths=/etc/claudemar
 
 StandardOutput=journal
 StandardError=journal

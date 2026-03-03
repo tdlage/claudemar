@@ -42,7 +42,8 @@ export function ansiToHtml(text: string): string {
   return html;
 }
 
-const MD_PATH_RE = /(?:^|(?<=[\s`'"(]))([.\/~]?[\w./_-]*\/[\w._-]+\.md|[\w._-]+\.md)(?=[\s`'")\],:;]|&lt;|&gt;|&amp;|$)/gm;
+const MD_PATH_RE = /(?:^|(?<=[\s`'"(>]))([.\/~]?[\w./_-]*\/[\w._-]+\.md|[\w._-]+\.md)(?=[\s`'")\],:;<>]|&lt;|&gt;|&amp;|$)/gm;
+const MD_PATH_PLAIN_RE = /(?:^|(?<=[\s`'"(]))([.\/~]?[\w./_-]*\/[\w._-]+\.md|[\w._-]+\.md)(?=[\s`'")\],:;]|$)/gm;
 
 export function linkifyMdPaths(html: string): string {
   return html.replace(MD_PATH_RE, (match) => {
@@ -52,7 +53,7 @@ export function linkifyMdPaths(html: string): string {
 
 export function extractMdPaths(text: string): string[] {
   const plain = text.replace(/\x1b\[[0-9;]*m/g, "");
-  const matches = plain.match(MD_PATH_RE);
+  const matches = plain.match(MD_PATH_PLAIN_RE);
   if (!matches) return [];
   return [...new Set(matches)];
 }

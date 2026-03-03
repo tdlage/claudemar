@@ -43,7 +43,10 @@ export function MarkdownViewerModal({ open, onClose, filePath, base }: MarkdownV
     setError(null);
     setContent(null);
     try {
-      const data = await api.get<{ type: string; content: string }>(`/files?base=${encodeURIComponent(base)}&path=${encodeURIComponent(filePath)}`);
+      const url = filePath.startsWith("/")
+        ? `/files/md?path=${encodeURIComponent(filePath)}`
+        : `/files?base=${encodeURIComponent(base)}&path=${encodeURIComponent(filePath)}`;
+      const data = await api.get<{ type: string; content: string }>(url);
       if (data.type === "file" && data.content) {
         setContent(data.content);
       } else {

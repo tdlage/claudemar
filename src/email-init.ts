@@ -16,11 +16,11 @@ export function getCredentialsPath(): string {
 }
 
 export function isEmailEnabled(): boolean {
-  if (existsSync(CREDENTIALS_PATH)) return true;
   try {
-    execFileSync("sudo", ["test", "-f", CREDENTIALS_PATH], { timeout: 3000 });
+    execFileSync("sudo", ["test", "-f", CREDENTIALS_PATH], { timeout: 3000, stdio: "pipe" });
     return true;
-  } catch {
+  } catch (err) {
+    console.error("[email] isEmailEnabled check failed:", err instanceof Error ? err.message : err);
     return false;
   }
 }

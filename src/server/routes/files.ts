@@ -210,6 +210,39 @@ filesRouter.delete("/", (req, res) => {
   res.json({ deleted: true });
 });
 
+filesRouter.get("/md", (req, res) => {
+  const filePath = req.query.path as string;
+
+  if (!filePath || !filePath.startsWith("/")) {
+    res.status(400).json({ error: "Absolute path required" });
+    return;
+  }
+
+  if (!filePath.endsWith(".md")) {
+    res.status(400).json({ error: "Only .md files allowed" });
+    return;
+  }
+
+  if (!existsSync(filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const stat = statSync(filePath);
+  if (!stat.isFile()) {
+    res.status(400).json({ error: "Not a file" });
+    return;
+  }
+
+  if (stat.size > 2 * 1024 * 1024) {
+    res.status(413).json({ error: "File too large (max 2MB)" });
+    return;
+  }
+
+  const content = readFileSync(filePath, "utf-8");
+  res.json({ type: "file", content, size: stat.size });
+});
+
 const MAX_SEARCH_RESULTS = 500;
 
 filesRouter.get("/search", (req, res) => {
