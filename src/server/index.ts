@@ -19,6 +19,7 @@ import { transcriptionRouter } from "./routes/transcription.js";
 import { usersRouter } from "./routes/users.js";
 import { authRouter } from "./routes/auth.js";
 import { settingsRouter } from "./routes/settings.js";
+import { trackerRouter } from "./routes/tracker.js";
 
 export function createDashboardServer() {
   const app = express();
@@ -55,6 +56,7 @@ export function createDashboardServer() {
   app.use("/api/users", jsonParser, requireAdmin, usersRouter);
   app.use("/api/settings", jsonParser, requireAdmin, settingsRouter);
   app.use("/api/transcribe", transcriptionRouter);
+  app.use("/api/tracker", express.json({ limit: "150mb" }), trackerRouter);
 
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "Not found" });

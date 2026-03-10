@@ -224,3 +224,145 @@ export interface EmailProfileMasked {
   from: string;
   senderName: string;
 }
+
+// ── Tracker (Shape Up) ──
+
+export type CycleStatus = "shaping" | "betting" | "building" | "cooldown" | "completed";
+export type BetStatus = "pitch" | "bet" | "in_progress" | "done" | "dropped";
+export type ScopeStatus = "uphill" | "overhill" | "done";
+export type TestCasePriority = "critical" | "high" | "medium" | "low";
+export type TestRunStatus = "passed" | "failed" | "blocked" | "skipped";
+
+export interface TrackerCycle {
+  id: string;
+  name: string;
+  status: CycleStatus;
+  startDate: string;
+  endDate: string;
+  cooldownEndDate: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface TrackerBet {
+  id: string;
+  cycleId: string;
+  title: string;
+  description: string;
+  status: BetStatus;
+  appetite: "small" | "big";
+  projectName: string;
+  assignees: string[];
+  tags: string[];
+  position: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TrackerScope {
+  id: string;
+  betId: string;
+  title: string;
+  description: string;
+  status: ScopeStatus;
+  hillPosition: number;
+  assignees: string[];
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TrackerAttachment {
+  id: string;
+  commentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
+export interface TrackerComment {
+  id: string;
+  targetType: "bet" | "scope";
+  targetId: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  attachments: TrackerAttachment[];
+  createdAt: string;
+}
+
+export interface TrackerCommitLink {
+  id: string;
+  scopeId: string;
+  projectName: string;
+  repoName: string;
+  commitHash: string;
+  commitMessage: string;
+  linkedAt: string;
+  linkedBy: string;
+}
+
+export interface TrackerTestCase {
+  id: string;
+  targetType: "bet" | "scope";
+  targetId: string;
+  title: string;
+  description: string;
+  preconditions: string;
+  steps: string;
+  expectedResult: string;
+  priority: TestCasePriority;
+  position: number;
+  lastRunStatus?: TestRunStatus | null;
+  passCount?: number;
+  failCount?: number;
+  totalRuns?: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TrackerTestRunAttachment {
+  id: string;
+  testRunId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
+export interface TrackerTestRunCommentAttachment {
+  id: string;
+  commentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
+export interface TrackerTestRunComment {
+  id: string;
+  testRunId: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  attachments: TrackerTestRunCommentAttachment[];
+  createdAt: string;
+}
+
+export interface TrackerTestRun {
+  id: string;
+  testCaseId: string;
+  status: TestRunStatus;
+  notes: string;
+  executedBy: string;
+  executedByName: string;
+  executedAt: string;
+  durationSeconds: number | null;
+  attachments: TrackerTestRunAttachment[];
+}

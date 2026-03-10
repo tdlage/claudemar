@@ -5,6 +5,7 @@ import { runProcessManager } from "../run-process-manager.js";
 import { validateSocketToken } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
+import { trackerManager } from "../tracker-manager.js";
 
 const RATE_LIMIT_WINDOW_MS = 1000;
 const RATE_LIMIT_MAX_EVENTS = 30;
@@ -77,6 +78,14 @@ export function setupWebSocket(io: SocketServer): void {
 
     socket.on("unsubscribe:run", (configId: string) => {
       socket.leave(`run:${configId}`);
+    });
+
+    socket.on("subscribe:tracker", () => {
+      socket.join("tracker");
+    });
+
+    socket.on("unsubscribe:tracker", () => {
+      socket.leave("tracker");
     });
   });
 
@@ -154,6 +163,21 @@ export function setupWebSocket(io: SocketServer): void {
     io.to("executions").emit("run:error", { configId, error });
     io.to(`run:${configId}`).emit("run:error", { configId, error });
   });
+
+  const trackerEvents = [
+    "cycle:create", "cycle:update", "cycle:delete",
+    "bet:create", "bet:update", "bet:delete",
+    "scope:create", "scope:update", "scope:delete",
+    "comment:add", "comment:delete",
+    "commit:link", "commit:unlink",
+    "testcase:create", "testcase:update", "testcase:delete", "testcase:reorder",
+    "testrun:create", "testrun:update", "testrun:delete", "testrun:attachment", "testrun:comment",
+  ];
+  for (const event of trackerEvents) {
+    trackerManager.on(event, (data) => {
+      io.to("tracker").emit(`tracker:${event}`, data);
+    });
+  }
 
   startFileWatcher((event, base, path) => {
     io.to("files").emit("file:changed", { event, base, path });

@@ -9,7 +9,13 @@ import { LogsPage } from "./pages/LogsPage";
 import { ChangelogPage } from "./pages/ChangelogPage";
 import { UsersPage } from "./pages/UsersPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TrackerPage } from "./pages/TrackerPage";
 import { getMe } from "./hooks/useAuth";
+
+function KeyedTrackerPage() {
+  const { cycleId, betId } = useParams();
+  return <TrackerPage key={`${cycleId}-${betId}`} />;
+}
 
 function KeyedProjectPage() {
   const { name } = useParams();
@@ -69,6 +75,9 @@ export const router = createBrowserRouter([
       { path: "changelog", element: <AdminGuard><ChangelogPage /></AdminGuard> },
       { path: "users", element: <AdminGuard><UsersPage /></AdminGuard> },
       { path: "settings", element: <AdminGuard><SettingsPage /></AdminGuard> },
+      { path: "tracker", element: <TrackerPage /> },
+      { path: "tracker/:cycleId", element: <KeyedTrackerPage /> },
+      { path: "tracker/:cycleId/bets/:betId", element: <KeyedTrackerPage /> },
     ],
   },
 ]);

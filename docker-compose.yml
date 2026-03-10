@@ -14,3 +14,30 @@ services:
     environment:
       - DASHBOARD_PORT=3000
       - CLAUDEMAR_DATA=/app
+      - MYSQL_HOST=mysql
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    container_name: claudemar-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: claudemar
+      MYSQL_USER: claudemar
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-claudemar_secret}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_secret}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+volumes:
+  mysql_data:

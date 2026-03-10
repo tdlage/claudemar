@@ -49,6 +49,11 @@ export const config = Object.freeze({
   claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || resolve(homedir(), ".claude"),
   sesFrom: process.env.AWS_SES_FROM || "",
   adminEmail: process.env.ADMIN_EMAIL || "",
+  mysqlHost: process.env.MYSQL_HOST || "localhost",
+  mysqlPort: numericEnv("MYSQL_PORT", 3306),
+  mysqlUser: process.env.MYSQL_USER || "claudemar",
+  mysqlPassword: process.env.MYSQL_PASSWORD || "",
+  mysqlDatabase: process.env.MYSQL_DATABASE || "claudemar",
   dockerAvailable: (() => {
     try {
       execFileSync("docker", ["--version"], { stdio: "ignore" });

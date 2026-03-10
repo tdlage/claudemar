@@ -24,7 +24,8 @@ OS=""
 DISTRO=""
 NODE_BIN_DIR=""
 CLAUDE_BIN_DIR=""
-TOTAL_STEPS=9
+TOTAL_STEPS=10
+MYSQL_CONFIGURED=false
 
 info()    { echo -e "${BLUE}ℹ${NC} $*"; }
 success() { echo -e "${GREEN}✔${NC} $*"; }
@@ -444,6 +445,12 @@ setup_env() {
         printf 'DASHBOARD_TOKEN=%s\n' "$dashboard_token" >> "$env_file"
         printf 'DASHBOARD_PORT=%s\n' "${dashboard_port:-3000}" >> "$env_file"
         printf 'CLAUDEMAR_DATA=%s\n' "$DATA_DIR" >> "$env_file"
+        printf '\n# MySQL (required for Tracker feature)\n' >> "$env_file"
+        printf 'MYSQL_HOST=localhost\n' >> "$env_file"
+        printf 'MYSQL_PORT=3306\n' >> "$env_file"
+        printf 'MYSQL_USER=claudemar\n' >> "$env_file"
+        printf 'MYSQL_PASSWORD=\n' >> "$env_file"
+        printf 'MYSQL_DATABASE=claudemar\n' >> "$env_file"
         ENV_CREATED=true
 
         if [[ -n "$token" ]]; then
@@ -459,6 +466,13 @@ MAX_OUTPUT_LENGTH=4096
 DASHBOARD_TOKEN=
 DASHBOARD_PORT=3000
 CLAUDEMAR_DATA=${DATA_DIR}
+
+# MySQL (required for Tracker feature)
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=claudemar
+MYSQL_PASSWORD=
+MYSQL_DATABASE=claudemar
 EOF
         ENV_CREATED=true
         warn "Non-interactive mode: .env created with empty values"
@@ -469,8 +483,151 @@ EOF
     success ".env configured (permissions: 600)"
 }
 
+setup_mysql() {
+    step 7 "Configuring MySQL (Tracker)"
+
+    local env_file="$INSTALL_DIR/.env"
+
+    if grep -qP '^MYSQL_PASSWORD=.+' "$env_file" 2>/dev/null; then
+        local existing_host existing_user existing_db
+        existing_host="$(grep -oP '^MYSQL_HOST=\K.*' "$env_file" 2>/dev/null || echo "localhost")"
+        existing_user="$(grep -oP '^MYSQL_USER=\K.*' "$env_file" 2>/dev/null || echo "claudemar")"
+        existing_db="$(grep -oP '^MYSQL_DATABASE=\K.*' "$env_file" 2>/dev/null || echo "claudemar")"
+        success "MySQL already configured (${existing_user}@${existing_host}/${existing_db})"
+        MYSQL_CONFIGURED=true
+        return
+    fi
+
+    if ! command -v mysql &>/dev/null; then
+        warn "MySQL client not found — Tracker feature will be disabled"
+        info "Install MySQL/MariaDB and re-run installer to enable Tracker"
+        info "  Ubuntu/Debian: sudo apt-get install -y mysql-server"
+        info "  RHEL/Amazon:   sudo yum install -y mysql-server"
+        info "  macOS:         brew install mysql"
+
+        if ! grep -q '^MYSQL_HOST=' "$env_file" 2>/dev/null; then
+            printf '\n# MySQL (required for Tracker feature)\n' >> "$env_file"
+            printf 'MYSQL_HOST=localhost\n' >> "$env_file"
+            printf 'MYSQL_PORT=3306\n' >> "$env_file"
+            printf 'MYSQL_USER=claudemar\n' >> "$env_file"
+            printf 'MYSQL_PASSWORD=\n' >> "$env_file"
+            printf 'MYSQL_DATABASE=claudemar\n' >> "$env_file"
+        fi
+        return
+    fi
+
+    if [[ ! -t 0 ]]; then
+        warn "Non-interactive mode: MySQL not configured. Edit .env manually."
+        if ! grep -q '^MYSQL_HOST=' "$env_file" 2>/dev/null; then
+            printf '\n# MySQL (required for Tracker feature)\n' >> "$env_file"
+            printf 'MYSQL_HOST=localhost\n' >> "$env_file"
+            printf 'MYSQL_PORT=3306\n' >> "$env_file"
+            printf 'MYSQL_USER=claudemar\n' >> "$env_file"
+            printf 'MYSQL_PASSWORD=\n' >> "$env_file"
+            printf 'MYSQL_DATABASE=claudemar\n' >> "$env_file"
+        fi
+        return
+    fi
+
+    echo ""
+    echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║              MySQL Configuration (Tracker)                   ║${NC}"
+    echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  The Tracker feature (Shape Up kanban board) requires MySQL."
+    echo -e "  Tables are created automatically on first startup."
+    echo ""
+    echo -e "  ${BOLD}Option 1:${NC} Auto-create database and user (requires mysql root access)"
+    echo -e "  ${BOLD}Option 2:${NC} Enter existing database credentials"
+    echo -e "  ${BOLD}Option 3:${NC} Skip (Tracker will be disabled)"
+    echo ""
+    read -rp "$(echo -e "  ${BOLD}Choice${NC} [1/2/3]: ")" mysql_choice
+    mysql_choice="${mysql_choice:-3}"
+
+    local mysql_host="localhost" mysql_port="3306" mysql_user="claudemar" mysql_pass="" mysql_db="claudemar"
+
+    case "$mysql_choice" in
+        1)
+            mysql_pass="$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)"
+
+            echo ""
+            info "Creating MySQL database and user..."
+            echo -e "  Database: ${BOLD}claudemar${NC}"
+            echo -e "  User:     ${BOLD}claudemar${NC}"
+            echo ""
+
+            local mysql_root_cmd="mysql"
+            if [[ $EUID -ne 0 ]]; then
+                mysql_root_cmd="sudo mysql"
+            fi
+
+            if $mysql_root_cmd -e "SELECT 1" &>/dev/null; then
+                $mysql_root_cmd <<MYSQL_EOF
+CREATE DATABASE IF NOT EXISTS \`${mysql_db}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${mysql_user}'@'${mysql_host}' IDENTIFIED BY '${mysql_pass}';
+GRANT ALL PRIVILEGES ON \`${mysql_db}\`.* TO '${mysql_user}'@'${mysql_host}';
+FLUSH PRIVILEGES;
+MYSQL_EOF
+
+                if [[ $? -eq 0 ]]; then
+                    success "Database '${mysql_db}' and user '${mysql_user}' created"
+                    MYSQL_CONFIGURED=true
+                else
+                    warn "Failed to create database/user. Enter credentials manually."
+                    mysql_choice="2"
+                fi
+            else
+                warn "Cannot connect to MySQL as root. Enter credentials manually."
+                mysql_choice="2"
+            fi
+            ;;
+    esac
+
+    if [[ "$mysql_choice" == "2" ]]; then
+        echo ""
+        read -rp "$(echo -e "  ${BOLD}MySQL Host${NC} [localhost]: ")" mysql_host
+        mysql_host="${mysql_host:-localhost}"
+        read -rp "$(echo -e "  ${BOLD}MySQL Port${NC} [3306]: ")" mysql_port
+        mysql_port="${mysql_port:-3306}"
+        read -rp "$(echo -e "  ${BOLD}MySQL User${NC} [claudemar]: ")" mysql_user
+        mysql_user="${mysql_user:-claudemar}"
+        read -rsp "$(echo -e "  ${BOLD}MySQL Password${NC}: ")" mysql_pass
+        echo ""
+        read -rp "$(echo -e "  ${BOLD}MySQL Database${NC} [claudemar]: ")" mysql_db
+        mysql_db="${mysql_db:-claudemar}"
+
+        if mysql -h "$mysql_host" -P "$mysql_port" -u "$mysql_user" -p"$mysql_pass" -e "USE \`${mysql_db}\`" &>/dev/null; then
+            success "MySQL connection verified"
+            MYSQL_CONFIGURED=true
+        else
+            warn "Could not connect to MySQL — verify credentials and ensure the database exists"
+            info "Tracker will attempt to connect on startup"
+        fi
+    fi
+
+    if [[ "$mysql_choice" == "3" ]]; then
+        info "MySQL skipped — Tracker feature will be disabled"
+        mysql_pass=""
+    fi
+
+    if grep -q '^MYSQL_HOST=' "$env_file" 2>/dev/null; then
+        sed -i "s/^MYSQL_HOST=.*/MYSQL_HOST=${mysql_host}/" "$env_file"
+        sed -i "s/^MYSQL_PORT=.*/MYSQL_PORT=${mysql_port}/" "$env_file"
+        sed -i "s/^MYSQL_USER=.*/MYSQL_USER=${mysql_user}/" "$env_file"
+        sed -i "s/^MYSQL_PASSWORD=.*/MYSQL_PASSWORD=${mysql_pass}/" "$env_file"
+        sed -i "s/^MYSQL_DATABASE=.*/MYSQL_DATABASE=${mysql_db}/" "$env_file"
+    else
+        printf '\n# MySQL (required for Tracker feature)\n' >> "$env_file"
+        printf 'MYSQL_HOST=%s\n' "$mysql_host" >> "$env_file"
+        printf 'MYSQL_PORT=%s\n' "$mysql_port" >> "$env_file"
+        printf 'MYSQL_USER=%s\n' "$mysql_user" >> "$env_file"
+        printf 'MYSQL_PASSWORD=%s\n' "$mysql_pass" >> "$env_file"
+        printf 'MYSQL_DATABASE=%s\n' "$mysql_db" >> "$env_file"
+    fi
+}
+
 setup_cron() {
-    step 7 "Setting up cron jobs"
+    step 8 "Setting up cron jobs"
 
     if ! command -v crontab &>/dev/null; then
         warn "crontab not found — skipping cron setup"
@@ -518,7 +675,7 @@ setup_cron() {
 }
 
 setup_nginx_sudoers() {
-    step 8 "Configuring nginx proxy permissions"
+    step 9 "Configuring nginx proxy permissions"
 
     if [[ "$OS" != "linux" ]]; then
         info "Skipping nginx sudoers setup (not Linux)"
@@ -577,7 +734,7 @@ SUDOERS
 }
 
 setup_systemd() {
-    step 9 "Setting up systemd service"
+    step 10 "Setting up systemd service"
 
     if ! command -v systemctl &>/dev/null; then
         warn "systemctl not found — skipping service setup"
@@ -605,7 +762,7 @@ setup_systemd() {
     sudo tee "$service_path" > /dev/null <<EOF
 [Unit]
 Description=Claudemar — Telegram Bot for Claude CLI
-After=network-online.target
+After=network-online.target mysql.service mariadb.service
 Wants=network-online.target
 
 [Service]
@@ -660,7 +817,7 @@ EOF
 }
 
 macos_instructions() {
-    step 9 "Run instructions (macOS)"
+    step 10 "Run instructions (macOS)"
 
     echo ""
     info "macOS detected — no systemd available"
@@ -706,6 +863,12 @@ print_summary() {
         else
             echo -e "${BOLD}║${NC}  .env:      ${GREEN}configured${NC}"
         fi
+    fi
+
+    if [[ "$MYSQL_CONFIGURED" == true ]]; then
+        echo -e "${BOLD}║${NC}  MySQL:     ${GREEN}configured${NC}"
+    else
+        echo -e "${BOLD}║${NC}  MySQL:     ${YELLOW}not configured (Tracker disabled)${NC}"
     fi
 
     if [[ "$SERVICE_INSTALLED" == true ]]; then
@@ -848,6 +1011,7 @@ main() {
     setup_repo
     build_project
     setup_env
+    setup_mysql
     setup_cron
 
     setup_nginx_sudoers

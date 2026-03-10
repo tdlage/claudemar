@@ -14,6 +14,7 @@ import {
   PanelLeftOpen,
   Plus,
   RefreshCw,
+  KanbanSquare,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth, getMe } from "../../hooks/useAuth";
@@ -387,6 +388,13 @@ export function Sidebar() {
                 <p className="px-3 text-xs text-text-muted">No projects</p>
               )}
             </div>
+          </div>
+
+          <div className="space-y-0.5">
+            <NavLink to="/tracker" className={linkClass} title="Tracker">
+              <KanbanSquare size={16} />
+              {showExpanded && "Tracker"}
+            </NavLink>
           </div>
 
           {admin && (

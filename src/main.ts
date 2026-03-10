@@ -16,6 +16,8 @@ import { ensureAllAgentGitRepos, generateAgentsContext } from "./agents/manager.
 import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { modelPreferences } from "./model-preferences.js";
 import { settingsManager } from "./settings-manager.js";
+import { runTrackerMigrations } from "./tracker-migration.js";
+import { closePool } from "./database.js";
 
 regenerateOrchestratorClaudeMd();
 ensureCredentialsDir();
@@ -24,6 +26,9 @@ ensureAllAgentGitRepos();
 generateAgentsContext();
 secretsManager.migrateAll();
 await executionManager.loadRecent();
+await runTrackerMigrations().catch((err) => {
+  console.error("[tracker] Migration failed (MySQL may not be configured):", err.message);
+});
 
 function drainQueue(_id: string, info: ExecutionInfo) {
   const key = commandQueue.targetKey(info.targetType, info.targetName);
@@ -65,6 +70,7 @@ function shutdown() {
   modelPreferences.flush();
   flushSessions();
   tokenManager.stop();
+  closePool().catch(() => {});
   bot.stop();
   httpServer.close(() => {
     process.exit(0);
