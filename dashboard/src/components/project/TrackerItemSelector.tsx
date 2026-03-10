@@ -3,7 +3,7 @@ import { Search, X } from "lucide-react";
 import { api } from "../../lib/api";
 import { Modal } from "../shared/Modal";
 import { Button } from "../shared/Button";
-import type { TrackerBetSearchResult } from "../../lib/types";
+import type { TrackerItemSearchResult } from "../../lib/types";
 
 interface Props {
   open: boolean;
@@ -13,8 +13,8 @@ interface Props {
 
 export function TrackerItemSelector({ open, onClose, onConfirm }: Props) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<TrackerBetSearchResult[]>([]);
-  const [selected, setSelected] = useState<TrackerBetSearchResult[]>([]);
+  const [results, setResults] = useState<TrackerItemSearchResult[]>([]);
+  const [selected, setSelected] = useState<TrackerItemSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -35,7 +35,7 @@ export function TrackerItemSelector({ open, onClose, onConfirm }: Props) {
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const data = await api.get<TrackerBetSearchResult[]>(`/tracker/bets/search?q=${encodeURIComponent(query.trim())}`);
+        const data = await api.get<TrackerItemSearchResult[]>(`/tracker/items/search?q=${encodeURIComponent(query.trim())}`);
         setResults(data);
       } catch {
         setResults([]);
@@ -48,7 +48,7 @@ export function TrackerItemSelector({ open, onClose, onConfirm }: Props) {
     };
   }, [query]);
 
-  const toggleItem = (item: TrackerBetSearchResult) => {
+  const toggleItem = (item: TrackerItemSearchResult) => {
     setSelected((prev) =>
       prev.some((s) => s.id === item.id)
         ? prev.filter((s) => s.id !== item.id)

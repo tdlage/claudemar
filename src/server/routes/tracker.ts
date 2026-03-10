@@ -57,6 +57,15 @@ trackerRouter.get("/projects/:projectId/cycles", async (req, res) => {
   res.json(cycles);
 });
 
+trackerRouter.get("/projects/:projectId/cycle-stats", async (req, res) => {
+  const stats = await trackerManager.getCycleItemStats(req.params.projectId);
+  const result: Record<string, { total: number; byColumn: Record<string, number> }> = {};
+  for (const [cycleId, entry] of stats) {
+    result[cycleId] = { total: entry.total, byColumn: Object.fromEntries(entry.byColumn) };
+  }
+  res.json(result);
+});
+
 trackerRouter.post("/cycles", requireAdmin, async (req, res) => {
   const { projectId, name } = req.body;
   if (!projectId || !name) { res.status(400).json({ error: "projectId and name required" }); return; }
@@ -77,14 +86,14 @@ trackerRouter.delete("/cycles/:id", requireAdmin, async (req, res) => {
   res.json({ deleted: true });
 });
 
-// ── Bets ──
+// ── Items ──
 
-trackerRouter.get("/cycles/:cycleId/bets", async (req, res) => {
-  const bets = await trackerManager.getBetsByCycle(req.params.cycleId);
-  res.json(bets);
+trackerRouter.get("/cycles/:cycleId/items", async (req, res) => {
+  const items = await trackerManager.getItemsByCycle(req.params.cycleId);
+  res.json(items);
 });
 
-trackerRouter.post("/bets", requireAdmin, async (req, res) => {
+trackerRouter.post("/items", requireAdmin, async (req, res) => {
   const { cycleId, title, description, appetite, assignees, tags, columnId } = req.body;
   if (!cycleId || !title) { res.status(400).json({ error: "cycleId and title required" }); return; }
   let resolvedColumnId = columnId;
@@ -97,40 +106,40 @@ trackerRouter.post("/bets", requireAdmin, async (req, res) => {
     resolvedColumnId = [...cycle.columns].sort((a, b) => a.position - b.position)[0].id;
   }
   const author = getAuthor(req);
-  const bet = await trackerManager.createBet({
-    cycleId, title, description, appetite, columnId: resolvedColumnId,
+  const item = await trackerManager.createItem({
+    cycleId, title, description, appetite: appetite ? Number(appetite) : undefined, columnId: resolvedColumnId,
     assignees, tags, createdBy: author.id,
   });
-  res.status(201).json(bet);
+  res.status(201).json(item);
 });
 
-trackerRouter.put("/bets/:id", async (req, res) => {
-  const bet = await trackerManager.getBet(req.params.id);
-  if (!bet) { res.status(404).json({ error: "Bet not found" }); return; }
-  const updated = await trackerManager.updateBet(req.params.id, req.body);
+trackerRouter.put("/items/:id", async (req, res) => {
+  const item = await trackerManager.getItem(req.params.id);
+  if (!item) { res.status(404).json({ error: "Item not found" }); return; }
+  const updated = await trackerManager.updateItem(req.params.id, req.body);
   res.json(updated);
 });
 
-trackerRouter.patch("/bets/:id/move", async (req, res) => {
+trackerRouter.patch("/items/:id/move", async (req, res) => {
   const { columnId, position } = req.body;
   if (!columnId) { res.status(400).json({ error: "columnId required" }); return; }
-  const bet = await trackerManager.moveBet(req.params.id, columnId, position ?? 0);
-  if (!bet) { res.status(404).json({ error: "Bet not found" }); return; }
-  res.json(bet);
+  const item = await trackerManager.moveItem(req.params.id, columnId, position ?? 0);
+  if (!item) { res.status(404).json({ error: "Item not found" }); return; }
+  res.json(item);
 });
 
-trackerRouter.delete("/bets/:id", requireAdmin, async (req, res) => {
-  const deleted = await trackerManager.deleteBet(req.params.id as string);
-  if (!deleted) { res.status(404).json({ error: "Bet not found" }); return; }
+trackerRouter.delete("/items/:id", requireAdmin, async (req, res) => {
+  const deleted = await trackerManager.deleteItem(req.params.id as string);
+  if (!deleted) { res.status(404).json({ error: "Item not found" }); return; }
   res.json({ deleted: true });
 });
 
-// ── Bet Search ──
+// ── Item Search ──
 
-trackerRouter.get("/bets/search", async (req, res) => {
+trackerRouter.get("/items/search", async (req, res) => {
   const q = (req.query.q as string || "").trim();
   if (!q) { res.json([]); return; }
-  const results = await trackerManager.searchBets(q);
+  const results = await trackerManager.searchItems(q);
   res.json(results);
 });
 
@@ -138,7 +147,7 @@ trackerRouter.get("/bets/search", async (req, res) => {
 
 trackerRouter.get("/comments/:targetType/:targetId", async (req, res) => {
   const { targetType, targetId } = req.params;
-  if (targetType !== "bet") { res.status(400).json({ error: "targetType must be bet" }); return; }
+  if (targetType !== "item") { res.status(400).json({ error: "targetType must be item" }); return; }
   const comments = await trackerManager.getComments(targetType, targetId);
   res.json(comments);
 });
@@ -178,7 +187,7 @@ trackerRouter.get("/uploads/:filename", (req, res) => {
 
 trackerRouter.get("/test-cases/:targetType/:targetId", async (req, res) => {
   const { targetType, targetId } = req.params;
-  if (targetType !== "bet") { res.status(400).json({ error: "targetType must be bet" }); return; }
+  if (targetType !== "item") { res.status(400).json({ error: "targetType must be item" }); return; }
   const cases = await trackerManager.getTestCases(targetType, targetId);
   res.json(cases);
 });

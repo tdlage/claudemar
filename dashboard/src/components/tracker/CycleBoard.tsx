@@ -2,14 +2,14 @@ import { useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Plus, ArrowLeft, Trash2, Settings, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
-import { useBets, useCycles, useTrackerProjects } from "../../hooks/useTracker";
+import { useItems, useCycles, useTrackerProjects } from "../../hooks/useTracker";
 import { isAdmin } from "../../hooks/useAuth";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
-import { BetCard } from "./BetCard";
-import { CreateBetModal } from "./CreateBetModal";
+import { ItemCard } from "./ItemCard";
+import { CreateItemModal } from "./CreateItemModal";
 import { CYCLE_STATUS_VARIANT } from "./constants";
-import type { CycleStatus, TrackerBet, CycleColumn } from "../../lib/types";
+import type { CycleStatus, TrackerItem, CycleColumn } from "../../lib/types";
 
 interface Props {
   projectId: string;
@@ -22,7 +22,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
   const admin = isAdmin();
   const { projects } = useTrackerProjects();
   const { cycles } = useCycles(projectId);
-  const { bets } = useBets(cycleId);
+  const { items } = useItems(cycleId);
   const project = projects.find((p) => p.id === projectId);
   const [createOpen, setCreateOpen] = useState(false);
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
@@ -31,21 +31,21 @@ export function CycleBoard({ projectId, cycleId }: Props) {
   const cycle = cycles.find((c) => c.id === cycleId);
   const columns = (cycle?.columns ?? []).sort((a, b) => a.position - b.position);
 
-  const betsByColumn = useCallback(
-    (columnId: string): TrackerBet[] =>
-      bets.filter((b) => b.columnId === columnId).sort((a, b) => a.position - b.position),
-    [bets],
+  const itemsByColumn = useCallback(
+    (columnId: string): TrackerItem[] =>
+      items.filter((i) => i.columnId === columnId).sort((a, b) => a.position - b.position),
+    [items],
   );
 
   const handleDrop = async (columnId: string, e: React.DragEvent) => {
     e.preventDefault();
     setDragOverCol(null);
-    const betId = e.dataTransfer.getData("text/plain");
-    if (!betId) return;
+    const itemId = e.dataTransfer.getData("text/plain");
+    if (!itemId) return;
     try {
-      await api.patch(`/tracker/bets/${betId}/move`, { columnId, position: 0 });
+      await api.patch(`/tracker/items/${itemId}/move`, { columnId, position: 0 });
     } catch (err: unknown) {
-      addToast("error", err instanceof Error ? err.message : "Failed to move bet");
+      addToast("error", err instanceof Error ? err.message : "Failed to move item");
     }
   };
 
@@ -58,7 +58,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
   };
 
   const handleDeleteCycle = async () => {
-    if (!confirm("Delete this cycle and all its bets?")) return;
+    if (!confirm("Delete this cycle and all its items?")) return;
     try {
       await api.delete(`/tracker/cycles/${cycleId}`);
       navigate(`/tracker/${projectId}`);
@@ -113,7 +113,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
             onClick={() => setCreateOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
           >
-            <Plus size={14} /> New Bet
+            <Plus size={14} /> New Item
           </button>
         )}
       </div>
@@ -124,7 +124,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
 
       <div className="flex gap-3 overflow-x-auto pb-4">
         {columns.map((col) => {
-          const colBets = betsByColumn(col.id);
+          const colItems = itemsByColumn(col.id);
           return (
             <div
               key={col.id}
@@ -143,15 +143,15 @@ export function CycleBoard({ projectId, cycleId }: Props) {
                 <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
                   {col.name}
                 </span>
-                <span className="text-xs text-text-muted">{colBets.length}</span>
+                <span className="text-xs text-text-muted">{colItems.length}</span>
               </div>
               <div className="px-2 pb-2 space-y-2 min-h-[100px]">
-                {colBets.map((bet) => (
-                  <BetCard
-                    key={bet.id}
-                    bet={bet}
+                {colItems.map((item) => (
+                  <ItemCard
+                    key={item.id}
+                    item={item}
                     projectCode={project?.code ?? ""}
-                    onClick={() => navigate(`/tracker/${projectId}/cycles/${cycleId}/bets/${bet.id}`)}
+                    onClick={() => navigate(`/tracker/${projectId}/cycles/${cycleId}/items/${item.id}`)}
                   />
                 ))}
               </div>
@@ -160,7 +160,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
         })}
       </div>
 
-      <CreateBetModal open={createOpen} onClose={() => setCreateOpen(false)} cycleId={cycleId} />
+      <CreateItemModal open={createOpen} onClose={() => setCreateOpen(false)} cycleId={cycleId} />
     </div>
   );
 }

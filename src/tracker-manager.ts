@@ -59,7 +59,7 @@ export interface TrackerProject {
   name: string;
   code: string;
   description: string;
-  nextBetNumber: number;
+  nextItemNumber: number;
   createdBy: string;
   createdAt: string;
 }
@@ -74,27 +74,28 @@ export interface TrackerCycle {
   createdAt: string;
 }
 
-export interface BetTestStats {
+export interface ItemTestStats {
   total: number;
   passed: number;
   failed: number;
   noRuns: number;
 }
 
-export interface TrackerBet {
+export interface TrackerItem {
   id: string;
   cycleId: string;
   title: string;
   description: string;
   columnId: string;
-  appetite: "small" | "big";
+  appetite: number;
+  startedAt: string | null;
   inScope: string;
   outOfScope: string;
   assignees: string[];
   tags: string[];
   seqNumber: number;
   position: number;
-  testStats: BetTestStats;
+  testStats: ItemTestStats;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -102,7 +103,7 @@ export interface TrackerBet {
 
 export interface TrackerComment {
   id: string;
-  targetType: "bet";
+  targetType: "item";
   targetId: string;
   authorId: string;
   authorName: string;
@@ -123,7 +124,7 @@ export interface TrackerAttachment {
 
 export interface TrackerTestCase {
   id: string;
-  targetType: "bet";
+  targetType: "item";
   targetId: string;
   title: string;
   description: string;
@@ -205,13 +206,14 @@ interface CycleRow extends RowDataPacket {
   created_at: string;
 }
 
-interface BetRow extends RowDataPacket {
+interface ItemRow extends RowDataPacket {
   id: string;
   cycle_id: string;
   title: string;
   description: string | null;
   column_id: string;
-  appetite: string;
+  appetite: number;
+  started_at: string | null;
   in_scope: string | null;
   out_of_scope: string | null;
   tags: string | null;
@@ -315,7 +317,7 @@ function mapProject(r: ProjectRow): TrackerProject {
     name: r.name,
     code: r.code,
     description: r.description || "",
-    nextBetNumber: r.next_bet_number,
+    nextItemNumber: r.next_bet_number,
     createdBy: r.created_by,
     createdAt: new Date(r.created_at).toISOString(),
   };
@@ -337,7 +339,7 @@ function mapCycle(r: CycleRow): TrackerCycle {
   };
 }
 
-function mapBet(r: BetRow, assignees: string[], testStats?: BetTestStats): TrackerBet {
+function mapItem(r: ItemRow, assignees: string[], testStats?: ItemTestStats): TrackerItem {
   let tags: string[] = [];
   if (r.tags) {
     try { tags = typeof r.tags === "string" ? JSON.parse(r.tags) : r.tags; } catch { /* empty */ }
@@ -348,7 +350,8 @@ function mapBet(r: BetRow, assignees: string[], testStats?: BetTestStats): Track
     title: r.title,
     description: r.description || "",
     columnId: r.column_id,
-    appetite: r.appetite as TrackerBet["appetite"],
+    appetite: r.appetite,
+    startedAt: r.started_at ? new Date(r.started_at).toISOString() : null,
     inScope: r.in_scope || "",
     outOfScope: r.out_of_scope || "",
     assignees,
@@ -555,12 +558,35 @@ class TrackerManager extends EventEmitter {
     return false;
   }
 
-  // ── Bets ──
+  async getCycleItemStats(projectId: string): Promise<Map<string, { total: number; byColumn: Map<string, number> }>> {
+    const map = new Map<string, { total: number; byColumn: Map<string, number> }>();
+    const rows = await query<RowDataPacket[]>(
+      `SELECT b.cycle_id, b.column_id, COUNT(*) AS cnt
+       FROM tracker_bets b
+       JOIN tracker_cycles c ON b.cycle_id = c.id
+       WHERE c.project_id = ?
+       GROUP BY b.cycle_id, b.column_id`,
+      [projectId],
+    );
+    for (const r of rows) {
+      let entry = map.get(r.cycle_id);
+      if (!entry) {
+        entry = { total: 0, byColumn: new Map() };
+        map.set(r.cycle_id, entry);
+      }
+      const cnt = Number(r.cnt);
+      entry.total += cnt;
+      entry.byColumn.set(r.column_id, cnt);
+    }
+    return map;
+  }
 
-  private async getBetAssignees(betIds: string[]): Promise<Map<string, string[]>> {
-    if (betIds.length === 0) return new Map();
-    const placeholders = betIds.map(() => "?").join(",");
-    const rows = await query<AssigneeRow[]>(`SELECT bet_id, user_id FROM tracker_bet_assignees WHERE bet_id IN (${placeholders})`, betIds);
+  // ── Items ──
+
+  private async getItemAssignees(itemIds: string[]): Promise<Map<string, string[]>> {
+    if (itemIds.length === 0) return new Map();
+    const placeholders = itemIds.map(() => "?").join(",");
+    const rows = await query<AssigneeRow[]>(`SELECT bet_id, user_id FROM tracker_bet_assignees WHERE bet_id IN (${placeholders})`, itemIds);
     const map = new Map<string, string[]>();
     for (const r of rows) {
       const list = map.get(r.bet_id) || [];
@@ -570,21 +596,21 @@ class TrackerManager extends EventEmitter {
     return map;
   }
 
-  async getBetsByCycle(cycleId: string): Promise<TrackerBet[]> {
-    const rows = await query<BetRow[]>("SELECT * FROM tracker_bets WHERE cycle_id = ? ORDER BY position, created_at", [cycleId]);
-    const betIds = rows.map((r) => r.id);
-    const assigneesMap = await this.getBetAssignees(betIds);
-    const testStatsMap = await this.getBetTestStats(betIds);
-    return rows.map((r) => mapBet(r, assigneesMap.get(r.id) || [], testStatsMap.get(r.id)));
+  async getItemsByCycle(cycleId: string): Promise<TrackerItem[]> {
+    const rows = await query<ItemRow[]>("SELECT * FROM tracker_bets WHERE cycle_id = ? ORDER BY position, created_at", [cycleId]);
+    const itemIds = rows.map((r) => r.id);
+    const assigneesMap = await this.getItemAssignees(itemIds);
+    const testStatsMap = await this.getItemTestStats(itemIds);
+    return rows.map((r) => mapItem(r, assigneesMap.get(r.id) || [], testStatsMap.get(r.id)));
   }
 
-  private async getBetTestStats(betIds: string[]): Promise<Map<string, BetTestStats>> {
-    const map = new Map<string, BetTestStats>();
-    if (betIds.length === 0) return map;
-    const placeholders = betIds.map(() => "?").join(",");
+  private async getItemTestStats(itemIds: string[]): Promise<Map<string, ItemTestStats>> {
+    const map = new Map<string, ItemTestStats>();
+    if (itemIds.length === 0) return map;
+    const placeholders = itemIds.map(() => "?").join(",");
     const rows = await query<RowDataPacket[]>(`
       SELECT
-        tc.target_id AS bet_id,
+        tc.target_id AS item_id,
         COUNT(*) AS total,
         SUM(CASE WHEN lr.status = 'passed' THEN 1 ELSE 0 END) AS passed,
         SUM(CASE WHEN lr.status IN ('failed', 'blocked', 'skipped') THEN 1 ELSE 0 END) AS failed,
@@ -599,11 +625,11 @@ class TrackerManager extends EventEmitter {
           GROUP BY test_case_id
         ) latest ON tr.test_case_id = latest.test_case_id AND tr.executed_at = latest.max_at
       ) lr ON lr.test_case_id = tc.id
-      WHERE tc.target_type = 'bet' AND tc.target_id IN (${placeholders})
+      WHERE tc.target_type = 'item' AND tc.target_id IN (${placeholders})
       GROUP BY tc.target_id
-    `, betIds);
+    `, itemIds);
     for (const r of rows) {
-      map.set(r.bet_id, {
+      map.set(r.item_id, {
         total: Number(r.total),
         passed: Number(r.passed),
         failed: Number(r.failed),
@@ -613,19 +639,19 @@ class TrackerManager extends EventEmitter {
     return map;
   }
 
-  async getBet(id: string): Promise<TrackerBet | null> {
-    const rows = await query<BetRow[]>("SELECT * FROM tracker_bets WHERE id = ?", [id]);
+  async getItem(id: string): Promise<TrackerItem | null> {
+    const rows = await query<ItemRow[]>("SELECT * FROM tracker_bets WHERE id = ?", [id]);
     if (!rows[0]) return null;
-    const assigneesMap = await this.getBetAssignees([id]);
-    const testStatsMap = await this.getBetTestStats([id]);
-    return mapBet(rows[0], assigneesMap.get(id) || [], testStatsMap.get(id));
+    const assigneesMap = await this.getItemAssignees([id]);
+    const testStatsMap = await this.getItemTestStats([id]);
+    return mapItem(rows[0], assigneesMap.get(id) || [], testStatsMap.get(id));
   }
 
-  async createBet(data: {
+  async createItem(data: {
     cycleId: string; title: string; description?: string; columnId: string;
-    appetite?: string; inScope?: string; outOfScope?: string;
+    appetite?: number; inScope?: string; outOfScope?: string;
     assignees?: string[]; tags?: string[]; createdBy: string;
-  }): Promise<TrackerBet> {
+  }): Promise<TrackerItem> {
     const id = randomUUID();
     const maxPos = await query<RowDataPacket[]>("SELECT COALESCE(MAX(position), -1) AS mp FROM tracker_bets WHERE cycle_id = ?", [data.cycleId]);
     const position = (maxPos[0]?.mp ?? -1) + 1;
@@ -644,22 +670,22 @@ class TrackerManager extends EventEmitter {
 
     await execute(
       "INSERT INTO tracker_bets (id, cycle_id, title, description, column_id, appetite, in_scope, out_of_scope, tags, seq_number, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, data.cycleId, data.title, data.description || "", data.columnId, data.appetite || "small",
+      [id, data.cycleId, data.title, data.description || "", data.columnId, data.appetite ?? 7,
        data.inScope || "", data.outOfScope || "", JSON.stringify(data.tags || []), seqNumber, position, data.createdBy],
     );
     if (data.assignees?.length) {
       await execute(`INSERT INTO tracker_bet_assignees (bet_id, user_id) VALUES ${data.assignees.map(() => "(?, ?)").join(",")}`,
         data.assignees.flatMap((uid) => [id, uid]));
     }
-    const bet = (await this.getBet(id))!;
-    this.emit("bet:create", bet);
-    return bet;
+    const item = (await this.getItem(id))!;
+    this.emit("item:create", item);
+    return item;
   }
 
-  async updateBet(id: string, data: Partial<{
-    title: string; description: string; columnId: string; appetite: string;
+  async updateItem(id: string, data: Partial<{
+    title: string; description: string; columnId: string; appetite: number;
     inScope: string; outOfScope: string; assignees: string[]; tags: string[];
-  }>): Promise<TrackerBet | null> {
+  }>): Promise<TrackerItem | null> {
     const sets: string[] = [];
     const params: (string | number | null | boolean)[] = [];
     if (data.title !== undefined) { sets.push("title = ?"); params.push(data.title); }
@@ -682,28 +708,43 @@ class TrackerManager extends EventEmitter {
         );
       }
     }
-    const bet = await this.getBet(id);
-    if (bet) this.emit("bet:update", bet);
-    return bet;
+    const item = await this.getItem(id);
+    if (item) this.emit("item:update", item);
+    return item;
   }
 
-  async moveBet(id: string, columnId: string, position: number): Promise<TrackerBet | null> {
-    await execute("UPDATE tracker_bets SET column_id = ?, position = ? WHERE id = ?", [columnId, position, id]);
-    const bet = await this.getBet(id);
-    if (bet) this.emit("bet:update", bet);
-    return bet;
+  async moveItem(id: string, columnId: string, position: number): Promise<TrackerItem | null> {
+    const item = await this.getItem(id);
+    if (!item) return null;
+
+    const cycle = await this.getCycle(item.cycleId);
+    if (!cycle) return null;
+
+    const sortedColumns = [...cycle.columns].sort((a, b) => a.position - b.position);
+    const firstColumnId = sortedColumns[0]?.id;
+    const isLeavingFirstColumn = item.columnId === firstColumnId && columnId !== firstColumnId;
+
+    if (isLeavingFirstColumn && !item.startedAt) {
+      await execute("UPDATE tracker_bets SET column_id = ?, position = ?, started_at = NOW() WHERE id = ?", [columnId, position, id]);
+    } else {
+      await execute("UPDATE tracker_bets SET column_id = ?, position = ? WHERE id = ?", [columnId, position, id]);
+    }
+
+    const updated = await this.getItem(id);
+    if (updated) this.emit("item:update", updated);
+    return updated;
   }
 
-  async deleteBet(id: string): Promise<boolean> {
+  async deleteItem(id: string): Promise<boolean> {
     const result = await execute("DELETE FROM tracker_bets WHERE id = ?", [id]);
     if (result.affectedRows > 0) {
-      this.emit("bet:delete", { id });
+      this.emit("item:delete", { id });
       return true;
     }
     return false;
   }
 
-  async searchBets(q: string): Promise<Array<{ id: string; code: string; title: string; cycleId: string; columnId: string }>> {
+  async searchItems(q: string): Promise<Array<{ id: string; code: string; title: string; cycleId: string; columnId: string }>> {
     const escaped = q.replace(/%/g, "\\%").replace(/_/g, "\\_");
     const pattern = `%${escaped}%`;
     const rows = await query<RowDataPacket[]>(`

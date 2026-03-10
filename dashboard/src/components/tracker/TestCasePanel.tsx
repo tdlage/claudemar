@@ -10,7 +10,7 @@ import { PRIORITY_VARIANT, TEST_RUN_STATUS_CONFIG } from "./constants";
 import type { TrackerTestCase } from "../../lib/types";
 
 interface Props {
-  targetType: "bet";
+  targetType: "item";
   targetId: string;
 }
 

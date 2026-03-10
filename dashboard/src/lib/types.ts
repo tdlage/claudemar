@@ -243,7 +243,7 @@ export interface TrackerProject {
   name: string;
   code: string;
   description: string;
-  nextBetNumber: number;
+  nextItemNumber: number;
   createdBy: string;
   createdAt: string;
 }
@@ -258,33 +258,34 @@ export interface TrackerCycle {
   createdAt: string;
 }
 
-export interface BetTestStats {
+export interface ItemTestStats {
   total: number;
   passed: number;
   failed: number;
   noRuns: number;
 }
 
-export interface TrackerBet {
+export interface TrackerItem {
   id: string;
   cycleId: string;
   title: string;
   description: string;
   columnId: string;
-  appetite: "small" | "big";
+  appetite: number;
+  startedAt: string | null;
   inScope: string;
   outOfScope: string;
   assignees: string[];
   tags: string[];
   seqNumber: number;
   position: number;
-  testStats: BetTestStats;
+  testStats: ItemTestStats;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface TrackerBetSearchResult {
+export interface TrackerItemSearchResult {
   id: string;
   code: string;
   title: string;
@@ -304,7 +305,7 @@ export interface TrackerAttachment {
 
 export interface TrackerComment {
   id: string;
-  targetType: "bet";
+  targetType: "item";
   targetId: string;
   authorId: string;
   authorName: string;
@@ -315,7 +316,7 @@ export interface TrackerComment {
 
 export interface TrackerTestCase {
   id: string;
-  targetType: "bet";
+  targetType: "item";
   targetId: string;
   title: string;
   description: string;

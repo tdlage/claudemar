@@ -19,6 +19,7 @@ export interface HistoryEntry {
   error?: string | null;
   sessionId?: string;
   planMode?: boolean;
+  username?: string;
 }
 
 const MAX_LINES = 500;

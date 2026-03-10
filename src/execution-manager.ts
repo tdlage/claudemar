@@ -91,6 +91,7 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
     error: info.error,
     sessionId: info.result?.sessionId || undefined,
     planMode: info.planMode || undefined,
+    username: info.username || undefined,
   };
 }
 
@@ -455,6 +456,7 @@ class ExecutionManager extends EventEmitter {
       error: e.error ?? null,
       pendingQuestion: null,
       planMode: e.planMode ?? false,
+      username: e.username,
     }));
 
     for (const e of entries) {

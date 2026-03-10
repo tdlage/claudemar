@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { Modal } from "../shared/Modal";
+import { MarkdownEditor } from "../shared/MarkdownEditor";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 
@@ -10,11 +11,11 @@ interface Props {
   cycleId: string;
 }
 
-export function CreateBetModal({ open, onClose, cycleId }: Props) {
+export function CreateItemModal({ open, onClose, cycleId }: Props) {
   const { addToast } = useToast();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [appetite, setAppetite] = useState<"small" | "big">("small");
+  const [appetite, setAppetite] = useState(7);
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -31,59 +32,57 @@ export function CreateBetModal({ open, onClose, cycleId }: Props) {
     if (!title.trim() || saving) return;
     setSaving(true);
     try {
-      await api.post("/tracker/bets", {
+      await api.post("/tracker/items", {
         cycleId,
         title: title.trim(),
         description,
         appetite,
         tags,
       });
-      addToast("success", "Bet created");
+      addToast("success", "Item created");
       setTitle("");
       setDescription("");
-      setAppetite("small");
+      setAppetite(7);
       setTags([]);
       onClose();
     } catch (e: unknown) {
-      addToast("error", e instanceof Error ? e.message : "Failed to create bet");
+      addToast("error", e instanceof Error ? e.message : "Failed to create item");
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="New Bet">
+    <Modal open={open} onClose={onClose} title="New Item">
       <div className="space-y-3">
         <div>
           <label className="block text-xs text-text-muted mb-1">Title</label>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Bet title"
+            placeholder="Item title"
             autoFocus
             className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
           />
         </div>
         <div>
           <label className="block text-xs text-text-muted mb-1">Description</label>
-          <textarea
+          <MarkdownEditor
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Description (markdown)"
-            rows={3}
-            className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-y"
+            onChange={setDescription}
+            placeholder="Description..."
           />
         </div>
         <div>
-          <label className="block text-xs text-text-muted mb-1">Appetite</label>
-          <select
+          <label className="block text-xs text-text-muted mb-1">Appetite (days)</label>
+          <input
+            type="number"
+            min={1}
+            max={365}
             value={appetite}
-            onChange={(e) => setAppetite(e.target.value as "small" | "big")}
-            className="w-full bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-          >
-            <option value="small">Small</option>
-            <option value="big">Big</option>
-          </select>
+            onChange={(e) => setAppetite(Math.max(1, Number(e.target.value) || 1))}
+            className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+          />
         </div>
         <div>
           <label className="block text-xs text-text-muted mb-1">Tags</label>

@@ -1,15 +1,51 @@
-import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
-import { Badge } from "../shared/Badge";
-import type { TrackerBet } from "../../lib/types";
+import { AlertTriangle, CheckCircle2, XCircle, Clock } from "lucide-react";
+import type { TrackerItem } from "../../lib/types";
+import { getDaysSpent } from "./constants";
 
 interface Props {
-  bet: TrackerBet;
+  item: TrackerItem;
   projectCode: string;
   onClick: () => void;
 }
 
-function TestStatusBadge({ bet }: { bet: TrackerBet }) {
-  const { testStats } = bet;
+function AppetiteBadge({ item }: { item: TrackerItem }) {
+  if (!item.startedAt) {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-border text-text-muted">
+        <Clock size={10} />
+        {item.appetite}d
+      </span>
+    );
+  }
+
+  const daysSpent = getDaysSpent(item.startedAt);
+  const ratio = daysSpent / item.appetite;
+  const pct = Math.min(ratio * 100, 100);
+
+  let colorClass: string;
+  if (daysSpent > item.appetite) {
+    colorClass = "text-danger bg-danger/10";
+  } else if (daysSpent === item.appetite) {
+    colorClass = "text-warning bg-warning/10";
+  } else {
+    colorClass = "text-success bg-success/10";
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${colorClass}`}>
+      <span className="relative w-8 h-1.5 rounded-full bg-current/20 overflow-hidden">
+        <span
+          className="absolute inset-y-0 left-0 rounded-full bg-current"
+          style={{ width: `${pct}%` }}
+        />
+      </span>
+      {daysSpent}/{item.appetite}d
+    </span>
+  );
+}
+
+function TestStatusBadge({ item }: { item: TrackerItem }) {
+  const { testStats } = item;
 
   if (testStats.total === 0) {
     return (
@@ -44,9 +80,9 @@ function TestStatusBadge({ bet }: { bet: TrackerBet }) {
   );
 }
 
-export function BetCard({ bet, projectCode, onClick }: Props) {
+export function ItemCard({ item, projectCode, onClick }: Props) {
   const handleDragStart = (e: React.DragEvent) => {
-    e.dataTransfer.setData("text/plain", bet.id);
+    e.dataTransfer.setData("text/plain", item.id);
     e.dataTransfer.effectAllowed = "move";
   };
 
@@ -59,28 +95,26 @@ export function BetCard({ bet, projectCode, onClick }: Props) {
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          {projectCode && bet.seqNumber > 0 && (
+          {projectCode && item.seqNumber > 0 && (
             <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-accent/10 text-accent shrink-0">
-              {projectCode}-{bet.seqNumber}
+              {projectCode}-{item.seqNumber}
             </span>
           )}
-          <span className="text-sm font-medium text-text-primary leading-tight truncate">{bet.title}</span>
+          <span className="text-sm font-medium text-text-primary leading-tight truncate">{item.title}</span>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <TestStatusBadge bet={bet} />
-          <Badge variant={bet.appetite === "big" ? "warning" : "default"}>
-            {bet.appetite}
-          </Badge>
+          <TestStatusBadge item={item} />
+          <AppetiteBadge item={item} />
         </div>
       </div>
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-        {bet.tags.map((tag) => (
-          <Badge key={tag} variant="default">{tag}</Badge>
+        {item.tags.map((tag) => (
+          <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-border text-text-secondary">{tag}</span>
         ))}
       </div>
-      {bet.assignees.length > 0 && (
+      {item.assignees.length > 0 && (
         <div className="flex items-center gap-1 mt-2">
-          {bet.assignees.map((a) => (
+          {item.assignees.map((a) => (
             <span
               key={a}
               className="w-5 h-5 rounded-full bg-accent/20 text-accent text-[10px] flex items-center justify-center font-medium"

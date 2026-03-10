@@ -47,7 +47,8 @@ const MIGRATIONS: string[] = [
     title VARCHAR(500) NOT NULL,
     description TEXT,
     column_id CHAR(36) NOT NULL,
-    appetite ENUM('small','big') NOT NULL DEFAULT 'small',
+    appetite INT NOT NULL DEFAULT 7,
+    started_at DATETIME DEFAULT NULL,
     in_scope TEXT,
     out_of_scope TEXT,
     tags JSON,
@@ -68,7 +69,7 @@ const MIGRATIONS: string[] = [
 
   `CREATE TABLE IF NOT EXISTS tracker_comments (
     id CHAR(36) PRIMARY KEY,
-    target_type ENUM('bet') NOT NULL,
+    target_type ENUM('item') NOT NULL,
     target_id CHAR(36) NOT NULL,
     author_id VARCHAR(100) NOT NULL,
     author_name VARCHAR(255) NOT NULL,
@@ -90,7 +91,7 @@ const MIGRATIONS: string[] = [
 
   `CREATE TABLE IF NOT EXISTS tracker_test_cases (
     id CHAR(36) PRIMARY KEY,
-    target_type ENUM('bet') NOT NULL,
+    target_type ENUM('item') NOT NULL,
     target_id CHAR(36) NOT NULL,
     title VARCHAR(500) NOT NULL,
     description TEXT,
@@ -243,10 +244,12 @@ async function runSchemaUpgrades(): Promise<void> {
   await pool.execute("DROP TABLE IF EXISTS tracker_scopes").catch(() => {});
 
   if (await tableExists(pool, "tracker_comments")) {
-    await pool.execute("ALTER TABLE tracker_comments MODIFY COLUMN target_type ENUM('bet') NOT NULL").catch(() => {});
+    await pool.execute("ALTER TABLE tracker_comments MODIFY COLUMN target_type ENUM('bet','item') NOT NULL").catch(() => {});
+    await pool.execute("UPDATE tracker_comments SET target_type = 'item' WHERE target_type = 'bet'").catch(() => {});
   }
   if (await tableExists(pool, "tracker_test_cases")) {
-    await pool.execute("ALTER TABLE tracker_test_cases MODIFY COLUMN target_type ENUM('bet') NOT NULL").catch(() => {});
+    await pool.execute("ALTER TABLE tracker_test_cases MODIFY COLUMN target_type ENUM('bet','item') NOT NULL").catch(() => {});
+    await pool.execute("UPDATE tracker_test_cases SET target_type = 'item' WHERE target_type = 'bet'").catch(() => {});
   }
 
   if (!(await columnExists(pool, "tracker_projects", "code"))) {
@@ -270,6 +273,17 @@ async function runSchemaUpgrades(): Promise<void> {
     await pool.execute("ALTER TABLE tracker_projects ADD UNIQUE KEY uk_code (code)").catch(() => {});
   }
 
+  const [colTypeRows] = await pool.execute(
+    "SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tracker_bets' AND COLUMN_NAME = 'appetite'",
+  );
+  const colType = (colTypeRows as Array<{ COLUMN_TYPE: string }>)[0]?.COLUMN_TYPE ?? "";
+  if (colType.toLowerCase().includes("enum")) {
+    await pool.execute("ALTER TABLE tracker_bets ADD COLUMN appetite_int INT NOT NULL DEFAULT 7");
+    await pool.execute("UPDATE tracker_bets SET appetite_int = CASE WHEN appetite = 'big' THEN 14 ELSE 3 END");
+    await pool.execute("ALTER TABLE tracker_bets DROP COLUMN appetite");
+    await pool.execute("ALTER TABLE tracker_bets CHANGE appetite_int appetite INT NOT NULL DEFAULT 7");
+  }
+
   if (!(await columnExists(pool, "tracker_bets", "seq_number"))) {
     await pool.execute("ALTER TABLE tracker_bets ADD COLUMN seq_number INT NOT NULL DEFAULT 0 AFTER tags");
     const [projects] = await pool.execute("SELECT id FROM tracker_projects");
@@ -285,6 +299,10 @@ async function runSchemaUpgrades(): Promise<void> {
       }
       await pool.execute("UPDATE tracker_projects SET next_bet_number = ? WHERE id = ?", [seq, p.id]);
     }
+  }
+
+  if (!(await columnExists(pool, "tracker_bets", "started_at"))) {
+    await pool.execute("ALTER TABLE tracker_bets ADD COLUMN started_at DATETIME DEFAULT NULL AFTER seq_number");
   }
 }
 

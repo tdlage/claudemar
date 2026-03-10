@@ -4,7 +4,7 @@ import { useSocketEvent, useSocketRoom } from "./useSocket";
 import type {
   TrackerProject,
   TrackerCycle,
-  TrackerBet,
+  TrackerItem,
   TrackerComment,
   TrackerTestCase,
   TrackerTestRun,
@@ -85,30 +85,43 @@ export function useCycles(projectId: string | undefined) {
   return { cycles: data ?? [], loading, error, refresh };
 }
 
-export function useBets(cycleId: string | undefined) {
-  const path = cycleId ? `/tracker/cycles/${cycleId}/bets` : null;
-  const { data, setData, loading, error, refresh } = useTrackerData<TrackerBet[]>(path, [cycleId]);
+export function useCycleStats(projectId: string | undefined) {
+  const path = projectId ? `/tracker/projects/${projectId}/cycle-stats` : null;
+  const { data, loading, error, refresh } = useTrackerData<Record<string, { total: number; byColumn: Record<string, number> }>>(path, [projectId]);
 
   useTrackerSocket();
 
-  useSocketEvent<TrackerBet>("tracker:bet:create", (bet) => {
-    if (bet.cycleId === cycleId) {
-      setData((prev) => (prev ? [...prev, bet] : [bet]));
+  useSocketEvent<TrackerItem>("tracker:item:create", () => refresh());
+  useSocketEvent<TrackerItem>("tracker:item:update", () => refresh());
+  useSocketEvent<{ id: string }>("tracker:item:delete", () => refresh());
+
+  return { stats: data ?? {}, loading, error, refresh };
+}
+
+export function useItems(cycleId: string | undefined) {
+  const path = cycleId ? `/tracker/cycles/${cycleId}/items` : null;
+  const { data, setData, loading, error, refresh } = useTrackerData<TrackerItem[]>(path, [cycleId]);
+
+  useTrackerSocket();
+
+  useSocketEvent<TrackerItem>("tracker:item:create", (item) => {
+    if (item.cycleId === cycleId) {
+      setData((prev) => (prev ? [...prev, item] : [item]));
     }
   });
 
-  useSocketEvent<TrackerBet>("tracker:bet:update", (bet) => {
-    setData((prev) => prev?.map((b) => (b.id === bet.id ? bet : b)) ?? null);
+  useSocketEvent<TrackerItem>("tracker:item:update", (item) => {
+    setData((prev) => prev?.map((i) => (i.id === item.id ? item : i)) ?? null);
   });
 
-  useSocketEvent<{ id: string }>("tracker:bet:delete", ({ id }) => {
-    setData((prev) => prev?.filter((b) => b.id !== id) ?? null);
+  useSocketEvent<{ id: string }>("tracker:item:delete", ({ id }) => {
+    setData((prev) => prev?.filter((i) => i.id !== id) ?? null);
   });
 
-  return { bets: data ?? [], loading, error, refresh };
+  return { items: data ?? [], loading, error, refresh };
 }
 
-export function useComments(targetType: "bet", targetId: string | undefined) {
+export function useComments(targetType: "item", targetId: string | undefined) {
   const path = targetId ? `/tracker/comments/${targetType}/${targetId}` : null;
   const { data, setData, loading, error, refresh } = useTrackerData<TrackerComment[]>(path, [targetType, targetId]);
 
@@ -127,7 +140,7 @@ export function useComments(targetType: "bet", targetId: string | undefined) {
   return { comments: data ?? [], loading, error, refresh };
 }
 
-export function useTestCases(targetType: "bet", targetId: string | undefined) {
+export function useTestCases(targetType: "item", targetId: string | undefined) {
   const path = targetId ? `/tracker/test-cases/${targetType}/${targetId}` : null;
   const { data, setData, loading, error, refresh } = useTrackerData<TrackerTestCase[]>(path, [targetType, targetId]);
 

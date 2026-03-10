@@ -1,5 +1,9 @@
 import type { CycleStatus, TestRunStatus, TestCasePriority } from "../../lib/types";
 
+export function getDaysSpent(startedAt: string): number {
+  return Math.floor((Date.now() - new Date(startedAt).getTime()) / 86400000) + 1;
+}
+
 export const CYCLE_STATUS_VARIANT: Record<CycleStatus, "success" | "default"> = {
   active: "success",
   completed: "default",

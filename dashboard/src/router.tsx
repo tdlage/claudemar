@@ -13,8 +13,8 @@ import { TrackerPage } from "./pages/TrackerPage";
 import { getMe } from "./hooks/useAuth";
 
 function KeyedTrackerPage() {
-  const { projectId, cycleId, betId } = useParams();
-  return <TrackerPage key={`${projectId}-${cycleId}-${betId}`} />;
+  const { projectId, cycleId, itemId } = useParams();
+  return <TrackerPage key={`${projectId}-${cycleId}-${itemId}`} />;
 }
 
 function KeyedProjectPage() {
@@ -78,7 +78,7 @@ export const router = createBrowserRouter([
       { path: "tracker", element: <TrackerPage /> },
       { path: "tracker/:projectId", element: <KeyedTrackerPage /> },
       { path: "tracker/:projectId/cycles/:cycleId", element: <KeyedTrackerPage /> },
-      { path: "tracker/:projectId/cycles/:cycleId/bets/:betId", element: <KeyedTrackerPage /> },
+      { path: "tracker/:projectId/cycles/:cycleId/items/:itemId", element: <KeyedTrackerPage /> },
     ],
   },
 ]);
