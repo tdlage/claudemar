@@ -1,19 +1,8 @@
-import type { CycleStatus, BetStatus, TestRunStatus, TestCasePriority } from "../../lib/types";
+import type { CycleStatus, TestRunStatus, TestCasePriority } from "../../lib/types";
 
-export const CYCLE_STATUS_VARIANT: Record<CycleStatus, "info" | "warning" | "accent" | "default" | "success"> = {
-  shaping: "info",
-  betting: "warning",
-  building: "accent",
-  cooldown: "default",
-  completed: "success",
-};
-
-export const BET_STATUS_VARIANT: Record<BetStatus, "info" | "warning" | "accent" | "success" | "default"> = {
-  pitch: "info",
-  bet: "warning",
-  in_progress: "accent",
-  done: "success",
-  dropped: "default",
+export const CYCLE_STATUS_VARIANT: Record<CycleStatus, "success" | "default"> = {
+  active: "success",
+  completed: "default",
 };
 
 export const TEST_RUN_STATUS_CONFIG: Record<TestRunStatus, { icon: string; variant: "success" | "danger" | "warning" | "default"; color: string }> = {

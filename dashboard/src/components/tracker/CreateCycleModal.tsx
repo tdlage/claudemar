@@ -6,33 +6,19 @@ import { useToast } from "../shared/Toast";
 interface Props {
   open: boolean;
   onClose: () => void;
+  projectId: string;
 }
 
-function addWeeks(date: string, weeks: number): string {
-  const d = new Date(date);
-  d.setDate(d.getDate() + weeks * 7);
-  return d.toISOString().slice(0, 10);
-}
-
-export function CreateCycleModal({ open, onClose }: Props) {
+export function CreateCycleModal({ open, onClose, projectId }: Props) {
   const { addToast } = useToast();
   const [name, setName] = useState("");
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState(() => addWeeks(new Date().toISOString().slice(0, 10), 6));
-  const [cooldownEndDate, setCooldownEndDate] = useState(() => addWeeks(new Date().toISOString().slice(0, 10), 8));
   const [saving, setSaving] = useState(false);
-
-  const handleStartChange = (v: string) => {
-    setStartDate(v);
-    setEndDate(addWeeks(v, 6));
-    setCooldownEndDate(addWeeks(v, 8));
-  };
 
   const handleSave = async () => {
     if (!name.trim() || saving) return;
     setSaving(true);
     try {
-      await api.post("/tracker/cycles", { name: name.trim(), startDate, endDate, cooldownEndDate });
+      await api.post("/tracker/cycles", { projectId, name: name.trim() });
       addToast("success", "Cycle created");
       setName("");
       onClose();
@@ -52,39 +38,10 @@ export function CreateCycleModal({ open, onClose }: Props) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSave()}
-            placeholder="Cycle 1"
+            placeholder="e.g. User Authentication, Payment System"
             autoFocus
             className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
           />
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <div>
-            <label className="block text-xs text-text-muted mb-1">Start</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => handleStartChange(e.target.value)}
-              className="w-full bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-text-muted mb-1">End (6w)</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-text-muted mb-1">Cooldown</label>
-            <input
-              type="date"
-              value={cooldownEndDate}
-              onChange={(e) => setCooldownEndDate(e.target.value)}
-              className="w-full bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-            />
-          </div>
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button

@@ -9,6 +9,7 @@ import { Modal } from "../shared/Modal";
 import { GitDiffViewer } from "./GitDiffViewer";
 import { GitLog } from "./GitLog";
 import { useToast } from "../shared/Toast";
+import { TrackerItemSelector } from "./TrackerItemSelector";
 import type { RepoInfo, RepoBranches, GitCommit, ExecutionInfo } from "../../lib/types";
 
 interface RepositoriesTabProps {
@@ -40,6 +41,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
   const [diffRepo, setDiffRepo] = useState<string | null>(null);
 
   const [commitPush, setCommitPush] = useState<Record<string, CommitPushState>>({});
+  const [trackerSelectorRepo, setTrackerSelectorRepo] = useState<string | null>(null);
 
   const handleCommitPushDone = useCallback((repoName: string, status: "completed" | "error", error?: string) => {
     setCommitPush((prev) => ({
@@ -109,10 +111,11 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
     };
   }, [commitPush, handleCommitPushDone]);
 
-  const handleCommitPush = async (repoName: string) => {
+  const handleCommitPush = async (repoName: string, trackerItems: string[] = []) => {
     try {
       const { id } = await api.post<{ id: string }>(
         `/projects/${projectName}/repos/${repoName}/commit-push`,
+        { trackerItems },
       );
       setCommitPush((prev) => ({
         ...prev,
@@ -314,7 +317,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => handleCommitPush(repo.name)}
+                    onClick={() => setTrackerSelectorRepo(repo.name)}
                     disabled={cpState?.status === "running"}
                   >
                     {cpState?.status === "running" ? (
@@ -411,6 +414,17 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
           </div>
         </div>
       </Modal>
+
+      <TrackerItemSelector
+        open={!!trackerSelectorRepo}
+        onClose={() => setTrackerSelectorRepo(null)}
+        onConfirm={(items) => {
+          if (trackerSelectorRepo) {
+            handleCommitPush(trackerSelectorRepo, items);
+          }
+          setTrackerSelectorRepo(null);
+        }}
+      />
 
       <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Remove Repository">
         <div className="space-y-3">

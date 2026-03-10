@@ -1,57 +1,43 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Plus, Pencil } from "lucide-react";
+import { ArrowLeft, Pencil } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { Tabs } from "../shared/Tabs";
-import { useBets, useScopes } from "../../hooks/useTracker";
+import { useBets, useTrackerProjects } from "../../hooks/useTracker";
 import { isAdmin } from "../../hooks/useAuth";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
-import { ScopeCard } from "./ScopeCard";
-import { CreateScopeModal } from "./CreateScopeModal";
-import { HillChart } from "./HillChart";
 import { TestCasePanel } from "./TestCasePanel";
 import { CommentThread } from "./CommentThread";
-import { CommitLinker } from "./CommitLinker";
-import { BET_STATUS_VARIANT } from "./constants";
-import type { BetStatus } from "../../lib/types";
 
 interface Props {
+  projectId: string;
   cycleId: string;
   betId: string;
 }
 
-type TabKey = "scopes" | "hill" | "tests" | "comments" | "commits";
+type TabKey = "details" | "tests" | "comments";
 
-export function BetDetail({ cycleId, betId }: Props) {
+export function BetDetail({ projectId, cycleId, betId }: Props) {
   const { addToast } = useToast();
   const admin = isAdmin();
+  const { projects } = useTrackerProjects();
   const { bets } = useBets(cycleId);
-  const { scopes, refresh: refreshScopes } = useScopes(betId);
-  const [tab, setTab] = useState<TabKey>("scopes");
-  const [createScopeOpen, setCreateScopeOpen] = useState(false);
+  const project = projects.find((p) => p.id === projectId);
+  const [tab, setTab] = useState<TabKey>("details");
   const [editingBet, setEditingBet] = useState(false);
   const [betTitle, setBetTitle] = useState("");
-  const [selectedScopeId, setSelectedScopeId] = useState<string | null>(null);
+  const [inScope, setInScope] = useState("");
+  const [outOfScope, setOutOfScope] = useState("");
 
   const bet = bets.find((b) => b.id === betId);
 
-  const handleDeleteScope = async (scopeId: string) => {
-    try {
-      await api.delete(`/tracker/scopes/${scopeId}`);
-      addToast("success", "Scope deleted");
-    } catch {
-      addToast("error", "Failed to delete scope");
+  useEffect(() => {
+    if (bet) {
+      setInScope(bet.inScope);
+      setOutOfScope(bet.outOfScope);
     }
-  };
-
-  const handleBetStatusChange = async (status: BetStatus) => {
-    try {
-      await api.put(`/tracker/bets/${betId}`, { status });
-    } catch {
-      addToast("error", "Failed to update bet");
-    }
-  };
+  }, [bet?.inScope, bet?.outOfScope]);
 
   const handleSaveBetTitle = async () => {
     if (!betTitle.trim()) return;
@@ -63,12 +49,26 @@ export function BetDetail({ cycleId, betId }: Props) {
     }
   };
 
-  const tabs: { key: TabKey; label: string; badge?: number }[] = [
-    { key: "scopes", label: "Scopes", badge: scopes.length },
-    { key: "hill", label: "Hill Chart" },
+  const handleSaveInScope = async () => {
+    try {
+      await api.put(`/tracker/bets/${betId}`, { inScope });
+    } catch {
+      addToast("error", "Failed to save");
+    }
+  };
+
+  const handleSaveOutOfScope = async () => {
+    try {
+      await api.put(`/tracker/bets/${betId}`, { outOfScope });
+    } catch {
+      addToast("error", "Failed to save");
+    }
+  };
+
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: "details", label: "Detalhes" },
     { key: "tests", label: "Tests" },
     { key: "comments", label: "Comments" },
-    { key: "commits", label: "Commits" },
   ];
 
   return (
@@ -76,16 +76,23 @@ export function BetDetail({ cycleId, betId }: Props) {
       <div className="flex items-center gap-2 text-xs text-text-muted">
         <Link to="/tracker" className="hover:text-text-primary transition-colors">Tracker</Link>
         <span>/</span>
-        <Link to={`/tracker/${cycleId}`} className="hover:text-text-primary transition-colors">Cycle</Link>
+        <Link to={`/tracker/${projectId}`} className="hover:text-text-primary transition-colors">Project</Link>
+        <span>/</span>
+        <Link to={`/tracker/${projectId}/cycles/${cycleId}`} className="hover:text-text-primary transition-colors">Cycle</Link>
         <span>/</span>
         <span className="text-text-primary">{bet?.title ?? "Bet"}</span>
       </div>
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link to={`/tracker/${cycleId}`} className="text-text-muted hover:text-text-primary transition-colors">
+          <Link to={`/tracker/${projectId}/cycles/${cycleId}`} className="text-text-muted hover:text-text-primary transition-colors">
             <ArrowLeft size={16} />
           </Link>
+          {project && bet && bet.seqNumber > 0 && (
+            <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+              {project.code}-{bet.seqNumber}
+            </span>
+          )}
           {editingBet ? (
             <input
               value={betTitle}
@@ -98,9 +105,7 @@ export function BetDetail({ cycleId, betId }: Props) {
           ) : (
             <h2 className="text-lg font-semibold text-text-primary">{bet?.title ?? "Bet"}</h2>
           )}
-          {bet && <Badge variant={BET_STATUS_VARIANT[bet.status]}>{bet.status.replace("_", " ")}</Badge>}
           {bet && <Badge variant={bet.appetite === "big" ? "warning" : "default"}>{bet.appetite}</Badge>}
-          {bet?.projectName && <Badge variant="accent">{bet.projectName}</Badge>}
           {admin && !editingBet && (
             <button
               onClick={() => { setBetTitle(bet?.title ?? ""); setEditingBet(true); }}
@@ -110,17 +115,6 @@ export function BetDetail({ cycleId, betId }: Props) {
             </button>
           )}
         </div>
-        {bet && admin && (
-          <select
-            value={bet.status}
-            onChange={(e) => handleBetStatusChange(e.target.value as BetStatus)}
-            className="bg-bg border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
-          >
-            {(["pitch", "bet", "in_progress", "done", "dropped"] as BetStatus[]).map((s) => (
-              <option key={s} value={s}>{s.replace("_", " ")}</option>
-            ))}
-          </select>
-        )}
       </div>
 
       {bet?.assignees && bet.assignees.length > 0 && (
@@ -139,35 +133,37 @@ export function BetDetail({ cycleId, betId }: Props) {
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
-      {tab === "scopes" && (
-        <div className="space-y-3">
-          <div className="flex justify-end">
-            <button
-              onClick={() => setCreateScopeOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
-            >
-              <Plus size={14} /> New Scope
-            </button>
-          </div>
-          {scopes.length === 0 && (
-            <p className="text-sm text-text-muted">No scopes yet.</p>
+      {tab === "details" && (
+        <div className="space-y-4">
+          {bet?.description && (
+            <div>
+              <label className="block text-xs font-medium text-text-muted mb-1 uppercase tracking-wider">Descrição</label>
+              <p className="text-sm text-text-secondary whitespace-pre-wrap">{bet.description}</p>
+            </div>
           )}
-          <div className="space-y-2">
-            {scopes.map((scope) => (
-              <ScopeCard
-                key={scope.id}
-                scope={scope}
-                onClick={() => setSelectedScopeId(selectedScopeId === scope.id ? null : scope.id)}
-                onDelete={() => handleDeleteScope(scope.id)}
-              />
-            ))}
+          <div>
+            <label className="block text-xs font-medium text-text-muted mb-1 uppercase tracking-wider">In Scope</label>
+            <textarea
+              value={inScope}
+              onChange={(e) => setInScope(e.target.value)}
+              onBlur={handleSaveInScope}
+              rows={4}
+              className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-y"
+              placeholder="O que faz parte do escopo deste item..."
+            />
           </div>
-          <CreateScopeModal open={createScopeOpen} onClose={() => setCreateScopeOpen(false)} betId={betId} />
+          <div>
+            <label className="block text-xs font-medium text-text-muted mb-1 uppercase tracking-wider">Out of Scope</label>
+            <textarea
+              value={outOfScope}
+              onChange={(e) => setOutOfScope(e.target.value)}
+              onBlur={handleSaveOutOfScope}
+              rows={4}
+              className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-y"
+              placeholder="O que NÃO faz parte do escopo deste item..."
+            />
+          </div>
         </div>
-      )}
-
-      {tab === "hill" && (
-        <HillChart scopes={scopes} onRefresh={refreshScopes} />
       )}
 
       {tab === "tests" && (
@@ -176,10 +172,6 @@ export function BetDetail({ cycleId, betId }: Props) {
 
       {tab === "comments" && (
         <CommentThread targetType="bet" targetId={betId} />
-      )}
-
-      {tab === "commits" && (
-        <CommitLinker scopes={scopes} projectName={bet?.projectName ?? ""} />
       )}
     </div>
   );

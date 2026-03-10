@@ -476,13 +476,20 @@ projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
   if (!resolved) return;
 
   const targetName = `__commitpush:${req.params.name}:${req.params.repo}`;
+  const trackerItems: string[] = req.body?.trackerItems || [];
+
+  let prompt = "Analyze all uncommitted changes (staged and unstaged), write a clear and concise commit message following conventional commits style, stage all changes, commit, and push to origin. If there are merge conflicts, resolve them. Show the final commit message and push result.";
+
+  if (trackerItems.length > 0) {
+    prompt += `\n\nIMPORTANT: Include these tracker item references in the commit message footer as "Refs: ${trackerItems.join(", ")}".`;
+  }
 
   const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
   const id = executionManager.startExecution({
     source: "web",
     targetType: "project",
     targetName,
-    prompt: "Analyze all uncommitted changes (staged and unstaged), write a clear and concise commit message following conventional commits style, stage all changes, commit, and push to origin. If there are merge conflicts, resolve them. Show the final commit message and push result.",
+    prompt,
     cwd: resolved.repoPath,
     noResume: true,
     model: "claude-sonnet-4-6",

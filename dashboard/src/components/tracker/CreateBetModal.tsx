@@ -1,9 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { X } from "lucide-react";
 import { Modal } from "../shared/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
-import type { ProjectInfo } from "../../lib/types";
 
 interface Props {
   open: boolean;
@@ -16,17 +15,9 @@ export function CreateBetModal({ open, onClose, cycleId }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [appetite, setAppetite] = useState<"small" | "big">("small");
-  const [projectName, setProjectName] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
-  const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
-    }
-  }, [open]);
 
   const addTag = () => {
     const tag = tagInput.trim();
@@ -45,14 +36,12 @@ export function CreateBetModal({ open, onClose, cycleId }: Props) {
         title: title.trim(),
         description,
         appetite,
-        projectName: projectName || undefined,
         tags,
       });
       addToast("success", "Bet created");
       setTitle("");
       setDescription("");
       setAppetite("small");
-      setProjectName("");
       setTags([]);
       onClose();
     } catch (e: unknown) {
@@ -85,31 +74,16 @@ export function CreateBetModal({ open, onClose, cycleId }: Props) {
             className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-y"
           />
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs text-text-muted mb-1">Appetite</label>
-            <select
-              value={appetite}
-              onChange={(e) => setAppetite(e.target.value as "small" | "big")}
-              className="w-full bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-            >
-              <option value="small">Small</option>
-              <option value="big">Big</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-text-muted mb-1">Project</label>
-            <select
-              value={projectName}
-              onChange={(e) => setProjectName(e.target.value)}
-              className="w-full bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-            >
-              <option value="">None</option>
-              {projects.map((p) => (
-                <option key={p.name} value={p.name}>{p.name}</option>
-              ))}
-            </select>
-          </div>
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Appetite</label>
+          <select
+            value={appetite}
+            onChange={(e) => setAppetite(e.target.value as "small" | "big")}
+            className="w-full bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+          >
+            <option value="small">Small</option>
+            <option value="big">Big</option>
+          </select>
         </div>
         <div>
           <label className="block text-xs text-text-muted mb-1">Tags</label>

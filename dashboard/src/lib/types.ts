@@ -227,21 +227,42 @@ export interface EmailProfileMasked {
 
 // ── Tracker (Shape Up) ──
 
-export type CycleStatus = "shaping" | "betting" | "building" | "cooldown" | "completed";
-export type BetStatus = "pitch" | "bet" | "in_progress" | "done" | "dropped";
-export type ScopeStatus = "uphill" | "overhill" | "done";
+export type CycleStatus = "active" | "completed";
 export type TestCasePriority = "critical" | "high" | "medium" | "low";
 export type TestRunStatus = "passed" | "failed" | "blocked" | "skipped";
 
-export interface TrackerCycle {
+export interface CycleColumn {
   id: string;
   name: string;
-  status: CycleStatus;
-  startDate: string;
-  endDate: string;
-  cooldownEndDate: string;
+  color: string;
+  position: number;
+}
+
+export interface TrackerProject {
+  id: string;
+  name: string;
+  code: string;
+  description: string;
+  nextBetNumber: number;
   createdBy: string;
   createdAt: string;
+}
+
+export interface TrackerCycle {
+  id: string;
+  projectId: string;
+  name: string;
+  status: CycleStatus;
+  columns: CycleColumn[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface BetTestStats {
+  total: number;
+  passed: number;
+  failed: number;
+  noRuns: number;
 }
 
 export interface TrackerBet {
@@ -249,28 +270,26 @@ export interface TrackerBet {
   cycleId: string;
   title: string;
   description: string;
-  status: BetStatus;
+  columnId: string;
   appetite: "small" | "big";
-  projectName: string;
+  inScope: string;
+  outOfScope: string;
   assignees: string[];
   tags: string[];
+  seqNumber: number;
   position: number;
+  testStats: BetTestStats;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface TrackerScope {
+export interface TrackerBetSearchResult {
   id: string;
-  betId: string;
+  code: string;
   title: string;
-  description: string;
-  status: ScopeStatus;
-  hillPosition: number;
-  assignees: string[];
-  position: number;
-  createdAt: string;
-  updatedAt: string;
+  cycleId: string;
+  columnId: string;
 }
 
 export interface TrackerAttachment {
@@ -285,7 +304,7 @@ export interface TrackerAttachment {
 
 export interface TrackerComment {
   id: string;
-  targetType: "bet" | "scope";
+  targetType: "bet";
   targetId: string;
   authorId: string;
   authorName: string;
@@ -294,20 +313,9 @@ export interface TrackerComment {
   createdAt: string;
 }
 
-export interface TrackerCommitLink {
-  id: string;
-  scopeId: string;
-  projectName: string;
-  repoName: string;
-  commitHash: string;
-  commitMessage: string;
-  linkedAt: string;
-  linkedBy: string;
-}
-
 export interface TrackerTestCase {
   id: string;
-  targetType: "bet" | "scope";
+  targetType: "bet";
   targetId: string;
   title: string;
   description: string;

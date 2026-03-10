@@ -7,7 +7,7 @@ import type { TestCasePriority } from "../../lib/types";
 interface Props {
   open: boolean;
   onClose: () => void;
-  targetType: "bet" | "scope";
+  targetType: "bet";
   targetId: string;
 }
 

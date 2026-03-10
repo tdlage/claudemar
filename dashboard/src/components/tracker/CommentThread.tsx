@@ -7,7 +7,7 @@ import { MediaUpload, type MediaFile } from "./MediaUpload";
 import { AttachmentPreview } from "./AttachmentPreview";
 
 interface Props {
-  targetType: "bet" | "scope";
+  targetType: "bet";
   targetId: string;
 }
 

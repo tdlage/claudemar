@@ -165,11 +165,10 @@ export function setupWebSocket(io: SocketServer): void {
   });
 
   const trackerEvents = [
+    "project:create", "project:update", "project:delete",
     "cycle:create", "cycle:update", "cycle:delete",
     "bet:create", "bet:update", "bet:delete",
-    "scope:create", "scope:update", "scope:delete",
     "comment:add", "comment:delete",
-    "commit:link", "commit:unlink",
     "testcase:create", "testcase:update", "testcase:delete", "testcase:reorder",
     "testrun:create", "testrun:update", "testrun:delete", "testrun:attachment", "testrun:comment",
   ];

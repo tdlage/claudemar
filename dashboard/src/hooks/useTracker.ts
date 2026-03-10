@@ -2,11 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "../lib/api";
 import { useSocketEvent, useSocketRoom } from "./useSocket";
 import type {
+  TrackerProject,
   TrackerCycle,
   TrackerBet,
-  TrackerScope,
   TrackerComment,
-  TrackerCommitLink,
   TrackerTestCase,
   TrackerTestRun,
   TrackerTestRunComment,
@@ -43,13 +42,36 @@ function useTrackerSocket() {
   useSocketRoom("tracker");
 }
 
-export function useCycles() {
-  const { data, setData, loading, error, refresh } = useTrackerData<TrackerCycle[]>("/tracker/cycles");
+export function useTrackerProjects() {
+  const { data, setData, loading, error, refresh } = useTrackerData<TrackerProject[]>("/tracker/projects");
+
+  useTrackerSocket();
+
+  useSocketEvent<TrackerProject>("tracker:project:create", (project) => {
+    setData((prev) => (prev ? [...prev, project] : [project]));
+  });
+
+  useSocketEvent<TrackerProject>("tracker:project:update", (project) => {
+    setData((prev) => prev?.map((p) => (p.id === project.id ? project : p)) ?? null);
+  });
+
+  useSocketEvent<{ id: string }>("tracker:project:delete", ({ id }) => {
+    setData((prev) => prev?.filter((p) => p.id !== id) ?? null);
+  });
+
+  return { projects: data ?? [], loading, error, refresh };
+}
+
+export function useCycles(projectId: string | undefined) {
+  const path = projectId ? `/tracker/projects/${projectId}/cycles` : null;
+  const { data, setData, loading, error, refresh } = useTrackerData<TrackerCycle[]>(path, [projectId]);
 
   useTrackerSocket();
 
   useSocketEvent<TrackerCycle>("tracker:cycle:create", (cycle) => {
-    setData((prev) => (prev ? [...prev, cycle] : [cycle]));
+    if (cycle.projectId === projectId) {
+      setData((prev) => (prev ? [...prev, cycle] : [cycle]));
+    }
   });
 
   useSocketEvent<TrackerCycle>("tracker:cycle:update", (cycle) => {
@@ -86,30 +108,7 @@ export function useBets(cycleId: string | undefined) {
   return { bets: data ?? [], loading, error, refresh };
 }
 
-export function useScopes(betId: string | undefined) {
-  const path = betId ? `/tracker/bets/${betId}/scopes` : null;
-  const { data, setData, loading, error, refresh } = useTrackerData<TrackerScope[]>(path, [betId]);
-
-  useTrackerSocket();
-
-  useSocketEvent<TrackerScope>("tracker:scope:create", (scope) => {
-    if (scope.betId === betId) {
-      setData((prev) => (prev ? [...prev, scope] : [scope]));
-    }
-  });
-
-  useSocketEvent<TrackerScope>("tracker:scope:update", (scope) => {
-    setData((prev) => prev?.map((s) => (s.id === scope.id ? scope : s)) ?? null);
-  });
-
-  useSocketEvent<{ id: string }>("tracker:scope:delete", ({ id }) => {
-    setData((prev) => prev?.filter((s) => s.id !== id) ?? null);
-  });
-
-  return { scopes: data ?? [], loading, error, refresh };
-}
-
-export function useComments(targetType: "bet" | "scope", targetId: string | undefined) {
+export function useComments(targetType: "bet", targetId: string | undefined) {
   const path = targetId ? `/tracker/comments/${targetType}/${targetId}` : null;
   const { data, setData, loading, error, refresh } = useTrackerData<TrackerComment[]>(path, [targetType, targetId]);
 
@@ -128,26 +127,7 @@ export function useComments(targetType: "bet" | "scope", targetId: string | unde
   return { comments: data ?? [], loading, error, refresh };
 }
 
-export function useCommitLinks(scopeId: string | undefined) {
-  const path = scopeId ? `/tracker/scopes/${scopeId}/commits` : null;
-  const { data, setData, loading, error, refresh } = useTrackerData<TrackerCommitLink[]>(path, [scopeId]);
-
-  useTrackerSocket();
-
-  useSocketEvent<TrackerCommitLink>("tracker:commit:link", (link) => {
-    if (link.scopeId === scopeId) {
-      setData((prev) => (prev ? [...prev, link] : [link]));
-    }
-  });
-
-  useSocketEvent<{ id: string }>("tracker:commit:unlink", ({ id }) => {
-    setData((prev) => prev?.filter((l) => l.id !== id) ?? null);
-  });
-
-  return { commits: data ?? [], loading, error, refresh };
-}
-
-export function useTestCases(targetType: "bet" | "scope", targetId: string | undefined) {
+export function useTestCases(targetType: "bet", targetId: string | undefined) {
   const path = targetId ? `/tracker/test-cases/${targetType}/${targetId}` : null;
   const { data, setData, loading, error, refresh } = useTrackerData<TrackerTestCase[]>(path, [targetType, targetId]);
 

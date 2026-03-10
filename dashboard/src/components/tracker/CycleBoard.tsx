@@ -1,78 +1,67 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Plus, ArrowLeft, Pencil, Trash2 } from "lucide-react";
+import { Plus, ArrowLeft, Trash2, Settings, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
-import { useBets, useCycles } from "../../hooks/useTracker";
+import { useBets, useCycles, useTrackerProjects } from "../../hooks/useTracker";
 import { isAdmin } from "../../hooks/useAuth";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { BetCard } from "./BetCard";
 import { CreateBetModal } from "./CreateBetModal";
 import { CYCLE_STATUS_VARIANT } from "./constants";
-import type { BetStatus, CycleStatus, TrackerBet } from "../../lib/types";
-
-const COLUMNS: { key: BetStatus; label: string; color: string }[] = [
-  { key: "pitch", label: "Pitch", color: "border-blue-500/40" },
-  { key: "bet", label: "Bet", color: "border-amber-500/40" },
-  { key: "in_progress", label: "In Progress", color: "border-accent/40" },
-  { key: "done", label: "Done", color: "border-success/40" },
-  { key: "dropped", label: "Dropped", color: "border-text-muted/40" },
-];
+import type { CycleStatus, TrackerBet, CycleColumn } from "../../lib/types";
 
 interface Props {
+  projectId: string;
   cycleId: string;
 }
 
-export function CycleBoard({ cycleId }: Props) {
+export function CycleBoard({ projectId, cycleId }: Props) {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const admin = isAdmin();
-  const { cycles } = useCycles();
+  const { projects } = useTrackerProjects();
+  const { cycles } = useCycles(projectId);
   const { bets } = useBets(cycleId);
+  const project = projects.find((p) => p.id === projectId);
   const [createOpen, setCreateOpen] = useState(false);
-  const [dragOverCol, setDragOverCol] = useState<BetStatus | null>(null);
-  const [editingCycle, setEditingCycle] = useState(false);
-  const [cycleStatus, setCycleStatus] = useState<CycleStatus | "">("");
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+  const [showColumnManager, setShowColumnManager] = useState(false);
 
   const cycle = cycles.find((c) => c.id === cycleId);
+  const columns = (cycle?.columns ?? []).sort((a, b) => a.position - b.position);
 
-  useEffect(() => {
-    if (cycle) setCycleStatus(cycle.status);
-  }, [cycle]);
-
-  const betsByStatus = useCallback(
-    (status: BetStatus): TrackerBet[] =>
-      bets.filter((b) => b.status === status).sort((a, b) => a.position - b.position),
+  const betsByColumn = useCallback(
+    (columnId: string): TrackerBet[] =>
+      bets.filter((b) => b.columnId === columnId).sort((a, b) => a.position - b.position),
     [bets],
   );
 
-  const handleDrop = async (status: BetStatus, e: React.DragEvent) => {
+  const handleDrop = async (columnId: string, e: React.DragEvent) => {
     e.preventDefault();
     setDragOverCol(null);
     const betId = e.dataTransfer.getData("text/plain");
     if (!betId) return;
     try {
-      await api.patch(`/tracker/bets/${betId}/move`, { status, position: 0 });
+      await api.patch(`/tracker/bets/${betId}/move`, { columnId, position: 0 });
     } catch (err: unknown) {
       addToast("error", err instanceof Error ? err.message : "Failed to move bet");
     }
   };
 
   const handleCycleStatusChange = async (newStatus: CycleStatus) => {
-    setCycleStatus(newStatus);
     try {
       await api.put(`/tracker/cycles/${cycleId}`, { status: newStatus });
     } catch {
       addToast("error", "Failed to update cycle status");
     }
-    setEditingCycle(false);
   };
 
   const handleDeleteCycle = async () => {
     if (!confirm("Delete this cycle and all its bets?")) return;
     try {
       await api.delete(`/tracker/cycles/${cycleId}`);
-      navigate("/tracker");
+      navigate(`/tracker/${projectId}`);
     } catch {
       addToast("error", "Failed to delete cycle");
     }
@@ -80,29 +69,37 @@ export function CycleBoard({ cycleId }: Props) {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-2 text-xs text-text-muted">
+        <Link to="/tracker" className="hover:text-text-primary transition-colors">Tracker</Link>
+        <span>/</span>
+        <Link to={`/tracker/${projectId}`} className="hover:text-text-primary transition-colors">Project</Link>
+        <span>/</span>
+        <span className="text-text-primary">{cycle?.name ?? "Cycle"}</span>
+      </div>
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link to="/tracker" className="text-text-muted hover:text-text-primary transition-colors">
+          <Link to={`/tracker/${projectId}`} className="text-text-muted hover:text-text-primary transition-colors">
             <ArrowLeft size={16} />
           </Link>
           <h2 className="text-lg font-semibold text-text-primary">{cycle?.name ?? "Cycle"}</h2>
-          {cycle && !editingCycle && (
+          {cycle && (
             <Badge variant={CYCLE_STATUS_VARIANT[cycle.status]}>{cycle.status}</Badge>
           )}
-          {editingCycle && (
+          {admin && cycle && (
             <select
-              value={cycleStatus}
+              value={cycle.status}
               onChange={(e) => handleCycleStatusChange(e.target.value as CycleStatus)}
               className="bg-bg border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
             >
-              {(["shaping", "betting", "building", "cooldown", "completed"] as CycleStatus[]).map((s) => (
+              {(["active", "completed"] as CycleStatus[]).map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
           )}
-          {admin && !editingCycle && (
-            <button onClick={() => setEditingCycle(true)} className="text-text-muted hover:text-text-primary">
-              <Pencil size={13} />
+          {admin && (
+            <button onClick={() => setShowColumnManager(!showColumnManager)} className="text-text-muted hover:text-text-primary" title="Manage columns">
+              <Settings size={14} />
             </button>
           )}
           {admin && (
@@ -121,25 +118,30 @@ export function CycleBoard({ cycleId }: Props) {
         )}
       </div>
 
+      {showColumnManager && admin && (
+        <ColumnManager cycleId={cycleId} columns={columns} onClose={() => setShowColumnManager(false)} />
+      )}
+
       <div className="flex gap-3 overflow-x-auto pb-4">
-        {COLUMNS.map((col) => {
-          const colBets = betsByStatus(col.key);
+        {columns.map((col) => {
+          const colBets = betsByColumn(col.id);
           return (
             <div
-              key={col.key}
-              className={`flex-shrink-0 w-64 bg-surface/50 border-t-2 ${col.color} rounded-lg ${
-                dragOverCol === col.key ? "ring-2 ring-accent/30" : ""
+              key={col.id}
+              className={`flex-shrink-0 w-64 bg-surface/50 border-t-2 rounded-lg ${
+                dragOverCol === col.id ? "ring-2 ring-accent/30" : ""
               }`}
+              style={{ borderTopColor: col.color }}
               onDragOver={(e) => {
                 e.preventDefault();
-                setDragOverCol(col.key);
+                setDragOverCol(col.id);
               }}
               onDragLeave={() => setDragOverCol(null)}
-              onDrop={(e) => handleDrop(col.key, e)}
+              onDrop={(e) => handleDrop(col.id, e)}
             >
               <div className="px-3 py-2 flex items-center justify-between">
                 <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                  {col.label}
+                  {col.name}
                 </span>
                 <span className="text-xs text-text-muted">{colBets.length}</span>
               </div>
@@ -148,7 +150,8 @@ export function CycleBoard({ cycleId }: Props) {
                   <BetCard
                     key={bet.id}
                     bet={bet}
-                    onClick={() => navigate(`/tracker/${cycleId}/bets/${bet.id}`)}
+                    projectCode={project?.code ?? ""}
+                    onClick={() => navigate(`/tracker/${projectId}/cycles/${cycleId}/bets/${bet.id}`)}
                   />
                 ))}
               </div>
@@ -158,6 +161,105 @@ export function CycleBoard({ cycleId }: Props) {
       </div>
 
       <CreateBetModal open={createOpen} onClose={() => setCreateOpen(false)} cycleId={cycleId} />
+    </div>
+  );
+}
+
+function ColumnManager({ cycleId, columns, onClose }: { cycleId: string; columns: CycleColumn[]; onClose: () => void }) {
+  const { addToast } = useToast();
+  const [cols, setCols] = useState<CycleColumn[]>(() => columns.map((c) => ({ ...c })));
+  const [saving, setSaving] = useState(false);
+
+  const handleAdd = () => {
+    const id = crypto.randomUUID();
+    setCols([...cols, { id, name: "Nova coluna", color: "#6b7280", position: cols.length }]);
+  };
+
+  const handleRemove = (id: string) => {
+    setCols(cols.filter((c) => c.id !== id).map((c, i) => ({ ...c, position: i })));
+  };
+
+  const handleMove = (idx: number, dir: -1 | 1) => {
+    const target = idx + dir;
+    if (target < 0 || target >= cols.length) return;
+    const next = [...cols];
+    [next[idx], next[target]] = [next[target], next[idx]];
+    setCols(next.map((c, i) => ({ ...c, position: i })));
+  };
+
+  const handleUpdate = (id: string, field: "name" | "color", value: string) => {
+    setCols(cols.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
+  };
+
+  const handleSave = async () => {
+    if (cols.length === 0) { addToast("error", "At least one column is required"); return; }
+    setSaving(true);
+    try {
+      await api.put(`/tracker/cycles/${cycleId}`, { columns: cols });
+      addToast("success", "Columns saved");
+      onClose();
+    } catch {
+      addToast("error", "Failed to save columns");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-text-primary">Manage Columns</h3>
+        <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={14} /></button>
+      </div>
+      <div className="space-y-2">
+        {cols.map((col, idx) => (
+          <div key={col.id} className="flex items-center gap-2">
+            <div className="flex flex-col gap-0.5">
+              <button
+                onClick={() => handleMove(idx, -1)}
+                disabled={idx === 0}
+                className="text-text-muted hover:text-text-primary disabled:opacity-20 text-[10px] leading-none"
+              >▲</button>
+              <button
+                onClick={() => handleMove(idx, 1)}
+                disabled={idx === cols.length - 1}
+                className="text-text-muted hover:text-text-primary disabled:opacity-20 text-[10px] leading-none"
+              >▼</button>
+            </div>
+            <input
+              type="color"
+              value={col.color}
+              onChange={(e) => handleUpdate(col.id, "color", e.target.value)}
+              className="w-6 h-6 rounded border-none cursor-pointer bg-transparent shrink-0"
+            />
+            <input
+              value={col.name}
+              onChange={(e) => handleUpdate(col.id, "name", e.target.value)}
+              className="flex-1 bg-bg border border-border rounded px-2 py-1 text-sm text-text-primary focus:outline-none focus:border-accent"
+            />
+            <button onClick={() => handleRemove(col.id)} className="text-text-muted hover:text-danger shrink-0">
+              <Trash2 size={12} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between pt-2 border-t border-border">
+        <button onClick={handleAdd} className="flex items-center gap-1 text-xs text-accent hover:text-accent-hover">
+          <Plus size={12} /> Add Column
+        </button>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 transition-colors"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

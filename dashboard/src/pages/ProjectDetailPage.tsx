@@ -96,6 +96,7 @@ export function ProjectDetailPage() {
       }
       setPrompt("");
       setPlanMode(false);
+      setSelectedAgent("");
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
     }

@@ -1,15 +1,44 @@
+import { randomUUID } from "node:crypto";
 import { getPool } from "./database.js";
 
+export interface CycleColumn {
+  id: string;
+  name: string;
+  color: string;
+  position: number;
+}
+
+const MIGRATION_FALLBACK_COLUMN_ID = "00000000-0000-4000-8000-000000000001";
+
+export const DEFAULT_COLUMNS: CycleColumn[] = [
+  { id: MIGRATION_FALLBACK_COLUMN_ID, name: "Pendente", color: "#6b7280", position: 0 },
+  { id: "00000000-0000-4000-8000-000000000002", name: "Em andamento", color: "#3b82f6", position: 1 },
+  { id: "00000000-0000-4000-8000-000000000003", name: "Em teste", color: "#f59e0b", position: 2 },
+  { id: "00000000-0000-4000-8000-000000000004", name: "Em Correção", color: "#ef4444", position: 3 },
+  { id: "00000000-0000-4000-8000-000000000005", name: "Finalizado", color: "#22c55e", position: 4 },
+];
+
 const MIGRATIONS: string[] = [
-  `CREATE TABLE IF NOT EXISTS tracker_cycles (
+  `CREATE TABLE IF NOT EXISTS tracker_projects (
     id CHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    status ENUM('shaping','betting','building','cooldown','completed') NOT NULL DEFAULT 'shaping',
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    cooldown_end_date DATE NOT NULL,
+    code VARCHAR(10) NOT NULL,
+    description TEXT,
+    next_bet_number INT NOT NULL DEFAULT 1,
     created_by VARCHAR(100) NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_code (code)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS tracker_cycles (
+    id CHAR(36) PRIMARY KEY,
+    project_id CHAR(36) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    status ENUM('active','completed') NOT NULL DEFAULT 'active',
+    columns JSON NOT NULL,
+    created_by VARCHAR(100) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES tracker_projects(id) ON DELETE CASCADE
   )`,
 
   `CREATE TABLE IF NOT EXISTS tracker_bets (
@@ -17,10 +46,12 @@ const MIGRATIONS: string[] = [
     cycle_id CHAR(36) NOT NULL,
     title VARCHAR(500) NOT NULL,
     description TEXT,
-    status ENUM('pitch','bet','in_progress','done','dropped') NOT NULL DEFAULT 'pitch',
+    column_id CHAR(36) NOT NULL,
     appetite ENUM('small','big') NOT NULL DEFAULT 'small',
-    project_name VARCHAR(255),
+    in_scope TEXT,
+    out_of_scope TEXT,
     tags JSON,
+    seq_number INT NOT NULL DEFAULT 0,
     position INT NOT NULL DEFAULT 0,
     created_by VARCHAR(100) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -35,29 +66,9 @@ const MIGRATIONS: string[] = [
     FOREIGN KEY (bet_id) REFERENCES tracker_bets(id) ON DELETE CASCADE
   )`,
 
-  `CREATE TABLE IF NOT EXISTS tracker_scopes (
-    id CHAR(36) PRIMARY KEY,
-    bet_id CHAR(36) NOT NULL,
-    title VARCHAR(500) NOT NULL,
-    description TEXT,
-    status ENUM('uphill','overhill','done') NOT NULL DEFAULT 'uphill',
-    hill_position TINYINT UNSIGNED NOT NULL DEFAULT 0,
-    position INT NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (bet_id) REFERENCES tracker_bets(id) ON DELETE CASCADE
-  )`,
-
-  `CREATE TABLE IF NOT EXISTS tracker_scope_assignees (
-    scope_id CHAR(36) NOT NULL,
-    user_id VARCHAR(100) NOT NULL,
-    PRIMARY KEY (scope_id, user_id),
-    FOREIGN KEY (scope_id) REFERENCES tracker_scopes(id) ON DELETE CASCADE
-  )`,
-
   `CREATE TABLE IF NOT EXISTS tracker_comments (
     id CHAR(36) PRIMARY KEY,
-    target_type ENUM('bet','scope') NOT NULL,
+    target_type ENUM('bet') NOT NULL,
     target_id CHAR(36) NOT NULL,
     author_id VARCHAR(100) NOT NULL,
     author_name VARCHAR(255) NOT NULL,
@@ -79,7 +90,7 @@ const MIGRATIONS: string[] = [
 
   `CREATE TABLE IF NOT EXISTS tracker_test_cases (
     id CHAR(36) PRIMARY KEY,
-    target_type ENUM('bet','scope') NOT NULL,
+    target_type ENUM('bet') NOT NULL,
     target_id CHAR(36) NOT NULL,
     title VARCHAR(500) NOT NULL,
     description TEXT,
@@ -139,25 +150,149 @@ const MIGRATIONS: string[] = [
     uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (comment_id) REFERENCES tracker_test_run_comments(id) ON DELETE CASCADE
   )`,
+];
 
-  `CREATE TABLE IF NOT EXISTS tracker_commit_links (
+const SCHEMA_UPGRADES: string[] = [
+  `CREATE TABLE IF NOT EXISTS tracker_projects (
     id CHAR(36) PRIMARY KEY,
-    scope_id CHAR(36) NOT NULL,
-    project_name VARCHAR(255) NOT NULL,
-    repo_name VARCHAR(255) NOT NULL,
-    commit_hash VARCHAR(40) NOT NULL,
-    commit_message TEXT,
-    linked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    linked_by VARCHAR(100) NOT NULL,
-    FOREIGN KEY (scope_id) REFERENCES tracker_scopes(id) ON DELETE CASCADE,
-    UNIQUE KEY uq_commit (project_name, repo_name, commit_hash)
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(10),
+    description TEXT,
+    next_bet_number INT NOT NULL DEFAULT 1,
+    created_by VARCHAR(100) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
 ];
+
+async function columnExists(pool: ReturnType<typeof getPool>, table: string, column: string): Promise<boolean> {
+  const [rows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+    [table, column],
+  );
+  return (rows as Array<{ cnt: number }>)[0].cnt > 0;
+}
+
+async function tableExists(pool: ReturnType<typeof getPool>, table: string): Promise<boolean> {
+  const [rows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+    [table],
+  );
+  return (rows as Array<{ cnt: number }>)[0].cnt > 0;
+}
+
+async function runSchemaUpgrades(): Promise<void> {
+  const pool = getPool();
+
+  for (const sql of SCHEMA_UPGRADES) {
+    await pool.execute(sql);
+  }
+
+  if (!(await columnExists(pool, "tracker_cycles", "project_id"))) {
+    await pool.execute("ALTER TABLE tracker_cycles ADD COLUMN project_id CHAR(36) AFTER id");
+    const defaultProjectId = randomUUID();
+    await pool.execute(
+      "INSERT INTO tracker_projects (id, name, description, created_by) VALUES (?, 'Default', 'Auto-migrated project', 'system')",
+      [defaultProjectId],
+    );
+    await pool.execute("UPDATE tracker_cycles SET project_id = ? WHERE project_id IS NULL", [defaultProjectId]);
+    await pool.execute("ALTER TABLE tracker_cycles MODIFY COLUMN project_id CHAR(36) NOT NULL");
+  }
+
+  if (await columnExists(pool, "tracker_cycles", "start_date")) {
+    await pool.execute("ALTER TABLE tracker_cycles DROP COLUMN start_date").catch(() => {});
+    await pool.execute("ALTER TABLE tracker_cycles DROP COLUMN end_date").catch(() => {});
+    await pool.execute("ALTER TABLE tracker_cycles DROP COLUMN cooldown_end_date").catch(() => {});
+    await pool.execute("ALTER TABLE tracker_cycles MODIFY COLUMN status ENUM('active','completed') NOT NULL DEFAULT 'active'").catch(() => {});
+  }
+
+  if (await columnExists(pool, "tracker_bets", "project_name")) {
+    await pool.execute("ALTER TABLE tracker_bets DROP COLUMN project_name").catch(() => {});
+  }
+
+  if (!(await columnExists(pool, "tracker_cycles", "columns"))) {
+    const defaultJson = JSON.stringify(DEFAULT_COLUMNS);
+    await pool.execute("ALTER TABLE tracker_cycles ADD COLUMN columns JSON");
+    await pool.execute("UPDATE tracker_cycles SET columns = ? WHERE columns IS NULL", [defaultJson]);
+    await pool.execute("ALTER TABLE tracker_cycles MODIFY COLUMN columns JSON NOT NULL");
+  }
+
+  if (!(await columnExists(pool, "tracker_bets", "in_scope"))) {
+    await pool.execute("ALTER TABLE tracker_bets ADD COLUMN in_scope TEXT");
+  }
+  if (!(await columnExists(pool, "tracker_bets", "out_of_scope"))) {
+    await pool.execute("ALTER TABLE tracker_bets ADD COLUMN out_of_scope TEXT");
+  }
+
+  if ((await columnExists(pool, "tracker_bets", "status")) && !(await columnExists(pool, "tracker_bets", "column_id"))) {
+    await pool.execute("ALTER TABLE tracker_bets ADD COLUMN column_id CHAR(36)");
+    await pool.execute(`
+      UPDATE tracker_bets b
+      JOIN tracker_cycles c ON b.cycle_id = c.id
+      SET b.column_id = JSON_UNQUOTE(JSON_EXTRACT(c.columns, '$[0].id'))
+    `).catch(() => {
+      const fallbackId = DEFAULT_COLUMNS[0].id;
+      return pool.execute("UPDATE tracker_bets SET column_id = ? WHERE column_id IS NULL", [fallbackId]);
+    });
+    await pool.execute("UPDATE tracker_bets SET column_id = ? WHERE column_id IS NULL", [DEFAULT_COLUMNS[0].id]);
+    await pool.execute("ALTER TABLE tracker_bets MODIFY COLUMN column_id CHAR(36) NOT NULL");
+    await pool.execute("ALTER TABLE tracker_bets DROP COLUMN status").catch(() => {});
+  }
+
+  await pool.execute("DROP TABLE IF EXISTS tracker_commit_links").catch(() => {});
+  await pool.execute("DROP TABLE IF EXISTS tracker_scope_assignees").catch(() => {});
+  await pool.execute("DROP TABLE IF EXISTS tracker_scopes").catch(() => {});
+
+  if (await tableExists(pool, "tracker_comments")) {
+    await pool.execute("ALTER TABLE tracker_comments MODIFY COLUMN target_type ENUM('bet') NOT NULL").catch(() => {});
+  }
+  if (await tableExists(pool, "tracker_test_cases")) {
+    await pool.execute("ALTER TABLE tracker_test_cases MODIFY COLUMN target_type ENUM('bet') NOT NULL").catch(() => {});
+  }
+
+  if (!(await columnExists(pool, "tracker_projects", "code"))) {
+    await pool.execute("ALTER TABLE tracker_projects ADD COLUMN code VARCHAR(10) AFTER name");
+    await pool.execute("ALTER TABLE tracker_projects ADD COLUMN next_bet_number INT NOT NULL DEFAULT 1 AFTER description");
+    const [projects] = await pool.execute("SELECT id, name FROM tracker_projects");
+    const usedCodes = new Set<string>();
+    for (const p of projects as Array<{ id: string; name: string }>) {
+      let code = p.name.replace(/[^A-Za-z0-9]/g, "").substring(0, 4).toUpperCase();
+      if (!code) code = "PROJ";
+      let finalCode = code;
+      let suffix = 1;
+      while (usedCodes.has(finalCode)) {
+        finalCode = `${code}${suffix}`;
+        suffix++;
+      }
+      usedCodes.add(finalCode);
+      await pool.execute("UPDATE tracker_projects SET code = ? WHERE id = ?", [finalCode, p.id]);
+    }
+    await pool.execute("ALTER TABLE tracker_projects MODIFY COLUMN code VARCHAR(10) NOT NULL");
+    await pool.execute("ALTER TABLE tracker_projects ADD UNIQUE KEY uk_code (code)").catch(() => {});
+  }
+
+  if (!(await columnExists(pool, "tracker_bets", "seq_number"))) {
+    await pool.execute("ALTER TABLE tracker_bets ADD COLUMN seq_number INT NOT NULL DEFAULT 0 AFTER tags");
+    const [projects] = await pool.execute("SELECT id FROM tracker_projects");
+    for (const p of projects as Array<{ id: string }>) {
+      const [bets] = await pool.execute(
+        "SELECT b.id FROM tracker_bets b JOIN tracker_cycles c ON b.cycle_id = c.id WHERE c.project_id = ? ORDER BY b.created_at",
+        [p.id],
+      );
+      let seq = 1;
+      for (const b of bets as Array<{ id: string }>) {
+        await pool.execute("UPDATE tracker_bets SET seq_number = ? WHERE id = ?", [seq, b.id]);
+        seq++;
+      }
+      await pool.execute("UPDATE tracker_projects SET next_bet_number = ? WHERE id = ?", [seq, p.id]);
+    }
+  }
+}
 
 export async function runTrackerMigrations(): Promise<void> {
   const pool = getPool();
   for (const sql of MIGRATIONS) {
     await pool.execute(sql);
   }
+  await runSchemaUpgrades();
   console.log("[tracker] Database migrations completed");
 }

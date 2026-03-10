@@ -2,9 +2,13 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
-import { query, execute } from "./database.js";
+import { query, execute, getPool } from "./database.js";
 import { config } from "./config.js";
+import { DEFAULT_COLUMNS } from "./tracker-migration.js";
+import type { CycleColumn } from "./tracker-migration.js";
 import type { RowDataPacket } from "mysql2/promise";
+
+export type { CycleColumn } from "./tracker-migration.js";
 
 const UPLOADS_DIR = resolve(config.dataPath, "tracker-uploads");
 
@@ -50,15 +54,31 @@ function validateMedia(mimeType: string, size: number): void {
 
 // ── Types ──
 
-export interface TrackerCycle {
+export interface TrackerProject {
   id: string;
   name: string;
-  status: "shaping" | "betting" | "building" | "cooldown" | "completed";
-  startDate: string;
-  endDate: string;
-  cooldownEndDate: string;
+  code: string;
+  description: string;
+  nextBetNumber: number;
   createdBy: string;
   createdAt: string;
+}
+
+export interface TrackerCycle {
+  id: string;
+  projectId: string;
+  name: string;
+  status: "active" | "completed";
+  columns: CycleColumn[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface BetTestStats {
+  total: number;
+  passed: number;
+  failed: number;
+  noRuns: number;
 }
 
 export interface TrackerBet {
@@ -66,33 +86,23 @@ export interface TrackerBet {
   cycleId: string;
   title: string;
   description: string;
-  status: "pitch" | "bet" | "in_progress" | "done" | "dropped";
+  columnId: string;
   appetite: "small" | "big";
-  projectName: string;
+  inScope: string;
+  outOfScope: string;
   assignees: string[];
   tags: string[];
+  seqNumber: number;
   position: number;
+  testStats: BetTestStats;
   createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TrackerScope {
-  id: string;
-  betId: string;
-  title: string;
-  description: string;
-  status: "uphill" | "overhill" | "done";
-  hillPosition: number;
-  assignees: string[];
-  position: number;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface TrackerComment {
   id: string;
-  targetType: "bet" | "scope";
+  targetType: "bet";
   targetId: string;
   authorId: string;
   authorName: string;
@@ -111,20 +121,9 @@ export interface TrackerAttachment {
   uploadedAt: string;
 }
 
-export interface TrackerCommitLink {
-  id: string;
-  scopeId: string;
-  projectName: string;
-  repoName: string;
-  commitHash: string;
-  commitMessage: string;
-  linkedAt: string;
-  linkedBy: string;
-}
-
 export interface TrackerTestCase {
   id: string;
-  targetType: "bet" | "scope";
+  targetType: "bet";
   targetId: string;
   title: string;
   description: string;
@@ -186,13 +185,22 @@ export interface TrackerTestRunCommentAttachment {
 
 // ── Row types ──
 
-interface CycleRow extends RowDataPacket {
+interface ProjectRow extends RowDataPacket {
   id: string;
   name: string;
+  code: string;
+  description: string | null;
+  next_bet_number: number;
+  created_by: string;
+  created_at: string;
+}
+
+interface CycleRow extends RowDataPacket {
+  id: string;
+  project_id: string;
+  name: string;
   status: string;
-  start_date: string;
-  end_date: string;
-  cooldown_end_date: string;
+  columns: string;
   created_by: string;
   created_at: string;
 }
@@ -202,31 +210,20 @@ interface BetRow extends RowDataPacket {
   cycle_id: string;
   title: string;
   description: string | null;
-  status: string;
+  column_id: string;
   appetite: string;
-  project_name: string | null;
+  in_scope: string | null;
+  out_of_scope: string | null;
   tags: string | null;
+  seq_number: number;
   position: number;
   created_by: string;
   created_at: string;
   updated_at: string;
 }
 
-interface ScopeRow extends RowDataPacket {
-  id: string;
-  bet_id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  hill_position: number;
-  position: number;
-  created_at: string;
-  updated_at: string;
-}
-
 interface AssigneeRow extends RowDataPacket {
-  bet_id?: string;
-  scope_id?: string;
+  bet_id: string;
   user_id: string;
 }
 
@@ -248,17 +245,6 @@ interface AttachmentRow extends RowDataPacket {
   size: number;
   uploaded_by: string;
   uploaded_at: string;
-}
-
-interface CommitLinkRow extends RowDataPacket {
-  id: string;
-  scope_id: string;
-  project_name: string;
-  repo_name: string;
-  commit_hash: string;
-  commit_message: string | null;
-  linked_at: string;
-  linked_by: string;
 }
 
 interface TestCaseRow extends RowDataPacket {
@@ -323,20 +309,35 @@ interface TestRunCommentAttachmentRow extends RowDataPacket {
 
 // ── Mappers ──
 
-function mapCycle(r: CycleRow): TrackerCycle {
+function mapProject(r: ProjectRow): TrackerProject {
   return {
     id: r.id,
     name: r.name,
-    status: r.status as TrackerCycle["status"],
-    startDate: String(r.start_date).slice(0, 10),
-    endDate: String(r.end_date).slice(0, 10),
-    cooldownEndDate: String(r.cooldown_end_date).slice(0, 10),
+    code: r.code,
+    description: r.description || "",
+    nextBetNumber: r.next_bet_number,
     createdBy: r.created_by,
     createdAt: new Date(r.created_at).toISOString(),
   };
 }
 
-function mapBet(r: BetRow, assignees: string[]): TrackerBet {
+function mapCycle(r: CycleRow): TrackerCycle {
+  let columns: CycleColumn[] = DEFAULT_COLUMNS;
+  try {
+    columns = typeof r.columns === "string" ? JSON.parse(r.columns) : r.columns;
+  } catch { /* fallback to defaults */ }
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    name: r.name,
+    status: r.status as TrackerCycle["status"],
+    columns,
+    createdBy: r.created_by,
+    createdAt: new Date(r.created_at).toISOString(),
+  };
+}
+
+function mapBet(r: BetRow, assignees: string[], testStats?: BetTestStats): TrackerBet {
   let tags: string[] = [];
   if (r.tags) {
     try { tags = typeof r.tags === "string" ? JSON.parse(r.tags) : r.tags; } catch { /* empty */ }
@@ -346,28 +347,16 @@ function mapBet(r: BetRow, assignees: string[]): TrackerBet {
     cycleId: r.cycle_id,
     title: r.title,
     description: r.description || "",
-    status: r.status as TrackerBet["status"],
+    columnId: r.column_id,
     appetite: r.appetite as TrackerBet["appetite"],
-    projectName: r.project_name || "",
+    inScope: r.in_scope || "",
+    outOfScope: r.out_of_scope || "",
     assignees,
     tags,
+    seqNumber: r.seq_number,
     position: r.position,
+    testStats: testStats ?? { total: 0, passed: 0, failed: 0, noRuns: 0 },
     createdBy: r.created_by,
-    createdAt: new Date(r.created_at).toISOString(),
-    updatedAt: new Date(r.updated_at).toISOString(),
-  };
-}
-
-function mapScope(r: ScopeRow, assignees: string[]): TrackerScope {
-  return {
-    id: r.id,
-    betId: r.bet_id,
-    title: r.title,
-    description: r.description || "",
-    status: r.status as TrackerScope["status"],
-    hillPosition: r.hill_position,
-    assignees,
-    position: r.position,
     createdAt: new Date(r.created_at).toISOString(),
     updatedAt: new Date(r.updated_at).toISOString(),
   };
@@ -395,19 +384,6 @@ function mapAttachment(r: AttachmentRow): TrackerAttachment {
     size: r.size,
     uploadedBy: r.uploaded_by,
     uploadedAt: new Date(r.uploaded_at).toISOString(),
-  };
-}
-
-function mapCommitLink(r: CommitLinkRow): TrackerCommitLink {
-  return {
-    id: r.id,
-    scopeId: r.scope_id,
-    projectName: r.project_name,
-    repoName: r.repo_name,
-    commitHash: r.commit_hash,
-    commitMessage: r.commit_message || "",
-    linkedAt: new Date(r.linked_at).toISOString(),
-    linkedBy: r.linked_by,
   };
 }
 
@@ -487,10 +463,55 @@ function mapTestRunCommentAttachment(r: TestRunCommentAttachmentRow): TrackerTes
 
 class TrackerManager extends EventEmitter {
 
+  // ── Projects ──
+
+  async getProjects(): Promise<TrackerProject[]> {
+    const rows = await query<ProjectRow[]>("SELECT * FROM tracker_projects ORDER BY created_at DESC");
+    return rows.map(mapProject);
+  }
+
+  async getProject(id: string): Promise<TrackerProject | null> {
+    const rows = await query<ProjectRow[]>("SELECT * FROM tracker_projects WHERE id = ?", [id]);
+    return rows[0] ? mapProject(rows[0]) : null;
+  }
+
+  async createProject(data: { name: string; code: string; description?: string; createdBy: string }): Promise<TrackerProject> {
+    const id = randomUUID();
+    await execute(
+      "INSERT INTO tracker_projects (id, name, code, description, created_by) VALUES (?, ?, ?, ?, ?)",
+      [id, data.name, data.code.toUpperCase(), data.description || "", data.createdBy],
+    );
+    const project = (await this.getProject(id))!;
+    this.emit("project:create", project);
+    return project;
+  }
+
+  async updateProject(id: string, data: Partial<{ name: string; description: string }>): Promise<TrackerProject | null> {
+    const sets: string[] = [];
+    const params: (string | number | null | boolean)[] = [];
+    if (data.name !== undefined) { sets.push("name = ?"); params.push(data.name); }
+    if (data.description !== undefined) { sets.push("description = ?"); params.push(data.description); }
+    if (sets.length === 0) return this.getProject(id);
+    params.push(id);
+    await execute(`UPDATE tracker_projects SET ${sets.join(", ")} WHERE id = ?`, params);
+    const project = await this.getProject(id);
+    if (project) this.emit("project:update", project);
+    return project;
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    const result = await execute("DELETE FROM tracker_projects WHERE id = ?", [id]);
+    if (result.affectedRows > 0) {
+      this.emit("project:delete", { id });
+      return true;
+    }
+    return false;
+  }
+
   // ── Cycles ──
 
-  async getCycles(): Promise<TrackerCycle[]> {
-    const rows = await query<CycleRow[]>("SELECT * FROM tracker_cycles ORDER BY start_date DESC");
+  async getCyclesByProject(projectId: string): Promise<TrackerCycle[]> {
+    const rows = await query<CycleRow[]>("SELECT * FROM tracker_cycles WHERE project_id = ? ORDER BY created_at DESC", [projectId]);
     return rows.map(mapCycle);
   }
 
@@ -499,25 +520,24 @@ class TrackerManager extends EventEmitter {
     return rows[0] ? mapCycle(rows[0]) : null;
   }
 
-  async createCycle(data: { name: string; startDate: string; endDate: string; cooldownEndDate: string; createdBy: string }): Promise<TrackerCycle> {
+  async createCycle(data: { projectId: string; name: string; createdBy: string }): Promise<TrackerCycle> {
     const id = randomUUID();
+    const cols = DEFAULT_COLUMNS.map((c, i) => ({ ...c, id: randomUUID(), position: i }));
     await execute(
-      "INSERT INTO tracker_cycles (id, name, start_date, end_date, cooldown_end_date, created_by) VALUES (?, ?, ?, ?, ?, ?)",
-      [id, data.name, data.startDate, data.endDate, data.cooldownEndDate, data.createdBy],
+      "INSERT INTO tracker_cycles (id, project_id, name, columns, created_by) VALUES (?, ?, ?, ?, ?)",
+      [id, data.projectId, data.name, JSON.stringify(cols), data.createdBy],
     );
     const cycle = (await this.getCycle(id))!;
     this.emit("cycle:create", cycle);
     return cycle;
   }
 
-  async updateCycle(id: string, data: Partial<{ name: string; status: string; startDate: string; endDate: string; cooldownEndDate: string }>): Promise<TrackerCycle | null> {
+  async updateCycle(id: string, data: Partial<{ name: string; status: string; columns: CycleColumn[] }>): Promise<TrackerCycle | null> {
     const sets: string[] = [];
     const params: (string | number | null | boolean)[] = [];
     if (data.name !== undefined) { sets.push("name = ?"); params.push(data.name); }
     if (data.status !== undefined) { sets.push("status = ?"); params.push(data.status); }
-    if (data.startDate !== undefined) { sets.push("start_date = ?"); params.push(data.startDate); }
-    if (data.endDate !== undefined) { sets.push("end_date = ?"); params.push(data.endDate); }
-    if (data.cooldownEndDate !== undefined) { sets.push("cooldown_end_date = ?"); params.push(data.cooldownEndDate); }
+    if (data.columns !== undefined) { sets.push("columns = ?"); params.push(JSON.stringify(data.columns)); }
     if (sets.length === 0) return this.getCycle(id);
     params.push(id);
     await execute(`UPDATE tracker_cycles SET ${sets.join(", ")} WHERE id = ?`, params);
@@ -543,36 +563,89 @@ class TrackerManager extends EventEmitter {
     const rows = await query<AssigneeRow[]>(`SELECT bet_id, user_id FROM tracker_bet_assignees WHERE bet_id IN (${placeholders})`, betIds);
     const map = new Map<string, string[]>();
     for (const r of rows) {
-      const list = map.get(r.bet_id!) || [];
+      const list = map.get(r.bet_id) || [];
       list.push(r.user_id);
-      map.set(r.bet_id!, list);
+      map.set(r.bet_id, list);
     }
     return map;
   }
 
   async getBetsByCycle(cycleId: string): Promise<TrackerBet[]> {
     const rows = await query<BetRow[]>("SELECT * FROM tracker_bets WHERE cycle_id = ? ORDER BY position, created_at", [cycleId]);
-    const assigneesMap = await this.getBetAssignees(rows.map((r) => r.id));
-    return rows.map((r) => mapBet(r, assigneesMap.get(r.id) || []));
+    const betIds = rows.map((r) => r.id);
+    const assigneesMap = await this.getBetAssignees(betIds);
+    const testStatsMap = await this.getBetTestStats(betIds);
+    return rows.map((r) => mapBet(r, assigneesMap.get(r.id) || [], testStatsMap.get(r.id)));
+  }
+
+  private async getBetTestStats(betIds: string[]): Promise<Map<string, BetTestStats>> {
+    const map = new Map<string, BetTestStats>();
+    if (betIds.length === 0) return map;
+    const placeholders = betIds.map(() => "?").join(",");
+    const rows = await query<RowDataPacket[]>(`
+      SELECT
+        tc.target_id AS bet_id,
+        COUNT(*) AS total,
+        SUM(CASE WHEN lr.status = 'passed' THEN 1 ELSE 0 END) AS passed,
+        SUM(CASE WHEN lr.status IN ('failed', 'blocked', 'skipped') THEN 1 ELSE 0 END) AS failed,
+        SUM(CASE WHEN lr.status IS NULL THEN 1 ELSE 0 END) AS no_runs
+      FROM tracker_test_cases tc
+      LEFT JOIN (
+        SELECT tr.test_case_id, tr.status
+        FROM tracker_test_runs tr
+        INNER JOIN (
+          SELECT test_case_id, MAX(executed_at) AS max_at
+          FROM tracker_test_runs
+          GROUP BY test_case_id
+        ) latest ON tr.test_case_id = latest.test_case_id AND tr.executed_at = latest.max_at
+      ) lr ON lr.test_case_id = tc.id
+      WHERE tc.target_type = 'bet' AND tc.target_id IN (${placeholders})
+      GROUP BY tc.target_id
+    `, betIds);
+    for (const r of rows) {
+      map.set(r.bet_id, {
+        total: Number(r.total),
+        passed: Number(r.passed),
+        failed: Number(r.failed),
+        noRuns: Number(r.no_runs),
+      });
+    }
+    return map;
   }
 
   async getBet(id: string): Promise<TrackerBet | null> {
     const rows = await query<BetRow[]>("SELECT * FROM tracker_bets WHERE id = ?", [id]);
     if (!rows[0]) return null;
     const assigneesMap = await this.getBetAssignees([id]);
-    return mapBet(rows[0], assigneesMap.get(id) || []);
+    const testStatsMap = await this.getBetTestStats([id]);
+    return mapBet(rows[0], assigneesMap.get(id) || [], testStatsMap.get(id));
   }
 
   async createBet(data: {
-    cycleId: string; title: string; description?: string; appetite?: string;
-    projectName?: string; assignees?: string[]; tags?: string[]; createdBy: string;
+    cycleId: string; title: string; description?: string; columnId: string;
+    appetite?: string; inScope?: string; outOfScope?: string;
+    assignees?: string[]; tags?: string[]; createdBy: string;
   }): Promise<TrackerBet> {
     const id = randomUUID();
     const maxPos = await query<RowDataPacket[]>("SELECT COALESCE(MAX(position), -1) AS mp FROM tracker_bets WHERE cycle_id = ?", [data.cycleId]);
     const position = (maxPos[0]?.mp ?? -1) + 1;
+
+    const cycle = await this.getCycle(data.cycleId);
+    if (!cycle) throw new Error("Cycle not found");
+    const conn = await getPool().getConnection();
+    let seqNumber: number;
+    try {
+      await conn.execute("UPDATE tracker_projects SET next_bet_number = LAST_INSERT_ID(next_bet_number), next_bet_number = next_bet_number + 1 WHERE id = ?", [cycle.projectId]);
+      const [seqRows] = await conn.execute<RowDataPacket[]>("SELECT LAST_INSERT_ID() AS seq");
+      seqNumber = seqRows[0]?.seq ?? 1;
+    } finally {
+      conn.release();
+    }
+
     await execute(
-      "INSERT INTO tracker_bets (id, cycle_id, title, description, appetite, project_name, tags, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, data.cycleId, data.title, data.description || "", data.appetite || "small", data.projectName || "", JSON.stringify(data.tags || []), position, data.createdBy],
+      "INSERT INTO tracker_bets (id, cycle_id, title, description, column_id, appetite, in_scope, out_of_scope, tags, seq_number, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, data.cycleId, data.title, data.description || "", data.columnId, data.appetite || "small",
+       data.inScope || "", data.outOfScope || "", JSON.stringify(data.tags || []), seqNumber, position, data.createdBy],
     );
     if (data.assignees?.length) {
       await execute(`INSERT INTO tracker_bet_assignees (bet_id, user_id) VALUES ${data.assignees.map(() => "(?, ?)").join(",")}`,
@@ -584,16 +657,17 @@ class TrackerManager extends EventEmitter {
   }
 
   async updateBet(id: string, data: Partial<{
-    title: string; description: string; status: string; appetite: string;
-    projectName: string; assignees: string[]; tags: string[];
+    title: string; description: string; columnId: string; appetite: string;
+    inScope: string; outOfScope: string; assignees: string[]; tags: string[];
   }>): Promise<TrackerBet | null> {
     const sets: string[] = [];
     const params: (string | number | null | boolean)[] = [];
     if (data.title !== undefined) { sets.push("title = ?"); params.push(data.title); }
     if (data.description !== undefined) { sets.push("description = ?"); params.push(data.description); }
-    if (data.status !== undefined) { sets.push("status = ?"); params.push(data.status); }
+    if (data.columnId !== undefined) { sets.push("column_id = ?"); params.push(data.columnId); }
     if (data.appetite !== undefined) { sets.push("appetite = ?"); params.push(data.appetite); }
-    if (data.projectName !== undefined) { sets.push("project_name = ?"); params.push(data.projectName); }
+    if (data.inScope !== undefined) { sets.push("in_scope = ?"); params.push(data.inScope); }
+    if (data.outOfScope !== undefined) { sets.push("out_of_scope = ?"); params.push(data.outOfScope); }
     if (data.tags !== undefined) { sets.push("tags = ?"); params.push(JSON.stringify(data.tags)); }
     if (sets.length > 0) {
       params.push(id);
@@ -613,8 +687,8 @@ class TrackerManager extends EventEmitter {
     return bet;
   }
 
-  async moveBet(id: string, status: string, position: number): Promise<TrackerBet | null> {
-    await execute("UPDATE tracker_bets SET status = ?, position = ? WHERE id = ?", [status, position, id]);
+  async moveBet(id: string, columnId: string, position: number): Promise<TrackerBet | null> {
+    await execute("UPDATE tracker_bets SET column_id = ?, position = ? WHERE id = ?", [columnId, position, id]);
     const bet = await this.getBet(id);
     if (bet) this.emit("bet:update", bet);
     return bet;
@@ -629,94 +703,25 @@ class TrackerManager extends EventEmitter {
     return false;
   }
 
-  // ── Scopes ──
-
-  private async getScopeAssignees(scopeIds: string[]): Promise<Map<string, string[]>> {
-    if (scopeIds.length === 0) return new Map();
-    const placeholders = scopeIds.map(() => "?").join(",");
-    const rows = await query<AssigneeRow[]>(`SELECT scope_id, user_id FROM tracker_scope_assignees WHERE scope_id IN (${placeholders})`, scopeIds);
-    const map = new Map<string, string[]>();
-    for (const r of rows) {
-      const list = map.get(r.scope_id!) || [];
-      list.push(r.user_id);
-      map.set(r.scope_id!, list);
-    }
-    return map;
-  }
-
-  async getScopesByBet(betId: string): Promise<TrackerScope[]> {
-    const rows = await query<ScopeRow[]>("SELECT * FROM tracker_scopes WHERE bet_id = ? ORDER BY position, created_at", [betId]);
-    const assigneesMap = await this.getScopeAssignees(rows.map((r) => r.id));
-    return rows.map((r) => mapScope(r, assigneesMap.get(r.id) || []));
-  }
-
-  async getScope(id: string): Promise<TrackerScope | null> {
-    const rows = await query<ScopeRow[]>("SELECT * FROM tracker_scopes WHERE id = ?", [id]);
-    if (!rows[0]) return null;
-    const assigneesMap = await this.getScopeAssignees([id]);
-    return mapScope(rows[0], assigneesMap.get(id) || []);
-  }
-
-  async createScope(data: { betId: string; title: string; description?: string; assignees?: string[] }): Promise<TrackerScope> {
-    const id = randomUUID();
-    const maxPos = await query<RowDataPacket[]>("SELECT COALESCE(MAX(position), -1) AS mp FROM tracker_scopes WHERE bet_id = ?", [data.betId]);
-    const position = (maxPos[0]?.mp ?? -1) + 1;
-    await execute(
-      "INSERT INTO tracker_scopes (id, bet_id, title, description, position) VALUES (?, ?, ?, ?, ?)",
-      [id, data.betId, data.title, data.description || "", position],
-    );
-    if (data.assignees?.length) {
-      await execute(
-        `INSERT INTO tracker_scope_assignees (scope_id, user_id) VALUES ${data.assignees.map(() => "(?, ?)").join(",")}`,
-        data.assignees.flatMap((uid) => [id, uid]),
-      );
-    }
-    const scope = (await this.getScope(id))!;
-    this.emit("scope:create", scope);
-    return scope;
-  }
-
-  async updateScope(id: string, data: Partial<{ title: string; description: string; status: string; assignees: string[] }>): Promise<TrackerScope | null> {
-    const sets: string[] = [];
-    const params: (string | number | null | boolean)[] = [];
-    if (data.title !== undefined) { sets.push("title = ?"); params.push(data.title); }
-    if (data.description !== undefined) { sets.push("description = ?"); params.push(data.description); }
-    if (data.status !== undefined) { sets.push("status = ?"); params.push(data.status); }
-    if (sets.length > 0) {
-      params.push(id);
-      await execute(`UPDATE tracker_scopes SET ${sets.join(", ")} WHERE id = ?`, params);
-    }
-    if (data.assignees !== undefined) {
-      await execute("DELETE FROM tracker_scope_assignees WHERE scope_id = ?", [id]);
-      if (data.assignees.length > 0) {
-        await execute(
-          `INSERT INTO tracker_scope_assignees (scope_id, user_id) VALUES ${data.assignees.map(() => "(?, ?)").join(",")}`,
-          data.assignees.flatMap((uid) => [id, uid]),
-        );
-      }
-    }
-    const scope = await this.getScope(id);
-    if (scope) this.emit("scope:update", scope);
-    return scope;
-  }
-
-  async updateHillPosition(id: string, hillPosition: number): Promise<TrackerScope | null> {
-    const parsed = Number(hillPosition);
-    if (isNaN(parsed)) return this.getScope(id);
-    const clamped = Math.max(0, Math.min(100, Math.round(parsed)));
-    await execute("UPDATE tracker_scopes SET hill_position = ? WHERE id = ?", [clamped, id]);
-    const scope = await this.getScope(id);
-    if (scope) this.emit("scope:update", scope);
-    return scope;
-  }
-
-  async deleteScope(id: string): Promise<boolean> {
-    const result = await execute("DELETE FROM tracker_scopes WHERE id = ?", [id]);
-    if (result.affectedRows > 0) {
-      this.emit("scope:delete", { id });
-      return true;
-    }
-    return false;
+  async searchBets(q: string): Promise<Array<{ id: string; code: string; title: string; cycleId: string; columnId: string }>> {
+    const escaped = q.replace(/%/g, "\\%").replace(/_/g, "\\_");
+    const pattern = `%${escaped}%`;
+    const rows = await query<RowDataPacket[]>(`
+      SELECT b.id, b.title, b.cycle_id, b.column_id, b.seq_number, p.code AS project_code
+      FROM tracker_bets b
+      JOIN tracker_cycles c ON b.cycle_id = c.id
+      JOIN tracker_projects p ON c.project_id = p.id
+      WHERE p.code LIKE ? OR b.title LIKE ? OR CONCAT(p.code, '-', b.seq_number) LIKE ?
+      ORDER BY p.code, b.seq_number DESC
+      LIMIT 20
+    `, [pattern, pattern, pattern]);
+    return rows.map((r) => ({
+      id: r.id,
+      code: `${r.project_code}-${r.seq_number}`,
+      title: r.title,
+      cycleId: r.cycle_id,
+      columnId: r.column_id,
+    }));
   }
 
   // ── Comments ──
@@ -798,50 +803,6 @@ class TrackerManager extends EventEmitter {
     if (!path.startsWith(UPLOADS_DIR)) return null;
     if (!existsSync(path)) return null;
     return path;
-  }
-
-  // ── Commit Links ──
-
-  async linkCommit(data: {
-    scopeId: string; projectName: string; repoName: string;
-    commitHash: string; commitMessage?: string; linkedBy: string;
-  }): Promise<TrackerCommitLink> {
-    const id = randomUUID();
-    await execute(
-      "INSERT INTO tracker_commit_links (id, scope_id, project_name, repo_name, commit_hash, commit_message, linked_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [id, data.scopeId, data.projectName, data.repoName, data.commitHash, data.commitMessage || "", data.linkedBy],
-    );
-    const link: TrackerCommitLink = {
-      id, scopeId: data.scopeId, projectName: data.projectName,
-      repoName: data.repoName, commitHash: data.commitHash,
-      commitMessage: data.commitMessage || "",
-      linkedAt: new Date().toISOString(), linkedBy: data.linkedBy,
-    };
-    this.emit("commit:link", link);
-    return link;
-  }
-
-  async unlinkCommit(id: string): Promise<boolean> {
-    const result = await execute("DELETE FROM tracker_commit_links WHERE id = ?", [id]);
-    if (result.affectedRows > 0) {
-      this.emit("commit:unlink", { id });
-      return true;
-    }
-    return false;
-  }
-
-  async getCommitsByScope(scopeId: string): Promise<TrackerCommitLink[]> {
-    const rows = await query<CommitLinkRow[]>("SELECT * FROM tracker_commit_links WHERE scope_id = ? ORDER BY linked_at DESC", [scopeId]);
-    return rows.map(mapCommitLink);
-  }
-
-  async getScopeByCommit(projectName: string, repoName: string, commitHash: string): Promise<TrackerScope | null> {
-    const rows = await query<CommitLinkRow[]>(
-      "SELECT * FROM tracker_commit_links WHERE project_name = ? AND repo_name = ? AND commit_hash = ?",
-      [projectName, repoName, commitHash],
-    );
-    if (!rows[0]) return null;
-    return this.getScope(rows[0].scope_id);
   }
 
   // ── Test Cases ──
@@ -970,7 +931,6 @@ class TrackerManager extends EventEmitter {
       "INSERT INTO tracker_test_runs (id, test_case_id, status, notes, executed_by, executed_by_name, duration_seconds) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [id, data.testCaseId, data.status, data.notes || "", data.executedBy, data.executedByName, data.durationSeconds ?? null],
     );
-    const savedAttachments: TrackerTestRunAttachment[] = [];
     if (data.attachments?.length) {
       for (const att of data.attachments) {
         const buf = Buffer.from(att.base64, "base64");
@@ -980,11 +940,6 @@ class TrackerManager extends EventEmitter {
           "INSERT INTO tracker_test_run_attachments (id, test_run_id, filename, mime_type, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)",
           [file.id, id, file.filename, att.mimeType, file.size, data.executedBy],
         );
-        savedAttachments.push({
-          id: file.id, testRunId: id, filename: file.filename,
-          mimeType: att.mimeType, size: file.size,
-          uploadedBy: data.executedBy, uploadedAt: new Date().toISOString(),
-        });
       }
     }
     const run = (await this.getTestRun(id))!;
