@@ -93,19 +93,19 @@ export function ItemCard({ item, projectCode, onClick }: Props) {
       onClick={onClick}
       className="bg-surface border border-border rounded-md p-3 cursor-grab active:cursor-grabbing hover:border-accent/30 transition-colors"
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
           {projectCode && item.seqNumber > 0 && (
             <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-accent/10 text-accent shrink-0">
               {projectCode}-{item.seqNumber}
             </span>
           )}
-          <span className="text-sm font-medium text-text-primary leading-tight truncate">{item.title}</span>
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+            <TestStatusBadge item={item} />
+            <AppetiteBadge item={item} />
+          </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <TestStatusBadge item={item} />
-          <AppetiteBadge item={item} />
-        </div>
+        <p className="text-sm font-medium text-text-primary leading-snug">{item.title}</p>
       </div>
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
         {item.tags.map((tag) => (

@@ -94,7 +94,7 @@ trackerRouter.get("/cycles/:cycleId/items", async (req, res) => {
 });
 
 trackerRouter.post("/items", requireAdmin, async (req, res) => {
-  const { cycleId, title, description, appetite, assignees, tags, columnId } = req.body;
+  const { cycleId, title, description, appetite, inScope, outOfScope, assignees, tags, columnId } = req.body;
   if (!cycleId || !title) { res.status(400).json({ error: "cycleId and title required" }); return; }
   let resolvedColumnId = columnId;
   if (!resolvedColumnId) {
@@ -107,8 +107,8 @@ trackerRouter.post("/items", requireAdmin, async (req, res) => {
   }
   const author = getAuthor(req);
   const item = await trackerManager.createItem({
-    cycleId, title, description, appetite: appetite ? Number(appetite) : undefined, columnId: resolvedColumnId,
-    assignees, tags, createdBy: author.id,
+    cycleId, title, description, appetite: appetite ? Number(appetite) : undefined,
+    inScope, outOfScope, columnId: resolvedColumnId, assignees, tags, createdBy: author.id,
   });
   res.status(201).json(item);
 });

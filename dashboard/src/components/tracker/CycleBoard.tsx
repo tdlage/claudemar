@@ -128,7 +128,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
           return (
             <div
               key={col.id}
-              className={`flex-shrink-0 w-64 bg-surface/50 border-t-2 rounded-lg ${
+              className={`flex-shrink-0 w-80 bg-surface/50 border-t-2 rounded-lg ${
                 dragOverCol === col.id ? "ring-2 ring-accent/30" : ""
               }`}
               style={{ borderTopColor: col.color }}
