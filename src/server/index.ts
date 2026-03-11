@@ -54,7 +54,12 @@ export function createDashboardServer() {
       return;
     }
     res.setHeader("Cache-Control", "private, max-age=3600");
-    res.sendFile(filePath);
+    res.sendFile(filePath, { dotfiles: "allow" }, (err) => {
+      if (err && !res.headersSent) {
+        console.error("[files] sendFile error:", err);
+        res.status(500).json({ error: "Failed to serve file" });
+      }
+    });
   });
 
   app.use("/api", apiLimiter);
