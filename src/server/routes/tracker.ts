@@ -1,9 +1,7 @@
 import { Router } from "express";
-import { resolve } from "node:path";
-import { existsSync } from "node:fs";
 import { requireAdmin } from "../middleware.js";
 import { trackerManager } from "../../tracker-manager.js";
-import { config } from "../../config.js";
+import { usersManager } from "../../users-manager.js";
 
 export const trackerRouter = Router();
 
@@ -58,6 +56,18 @@ trackerRouter.delete("/projects/:id", requireAdmin, async (req, res) => {
   const deleted = await trackerManager.deleteProject(req.params.id as string);
   if (!deleted) { res.status(404).json({ error: "Project not found" }); return; }
   res.json({ deleted: true });
+});
+
+trackerRouter.get("/projects/:projectId/members", (req, res) => {
+  const projectId = req.params.projectId;
+  if (!hasTrackerAccess(req, projectId)) { res.status(403).json({ error: "Forbidden" }); return; }
+  const members: Array<{ id: string; name: string }> = [{ id: "admin", name: "Admin" }];
+  for (const u of usersManager.getAll()) {
+    if (u.trackerProjects.includes(projectId)) {
+      members.push({ id: u.id, name: u.name });
+    }
+  }
+  res.json(members);
 });
 
 // ── Cycles ──
@@ -187,18 +197,6 @@ trackerRouter.delete("/comments/:id", async (req, res) => {
   const deleted = await trackerManager.deleteComment(req.params.id);
   if (!deleted) { res.status(404).json({ error: "Comment not found" }); return; }
   res.json({ deleted: true });
-});
-
-// ── Uploads ──
-
-trackerRouter.get("/uploads/:filename", (req, res) => {
-  const uploadsDir = resolve(config.dataPath, "tracker-uploads");
-  const filePath = resolve(uploadsDir, req.params.filename);
-  if (!filePath.startsWith(uploadsDir) || !existsSync(filePath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
-  res.sendFile(filePath);
 });
 
 // ── Test Cases ──

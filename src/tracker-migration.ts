@@ -61,11 +61,11 @@ const MIGRATIONS: string[] = [
     FOREIGN KEY (cycle_id) REFERENCES tracker_cycles(id) ON DELETE CASCADE
   )`,
 
-  `CREATE TABLE IF NOT EXISTS tracker_bet_assignees (
-    bet_id CHAR(36) NOT NULL,
+  `CREATE TABLE IF NOT EXISTS tracker_item_assignees (
+    item_id CHAR(36) NOT NULL,
     user_id VARCHAR(100) NOT NULL,
-    PRIMARY KEY (bet_id, user_id),
-    FOREIGN KEY (bet_id) REFERENCES tracker_bets(id) ON DELETE CASCADE
+    PRIMARY KEY (item_id, user_id),
+    FOREIGN KEY (item_id) REFERENCES tracker_bets(id) ON DELETE CASCADE
   )`,
 
   `CREATE TABLE IF NOT EXISTS tracker_comments (
@@ -308,6 +308,13 @@ async function runSchemaUpgrades(): Promise<void> {
 
   if (!(await columnExists(pool, "tracker_bets", "priority"))) {
     await pool.execute("ALTER TABLE tracker_bets ADD COLUMN priority VARCHAR(2) DEFAULT NULL AFTER appetite");
+  }
+
+  if (await tableExists(pool, "tracker_bet_assignees")) {
+    await pool.execute("RENAME TABLE tracker_bet_assignees TO tracker_item_assignees");
+  }
+  if (await tableExists(pool, "tracker_item_assignees") && await columnExists(pool, "tracker_item_assignees", "bet_id")) {
+    await pool.execute("ALTER TABLE tracker_item_assignees CHANGE bet_id item_id CHAR(36) NOT NULL");
   }
 }
 

@@ -298,6 +298,7 @@ export interface TrackerAttachment {
   id: string;
   commentId: string;
   filename: string;
+  url: string;
   mimeType: string;
   size: number;
   uploadedBy: string;
@@ -339,6 +340,7 @@ export interface TrackerTestRunAttachment {
   id: string;
   testRunId: string;
   filename: string;
+  url: string;
   mimeType: string;
   size: number;
   uploadedBy: string;
@@ -349,6 +351,7 @@ export interface TrackerTestRunCommentAttachment {
   id: string;
   commentId: string;
   filename: string;
+  url: string;
   mimeType: string;
   size: number;
   uploadedBy: string;

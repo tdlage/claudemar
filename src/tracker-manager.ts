@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { query, execute, getPool } from "./database.js";
 import { config } from "./config.js";
 import { DEFAULT_COLUMNS } from "./tracker-migration.js";
+import { signUploadUrl } from "./upload-signer.js";
 import type { CycleColumn } from "./tracker-migration.js";
 import type { RowDataPacket } from "mysql2/promise";
 
@@ -117,6 +118,7 @@ export interface TrackerAttachment {
   id: string;
   commentId: string;
   filename: string;
+  url: string;
   mimeType: string;
   size: number;
   uploadedBy: string;
@@ -159,6 +161,7 @@ export interface TrackerTestRunAttachment {
   id: string;
   testRunId: string;
   filename: string;
+  url: string;
   mimeType: string;
   size: number;
   uploadedBy: string;
@@ -179,6 +182,7 @@ export interface TrackerTestRunCommentAttachment {
   id: string;
   commentId: string;
   filename: string;
+  url: string;
   mimeType: string;
   size: number;
   uploadedBy: string;
@@ -227,7 +231,7 @@ interface ItemRow extends RowDataPacket {
 }
 
 interface AssigneeRow extends RowDataPacket {
-  bet_id: string;
+  item_id: string;
   user_id: string;
 }
 
@@ -386,6 +390,7 @@ function mapAttachment(r: AttachmentRow): TrackerAttachment {
     id: r.id,
     commentId: r.comment_id,
     filename: r.filename,
+    url: signUploadUrl(r.filename),
     mimeType: r.mime_type,
     size: r.size,
     uploadedBy: r.uploaded_by,
@@ -434,6 +439,7 @@ function mapTestRunAttachment(r: TestRunAttachmentRow): TrackerTestRunAttachment
     id: r.id,
     testRunId: r.test_run_id,
     filename: r.filename,
+    url: signUploadUrl(r.filename),
     mimeType: r.mime_type,
     size: Number(r.size),
     uploadedBy: r.uploaded_by,
@@ -458,6 +464,7 @@ function mapTestRunCommentAttachment(r: TestRunCommentAttachmentRow): TrackerTes
     id: r.id,
     commentId: r.comment_id,
     filename: r.filename,
+    url: signUploadUrl(r.filename),
     mimeType: r.mime_type,
     size: Number(r.size),
     uploadedBy: r.uploaded_by,
@@ -589,12 +596,12 @@ class TrackerManager extends EventEmitter {
   private async getItemAssignees(itemIds: string[]): Promise<Map<string, string[]>> {
     if (itemIds.length === 0) return new Map();
     const placeholders = itemIds.map(() => "?").join(",");
-    const rows = await query<AssigneeRow[]>(`SELECT bet_id, user_id FROM tracker_bet_assignees WHERE bet_id IN (${placeholders})`, itemIds);
+    const rows = await query<AssigneeRow[]>(`SELECT item_id, user_id FROM tracker_item_assignees WHERE item_id IN (${placeholders})`, itemIds);
     const map = new Map<string, string[]>();
     for (const r of rows) {
-      const list = map.get(r.bet_id) || [];
+      const list = map.get(r.item_id) || [];
       list.push(r.user_id);
-      map.set(r.bet_id, list);
+      map.set(r.item_id, list);
     }
     return map;
   }
@@ -677,7 +684,7 @@ class TrackerManager extends EventEmitter {
        data.priority || null, data.inScope || "", data.outOfScope || "", JSON.stringify(data.tags || []), seqNumber, position, data.createdBy],
     );
     if (data.assignees?.length) {
-      await execute(`INSERT INTO tracker_bet_assignees (bet_id, user_id) VALUES ${data.assignees.map(() => "(?, ?)").join(",")}`,
+      await execute(`INSERT INTO tracker_item_assignees (item_id, user_id) VALUES ${data.assignees.map(() => "(?, ?)").join(",")}`,
         data.assignees.flatMap((uid) => [id, uid]));
     }
     const item = (await this.getItem(id))!;
@@ -704,10 +711,10 @@ class TrackerManager extends EventEmitter {
       await execute(`UPDATE tracker_bets SET ${sets.join(", ")} WHERE id = ?`, params);
     }
     if (data.assignees !== undefined) {
-      await execute("DELETE FROM tracker_bet_assignees WHERE bet_id = ?", [id]);
+      await execute("DELETE FROM tracker_item_assignees WHERE item_id = ?", [id]);
       if (data.assignees.length > 0) {
         await execute(
-          `INSERT INTO tracker_bet_assignees (bet_id, user_id) VALUES ${data.assignees.map(() => "(?, ?)").join(",")}`,
+          `INSERT INTO tracker_item_assignees (item_id, user_id) VALUES ${data.assignees.map(() => "(?, ?)").join(",")}`,
           data.assignees.flatMap((uid) => [id, uid]),
         );
       }
@@ -814,6 +821,7 @@ class TrackerManager extends EventEmitter {
         );
         savedAttachments.push({
           id: attId, commentId: id, filename: file.filename,
+          url: signUploadUrl(file.filename),
           mimeType: att.mimeType, size: file.size,
           uploadedBy: data.authorId, uploadedAt: new Date().toISOString(),
         });
@@ -1041,6 +1049,7 @@ class TrackerManager extends EventEmitter {
     );
     const attachment: TrackerTestRunAttachment = {
       id: file.id, testRunId, filename: file.filename,
+      url: signUploadUrl(file.filename),
       mimeType, size: file.size, uploadedBy, uploadedAt: new Date().toISOString(),
     };
     this.emit("testrun:attachment", { testRunId, attachment });
@@ -1092,6 +1101,7 @@ class TrackerManager extends EventEmitter {
         );
         savedAttachments.push({
           id: file.id, commentId: id, filename: file.filename,
+          url: signUploadUrl(file.filename),
           mimeType: att.mimeType, size: file.size,
           uploadedBy: data.authorId, uploadedAt: new Date().toISOString(),
         });

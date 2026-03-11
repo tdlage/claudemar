@@ -1,12 +1,11 @@
 interface Props {
+  url: string;
   filename: string;
   mimeType: string;
   className?: string;
 }
 
-export function AttachmentPreview({ filename, mimeType, className = "w-24 h-24" }: Props) {
-  const url = `/api/tracker/uploads/${filename}`;
-
+export function AttachmentPreview({ url, filename, mimeType, className = "w-24 h-24" }: Props) {
   return (
     <a href={url} target="_blank" rel="noopener noreferrer">
       {mimeType.startsWith("image/") ? (

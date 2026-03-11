@@ -74,7 +74,7 @@ export function CommentThread({ targetType, targetId }: Props) {
             {c.attachments.length > 0 && (
               <div className="flex gap-2 flex-wrap mt-2">
                 {c.attachments.map((att) => (
-                  <AttachmentPreview key={att.id} filename={att.filename} mimeType={att.mimeType} />
+                  <AttachmentPreview key={att.id} url={att.url} filename={att.filename} mimeType={att.mimeType} />
                 ))}
               </div>
             )}

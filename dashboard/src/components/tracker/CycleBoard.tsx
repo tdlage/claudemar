@@ -160,7 +160,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
         })}
       </div>
 
-      <CreateItemModal open={createOpen} onClose={() => setCreateOpen(false)} cycleId={cycleId} />
+      <CreateItemModal open={createOpen} onClose={() => setCreateOpen(false)} cycleId={cycleId} projectId={projectId} />
     </div>
   );
 }

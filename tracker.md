@@ -66,14 +66,14 @@ Colunas padrão criadas automaticamente ao criar um ciclo:
 | created_at | DATETIME | NOT NULL | CURRENT_TIMESTAMP | — |
 | updated_at | DATETIME | NOT NULL | CURRENT_TIMESTAMP ON UPDATE | — |
 
-### tracker_bet_assignees
+### tracker_item_assignees
 
 | Coluna | Tipo | Descrição |
 |---|---|---|
-| bet_id | CHAR(36) | FK → tracker_bets(id) CASCADE |
+| item_id | CHAR(36) | FK → tracker_bets(id) CASCADE |
 | user_id | VARCHAR(100) | ID do usuário |
 
-PK composta: (bet_id, user_id)
+PK composta: (item_id, user_id)
 
 ### tracker_comments
 
@@ -173,7 +173,7 @@ INDEX: idx_target (target_type, target_id)
 tracker_projects
   └── tracker_cycles (project_id → id, CASCADE)
         └── tracker_bets (cycle_id → id, CASCADE)
-              └── tracker_bet_assignees (bet_id → id, CASCADE)
+              └── tracker_item_assignees (item_id → id, CASCADE)
 
 tracker_comments (target_type='item', target_id = bet.id)
   └── tracker_attachments (comment_id → id, CASCADE)
@@ -231,6 +231,12 @@ Response: `TrackerProject` | `404`
 #### DELETE /projects/:id (Admin only)
 Exclui projeto e todos os dados cascateados.
 Response: `{ deleted: true }` | `404`
+
+#### GET /projects/:projectId/members
+Lista membros com acesso ao projeto (admin + usuários com o projeto em `trackerProjects`).
+```json
+Response: [{ "id": "user-id", "name": "Nome" }]
+```
 
 ### Cycles
 
@@ -370,11 +376,11 @@ Response: `201 TrackerComment`
 Exclui comentário e remove arquivos do disco.
 Response: `{ deleted: true }` | `404`
 
-### Uploads
+### Uploads (Signed URLs)
 
-#### GET /uploads/:filename
-Serve arquivo de upload (imagem ou vídeo).
-Response: arquivo raw | `404`
+Attachments são servidos via URLs assinadas com HMAC-SHA256 (TTL 1h). A URL é incluída no campo `url` de cada attachment retornado pela API. Não há endpoint para gerar URLs manualmente — elas são geradas automaticamente pelo backend ao retornar attachments.
+
+Rota pública (fora de `/api`, sem auth): `GET /files/tracker/:filename?exp=TIMESTAMP&sig=HMAC`
 
 ### Test Cases
 
@@ -490,6 +496,7 @@ Response: `201 TrackerTestRunComment`
 | POST | /projects | Admin | Criar projeto |
 | PUT | /projects/:id | Admin | Atualizar projeto |
 | DELETE | /projects/:id | Admin | Excluir projeto |
+| GET | /projects/:pid/members | Qualquer | Listar membros do projeto |
 | GET | /projects/:pid/cycles | Qualquer | Listar ciclos |
 | GET | /projects/:pid/cycle-stats | Qualquer | Stats de itens por ciclo |
 | POST | /cycles | Acesso ao projeto | Criar ciclo |
@@ -504,7 +511,7 @@ Response: `201 TrackerTestRunComment`
 | GET | /comments/:type/:id | Qualquer | Listar comentários |
 | POST | /comments | Qualquer | Criar comentário |
 | DELETE | /comments/:id | Qualquer | Excluir comentário |
-| GET | /uploads/:filename | Qualquer | Servir arquivo |
+| GET | /files/tracker/:filename | Pública (signed) | Servir upload (fora /api) |
 | GET | /test-cases/:type/:id | Qualquer | Listar test cases |
 | POST | /test-cases | Qualquer | Criar test case |
 | PUT | /test-cases/:id | Qualquer | Atualizar test case |
@@ -568,6 +575,7 @@ Todos os eventos são emitidos na room `tracker` com prefixo `tracker:`.
 | `src/tracker-migration.ts` | Schema DDL e migrações |
 | `src/tracker-manager.ts` | Lógica de negócio (CRUD completo) |
 | `src/server/routes/tracker.ts` | Rotas REST da API |
+| `src/upload-signer.ts` | HMAC signed URLs para uploads |
 | `src/server/websocket.ts` | Setup WebSocket + broadcast de eventos |
 | `dashboard/src/lib/types.ts` | Tipos TypeScript do frontend |
 | `dashboard/src/hooks/useTracker.ts` | Hooks React para consumo da API |

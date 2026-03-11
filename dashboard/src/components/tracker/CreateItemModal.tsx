@@ -4,25 +4,33 @@ import { Modal } from "../shared/Modal";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
+import { useProjectMembers } from "../../hooks/useTracker";
 import { ITEM_PRIORITIES } from "./constants";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   cycleId: string;
+  projectId: string;
 }
 
-export function CreateItemModal({ open, onClose, cycleId }: Props) {
+export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
   const { addToast } = useToast();
+  const { members } = useProjectMembers(projectId);
   const [title, setTitle] = useState("");
   const [appetite, setAppetite] = useState(7);
   const [priority, setPriority] = useState("");
+  const [assignees, setAssignees] = useState<string[]>([]);
   const [inScope, setInScope] = useState("");
   const [outOfScope, setOutOfScope] = useState("");
   const [description, setDescription] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+
+  const toggleAssignee = (id: string) => {
+    setAssignees((prev) => prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]);
+  };
 
   const addTag = () => {
     const tag = tagInput.trim();
@@ -36,6 +44,7 @@ export function CreateItemModal({ open, onClose, cycleId }: Props) {
     setTitle("");
     setAppetite(7);
     setPriority("");
+    setAssignees([]);
     setInScope("");
     setOutOfScope("");
     setDescription("");
@@ -52,6 +61,7 @@ export function CreateItemModal({ open, onClose, cycleId }: Props) {
         title: title.trim(),
         appetite,
         priority: priority || undefined,
+        assignees: assignees.length > 0 ? assignees : undefined,
         inScope,
         outOfScope,
         description,
@@ -134,6 +144,31 @@ export function CreateItemModal({ open, onClose, cycleId }: Props) {
             />
           </div>
         </div>
+
+        {members.length > 0 && (
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Assignees</label>
+            <div className="flex gap-2 flex-wrap">
+              {members.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => toggleAssignee(m.id)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors ${
+                    assignees.includes(m.id)
+                      ? "bg-accent/20 text-accent border border-accent/40"
+                      : "bg-bg border border-border text-text-secondary hover:border-accent/30"
+                  }`}
+                >
+                  <span className="w-5 h-5 rounded-full bg-accent/20 text-accent text-[10px] flex items-center justify-center font-medium shrink-0">
+                    {m.name.charAt(0).toUpperCase()}
+                  </span>
+                  {m.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div>
           <label className="block text-xs text-text-muted mb-1">Tags</label>

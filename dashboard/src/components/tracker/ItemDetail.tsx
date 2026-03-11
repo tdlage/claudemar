@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, Pencil, Clock } from "lucide-react";
 import { Tabs } from "../shared/Tabs";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
-import { useItems, useTrackerProjects } from "../../hooks/useTracker";
+import { useItems, useTrackerProjects, useProjectMembers } from "../../hooks/useTracker";
 import { canEditTrackerProject } from "../../hooks/useAuth";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
@@ -61,6 +61,7 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
   const canEdit = canEditTrackerProject(projectId);
   const { projects } = useTrackerProjects();
   const { items } = useItems(cycleId);
+  const { members } = useProjectMembers(projectId);
   const project = projects.find((p) => p.id === projectId);
   const [tab, setTab] = useState<TabKey>("details");
   const [editingItem, setEditingItem] = useState(false);
@@ -126,6 +127,17 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
       setEditingItem(false);
     } catch {
       addToast("error", "Failed to update item");
+    }
+  };
+
+  const handleToggleAssignee = async (userId: string) => {
+    if (!item) return;
+    const current = item.assignees;
+    const updated = current.includes(userId) ? current.filter((a) => a !== userId) : [...current, userId];
+    try {
+      await api.put(`/tracker/items/${itemId}`, { assignees: updated });
+    } catch {
+      addToast("error", "Failed to update assignees");
     }
   };
 
@@ -266,17 +278,32 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
         </div>
       </div>
 
-      {item?.assignees && item.assignees.length > 0 && (
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-text-muted mr-1">Assignees:</span>
-          {item.assignees.map((a) => (
-            <span
-              key={a}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-accent/10 text-accent"
-            >
-              {a}
-            </span>
-          ))}
+      {item && members.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-text-muted">Assignees:</span>
+          {members.map((m) => {
+            const active = item.assignees.includes(m.id);
+            return canEdit ? (
+              <button
+                key={m.id}
+                onClick={() => handleToggleAssignee(m.id)}
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors ${
+                  active
+                    ? "bg-accent/20 text-accent border border-accent/40"
+                    : "bg-bg border border-border text-text-muted hover:border-accent/30"
+                }`}
+              >
+                <span className="w-4 h-4 rounded-full bg-accent/20 text-accent text-[9px] flex items-center justify-center font-medium">
+                  {m.name.charAt(0).toUpperCase()}
+                </span>
+                {m.name}
+              </button>
+            ) : active ? (
+              <span key={m.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-accent/10 text-accent">
+                {m.name}
+              </span>
+            ) : null;
+          })}
         </div>
       )}
 

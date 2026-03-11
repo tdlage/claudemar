@@ -74,7 +74,7 @@ function RunDetail({ run }: { run: TrackerTestRun }) {
       {run.attachments.length > 0 && (
         <div className="flex gap-2 flex-wrap">
           {run.attachments.map((att) => (
-            <AttachmentPreview key={att.id} filename={att.filename} mimeType={att.mimeType} className="w-20 h-20" />
+            <AttachmentPreview key={att.id} url={att.url} filename={att.filename} mimeType={att.mimeType} className="w-20 h-20" />
           ))}
         </div>
       )}
@@ -91,7 +91,7 @@ function RunDetail({ run }: { run: TrackerTestRun }) {
             {c.attachments.length > 0 && (
               <div className="flex gap-1 flex-wrap mt-1">
                 {c.attachments.map((att) => (
-                  <AttachmentPreview key={att.id} filename={att.filename} mimeType={att.mimeType} className="w-12 h-12" />
+                  <AttachmentPreview key={att.id} url={att.url} filename={att.filename} mimeType={att.mimeType} className="w-12 h-12" />
                 ))}
               </div>
             )}

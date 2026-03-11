@@ -62,6 +62,12 @@ export function useTrackerProjects() {
   return { projects: data ?? [], loading, error, refresh };
 }
 
+export function useProjectMembers(projectId: string | undefined) {
+  const path = projectId ? `/tracker/projects/${projectId}/members` : null;
+  const { data, loading } = useTrackerData<Array<{ id: string; name: string }>>(path, [projectId]);
+  return { members: data ?? [], loading };
+}
+
 export function useCycles(projectId: string | undefined) {
   const path = projectId ? `/tracker/projects/${projectId}/cycles` : null;
   const { data, setData, loading, error, refresh } = useTrackerData<TrackerCycle[]>(path, [projectId]);

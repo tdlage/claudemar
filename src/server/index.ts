@@ -8,6 +8,7 @@ import { config } from "../config.js";
 import { authMiddleware, requireAdmin, securityHeaders } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { setupWebSocket } from "./websocket.js";
+import { verifyUploadSignature } from "../upload-signer.js";
 import { agentsRouter } from "./routes/agents.js";
 import { projectsRouter } from "./routes/projects.js";
 import { executionsRouter } from "./routes/executions.js";
@@ -38,6 +39,22 @@ export function createDashboardServer() {
     standardHeaders: "draft-7",
     legacyHeaders: false,
     message: { error: "Too many requests, please try again later" },
+  });
+
+  app.get("/files/tracker/:filename", (req, res) => {
+    const { exp, sig } = req.query as { exp?: string; sig?: string };
+    if (!exp || !sig || !verifyUploadSignature(req.params.filename, exp, sig)) {
+      res.status(403).json({ error: "Invalid or expired signature" });
+      return;
+    }
+    const uploadsDir = resolve(config.dataPath, "tracker-uploads");
+    const filePath = resolve(uploadsDir, req.params.filename);
+    if (!filePath.startsWith(uploadsDir) || !existsSync(filePath)) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.sendFile(filePath);
   });
 
   app.use("/api", apiLimiter);
