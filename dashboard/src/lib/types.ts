@@ -272,6 +272,7 @@ export interface TrackerItem {
   description: string;
   columnId: string;
   appetite: number;
+  priority: string | null;
   startedAt: string | null;
   inScope: string;
   outOfScope: string;

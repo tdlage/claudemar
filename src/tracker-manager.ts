@@ -88,6 +88,7 @@ export interface TrackerItem {
   description: string;
   columnId: string;
   appetite: number;
+  priority: string | null;
   startedAt: string | null;
   inScope: string;
   outOfScope: string;
@@ -213,6 +214,7 @@ interface ItemRow extends RowDataPacket {
   description: string | null;
   column_id: string;
   appetite: number;
+  priority: string | null;
   started_at: string | null;
   in_scope: string | null;
   out_of_scope: string | null;
@@ -351,6 +353,7 @@ function mapItem(r: ItemRow, assignees: string[], testStats?: ItemTestStats): Tr
     description: r.description || "",
     columnId: r.column_id,
     appetite: r.appetite,
+    priority: r.priority || null,
     startedAt: r.started_at ? new Date(r.started_at).toISOString() : null,
     inScope: r.in_scope || "",
     outOfScope: r.out_of_scope || "",
@@ -649,7 +652,7 @@ class TrackerManager extends EventEmitter {
 
   async createItem(data: {
     cycleId: string; title: string; description?: string; columnId: string;
-    appetite?: number; inScope?: string; outOfScope?: string;
+    appetite?: number; priority?: string; inScope?: string; outOfScope?: string;
     assignees?: string[]; tags?: string[]; createdBy: string;
   }): Promise<TrackerItem> {
     const id = randomUUID();
@@ -669,9 +672,9 @@ class TrackerManager extends EventEmitter {
     }
 
     await execute(
-      "INSERT INTO tracker_bets (id, cycle_id, title, description, column_id, appetite, in_scope, out_of_scope, tags, seq_number, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO tracker_bets (id, cycle_id, title, description, column_id, appetite, priority, in_scope, out_of_scope, tags, seq_number, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [id, data.cycleId, data.title, data.description || "", data.columnId, data.appetite ?? 7,
-       data.inScope || "", data.outOfScope || "", JSON.stringify(data.tags || []), seqNumber, position, data.createdBy],
+       data.priority || null, data.inScope || "", data.outOfScope || "", JSON.stringify(data.tags || []), seqNumber, position, data.createdBy],
     );
     if (data.assignees?.length) {
       await execute(`INSERT INTO tracker_bet_assignees (bet_id, user_id) VALUES ${data.assignees.map(() => "(?, ?)").join(",")}`,
@@ -684,7 +687,7 @@ class TrackerManager extends EventEmitter {
 
   async updateItem(id: string, data: Partial<{
     title: string; description: string; columnId: string; appetite: number;
-    inScope: string; outOfScope: string; assignees: string[]; tags: string[];
+    priority: string | null; inScope: string; outOfScope: string; assignees: string[]; tags: string[];
   }>): Promise<TrackerItem | null> {
     const sets: string[] = [];
     const params: (string | number | null | boolean)[] = [];
@@ -692,6 +695,7 @@ class TrackerManager extends EventEmitter {
     if (data.description !== undefined) { sets.push("description = ?"); params.push(data.description); }
     if (data.columnId !== undefined) { sets.push("column_id = ?"); params.push(data.columnId); }
     if (data.appetite !== undefined) { sets.push("appetite = ?"); params.push(data.appetite); }
+    if (data.priority !== undefined) { sets.push("priority = ?"); params.push(data.priority); }
     if (data.inScope !== undefined) { sets.push("in_scope = ?"); params.push(data.inScope); }
     if (data.outOfScope !== undefined) { sets.push("out_of_scope = ?"); params.push(data.outOfScope); }
     if (data.tags !== undefined) { sets.push("tags = ?"); params.push(JSON.stringify(data.tags)); }

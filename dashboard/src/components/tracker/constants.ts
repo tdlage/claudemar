@@ -22,3 +22,15 @@ export const PRIORITY_VARIANT: Record<TestCasePriority, "danger" | "warning" | "
   medium: "info",
   low: "default",
 };
+
+export const ITEM_PRIORITIES = [
+  { value: "P1", label: "P1 - Urgente", color: "text-danger bg-danger/10" },
+  { value: "P2", label: "P2 - Alta", color: "text-warning bg-warning/10" },
+  { value: "P3", label: "P3 - Média", color: "text-accent bg-accent/10" },
+  { value: "P4", label: "P4 - Baixa", color: "text-text-muted bg-border" },
+  { value: "P5", label: "P5 - Muito baixa", color: "text-text-muted bg-border" },
+] as const;
+
+export function getPriorityConfig(priority: string | null) {
+  return ITEM_PRIORITIES.find((p) => p.value === priority) ?? null;
+}

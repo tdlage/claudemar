@@ -4,6 +4,7 @@ import { Modal } from "../shared/Modal";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
+import { ITEM_PRIORITIES } from "./constants";
 
 interface Props {
   open: boolean;
@@ -15,6 +16,7 @@ export function CreateItemModal({ open, onClose, cycleId }: Props) {
   const { addToast } = useToast();
   const [title, setTitle] = useState("");
   const [appetite, setAppetite] = useState(7);
+  const [priority, setPriority] = useState("");
   const [inScope, setInScope] = useState("");
   const [outOfScope, setOutOfScope] = useState("");
   const [description, setDescription] = useState("");
@@ -33,6 +35,7 @@ export function CreateItemModal({ open, onClose, cycleId }: Props) {
   const reset = () => {
     setTitle("");
     setAppetite(7);
+    setPriority("");
     setInScope("");
     setOutOfScope("");
     setDescription("");
@@ -48,6 +51,7 @@ export function CreateItemModal({ open, onClose, cycleId }: Props) {
         cycleId,
         title: title.trim(),
         appetite,
+        priority: priority || undefined,
         inScope,
         outOfScope,
         description,
@@ -66,7 +70,7 @@ export function CreateItemModal({ open, onClose, cycleId }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="New Item" size="xl">
       <div className="space-y-4">
-        <div className="grid grid-cols-[1fr_auto] gap-4">
+        <div className="grid grid-cols-[1fr_auto_auto] gap-4">
           <div>
             <label className="block text-xs text-text-muted mb-1">Title</label>
             <input
@@ -76,6 +80,19 @@ export function CreateItemModal({ open, onClose, cycleId }: Props) {
               autoFocus
               className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
             />
+          </div>
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Priority</label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              className="w-40 bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+            >
+              <option value="">Sem prioridade</option>
+              {ITEM_PRIORITIES.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-xs text-text-muted mb-1">Appetite (days)</label>

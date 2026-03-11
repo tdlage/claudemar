@@ -48,6 +48,7 @@ const MIGRATIONS: string[] = [
     description TEXT,
     column_id CHAR(36) NOT NULL,
     appetite INT NOT NULL DEFAULT 7,
+    priority VARCHAR(2) DEFAULT NULL,
     started_at DATETIME DEFAULT NULL,
     in_scope TEXT,
     out_of_scope TEXT,
@@ -303,6 +304,10 @@ async function runSchemaUpgrades(): Promise<void> {
 
   if (!(await columnExists(pool, "tracker_bets", "started_at"))) {
     await pool.execute("ALTER TABLE tracker_bets ADD COLUMN started_at DATETIME DEFAULT NULL AFTER seq_number");
+  }
+
+  if (!(await columnExists(pool, "tracker_bets", "priority"))) {
+    await pool.execute("ALTER TABLE tracker_bets ADD COLUMN priority VARCHAR(2) DEFAULT NULL AFTER appetite");
   }
 }
 

@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, XCircle, Clock } from "lucide-react";
 import type { TrackerItem } from "../../lib/types";
-import { getDaysSpent } from "./constants";
+import { getDaysSpent, getPriorityConfig } from "./constants";
 
 interface Props {
   item: TrackerItem;
@@ -101,6 +101,14 @@ export function ItemCard({ item, projectCode, onClick }: Props) {
             </span>
           )}
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+            {(() => {
+              const pc = getPriorityConfig(item.priority);
+              return pc ? (
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${pc.color}`}>
+                  {pc.value}
+                </span>
+              ) : null;
+            })()}
             <TestStatusBadge item={item} />
             <AppetiteBadge item={item} />
           </div>

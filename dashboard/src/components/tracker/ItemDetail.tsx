@@ -9,7 +9,7 @@ import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { TestCasePanel } from "./TestCasePanel";
 import { CommentThread } from "./CommentThread";
-import { getDaysSpent } from "./constants";
+import { getDaysSpent, ITEM_PRIORITIES, getPriorityConfig } from "./constants";
 
 interface Props {
   projectId: string;
@@ -129,6 +129,14 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
     }
   };
 
+  const handleSavePriority = async (value: string | null) => {
+    try {
+      await api.put(`/tracker/items/${itemId}`, { priority: value });
+    } catch {
+      addToast("error", "Failed to update priority");
+    }
+  };
+
   const handleSaveAppetite = async () => {
     const val = Math.max(1, appetiteValue);
     try {
@@ -194,6 +202,34 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
             />
           ) : (
             <h2 className="text-lg font-semibold text-text-primary">{item?.title ?? "Item"}</h2>
+          )}
+          {item && (() => {
+            const pc = getPriorityConfig(item.priority);
+            return pc ? (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${pc.color}`}>
+                {pc.label}
+              </span>
+            ) : canEdit ? (
+              <button
+                onClick={() => handleSavePriority("P3")}
+                className="text-[10px] text-text-muted hover:text-accent"
+                title="Set priority"
+              >
+                + priority
+              </button>
+            ) : null;
+          })()}
+          {item && canEdit && item.priority && (
+            <select
+              value={item.priority}
+              onChange={(e) => handleSavePriority(e.target.value || null)}
+              className="bg-bg border border-border rounded px-1.5 py-0.5 text-xs text-text-primary focus:outline-none focus:border-accent"
+            >
+              <option value="">Sem prioridade</option>
+              {ITEM_PRIORITIES.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
           )}
           {item && !editingAppetite && (
             <button
