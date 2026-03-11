@@ -4,7 +4,7 @@ import { usersManager } from "../users-manager.js";
 
 export type RequestContext =
   | { role: "admin" }
-  | { role: "user"; userId: string; name: string; projects: string[]; agents: string[] };
+  | { role: "user"; userId: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[] };
 
 declare global {
   namespace Express {
@@ -26,7 +26,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 
   const user = token ? usersManager.findByToken(token) : null;
   if (user) {
-    req.ctx = { role: "user", userId: user.id, name: user.name, projects: user.projects, agents: user.agents };
+    req.ctx = { role: "user", userId: user.id, name: user.name, projects: user.projects, agents: user.agents, trackerProjects: user.trackerProjects };
     next();
     return;
   }

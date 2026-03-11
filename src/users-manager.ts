@@ -10,6 +10,7 @@ export interface User {
   token: string;
   projects: string[];
   agents: string[];
+  trackerProjects: string[];
   createdAt: string;
 }
 
@@ -28,6 +29,10 @@ class UsersManager {
     for (const u of data) {
       if (!u.token) {
         u.token = randomBytes(32).toString("base64url");
+        needsPersist = true;
+      }
+      if (!u.trackerProjects) {
+        u.trackerProjects = [];
         needsPersist = true;
       }
       this.users.set(u.id, u);
@@ -56,6 +61,7 @@ class UsersManager {
       token: randomBytes(32).toString("base64url"),
       projects: [],
       agents: [],
+      trackerProjects: [],
       createdAt: new Date().toISOString(),
     };
     this.users.set(user.id, user);
@@ -63,13 +69,14 @@ class UsersManager {
     return user;
   }
 
-  update(id: string, data: Partial<Pick<User, "name" | "email" | "projects" | "agents">>): User | null {
+  update(id: string, data: Partial<Pick<User, "name" | "email" | "projects" | "agents" | "trackerProjects">>): User | null {
     const user = this.users.get(id);
     if (!user) return null;
     if (data.name !== undefined) user.name = data.name;
     if (data.email !== undefined) user.email = data.email;
     if (data.projects !== undefined) user.projects = data.projects;
     if (data.agents !== undefined) user.agents = data.agents;
+    if (data.trackerProjects !== undefined) user.trackerProjects = data.trackerProjects;
     this.persister.scheduleWrite(() => this.getAll());
     return user;
   }

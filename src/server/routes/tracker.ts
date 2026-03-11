@@ -15,8 +15,12 @@ function getAuthor(req: Express.Request): { id: string; name: string } {
 
 // ── Projects ──
 
-trackerRouter.get("/projects", async (_req, res) => {
-  const projects = await trackerManager.getProjects();
+trackerRouter.get("/projects", async (req, res) => {
+  let projects = await trackerManager.getProjects();
+  if (req.ctx?.role === "user") {
+    const allowed = new Set(req.ctx.trackerProjects);
+    projects = projects.filter((p) => allowed.has(p.id));
+  }
   res.json(projects);
 });
 
