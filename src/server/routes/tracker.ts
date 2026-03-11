@@ -13,6 +13,12 @@ function getAuthor(req: Express.Request): { id: string; name: string } {
   return { id: ctx.userId, name: ctx.name };
 }
 
+function hasTrackerAccess(req: Express.Request, projectId: string): boolean {
+  const ctx = req.ctx!;
+  if (ctx.role === "admin") return true;
+  return ctx.trackerProjects.includes(projectId);
+}
+
 // ── Projects ──
 
 trackerRouter.get("/projects", async (req, res) => {
@@ -70,21 +76,27 @@ trackerRouter.get("/projects/:projectId/cycle-stats", async (req, res) => {
   res.json(result);
 });
 
-trackerRouter.post("/cycles", requireAdmin, async (req, res) => {
+trackerRouter.post("/cycles", async (req, res) => {
   const { projectId, name } = req.body;
   if (!projectId || !name) { res.status(400).json({ error: "projectId and name required" }); return; }
+  if (!hasTrackerAccess(req, projectId)) { res.status(403).json({ error: "Forbidden" }); return; }
   const author = getAuthor(req);
   const cycle = await trackerManager.createCycle({ projectId, name, createdBy: author.id });
   res.status(201).json(cycle);
 });
 
-trackerRouter.put("/cycles/:id", requireAdmin, async (req, res) => {
-  const cycle = await trackerManager.updateCycle(req.params.id as string, req.body);
+trackerRouter.put("/cycles/:id", async (req, res) => {
+  const cycle = await trackerManager.getCycle(req.params.id);
   if (!cycle) { res.status(404).json({ error: "Cycle not found" }); return; }
-  res.json(cycle);
+  if (!hasTrackerAccess(req, cycle.projectId)) { res.status(403).json({ error: "Forbidden" }); return; }
+  const updated = await trackerManager.updateCycle(req.params.id as string, req.body);
+  res.json(updated);
 });
 
-trackerRouter.delete("/cycles/:id", requireAdmin, async (req, res) => {
+trackerRouter.delete("/cycles/:id", async (req, res) => {
+  const cycle = await trackerManager.getCycle(req.params.id);
+  if (!cycle) { res.status(404).json({ error: "Cycle not found" }); return; }
+  if (!hasTrackerAccess(req, cycle.projectId)) { res.status(403).json({ error: "Forbidden" }); return; }
   const deleted = await trackerManager.deleteCycle(req.params.id as string);
   if (!deleted) { res.status(404).json({ error: "Cycle not found" }); return; }
   res.json({ deleted: true });
@@ -97,18 +109,16 @@ trackerRouter.get("/cycles/:cycleId/items", async (req, res) => {
   res.json(items);
 });
 
-trackerRouter.post("/items", requireAdmin, async (req, res) => {
+trackerRouter.post("/items", async (req, res) => {
   const { cycleId, title, description, appetite, inScope, outOfScope, assignees, tags, columnId } = req.body;
   if (!cycleId || !title) { res.status(400).json({ error: "cycleId and title required" }); return; }
-  let resolvedColumnId = columnId;
-  if (!resolvedColumnId) {
-    const cycle = await trackerManager.getCycle(cycleId);
-    if (!cycle || cycle.columns.length === 0) {
-      res.status(400).json({ error: "Cycle not found or has no columns" });
-      return;
-    }
-    resolvedColumnId = [...cycle.columns].sort((a, b) => a.position - b.position)[0].id;
+  const cycle = await trackerManager.getCycle(cycleId);
+  if (!cycle || cycle.columns.length === 0) {
+    res.status(400).json({ error: "Cycle not found or has no columns" });
+    return;
   }
+  if (!hasTrackerAccess(req, cycle.projectId)) { res.status(403).json({ error: "Forbidden" }); return; }
+  const resolvedColumnId = columnId || [...cycle.columns].sort((a, b) => a.position - b.position)[0].id;
   const author = getAuthor(req);
   const item = await trackerManager.createItem({
     cycleId, title, description, appetite: appetite ? Number(appetite) : undefined,
@@ -132,7 +142,11 @@ trackerRouter.patch("/items/:id/move", async (req, res) => {
   res.json(item);
 });
 
-trackerRouter.delete("/items/:id", requireAdmin, async (req, res) => {
+trackerRouter.delete("/items/:id", async (req, res) => {
+  const item = await trackerManager.getItem(req.params.id);
+  if (!item) { res.status(404).json({ error: "Item not found" }); return; }
+  const cycle = await trackerManager.getCycle(item.cycleId);
+  if (cycle && !hasTrackerAccess(req, cycle.projectId)) { res.status(403).json({ error: "Forbidden" }); return; }
   const deleted = await trackerManager.deleteItem(req.params.id as string);
   if (!deleted) { res.status(404).json({ error: "Item not found" }); return; }
   res.json({ deleted: true });

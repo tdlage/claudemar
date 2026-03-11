@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { Plus, ArrowLeft, Trash2, Settings, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { useItems, useCycles, useTrackerProjects } from "../../hooks/useTracker";
-import { isAdmin } from "../../hooks/useAuth";
+import { canEditTrackerProject } from "../../hooks/useAuth";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { ItemCard } from "./ItemCard";
@@ -19,7 +19,7 @@ interface Props {
 export function CycleBoard({ projectId, cycleId }: Props) {
   const navigate = useNavigate();
   const { addToast } = useToast();
-  const admin = isAdmin();
+  const canEdit = canEditTrackerProject(projectId);
   const { projects } = useTrackerProjects();
   const { cycles } = useCycles(projectId);
   const { items } = useItems(cycleId);
@@ -86,7 +86,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
           {cycle && (
             <Badge variant={CYCLE_STATUS_VARIANT[cycle.status]}>{cycle.status}</Badge>
           )}
-          {admin && cycle && (
+          {canEdit && cycle && (
             <select
               value={cycle.status}
               onChange={(e) => handleCycleStatusChange(e.target.value as CycleStatus)}
@@ -97,18 +97,18 @@ export function CycleBoard({ projectId, cycleId }: Props) {
               ))}
             </select>
           )}
-          {admin && (
+          {canEdit && (
             <button onClick={() => setShowColumnManager(!showColumnManager)} className="text-text-muted hover:text-text-primary" title="Manage columns">
               <Settings size={14} />
             </button>
           )}
-          {admin && (
+          {canEdit && (
             <button onClick={handleDeleteCycle} className="text-text-muted hover:text-danger">
               <Trash2 size={13} />
             </button>
           )}
         </div>
-        {admin && (
+        {canEdit && (
           <button
             onClick={() => setCreateOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
@@ -118,7 +118,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
         )}
       </div>
 
-      {showColumnManager && admin && (
+      {showColumnManager && canEdit && (
         <ColumnManager cycleId={cycleId} columns={columns} onClose={() => setShowColumnManager(false)} />
       )}
 

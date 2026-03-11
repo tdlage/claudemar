@@ -4,7 +4,7 @@ import { ArrowLeft, Pencil, Clock } from "lucide-react";
 import { Tabs } from "../shared/Tabs";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
 import { useItems, useTrackerProjects } from "../../hooks/useTracker";
-import { isAdmin } from "../../hooks/useAuth";
+import { canEditTrackerProject } from "../../hooks/useAuth";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { TestCasePanel } from "./TestCasePanel";
@@ -58,13 +58,15 @@ function AppetiteIndicator({ appetite, startedAt }: { appetite: number; startedA
 
 export function ItemDetail({ projectId, cycleId, itemId }: Props) {
   const { addToast } = useToast();
-  const admin = isAdmin();
+  const canEdit = canEditTrackerProject(projectId);
   const { projects } = useTrackerProjects();
   const { items } = useItems(cycleId);
   const project = projects.find((p) => p.id === projectId);
   const [tab, setTab] = useState<TabKey>("details");
   const [editingItem, setEditingItem] = useState(false);
   const [itemTitle, setItemTitle] = useState("");
+  const [editingAppetite, setEditingAppetite] = useState(false);
+  const [appetiteValue, setAppetiteValue] = useState(7);
   const [description, setDescription] = useState("");
   const [inScope, setInScope] = useState("");
   const [outOfScope, setOutOfScope] = useState("");
@@ -127,6 +129,16 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
     }
   };
 
+  const handleSaveAppetite = async () => {
+    const val = Math.max(1, appetiteValue);
+    try {
+      await api.put(`/tracker/items/${itemId}`, { appetite: val });
+      setEditingAppetite(false);
+    } catch {
+      addToast("error", "Failed to update appetite");
+    }
+  };
+
   const handleSaveInScope = async () => {
     try {
       await api.put(`/tracker/items/${itemId}`, { inScope });
@@ -183,8 +195,31 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
           ) : (
             <h2 className="text-lg font-semibold text-text-primary">{item?.title ?? "Item"}</h2>
           )}
-          {item && <AppetiteIndicator appetite={item.appetite} startedAt={item.startedAt} />}
-          {admin && !editingItem && (
+          {item && !editingAppetite && (
+            <button
+              onClick={() => { if (canEdit) { setAppetiteValue(item.appetite); setEditingAppetite(true); } }}
+              className={canEdit ? "cursor-pointer" : "cursor-default"}
+              title={canEdit ? "Click to edit appetite" : undefined}
+            >
+              <AppetiteIndicator appetite={item.appetite} startedAt={item.startedAt} />
+            </button>
+          )}
+          {editingAppetite && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={appetiteValue}
+                onChange={(e) => setAppetiteValue(Math.max(1, Number(e.target.value) || 1))}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSaveAppetite(); if (e.key === "Escape") setEditingAppetite(false); }}
+                autoFocus
+                className="w-16 bg-bg border border-border rounded px-2 py-0.5 text-xs text-text-primary focus:outline-none focus:border-accent"
+              />
+              <span className="text-xs text-text-muted">days</span>
+            </div>
+          )}
+          {canEdit && !editingItem && (
             <button
               onClick={() => { setItemTitle(item?.title ?? ""); setEditingItem(true); }}
               className="text-text-muted hover:text-text-primary"

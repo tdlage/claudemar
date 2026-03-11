@@ -209,7 +209,7 @@ export interface SearchResponse {
 
 export type MeResponse =
   | { role: "admin" }
-  | { role: "user"; id: string; name: string; projects: string[]; agents: string[] };
+  | { role: "user"; id: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[] };
 
 export interface RuntimeSettings {
   sesFrom: string;

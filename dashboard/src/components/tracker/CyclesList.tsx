@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { Plus, ArrowLeft } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { useCycles, useCycleStats, useTrackerProjects } from "../../hooks/useTracker";
-import { isAdmin } from "../../hooks/useAuth";
+import { canEditTrackerProject } from "../../hooks/useAuth";
 import { CreateCycleModal } from "./CreateCycleModal";
 import { CYCLE_STATUS_VARIANT } from "./constants";
 
@@ -17,7 +17,7 @@ export function CyclesList({ projectId }: Props) {
   const { projects } = useTrackerProjects();
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
-  const admin = isAdmin();
+  const canEdit = canEditTrackerProject(projectId);
 
   const project = projects.find((p) => p.id === projectId);
 
@@ -30,7 +30,7 @@ export function CyclesList({ projectId }: Props) {
           </Link>
           <h2 className="text-lg font-semibold text-text-primary">{project?.name ?? "Project"}</h2>
         </div>
-        {admin && (
+        {canEdit && (
           <button
             onClick={() => setCreateOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"

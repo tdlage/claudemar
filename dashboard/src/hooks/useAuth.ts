@@ -18,6 +18,12 @@ export function isAdmin(): boolean {
   return !me || me.role === "admin";
 }
 
+export function canEditTrackerProject(projectId: string): boolean {
+  const me = getMe();
+  if (!me || me.role === "admin") return true;
+  return me.trackerProjects.includes(projectId);
+}
+
 export function useAuth() {
   const [token, setTokenState] = useState(() =>
     localStorage.getItem("dashboard_token") || "",
