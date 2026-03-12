@@ -7,6 +7,7 @@ import { config } from "./config.js";
 import { DEFAULT_COLUMNS } from "./tracker-migration.js";
 import { signUploadUrl } from "./upload-signer.js";
 import type { CycleColumn } from "./tracker-migration.js";
+import type { AskQuestion } from "./executor.js";
 import type { RowDataPacket } from "mysql2/promise";
 
 export type { CycleColumn } from "./tracker-migration.js";
@@ -189,6 +190,23 @@ export interface TrackerTestRunCommentAttachment {
   uploadedAt: string;
 }
 
+export type ItemPlanStatus = "planning" | "planned" | "executing" | "reviewing" | "completed" | "error";
+
+export interface TrackerItemPlan {
+  id: string;
+  itemId: string;
+  targetProject: string;
+  sessionId: string | null;
+  status: ItemPlanStatus;
+  promptSent: string;
+  planMarkdown: string | null;
+  pendingQuestions: AskQuestion[] | null;
+  lastExecutionId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Row types ──
 
 interface ProjectRow extends RowDataPacket {
@@ -313,6 +331,21 @@ interface TestRunCommentAttachmentRow extends RowDataPacket {
   size: number;
   uploaded_by: string;
   uploaded_at: string;
+}
+
+interface ItemPlanRow extends RowDataPacket {
+  id: string;
+  item_id: string;
+  target_project: string;
+  session_id: string | null;
+  status: string;
+  prompt_sent: string;
+  plan_markdown: string | null;
+  pending_questions: string | null;
+  last_execution_id: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ── Mappers ──
@@ -469,6 +502,27 @@ function mapTestRunCommentAttachment(r: TestRunCommentAttachmentRow): TrackerTes
     size: Number(r.size),
     uploadedBy: r.uploaded_by,
     uploadedAt: new Date(r.uploaded_at).toISOString(),
+  };
+}
+
+function mapItemPlan(r: ItemPlanRow): TrackerItemPlan {
+  let pendingQuestions: AskQuestion[] | null = null;
+  if (r.pending_questions) {
+    try { pendingQuestions = typeof r.pending_questions === "string" ? JSON.parse(r.pending_questions) : r.pending_questions; } catch { /* empty */ }
+  }
+  return {
+    id: r.id,
+    itemId: r.item_id,
+    targetProject: r.target_project,
+    sessionId: r.session_id,
+    status: r.status as ItemPlanStatus,
+    promptSent: r.prompt_sent,
+    planMarkdown: r.plan_markdown,
+    pendingQuestions,
+    lastExecutionId: r.last_execution_id,
+    createdBy: r.created_by,
+    createdAt: new Date(r.created_at).toISOString(),
+    updatedAt: new Date(r.updated_at).toISOString(),
   };
 }
 
@@ -1114,6 +1168,71 @@ class TrackerManager extends EventEmitter {
     };
     this.emit("testrun:comment", comment);
     return comment;
+  }
+  async getItemCode(itemId: string): Promise<string | null> {
+    const rows = await query<RowDataPacket[]>(
+      `SELECT p.code, b.seq_number FROM tracker_bets b
+       JOIN tracker_cycles c ON b.cycle_id = c.id
+       JOIN tracker_projects p ON c.project_id = p.id
+       WHERE b.id = ?`,
+      [itemId],
+    );
+    if (!rows[0]) return null;
+    return `${rows[0].code}-${rows[0].seq_number}`;
+  }
+
+  // ── Item Plans ──
+
+  async getItemPlan(itemId: string): Promise<TrackerItemPlan | null> {
+    const rows = await query<ItemPlanRow[]>("SELECT * FROM tracker_item_plans WHERE item_id = ? LIMIT 1", [itemId]);
+    return rows[0] ? mapItemPlan(rows[0]) : null;
+  }
+
+  async createItemPlan(data: { itemId: string; targetProject: string; promptSent: string; createdBy: string }): Promise<TrackerItemPlan> {
+    const id = randomUUID();
+    await execute(
+      "INSERT INTO tracker_item_plans (id, item_id, target_project, prompt_sent, created_by) VALUES (?, ?, ?, ?, ?)",
+      [id, data.itemId, data.targetProject, data.promptSent, data.createdBy],
+    );
+    const plan = (await this.getItemPlanById(id))!;
+    this.emit("plan:create", plan);
+    return plan;
+  }
+
+  async updateItemPlan(id: string, data: Partial<{
+    sessionId: string;
+    status: ItemPlanStatus;
+    planMarkdown: string;
+    pendingQuestions: AskQuestion[] | null;
+    lastExecutionId: string;
+  }>): Promise<TrackerItemPlan | null> {
+    const sets: string[] = [];
+    const params: (string | number | null)[] = [];
+    if (data.sessionId !== undefined) { sets.push("session_id = ?"); params.push(data.sessionId); }
+    if (data.status !== undefined) { sets.push("status = ?"); params.push(data.status); }
+    if (data.planMarkdown !== undefined) { sets.push("plan_markdown = ?"); params.push(data.planMarkdown); }
+    if (data.pendingQuestions !== undefined) { sets.push("pending_questions = ?"); params.push(data.pendingQuestions ? JSON.stringify(data.pendingQuestions) : null); }
+    if (data.lastExecutionId !== undefined) { sets.push("last_execution_id = ?"); params.push(data.lastExecutionId); }
+    if (sets.length === 0) return this.getItemPlanById(id);
+    params.push(id);
+    await execute(`UPDATE tracker_item_plans SET ${sets.join(", ")} WHERE id = ?`, params);
+    const plan = await this.getItemPlanById(id);
+    if (plan) this.emit("plan:update", plan);
+    return plan;
+  }
+
+  async deleteItemPlan(id: string): Promise<boolean> {
+    const result = await execute("DELETE FROM tracker_item_plans WHERE id = ?", [id]);
+    if (result.affectedRows > 0) {
+      this.emit("plan:delete", { id });
+      return true;
+    }
+    return false;
+  }
+
+  private async getItemPlanById(id: string): Promise<TrackerItemPlan | null> {
+    const rows = await query<ItemPlanRow[]>("SELECT * FROM tracker_item_plans WHERE id = ?", [id]);
+    return rows[0] ? mapItemPlan(rows[0]) : null;
   }
 }
 

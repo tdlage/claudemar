@@ -152,6 +152,23 @@ const MIGRATIONS: string[] = [
     uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (comment_id) REFERENCES tracker_test_run_comments(id) ON DELETE CASCADE
   )`,
+
+  `CREATE TABLE IF NOT EXISTS tracker_item_plans (
+    id CHAR(36) PRIMARY KEY,
+    item_id CHAR(36) NOT NULL,
+    target_project VARCHAR(255) NOT NULL,
+    session_id VARCHAR(255) DEFAULT NULL,
+    status ENUM('planning','planned','executing','reviewing','completed','error') NOT NULL DEFAULT 'planning',
+    prompt_sent TEXT NOT NULL,
+    plan_markdown LONGTEXT DEFAULT NULL,
+    pending_questions JSON DEFAULT NULL,
+    last_execution_id VARCHAR(36) DEFAULT NULL,
+    created_by VARCHAR(100) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES tracker_bets(id) ON DELETE CASCADE,
+    INDEX idx_item_plan (item_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 ];
 
 const SCHEMA_UPGRADES: string[] = [

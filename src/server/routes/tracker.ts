@@ -2,6 +2,10 @@ import { Router } from "express";
 import { requireAdmin } from "../middleware.js";
 import { trackerManager } from "../../tracker-manager.js";
 import { usersManager } from "../../users-manager.js";
+import { executionManager } from "../../execution-manager.js";
+import { commandQueue } from "../../queue.js";
+import { safeProjectPath } from "../../session.js";
+import { registerPlanExecution } from "../../tracker-execution-bridge.js";
 
 export const trackerRouter = Router();
 
@@ -296,4 +300,178 @@ trackerRouter.post("/test-run-comments", async (req, res) => {
     testRunId, authorId: author.id, authorName: author.name, content, attachments,
   });
   res.status(201).json(comment);
+});
+
+// ── Item Plans ──
+
+async function resolveItemProjectId(itemId: string): Promise<string | null> {
+  const item = await trackerManager.getItem(itemId);
+  if (!item) return null;
+  const cycle = await trackerManager.getCycle(item.cycleId);
+  return cycle?.projectId ?? null;
+}
+
+trackerRouter.get("/items/:itemId/plan", async (req, res) => {
+  const projectId = await resolveItemProjectId(req.params.itemId as string);
+  if (!projectId) { res.status(404).json({ error: "Item not found" }); return; }
+  if (!hasTrackerAccess(req, projectId)) { res.status(403).json({ error: "Forbidden" }); return; }
+  const plan = await trackerManager.getItemPlan(req.params.itemId as string);
+  res.json(plan);
+});
+
+function stripMarkdown(md: string): string {
+  return md
+    .replace(/#{1,6}\s+/g, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/_(.+?)_/g, "$1")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/`{1,3}[^`]*`{1,3}/g, (m) => m.replace(/`/g, ""))
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1");
+}
+
+function generatePlanPrompt(item: { title: string; description: string; inScope: string; outOfScope: string }, itemCode: string): string {
+  let prompt = `Planeje a implementacao do item ${itemCode}: ${item.title}\n\n`;
+  if (item.description) {
+    prompt += `Descricao:\n${stripMarkdown(item.description)}\n\n`;
+  }
+  if (item.inScope) {
+    prompt += `In Scope:\n${item.inScope}\n\n`;
+  }
+  if (item.outOfScope) {
+    prompt += `Out of Scope:\n${item.outOfScope}\n\n`;
+  }
+  return prompt;
+}
+
+trackerRouter.post("/items/:itemId/send-to-project", requireAdmin, async (req, res) => {
+  const { targetProject, prompt } = req.body;
+  if (!targetProject || !prompt) { res.status(400).json({ error: "targetProject and prompt required" }); return; }
+
+  const projectPath = safeProjectPath(targetProject);
+  if (!projectPath) { res.status(400).json({ error: "Project not found" }); return; }
+
+  const itemCode = await trackerManager.getItemCode(req.params.itemId as string);
+  if (!itemCode) { res.status(404).json({ error: "Item not found" }); return; }
+
+  const author = getAuthor(req);
+  const plan = await trackerManager.createItemPlan({
+    itemId: req.params.itemId as string,
+    targetProject,
+    promptSent: prompt,
+    createdBy: author.id,
+  });
+
+  let execId: string;
+  try {
+    execId = executionManager.startExecution({
+      source: "web",
+      targetType: "project",
+      targetName: targetProject,
+      prompt,
+      cwd: projectPath,
+      planMode: true,
+      noResume: true,
+      username: "admin",
+    });
+  } catch (err) {
+    await trackerManager.updateItemPlan(plan.id, { status: "error" });
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to start execution" });
+    return;
+  }
+
+  await trackerManager.updateItemPlan(plan.id, { lastExecutionId: execId });
+  registerPlanExecution(execId, plan.id, itemCode, "plan");
+
+  res.status(201).json({ planId: plan.id, executionId: execId });
+});
+
+trackerRouter.post("/items/:itemId/execute-plan", requireAdmin, async (req, res) => {
+  const plan = await trackerManager.getItemPlan(req.params.itemId as string);
+  if (!plan) { res.status(404).json({ error: "No plan found for this item" }); return; }
+  if (plan.status !== "planned") { res.status(400).json({ error: `Plan status is '${plan.status}', expected 'planned'` }); return; }
+  if (!plan.sessionId) { res.status(400).json({ error: "No session ID available" }); return; }
+
+  const projectPath = safeProjectPath(plan.targetProject);
+  if (!projectPath) { res.status(400).json({ error: "Project not found" }); return; }
+
+  let execId: string;
+  try {
+    execId = executionManager.startExecution({
+      source: "web",
+      targetType: "project",
+      targetName: plan.targetProject,
+      prompt: "Execute o plano em sua totalidade",
+      cwd: projectPath,
+      resumeSessionId: plan.sessionId,
+      planMode: false,
+      username: "admin",
+    });
+  } catch (err) {
+    await trackerManager.updateItemPlan(plan.id, { status: "error" });
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to start execution" });
+    return;
+  }
+
+  registerPlanExecution(execId, plan.id, "", "execute");
+
+  commandQueue.enqueue({
+    targetType: "project",
+    targetName: plan.targetProject,
+    prompt: "Valide e corrija os problemas encontrados",
+    source: "web",
+    cwd: projectPath,
+    resumeSessionId: plan.sessionId,
+    agentName: "pragmatic-code-reviewer",
+    username: "admin",
+  });
+
+  await trackerManager.updateItemPlan(plan.id, { status: "executing", lastExecutionId: execId });
+
+  res.json({ executionId: execId });
+});
+
+trackerRouter.post("/items/:itemId/review-plan", requireAdmin, async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) { res.status(400).json({ error: "prompt required" }); return; }
+
+  const plan = await trackerManager.getItemPlan(req.params.itemId as string);
+  if (!plan) { res.status(404).json({ error: "No plan found for this item" }); return; }
+  if (!plan.sessionId) { res.status(400).json({ error: "No session ID available" }); return; }
+
+  const projectPath = safeProjectPath(plan.targetProject);
+  if (!projectPath) { res.status(400).json({ error: "Project not found" }); return; }
+
+  let execId: string;
+  try {
+    execId = executionManager.startExecution({
+      source: "web",
+      targetType: "project",
+      targetName: plan.targetProject,
+      prompt,
+      cwd: projectPath,
+      resumeSessionId: plan.sessionId,
+      planMode: true,
+      username: "admin",
+    });
+  } catch (err) {
+    await trackerManager.updateItemPlan(plan.id, { status: "error" });
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to start execution" });
+    return;
+  }
+
+  registerPlanExecution(execId, plan.id, "", "review");
+  await trackerManager.updateItemPlan(plan.id, { status: "reviewing", lastExecutionId: execId });
+
+  res.json({ executionId: execId });
+});
+
+trackerRouter.get("/items/:itemId/generate-prompt", requireAdmin, async (req, res) => {
+  const item = await trackerManager.getItem(req.params.itemId as string);
+  if (!item) { res.status(404).json({ error: "Item not found" }); return; }
+
+  const itemCode = await trackerManager.getItemCode(req.params.itemId as string) ?? `ITEM-${item.seqNumber}`;
+  res.json({ prompt: generatePlanPrompt(item, itemCode) });
 });

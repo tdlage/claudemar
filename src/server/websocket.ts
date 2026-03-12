@@ -171,6 +171,7 @@ export function setupWebSocket(io: SocketServer): void {
     "comment:add", "comment:delete",
     "testcase:create", "testcase:update", "testcase:delete", "testcase:reorder",
     "testrun:create", "testrun:update", "testrun:delete", "testrun:attachment", "testrun:comment",
+    "plan:create", "plan:update", "plan:delete",
   ];
   for (const event of trackerEvents) {
     trackerManager.on(event, (data) => {

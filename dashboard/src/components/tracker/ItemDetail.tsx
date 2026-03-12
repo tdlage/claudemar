@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Pencil, Clock } from "lucide-react";
+import { ArrowLeft, Pencil, Clock, Send } from "lucide-react";
 import { Tabs } from "../shared/Tabs";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
-import { useItems, useTrackerProjects, useProjectMembers } from "../../hooks/useTracker";
-import { canEditTrackerProject } from "../../hooks/useAuth";
+import { useItems, useTrackerProjects, useProjectMembers, useItemPlan } from "../../hooks/useTracker";
+import { canEditTrackerProject, isAdmin } from "../../hooks/useAuth";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { TestCasePanel } from "./TestCasePanel";
 import { CommentThread } from "./CommentThread";
+import { SendToProjectModal } from "./SendToProjectModal";
+import { ItemPlanSection } from "./ItemPlanSection";
 import { getDaysSpent, ITEM_PRIORITIES, getPriorityConfig } from "./constants";
 
 interface Props {
@@ -17,7 +19,7 @@ interface Props {
   itemId: string;
 }
 
-type TabKey = "details" | "tests" | "comments";
+type TabKey = "details" | "plan" | "tests" | "comments";
 
 function AppetiteIndicator({ appetite, startedAt }: { appetite: number; startedAt: string | null }) {
   if (!startedAt) {
@@ -59,11 +61,14 @@ function AppetiteIndicator({ appetite, startedAt }: { appetite: number; startedA
 export function ItemDetail({ projectId, cycleId, itemId }: Props) {
   const { addToast } = useToast();
   const canEdit = canEditTrackerProject(projectId);
+  const admin = isAdmin();
   const { projects } = useTrackerProjects();
   const { items } = useItems(cycleId);
   const { members } = useProjectMembers(projectId);
+  const { plan } = useItemPlan(itemId);
   const project = projects.find((p) => p.id === projectId);
   const [tab, setTab] = useState<TabKey>("details");
+  const [sendModalOpen, setSendModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(false);
   const [itemTitle, setItemTitle] = useState("");
   const [editingAppetite, setEditingAppetite] = useState(false);
@@ -177,6 +182,7 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "details", label: "Detalhes" },
+    ...(plan ? [{ key: "plan" as TabKey, label: "Plano" }] : []),
     { key: "tests", label: "Tests" },
     { key: "comments", label: "Comments" },
   ];
@@ -275,6 +281,16 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
               <Pencil size={13} />
             </button>
           )}
+          {admin && !plan && item && (
+            <button
+              onClick={() => setSendModalOpen(true)}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-accent hover:bg-accent/10 transition-colors"
+              title="Send to project"
+            >
+              <Send size={12} />
+              Send to Project
+            </button>
+          )}
         </div>
       </div>
 
@@ -345,12 +361,25 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
         </div>
       )}
 
+      {tab === "plan" && plan && (
+        <ItemPlanSection plan={plan} itemId={itemId} />
+      )}
+
       {tab === "tests" && (
         <TestCasePanel targetType="item" targetId={itemId} />
       )}
 
       {tab === "comments" && (
         <CommentThread targetType="item" targetId={itemId} />
+      )}
+
+      {item && project && (
+        <SendToProjectModal
+          open={sendModalOpen}
+          onClose={() => setSendModalOpen(false)}
+          item={item}
+          itemCode={`${project.code}-${item.seqNumber}`}
+        />
       )}
     </div>
   );

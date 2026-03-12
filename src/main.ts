@@ -17,6 +17,7 @@ import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { modelPreferences } from "./model-preferences.js";
 import { settingsManager } from "./settings-manager.js";
 import { runTrackerMigrations } from "./tracker-migration.js";
+import { initTrackerExecutionBridge } from "./tracker-execution-bridge.js";
 import { closePool } from "./database.js";
 
 regenerateOrchestratorClaudeMd();
@@ -29,6 +30,7 @@ await executionManager.loadRecent();
 await runTrackerMigrations().catch((err) => {
   console.error("[tracker] Migration failed (MySQL may not be configured):", err.message);
 });
+await initTrackerExecutionBridge();
 
 function drainQueue(_id: string, info: ExecutionInfo) {
   const key = commandQueue.targetKey(info.targetType, info.targetName);

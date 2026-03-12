@@ -9,6 +9,7 @@ import type {
   TrackerTestCase,
   TrackerTestRun,
   TrackerTestRunComment,
+  TrackerItemPlan,
 } from "../lib/types";
 
 function useTrackerData<T>(path: string | null, deps: unknown[] = []) {
@@ -209,4 +210,23 @@ export function useTestRunComments(testRunId: string | undefined) {
   });
 
   return { comments: data ?? [], loading, error, refresh };
+}
+
+export function useItemPlan(itemId: string | undefined) {
+  const path = itemId ? `/tracker/items/${itemId}/plan` : null;
+  const { data, setData, loading, refresh } = useTrackerData<TrackerItemPlan | null>(path, [itemId]);
+
+  useTrackerSocket();
+
+  useSocketEvent<TrackerItemPlan>("tracker:plan:create", (plan) => {
+    if (plan.itemId === itemId) setData(plan);
+  });
+  useSocketEvent<TrackerItemPlan>("tracker:plan:update", (plan) => {
+    if (plan.itemId === itemId) setData(plan);
+  });
+  useSocketEvent<{ id: string; itemId: string }>("tracker:plan:delete", (ev) => {
+    if (ev.itemId === itemId) setData(null);
+  });
+
+  return { plan: data ?? null, loading, refresh };
 }

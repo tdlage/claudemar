@@ -379,3 +379,20 @@ export interface TrackerTestRun {
   durationSeconds: number | null;
   attachments: TrackerTestRunAttachment[];
 }
+
+export type ItemPlanStatus = "planning" | "planned" | "executing" | "reviewing" | "completed" | "error";
+
+export interface TrackerItemPlan {
+  id: string;
+  itemId: string;
+  targetProject: string;
+  sessionId: string | null;
+  status: ItemPlanStatus;
+  promptSent: string;
+  planMarkdown: string | null;
+  pendingQuestions: AskQuestion[] | null;
+  lastExecutionId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}

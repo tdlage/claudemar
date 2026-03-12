@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { Menu, RefreshCw, Search } from "lucide-react";
 import { api } from "../../lib/api";
@@ -6,6 +6,7 @@ import { SystemResources } from "./SystemResources";
 import { ProcessIndicator } from "./ProcessIndicator";
 import { useSidebar } from "./Sidebar";
 import { isAdmin } from "../../hooks/useAuth";
+import type { TrackerProject, TrackerCycle, TrackerItem } from "../../lib/types";
 
 export function Header() {
   const location = useLocation();
@@ -13,7 +14,8 @@ export function Header() {
   const admin = isAdmin();
   const [reloading, setReloading] = useState(false);
 
-  const breadcrumbs = buildBreadcrumbs(location.pathname);
+  const trackerNames = useTrackerBreadcrumbs(location.pathname);
+  const breadcrumbs = buildBreadcrumbs(location.pathname, trackerNames);
 
   return (
     <header className="h-12 border-b border-border bg-surface/50 backdrop-blur-sm flex items-center justify-between px-3 md:px-6 sticky top-0 z-10">
@@ -86,10 +88,57 @@ export function Header() {
   );
 }
 
-const BREADCRUMB_LABELS: Record<string, string> = {};
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function buildBreadcrumbs(pathname: string): string[] {
+function useTrackerBreadcrumbs(pathname: string) {
+  const [names, setNames] = useState<Record<string, string>>({});
+
+  const parts = pathname.split("/").filter(Boolean);
+  const isTracker = parts[0] === "tracker";
+  const projectId = isTracker ? parts[1] : undefined;
+  const cycleId = isTracker && parts[2] === "cycles" ? parts[3] : undefined;
+  const itemId = isTracker && parts[4] === "items" ? parts[5] : undefined;
+
+  useEffect(() => {
+    if (!isTracker) return;
+    const resolved: Record<string, string> = {};
+    const fetches: Promise<void>[] = [];
+
+    if (projectId && UUID_RE.test(projectId)) {
+      fetches.push(
+        api.get<TrackerProject[]>("/tracker/projects").then((projects) => {
+          const p = projects.find((x: TrackerProject) => x.id === projectId);
+          if (p) resolved[projectId] = p.name;
+        }).catch(() => {}),
+      );
+    }
+    if (cycleId && UUID_RE.test(cycleId) && projectId) {
+      fetches.push(
+        api.get<TrackerCycle[]>(`/tracker/projects/${projectId}/cycles`).then((cycles) => {
+          const c = cycles.find((x: TrackerCycle) => x.id === cycleId);
+          if (c) resolved[cycleId] = c.name;
+        }).catch(() => {}),
+      );
+    }
+    if (itemId && UUID_RE.test(itemId) && cycleId) {
+      fetches.push(
+        api.get<TrackerItem[]>(`/tracker/cycles/${cycleId}/items`).then((items) => {
+          const item = items.find((x: TrackerItem) => x.id === itemId);
+          if (item) resolved[itemId] = `${item.seqNumber} - ${item.title}`;
+        }).catch(() => {}),
+      );
+    }
+
+    if (fetches.length > 0) {
+      Promise.all(fetches).then(() => setNames(resolved));
+    }
+  }, [isTracker, projectId, cycleId, itemId]);
+
+  return names;
+}
+
+function buildBreadcrumbs(pathname: string, names: Record<string, string>): string[] {
   if (pathname === "/") return ["Overview"];
   const parts = pathname.split("/").filter(Boolean);
-  return parts.map((p) => BREADCRUMB_LABELS[p] || p.charAt(0).toUpperCase() + p.slice(1));
+  return parts.map((p) => names[p] || (UUID_RE.test(p) ? "..." : p.charAt(0).toUpperCase() + p.slice(1)));
 }
