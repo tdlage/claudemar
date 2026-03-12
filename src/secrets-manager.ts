@@ -1,7 +1,9 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
+import { query, execute } from "./database.js";
+import type { RowDataPacket } from "mysql2/promise";
 
 export interface SecretEntry {
   id: string;
@@ -23,8 +25,18 @@ export interface SecretFileInfo {
   description: string;
 }
 
-interface FileDescriptions {
-  [filename: string]: string;
+interface SecretRow extends RowDataPacket {
+  id: string;
+  agent_name: string;
+  name: string;
+  value: string;
+  description: string;
+}
+
+interface FileDescRow extends RowDataPacket {
+  agent_name: string;
+  filename: string;
+  description: string;
 }
 
 function maskValue(value: string): string {
@@ -32,98 +44,25 @@ function maskValue(value: string): string {
   return value.slice(0, 4) + "************" + value.slice(-4);
 }
 
-function secretsPath(agentName: string): string {
-  return resolve(config.agentsPath, agentName, "secrets.json");
-}
-
-function loadSecrets(agentName: string): SecretEntry[] {
-  try {
-    const path = secretsPath(agentName);
-    if (existsSync(path)) {
-      const raw = JSON.parse(readFileSync(path, "utf-8"));
-      if (Array.isArray(raw)) return raw;
-      if (raw && Array.isArray(raw.secrets)) return raw.secrets;
-    }
-  } catch {
-  }
-  return [];
-}
-
-function persistSecrets(agentName: string, secrets: SecretEntry[], secretFiles?: { name: string; path: string; description: string }[]): void {
-  const path = secretsPath(agentName);
-  const tmp = path + ".tmp";
-  const data: { secrets: SecretEntry[]; files?: { name: string; path: string; description: string }[] } = { secrets };
-  if (secretFiles && secretFiles.length > 0) data.files = secretFiles;
-  writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
-  renameSync(tmp, path);
-}
-
 class SecretsManager {
   private cache = new Map<string, SecretEntry[]>();
-  private dirty = new Set<string>();
-  private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private getSecrets(agentName: string): SecretEntry[] {
+  private async getSecrets(agentName: string): Promise<SecretEntry[]> {
     let secrets = this.cache.get(agentName);
     if (!secrets) {
-      secrets = loadSecrets(agentName);
+      const rows = await query<SecretRow[]>(
+        "SELECT id, name, value, description FROM agent_secrets WHERE agent_name = ?",
+        [agentName],
+      );
+      secrets = rows.map((r) => ({ id: r.id, name: r.name, value: r.value, description: r.description }));
       this.cache.set(agentName, secrets);
     }
     return secrets;
   }
 
-  private markDirty(agentName: string): void {
-    this.getSecrets(agentName);
-    this.dirty.add(agentName);
-    if (this.persistTimer) clearTimeout(this.persistTimer);
-    this.persistTimer = setTimeout(() => this.persistAll(), 1000);
-  }
-
-  private persistAll(): void {
-    for (const agentName of this.dirty) {
-      const secrets = this.cache.get(agentName);
-      if (secrets) persistSecrets(agentName, secrets, this.buildSecretFilesList(agentName));
-    }
-    this.dirty.clear();
-  }
-
-  private buildSecretFilesList(agentName: string): { name: string; path: string; description: string }[] {
-    const dir = this.filesDir(agentName);
-    if (!existsSync(dir)) return [];
-    const descriptions = this.loadFileDescriptions(agentName);
-    return readdirSync(dir)
-      .filter((f) => !f.startsWith("."))
-      .map((f) => ({ name: f, path: resolve(dir, f), description: descriptions[f] ?? "" }));
-  }
-
-  flush(): void {
-    if (this.persistTimer) {
-      clearTimeout(this.persistTimer);
-      this.persistTimer = null;
-    }
-    this.persistAll();
-  }
-
-  migrateAll(): void {
-    if (!existsSync(config.agentsPath)) return;
-    for (const dir of readdirSync(config.agentsPath, { withFileTypes: true })) {
-      if (!dir.isDirectory()) continue;
-      const agentName = dir.name;
-      const path = secretsPath(agentName);
-      if (!existsSync(path)) continue;
-      try {
-        const raw = JSON.parse(readFileSync(path, "utf-8"));
-        if (Array.isArray(raw)) {
-          persistSecrets(agentName, raw, this.buildSecretFilesList(agentName));
-        }
-      } catch {
-        // skip corrupted
-      }
-    }
-  }
-
-  getMaskedSecrets(agentName: string): MaskedSecret[] {
-    return this.getSecrets(agentName).map((s) => ({
+  async getMaskedSecrets(agentName: string): Promise<MaskedSecret[]> {
+    const secrets = await this.getSecrets(agentName);
+    return secrets.map((s) => ({
       id: s.id,
       name: s.name,
       maskedValue: maskValue(s.value),
@@ -131,24 +70,27 @@ class SecretsManager {
     }));
   }
 
-  getSecretValues(agentName: string): Record<string, string> {
+  async getSecretValues(agentName: string): Promise<Record<string, string>> {
+    const secrets = await this.getSecrets(agentName);
     const result: Record<string, string> = {};
-    for (const s of this.getSecrets(agentName)) {
+    for (const s of secrets) {
       result[s.name] = s.value;
     }
     return result;
   }
 
-  createSecret(agentName: string, name: string, value: string, description: string): MaskedSecret {
-    const secrets = this.getSecrets(agentName);
+  async createSecret(agentName: string, name: string, value: string, description: string): Promise<MaskedSecret> {
     const entry: SecretEntry = { id: randomUUID(), name, value, description };
-    secrets.push(entry);
-    this.markDirty(agentName);
+    await execute(
+      "INSERT INTO agent_secrets (id, agent_name, name, value, description) VALUES (?, ?, ?, ?, ?)",
+      [entry.id, agentName, entry.name, entry.value, entry.description],
+    );
+    this.cache.delete(agentName);
     return { id: entry.id, name: entry.name, maskedValue: maskValue(entry.value), description: entry.description };
   }
 
-  updateSecret(agentName: string, id: string, fields: { name?: string; value?: string; description?: string }): MaskedSecret | null {
-    const secrets = this.getSecrets(agentName);
+  async updateSecret(agentName: string, id: string, fields: { name?: string; value?: string; description?: string }): Promise<MaskedSecret | null> {
+    const secrets = await this.getSecrets(agentName);
     const entry = secrets.find((s) => s.id === id);
     if (!entry) return null;
 
@@ -156,49 +98,43 @@ class SecretsManager {
     if (fields.value !== undefined && fields.value !== "") entry.value = fields.value;
     if (fields.description !== undefined) entry.description = fields.description;
 
-    this.markDirty(agentName);
+    await execute(
+      "UPDATE agent_secrets SET name = ?, value = ?, description = ? WHERE id = ?",
+      [entry.name, entry.value, entry.description, id],
+    );
+    this.cache.delete(agentName);
     return { id: entry.id, name: entry.name, maskedValue: maskValue(entry.value), description: entry.description };
   }
 
-  deleteSecret(agentName: string, id: string): boolean {
-    const secrets = this.getSecrets(agentName);
-    const idx = secrets.findIndex((s) => s.id === id);
-    if (idx === -1) return false;
-    secrets.splice(idx, 1);
-    this.markDirty(agentName);
-    return true;
+  async deleteSecret(agentName: string, id: string): Promise<boolean> {
+    const result = await execute("DELETE FROM agent_secrets WHERE id = ? AND agent_name = ?", [id, agentName]);
+    if (result.affectedRows > 0) {
+      this.cache.delete(agentName);
+      return true;
+    }
+    return false;
   }
 
   private filesDir(agentName: string): string {
     return resolve(config.agentsPath, agentName, "secrets", "files");
   }
 
-  private fileDescriptionsPath(agentName: string): string {
-    return resolve(config.agentsPath, agentName, "secrets", "file-descriptions.json");
-  }
-
-  private loadFileDescriptions(agentName: string): FileDescriptions {
-    try {
-      const path = this.fileDescriptionsPath(agentName);
-      if (existsSync(path)) {
-        return JSON.parse(readFileSync(path, "utf-8"));
-      }
-    } catch {
+  private async loadFileDescriptions(agentName: string): Promise<Record<string, string>> {
+    const rows = await query<FileDescRow[]>(
+      "SELECT filename, description FROM agent_secret_file_descriptions WHERE agent_name = ?",
+      [agentName],
+    );
+    const result: Record<string, string> = {};
+    for (const r of rows) {
+      result[r.filename] = r.description;
     }
-    return {};
+    return result;
   }
 
-  private persistFileDescriptions(agentName: string, descriptions: FileDescriptions): void {
-    const path = this.fileDescriptionsPath(agentName);
-    const tmp = path + ".tmp";
-    writeFileSync(tmp, JSON.stringify(descriptions, null, 2), "utf-8");
-    renameSync(tmp, path);
-  }
-
-  getSecretFiles(agentName: string): SecretFileInfo[] {
+  async getSecretFiles(agentName: string): Promise<SecretFileInfo[]> {
     const dir = this.filesDir(agentName);
     if (!existsSync(dir)) return [];
-    const descriptions = this.loadFileDescriptions(agentName);
+    const descriptions = await this.loadFileDescriptions(agentName);
     return readdirSync(dir)
       .filter((f) => !f.startsWith("."))
       .map((f) => {
@@ -207,39 +143,36 @@ class SecretsManager {
       });
   }
 
-  saveSecretFile(agentName: string, filename: string, data: Buffer): SecretFileInfo {
+  async saveSecretFile(agentName: string, filename: string, data: Buffer): Promise<SecretFileInfo> {
     const dir = this.filesDir(agentName);
     mkdirSync(dir, { recursive: true });
     const filePath = resolve(dir, filename);
     writeFileSync(filePath, data);
     const stat = statSync(filePath);
-    const descriptions = this.loadFileDescriptions(agentName);
-    this.markDirty(agentName);
+    const descriptions = await this.loadFileDescriptions(agentName);
     return { name: filename, size: stat.size, description: descriptions[filename] ?? "" };
   }
 
-  deleteSecretFile(agentName: string, filename: string): boolean {
+  async deleteSecretFile(agentName: string, filename: string): Promise<boolean> {
     const filePath = resolve(this.filesDir(agentName), filename);
     if (!existsSync(filePath)) return false;
     unlinkSync(filePath);
-    const descriptions = this.loadFileDescriptions(agentName);
-    if (descriptions[filename]) {
-      delete descriptions[filename];
-      this.persistFileDescriptions(agentName, descriptions);
-    }
-    this.markDirty(agentName);
+    await execute(
+      "DELETE FROM agent_secret_file_descriptions WHERE agent_name = ? AND filename = ?",
+      [agentName, filename],
+    );
     return true;
   }
 
-  updateSecretFileDescription(agentName: string, filename: string, description: string): boolean {
+  async updateSecretFileDescription(agentName: string, filename: string, description: string): Promise<boolean> {
     const filePath = resolve(this.filesDir(agentName), filename);
     if (!existsSync(filePath)) return false;
-    const dir = resolve(config.agentsPath, agentName, "secrets");
-    mkdirSync(dir, { recursive: true });
-    const descriptions = this.loadFileDescriptions(agentName);
-    descriptions[filename] = description;
-    this.persistFileDescriptions(agentName, descriptions);
-    this.markDirty(agentName);
+    await execute(
+      `INSERT INTO agent_secret_file_descriptions (agent_name, filename, description)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE description = VALUES(description)`,
+      [agentName, filename, description],
+    );
     return true;
   }
 

@@ -1,10 +1,12 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
 import { spawnClaude } from "../executor.js";
 import { getAgentPaths } from "./manager.js";
+import { query, execute } from "../database.js";
+import type { RowDataPacket } from "mysql2/promise";
 
 export interface ScheduleEntry {
   id: string;
@@ -16,20 +18,26 @@ export interface ScheduleEntry {
   createdAt: string;
 }
 
-const SCHEDULES_FILE = resolve(config.dataPath, "schedules.json");
-
-function loadSchedules(): ScheduleEntry[] {
-  try {
-    if (!existsSync(SCHEDULES_FILE)) return [];
-    const raw = readFileSync(SCHEDULES_FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
+interface ScheduleRow extends RowDataPacket {
+  id: string;
+  agent: string;
+  cron: string;
+  cron_human: string;
+  task: string;
+  script_path: string;
+  created_at: string | Date;
 }
 
-function saveSchedules(entries: ScheduleEntry[]): void {
-  writeFileSync(SCHEDULES_FILE, JSON.stringify(entries, null, 2), "utf-8");
+function rowToEntry(row: ScheduleRow): ScheduleEntry {
+  return {
+    id: row.id,
+    agent: row.agent,
+    cron: row.cron,
+    cronHuman: row.cron_human,
+    task: row.task,
+    scriptPath: row.script_path,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+  };
 }
 
 function getCurrentCrontab(): string {
@@ -142,9 +150,10 @@ Responda APENAS com o conteúdo do script, sem explicações. Comece com #!/usr/
     createdAt: new Date().toISOString(),
   };
 
-  const schedules = loadSchedules();
-  schedules.push(entry);
-  saveSchedules(schedules);
+  await execute(
+    "INSERT INTO schedules (id, agent, cron, cron_human, task, script_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [entry.id, entry.agent, entry.cron, entry.cronHuman, entry.task, entry.scriptPath, entry.createdAt],
+  );
 
   return entry;
 }
@@ -155,51 +164,50 @@ function extractScript(output: string): string | null {
   return output.slice(shebangIndex).trim();
 }
 
-export function listSchedules(): ScheduleEntry[] {
-  return loadSchedules();
+export async function listSchedules(): Promise<ScheduleEntry[]> {
+  const rows = await query<ScheduleRow[]>("SELECT id, agent, cron, cron_human, task, script_path, created_at FROM schedules");
+  return rows.map(rowToEntry);
 }
 
-export function removeSchedule(id: string): boolean {
-  const schedules = loadSchedules();
-  const entryIndex = schedules.findIndex((e) => e.id === id);
-  if (entryIndex === -1) return false;
+export async function removeSchedule(id: string): Promise<boolean> {
+  const rows = await query<ScheduleRow[]>(
+    "SELECT id, agent, cron, cron_human, task, script_path, created_at FROM schedules WHERE id = ?",
+    [id],
+  );
+  if (rows.length === 0) return false;
 
-  const entry = schedules[entryIndex];
+  const entry = rowToEntry(rows[0]);
 
   try {
     if (existsSync(entry.scriptPath)) {
       unlinkSync(entry.scriptPath);
     }
-  } catch {
-    // script already gone
-  }
+  } catch { }
 
   try {
     const currentCrontab = getCurrentCrontab();
     const lines = currentCrontab.split("\n");
     const filtered = lines.filter((line) => !line.includes(entry.scriptPath));
     setCrontab(filtered.join("\n") + "\n");
-  } catch {
-    // crontab update failed
-  }
+  } catch { }
 
-  schedules.splice(entryIndex, 1);
-  saveSchedules(schedules);
+  await execute("DELETE FROM schedules WHERE id = ?", [id]);
   return true;
 }
 
-export function removeSchedulesByAgent(agent: string): number {
-  const schedules = loadSchedules();
-  const agentSchedules = schedules.filter((e) => e.agent === agent);
-
+export async function removeSchedulesByAgent(agent: string): Promise<number> {
+  const schedules = await listSchedulesByAgent(agent);
   let removed = 0;
-  for (const entry of agentSchedules) {
-    if (removeSchedule(entry.id)) removed++;
+  for (const entry of schedules) {
+    if (await removeSchedule(entry.id)) removed++;
   }
-
   return removed;
 }
 
-export function listSchedulesByAgent(agent: string): ScheduleEntry[] {
-  return loadSchedules().filter((e) => e.agent === agent);
+export async function listSchedulesByAgent(agent: string): Promise<ScheduleEntry[]> {
+  const rows = await query<ScheduleRow[]>(
+    "SELECT id, agent, cron, cron_human, task, script_path, created_at FROM schedules WHERE agent = ?",
+    [agent],
+  );
+  return rows.map(rowToEntry);
 }

@@ -9,7 +9,7 @@ import { useToast } from "../shared/Toast";
 import { ItemCard } from "./ItemCard";
 import { CreateItemModal } from "./CreateItemModal";
 import { CYCLE_STATUS_VARIANT } from "./constants";
-import type { CycleStatus, TrackerItem, CycleColumn } from "../../lib/types";
+import type { CycleStatus, CycleType, TrackerItem, CycleColumn } from "../../lib/types";
 
 interface Props {
   projectId: string;
@@ -57,6 +57,14 @@ export function CycleBoard({ projectId, cycleId }: Props) {
     }
   };
 
+  const handleCycleTypeChange = async (newType: CycleType) => {
+    try {
+      await api.put(`/tracker/cycles/${cycleId}`, { type: newType });
+    } catch {
+      addToast("error", "Failed to update cycle type");
+    }
+  };
+
   const handleDeleteCycle = async () => {
     if (!confirm("Delete this cycle and all its items?")) return;
     try {
@@ -83,19 +91,34 @@ export function CycleBoard({ projectId, cycleId }: Props) {
             <ArrowLeft size={16} />
           </Link>
           <h2 className="text-lg font-semibold text-text-primary">{cycle?.name ?? "Cycle"}</h2>
-          {cycle && (
-            <Badge variant={CYCLE_STATUS_VARIANT[cycle.status]}>{cycle.status}</Badge>
+          {cycle && !canEdit && (
+            <>
+              <Badge variant={cycle.type === "bugs" ? "danger" : "info"}>
+                {cycle.type === "bugs" ? "Bugs" : "Features"}
+              </Badge>
+              <Badge variant={CYCLE_STATUS_VARIANT[cycle.status]}>{cycle.status}</Badge>
+            </>
           )}
           {canEdit && cycle && (
-            <select
-              value={cycle.status}
-              onChange={(e) => handleCycleStatusChange(e.target.value as CycleStatus)}
-              className="bg-bg border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
-            >
-              {(["active", "completed"] as CycleStatus[]).map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+            <>
+              <select
+                value={cycle.type}
+                onChange={(e) => handleCycleTypeChange(e.target.value as CycleType)}
+                className="bg-bg border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
+              >
+                <option value="features">Features</option>
+                <option value="bugs">Bugs</option>
+              </select>
+              <select
+                value={cycle.status}
+                onChange={(e) => handleCycleStatusChange(e.target.value as CycleStatus)}
+                className="bg-bg border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
+              >
+                {(["active", "completed"] as CycleStatus[]).map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </>
           )}
           {canEdit && (
             <button onClick={() => setShowColumnManager(!showColumnManager)} className="text-text-muted hover:text-text-primary" title="Manage columns">

@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle, Clock, Bug } from "lucide-react";
 import type { TrackerItem } from "../../lib/types";
 import { getDaysSpent, getPriorityConfig } from "./constants";
 
@@ -6,6 +6,8 @@ interface Props {
   item: TrackerItem;
   projectCode: string;
   onClick: () => void;
+  cycleName?: string;
+  isBugCycle?: boolean;
 }
 
 function AppetiteBadge({ item }: { item: TrackerItem }) {
@@ -80,7 +82,7 @@ function TestStatusBadge({ item }: { item: TrackerItem }) {
   );
 }
 
-export function ItemCard({ item, projectCode, onClick }: Props) {
+export function ItemCard({ item, projectCode, onClick, cycleName, isBugCycle }: Props) {
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("text/plain", item.id);
     e.dataTransfer.effectAllowed = "move";
@@ -100,6 +102,12 @@ export function ItemCard({ item, projectCode, onClick }: Props) {
               {projectCode}-{item.seqNumber}
             </span>
           )}
+          {isBugCycle && (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-danger/10 text-danger shrink-0">
+              <Bug size={10} />
+              Bug
+            </span>
+          )}
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
             {(() => {
               const pc = getPriorityConfig(item.priority);
@@ -116,6 +124,11 @@ export function ItemCard({ item, projectCode, onClick }: Props) {
         <p className="text-sm font-medium text-text-primary leading-snug">{item.title}</p>
       </div>
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+        {cycleName && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-accent/10 text-accent">
+            {cycleName}
+          </span>
+        )}
         {item.tags.map((tag) => (
           <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-border text-text-secondary">{tag}</span>
         ))}

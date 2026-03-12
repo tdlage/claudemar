@@ -96,7 +96,7 @@ agentsRouter.get("/", (req, res) => {
   res.json(agents);
 });
 
-agentsRouter.get("/:name", (req, res) => {
+agentsRouter.get("/:name", async (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
@@ -128,9 +128,9 @@ agentsRouter.get("/:name", (req, res) => {
   let contextFiles: string[] = [];
   try { contextFiles = readdirSync(paths.context).filter((f) => !f.startsWith(".")).sort(); } catch { }
 
-  const schedules = listSchedulesByAgent(name);
-  const secrets = secretsManager.getMaskedSecrets(name);
-  const secretFiles = secretsManager.getSecretFiles(name);
+  const schedules = await listSchedulesByAgent(name);
+  const secrets = await secretsManager.getMaskedSecrets(name);
+  const secretFiles = await secretsManager.getSecretFiles(name);
 
   res.json({
     ...info,
@@ -577,7 +577,7 @@ agentsRouter.put("/:name/context/:file", (req, res) => {
   res.json({ updated: true });
 });
 
-agentsRouter.get("/:name/secrets", (req, res) => {
+agentsRouter.get("/:name/secrets", async (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
@@ -588,10 +588,10 @@ agentsRouter.get("/:name/secrets", (req, res) => {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
-  res.json(secretsManager.getMaskedSecrets(name));
+  res.json(await secretsManager.getMaskedSecrets(name));
 });
 
-agentsRouter.post("/:name/secrets", (req, res) => {
+agentsRouter.post("/:name/secrets", async (req, res) => {
   const { name } = req.params;
   const { name: secretName, value, description } = req.body;
 
@@ -613,11 +613,11 @@ agentsRouter.post("/:name/secrets", (req, res) => {
     return;
   }
 
-  const created = secretsManager.createSecret(name, secretName, value, description || "");
+  const created = await secretsManager.createSecret(name, secretName, value, description || "");
   res.status(201).json(created);
 });
 
-agentsRouter.put("/:name/secrets/:id", (req, res) => {
+agentsRouter.put("/:name/secrets/:id", async (req, res) => {
   const { name, id } = req.params;
   if (!isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
@@ -625,7 +625,7 @@ agentsRouter.put("/:name/secrets/:id", (req, res) => {
   }
 
   const { name: secretName, value, description } = req.body;
-  const updated = secretsManager.updateSecret(name, id, { name: secretName, value, description });
+  const updated = await secretsManager.updateSecret(name, id, { name: secretName, value, description });
   if (!updated) {
     res.status(404).json({ error: "Secret not found" });
     return;
@@ -633,14 +633,14 @@ agentsRouter.put("/:name/secrets/:id", (req, res) => {
   res.json(updated);
 });
 
-agentsRouter.delete("/:name/secrets/:id", (req, res) => {
+agentsRouter.delete("/:name/secrets/:id", async (req, res) => {
   const { name, id } = req.params;
   if (!isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
     return;
   }
 
-  const deleted = secretsManager.deleteSecret(name, id);
+  const deleted = await secretsManager.deleteSecret(name, id);
   if (!deleted) {
     res.status(404).json({ error: "Secret not found" });
     return;
@@ -648,7 +648,7 @@ agentsRouter.delete("/:name/secrets/:id", (req, res) => {
   res.json({ deleted: true });
 });
 
-agentsRouter.get("/:name/secrets/files", (req, res) => {
+agentsRouter.get("/:name/secrets/files", async (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
@@ -659,10 +659,10 @@ agentsRouter.get("/:name/secrets/files", (req, res) => {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
-  res.json(secretsManager.getSecretFiles(name));
+  res.json(await secretsManager.getSecretFiles(name));
 });
 
-agentsRouter.post("/:name/secrets/files", (req, res) => {
+agentsRouter.post("/:name/secrets/files", async (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
@@ -694,15 +694,15 @@ agentsRouter.post("/:name/secrets/files", (req, res) => {
     return;
   }
 
-  const info = secretsManager.saveSecretFile(name, filename, data);
+  const info = await secretsManager.saveSecretFile(name, filename, data);
   if (description && typeof description === "string") {
-    secretsManager.updateSecretFileDescription(name, filename, description);
+    await secretsManager.updateSecretFileDescription(name, filename, description);
     info.description = description;
   }
   res.status(201).json(info);
 });
 
-agentsRouter.put("/:name/secrets/files/:file/description", (req, res) => {
+agentsRouter.put("/:name/secrets/files/:file/description", async (req, res) => {
   const { name, file } = req.params;
   if (!isValidAgentName(name) || !safeFilename(file)) {
     res.status(400).json({ error: "Invalid name or filename" });
@@ -715,7 +715,7 @@ agentsRouter.put("/:name/secrets/files/:file/description", (req, res) => {
     return;
   }
 
-  const updated = secretsManager.updateSecretFileDescription(name, file, description);
+  const updated = await secretsManager.updateSecretFileDescription(name, file, description);
   if (!updated) {
     res.status(404).json({ error: "File not found" });
     return;
@@ -723,14 +723,14 @@ agentsRouter.put("/:name/secrets/files/:file/description", (req, res) => {
   res.json({ updated: true });
 });
 
-agentsRouter.delete("/:name/secrets/files/:file", (req, res) => {
+agentsRouter.delete("/:name/secrets/files/:file", async (req, res) => {
   const { name, file } = req.params;
   if (!isValidAgentName(name) || !safeFilename(file)) {
     res.status(400).json({ error: "Invalid name or filename" });
     return;
   }
 
-  const deleted = secretsManager.deleteSecretFile(name, file);
+  const deleted = await secretsManager.deleteSecretFile(name, file);
   if (!deleted) {
     res.status(404).json({ error: "File not found" });
     return;

@@ -66,10 +66,13 @@ export interface TrackerProject {
   createdAt: string;
 }
 
+export type CycleType = "features" | "bugs";
+
 export interface TrackerCycle {
   id: string;
   projectId: string;
   name: string;
+  type: CycleType;
   status: "active" | "completed";
   columns: CycleColumn[];
   createdBy: string;
@@ -223,6 +226,7 @@ interface CycleRow extends RowDataPacket {
   id: string;
   project_id: string;
   name: string;
+  type: string;
   status: string;
   columns: string;
   created_by: string;
@@ -371,6 +375,7 @@ function mapCycle(r: CycleRow): TrackerCycle {
     id: r.id,
     projectId: r.project_id,
     name: r.name,
+    type: (r.type || "features") as CycleType,
     status: r.status as TrackerCycle["status"],
     columns,
     createdBy: r.created_by,
@@ -587,22 +592,24 @@ class TrackerManager extends EventEmitter {
     return rows[0] ? mapCycle(rows[0]) : null;
   }
 
-  async createCycle(data: { projectId: string; name: string; createdBy: string }): Promise<TrackerCycle> {
+  async createCycle(data: { projectId: string; name: string; type?: CycleType; createdBy: string }): Promise<TrackerCycle> {
     const id = randomUUID();
+    const cycleType = data.type || "features";
     const cols = DEFAULT_COLUMNS.map((c, i) => ({ ...c, id: randomUUID(), position: i }));
     await execute(
-      "INSERT INTO tracker_cycles (id, project_id, name, columns, created_by) VALUES (?, ?, ?, ?, ?)",
-      [id, data.projectId, data.name, JSON.stringify(cols), data.createdBy],
+      "INSERT INTO tracker_cycles (id, project_id, name, type, columns, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+      [id, data.projectId, data.name, cycleType, JSON.stringify(cols), data.createdBy],
     );
     const cycle = (await this.getCycle(id))!;
     this.emit("cycle:create", cycle);
     return cycle;
   }
 
-  async updateCycle(id: string, data: Partial<{ name: string; status: string; columns: CycleColumn[] }>): Promise<TrackerCycle | null> {
+  async updateCycle(id: string, data: Partial<{ name: string; type: string; status: string; columns: CycleColumn[] }>): Promise<TrackerCycle | null> {
     const sets: string[] = [];
     const params: (string | number | null | boolean)[] = [];
     if (data.name !== undefined) { sets.push("name = ?"); params.push(data.name); }
+    if (data.type !== undefined) { sets.push("type = ?"); params.push(data.type); }
     if (data.status !== undefined) { sets.push("status = ?"); params.push(data.status); }
     if (data.columns !== undefined) { sets.push("columns = ?"); params.push(JSON.stringify(data.columns)); }
     if (sets.length === 0) return this.getCycle(id);
@@ -666,6 +673,31 @@ class TrackerManager extends EventEmitter {
     const assigneesMap = await this.getItemAssignees(itemIds);
     const testStatsMap = await this.getItemTestStats(itemIds);
     return rows.map((r) => mapItem(r, assigneesMap.get(r.id) || [], testStatsMap.get(r.id)));
+  }
+
+  async getItemsByProject(projectId: string, cycleIds?: string[]): Promise<Array<TrackerItem & { cycleName: string; cycleType: string }>> {
+    let sql = `
+      SELECT b.*, c.name AS cycle_name, c.type AS cycle_type
+      FROM tracker_bets b
+      JOIN tracker_cycles c ON b.cycle_id = c.id
+      WHERE c.project_id = ?
+    `;
+    const params: string[] = [projectId];
+    if (cycleIds && cycleIds.length > 0) {
+      const placeholders = cycleIds.map(() => "?").join(",");
+      sql += ` AND c.id IN (${placeholders})`;
+      params.push(...cycleIds);
+    }
+    sql += " ORDER BY b.position, b.created_at";
+    const rows = await query<(ItemRow & { cycle_name: string; cycle_type: string })[]>(sql, params);
+    const itemIds = rows.map((r) => r.id);
+    const assigneesMap = await this.getItemAssignees(itemIds);
+    const testStatsMap = await this.getItemTestStats(itemIds);
+    return rows.map((r) => ({
+      ...mapItem(r, assigneesMap.get(r.id) || [], testStatsMap.get(r.id)),
+      cycleName: r.cycle_name,
+      cycleType: r.cycle_type,
+    }));
   }
 
   private async getItemTestStats(itemIds: string[]): Promise<Map<string, ItemTestStats>> {

@@ -94,7 +94,7 @@ bot.on("message:text", async (ctx) => {
   const { targetType, targetName, cwd, finalPrompt, model, planMode, resumeSessionId } = buildExecutionOpts(chatId, text);
 
   if (executionManager.isTargetActive(targetType, targetName)) {
-    const item = commandQueue.enqueue({
+    const item = await commandQueue.enqueue({
       targetType,
       targetName,
       prompt: finalPrompt,
@@ -177,7 +177,7 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
     const { targetType, targetName, cwd, finalPrompt, model, planMode, resumeSessionId } = buildExecutionOpts(chatId, prompt);
 
     if (executionManager.isTargetActive(targetType, targetName)) {
-      const item = commandQueue.enqueue({
+      const item = await commandQueue.enqueue({
         targetType,
         targetName,
         prompt: finalPrompt,

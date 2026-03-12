@@ -90,12 +90,22 @@ trackerRouter.get("/projects/:projectId/cycle-stats", async (req, res) => {
   res.json(result);
 });
 
+trackerRouter.get("/projects/:projectId/board-items", async (req, res) => {
+  const projectId = req.params.projectId as string;
+  if (!hasTrackerAccess(req, projectId)) { res.status(403).json({ error: "Forbidden" }); return; }
+  const cyclesParam = req.query.cycles as string | undefined;
+  const cycleIds = cyclesParam ? cyclesParam.split(",").filter(Boolean) : undefined;
+  const items = await trackerManager.getItemsByProject(projectId, cycleIds);
+  res.json(items);
+});
+
 trackerRouter.post("/cycles", async (req, res) => {
-  const { projectId, name } = req.body;
+  const { projectId, name, type } = req.body;
   if (!projectId || !name) { res.status(400).json({ error: "projectId and name required" }); return; }
+  if (type && !["features", "bugs"].includes(type)) { res.status(400).json({ error: "type must be 'features' or 'bugs'" }); return; }
   if (!hasTrackerAccess(req, projectId)) { res.status(403).json({ error: "Forbidden" }); return; }
   const author = getAuthor(req);
-  const cycle = await trackerManager.createCycle({ projectId, name, createdBy: author.id });
+  const cycle = await trackerManager.createCycle({ projectId, name, type, createdBy: author.id });
   res.status(201).json(cycle);
 });
 
@@ -103,6 +113,7 @@ trackerRouter.put("/cycles/:id", async (req, res) => {
   const cycle = await trackerManager.getCycle(req.params.id);
   if (!cycle) { res.status(404).json({ error: "Cycle not found" }); return; }
   if (!hasTrackerAccess(req, cycle.projectId)) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (req.body.type && !["features", "bugs"].includes(req.body.type)) { res.status(400).json({ error: "type must be 'features' or 'bugs'" }); return; }
   const updated = await trackerManager.updateCycle(req.params.id as string, req.body);
   res.json(updated);
 });
@@ -205,10 +216,15 @@ trackerRouter.delete("/comments/:id", async (req, res) => {
 
 // ── Test Cases ──
 
+trackerRouter.get("/test-cases/:id/runs", async (req, res) => {
+  const runs = await trackerManager.getTestRuns(req.params.id as string);
+  res.json(runs);
+});
+
 trackerRouter.get("/test-cases/:targetType/:targetId", async (req, res) => {
   const { targetType, targetId } = req.params;
   if (targetType !== "item") { res.status(400).json({ error: "targetType must be item" }); return; }
-  const cases = await trackerManager.getTestCases(targetType, targetId);
+  const cases = await trackerManager.getTestCases(targetType as string, targetId as string);
   res.json(cases);
 });
 
@@ -226,13 +242,13 @@ trackerRouter.post("/test-cases", async (req, res) => {
 });
 
 trackerRouter.put("/test-cases/:id", async (req, res) => {
-  const tc = await trackerManager.updateTestCase(req.params.id, req.body);
+  const tc = await trackerManager.updateTestCase(req.params.id as string, req.body);
   if (!tc) { res.status(404).json({ error: "Test case not found" }); return; }
   res.json(tc);
 });
 
 trackerRouter.delete("/test-cases/:id", async (req, res) => {
-  const deleted = await trackerManager.deleteTestCase(req.params.id);
+  const deleted = await trackerManager.deleteTestCase(req.params.id as string);
   if (!deleted) { res.status(404).json({ error: "Test case not found" }); return; }
   res.json({ deleted: true });
 });
@@ -245,11 +261,6 @@ trackerRouter.patch("/test-cases/reorder", async (req, res) => {
 });
 
 // ── Test Runs ──
-
-trackerRouter.get("/test-cases/:id/runs", async (req, res) => {
-  const runs = await trackerManager.getTestRuns(req.params.id);
-  res.json(runs);
-});
 
 trackerRouter.post("/test-runs", async (req, res) => {
   const { testCaseId, status, notes, durationSeconds, attachments } = req.body;
@@ -347,7 +358,7 @@ function generatePlanPrompt(item: { title: string; description: string; inScope:
 }
 
 trackerRouter.post("/items/:itemId/send-to-project", requireAdmin, async (req, res) => {
-  const { targetProject, prompt } = req.body;
+  const { targetProject, prompt, planMode = true } = req.body;
   if (!targetProject || !prompt) { res.status(400).json({ error: "targetProject and prompt required" }); return; }
 
   const projectPath = safeProjectPath(targetProject);
@@ -356,36 +367,57 @@ trackerRouter.post("/items/:itemId/send-to-project", requireAdmin, async (req, r
   const itemCode = await trackerManager.getItemCode(req.params.itemId as string);
   if (!itemCode) { res.status(404).json({ error: "Item not found" }); return; }
 
-  const author = getAuthor(req);
-  const plan = await trackerManager.createItemPlan({
-    itemId: req.params.itemId as string,
-    targetProject,
-    promptSent: prompt,
-    createdBy: author.id,
-  });
-
   let execId: string;
-  try {
-    execId = executionManager.startExecution({
-      source: "web",
-      targetType: "project",
-      targetName: targetProject,
-      prompt,
-      cwd: projectPath,
-      planMode: true,
-      noResume: true,
-      username: "admin",
+
+  if (planMode) {
+    const author = getAuthor(req);
+    const plan = await trackerManager.createItemPlan({
+      itemId: req.params.itemId as string,
+      targetProject,
+      promptSent: prompt,
+      createdBy: author.id,
     });
-  } catch (err) {
-    await trackerManager.updateItemPlan(plan.id, { status: "error" });
-    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to start execution" });
-    return;
+
+    try {
+      execId = executionManager.startExecution({
+        source: "web",
+        targetType: "project",
+        targetName: targetProject,
+        prompt,
+        cwd: projectPath,
+        planMode: true,
+        noResume: true,
+        username: "admin",
+      });
+    } catch (err) {
+      await trackerManager.updateItemPlan(plan.id, { status: "error" });
+      res.status(500).json({ error: err instanceof Error ? err.message : "Failed to start execution" });
+      return;
+    }
+
+    await trackerManager.updateItemPlan(plan.id, { lastExecutionId: execId });
+    registerPlanExecution(execId, plan.id, itemCode, "plan");
+
+    res.status(201).json({ planId: plan.id, executionId: execId });
+  } else {
+    try {
+      execId = executionManager.startExecution({
+        source: "web",
+        targetType: "project",
+        targetName: targetProject,
+        prompt,
+        cwd: projectPath,
+        planMode: false,
+        noResume: true,
+        username: "admin",
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "Failed to start execution" });
+      return;
+    }
+
+    res.status(201).json({ executionId: execId });
   }
-
-  await trackerManager.updateItemPlan(plan.id, { lastExecutionId: execId });
-  registerPlanExecution(execId, plan.id, itemCode, "plan");
-
-  res.status(201).json({ planId: plan.id, executionId: execId });
 });
 
 trackerRouter.post("/items/:itemId/execute-plan", requireAdmin, async (req, res) => {
@@ -417,7 +449,7 @@ trackerRouter.post("/items/:itemId/execute-plan", requireAdmin, async (req, res)
 
   registerPlanExecution(execId, plan.id, "", "execute");
 
-  commandQueue.enqueue({
+  await commandQueue.enqueue({
     targetType: "project",
     targetName: plan.targetProject,
     prompt: "Valide e corrija os problemas encontrados",

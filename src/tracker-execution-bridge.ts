@@ -37,7 +37,7 @@ export async function initTrackerExecutionBridge(): Promise<void> {
       if (sessionId) {
         updates.sessionId = sessionId;
         if (mapping.itemCode) {
-          sessionNamesManager.setName(sessionId, mapping.itemCode);
+          await sessionNamesManager.setName(sessionId, mapping.itemCode);
         }
       }
 

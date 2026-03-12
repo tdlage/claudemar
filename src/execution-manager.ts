@@ -8,13 +8,13 @@ import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInboxMessages } from "./agents/messenger.js";
 import { getAgentPaths } from "./agents/manager.js";
 import { config } from "./config.js";
-import { trackExecution } from "./metrics.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { isEmailEnabled, getEmailScriptPath } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 import { emailSettingsManager } from "./email-settings-manager.js";
 import { modelPreferences } from "./model-preferences.js";
-import { JsonPersister } from "./json-persister.js";
+import { query } from "./database.js";
+import type { RowDataPacket } from "mysql2/promise";
 
 export type ExecutionSource = "telegram" | "web";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
@@ -113,7 +113,6 @@ class ExecutionManager extends EventEmitter {
   }
   private lastSessionMap = new Map<string, string>();
   private sessionHistoryMap = new Map<string, string[]>();
-  private lastSessionPersister = new JsonPersister(resolve(config.dataPath, "last-sessions.json"), "last-sessions");
 
   private targetKey(targetType: string, targetName: string): string {
     return `${targetType}:${targetName}`;
@@ -133,23 +132,28 @@ class ExecutionManager extends EventEmitter {
 
   setActiveSessionId(targetType: string, targetName: string, username: string, sessionId: string): void {
     this.lastSessionMap.set(this.userTargetKey(targetType, targetName, username), sessionId);
-    this.persistLastSessions();
   }
 
   clearSessionId(targetType: string, targetName: string, username: string): void {
     this.lastSessionMap.delete(this.userTargetKey(targetType, targetName, username));
-    this.persistLastSessions();
   }
 
-  private persistLastSessions(): void {
-    this.lastSessionPersister.scheduleWrite(() => Object.fromEntries(this.lastSessionMap));
-  }
+  private async restoreLastSessions(): Promise<void> {
+    const rows = await query<(RowDataPacket & {
+      target_type: string; target_name: string; username: string; session_id: string;
+    })[]>(
+      `SELECT target_type, target_name, username, session_id
+       FROM (
+         SELECT target_type, target_name, COALESCE(username, 'admin') AS username, session_id,
+                ROW_NUMBER() OVER (PARTITION BY target_type, target_name, COALESCE(username, 'admin') ORDER BY started_at DESC) AS rn
+         FROM execution_history
+         WHERE session_id IS NOT NULL AND status = 'completed'
+       ) sub
+       WHERE rn = 1`,
+    );
 
-  private restoreLastSessions(): void {
-    const data = this.lastSessionPersister.readSync() as Record<string, string> | null;
-    if (!data) return;
-    for (const [key, sessionId] of Object.entries(data)) {
-      this.lastSessionMap.set(key, sessionId);
+    for (const row of rows) {
+      this.lastSessionMap.set(this.userTargetKey(row.target_type, row.target_name, row.username), row.session_id);
     }
   }
 
@@ -259,10 +263,11 @@ class ExecutionManager extends EventEmitter {
         }
         if (result.sessionId) {
           this.lastSessionMap.set(this.userTargetKey(opts.targetType, opts.targetName, opts.username), result.sessionId);
-          this.persistLastSessions();
           this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
           if (!sessionNamesManager.getName(result.sessionId)) {
-            sessionNamesManager.setName(result.sessionId, sessionNamesManager.getNextAutoName(opts.username));
+            sessionNamesManager.getNextAutoName(opts.username).then((name) =>
+              sessionNamesManager.setName(result.sessionId, name),
+            );
           }
         }
         if (opts.model) {
@@ -293,7 +298,6 @@ class ExecutionManager extends EventEmitter {
         }
 
         if (opts.targetType === "agent") {
-          trackExecution(opts.targetName, result.costUsd, result.durationMs);
           if (opts.isInboxProcessing) {
             archiveInboxMessages(opts.targetName);
           }
@@ -379,7 +383,6 @@ class ExecutionManager extends EventEmitter {
           permissionDenials: [],
         };
         this.lastSessionMap.set(this.userTargetKey(entry.opts.targetType, entry.opts.targetName, entry.opts.username), sessionId);
-        this.persistLastSessions();
         this.pushSessionHistory(entry.opts.targetType, entry.opts.targetName, sessionId);
       }
 
@@ -431,7 +434,7 @@ class ExecutionManager extends EventEmitter {
   }
 
   async loadRecent(): Promise<void> {
-    this.restoreLastSessions();
+    await this.restoreLastSessions();
     const entries = await loadHistory(MAX_RECENT);
     this.recent = entries.map((e) => ({
       id: e.id,

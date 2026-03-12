@@ -228,6 +228,7 @@ export interface EmailProfileMasked {
 // ── Tracker (Shape Up) ──
 
 export type CycleStatus = "active" | "completed";
+export type CycleType = "features" | "bugs";
 export type TestCasePriority = "critical" | "high" | "medium" | "low";
 export type TestRunStatus = "passed" | "failed" | "blocked" | "skipped";
 
@@ -252,6 +253,7 @@ export interface TrackerCycle {
   id: string;
   projectId: string;
   name: string;
+  type: CycleType;
   status: CycleStatus;
   columns: CycleColumn[];
   createdBy: string;
@@ -284,6 +286,11 @@ export interface TrackerItem {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProjectBoardItem extends TrackerItem {
+  cycleName: string;
+  cycleType: CycleType;
 }
 
 export interface TrackerItemSearchResult {

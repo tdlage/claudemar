@@ -896,7 +896,7 @@ async function handleAgentRemove(ctx: Context, chatId: number, name: string): Pr
   }
 
   try {
-    const removedSchedules = removeSchedulesByAgent(name);
+    const removedSchedules = await removeSchedulesByAgent(name);
     await rm(paths.root, { recursive: true, force: true });
 
     const session = getSession(chatId);
@@ -961,7 +961,7 @@ async function handleAgentInfo(ctx: Context, name: string): Promise<void> {
     lines.push(`Última execução: ${info.lastExecution.toISOString()}`);
   }
 
-  const schedules = listSchedulesByAgent(name);
+  const schedules = await listSchedulesByAgent(name);
   if (schedules.length > 0) {
     lines.push(`\nAgendamentos: ${schedules.length}`);
     for (const s of schedules) {
@@ -1050,7 +1050,7 @@ async function handleDelegate(ctx: Context): Promise<void> {
   }
 
   if (executionManager.isTargetActive("agent", agentName)) {
-    const item = commandQueue.enqueue({
+    const item = await commandQueue.enqueue({
       targetType: "agent",
       targetName: agentName,
       prompt,
@@ -1293,7 +1293,7 @@ async function handleSchedule(ctx: Context): Promise<void> {
 }
 
 async function handleScheduleList(ctx: Context): Promise<void> {
-  const schedules = listSchedules();
+  const schedules = await listSchedules();
 
   if (schedules.length === 0) {
     await ctx.reply("Nenhum agendamento ativo.");
@@ -1309,7 +1309,7 @@ async function handleScheduleList(ctx: Context): Promise<void> {
 }
 
 async function handleScheduleRemove(ctx: Context, id: string): Promise<void> {
-  const removed = removeSchedule(id);
+  const removed = await removeSchedule(id);
 
   if (removed) {
     await ctx.reply(`Agendamento ${id} removido.`);
@@ -1324,7 +1324,7 @@ async function handleMetrics(ctx: Context): Promise<void> {
   const text = ctx.message?.text ?? "";
   const agentName = text.replace(/^\/metrics\s*/, "").trim();
 
-  const metrics = loadMetrics();
+  const metrics = await loadMetrics();
 
   if (agentName) {
     const m = metrics[agentName];
@@ -1407,7 +1407,7 @@ async function handleQueueRemove(ctx: Context): Promise<void> {
       return;
     }
 
-    const removed = commandQueue.remove(seqId);
+    const removed = await commandQueue.remove(seqId);
     if (removed) {
       await ctx.reply(`Item #${seqId} removido da fila.`);
     } else {
@@ -1443,7 +1443,7 @@ async function handleQueueRemoveCallback(ctx: Context): Promise<void> {
   const seqId = parseInt(data.replace("queue_remove:", ""), 10);
   if (Number.isNaN(seqId)) return;
 
-  const removed = commandQueue.remove(seqId);
+  const removed = await commandQueue.remove(seqId);
   if (removed) {
     await ctx.answerCallbackQuery({ text: `Item #${seqId} removido.` });
     try {

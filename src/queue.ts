@@ -1,8 +1,7 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
-import { config } from "./config.js";
-import { JsonPersister } from "./json-persister.js";
+import { query, execute } from "./database.js";
+import type { RowDataPacket } from "mysql2/promise";
 import type { ExecutionSource, ExecutionTargetType } from "./execution-manager.js";
 
 export interface QueueItem {
@@ -23,31 +22,85 @@ export interface QueueItem {
   telegramChatId?: number;
 }
 
-interface PersistedQueue {
-  nextSeqId: number;
-  items: QueueItem[];
+interface QueueRow extends RowDataPacket {
+  seq_id: number;
+  id: string;
+  target_type: string;
+  target_name: string;
+  prompt: string;
+  source: string;
+  cwd: string;
+  resume_session_id: string | null;
+  model: string | null;
+  plan_mode: number;
+  agent_name: string | null;
+  username: string | null;
+  use_docker: number;
+  enqueued_at: string | Date;
+  telegram_chat_id: number | null;
+}
+
+function rowToItem(row: QueueRow): QueueItem {
+  const enqueuedAt = row.enqueued_at instanceof Date ? row.enqueued_at.toISOString() : String(row.enqueued_at);
+  return {
+    id: row.id,
+    seqId: row.seq_id,
+    targetType: row.target_type as ExecutionTargetType,
+    targetName: row.target_name,
+    prompt: row.prompt,
+    source: row.source as ExecutionSource,
+    cwd: row.cwd,
+    resumeSessionId: row.resume_session_id,
+    model: row.model ?? undefined,
+    planMode: row.plan_mode === 1 ? true : undefined,
+    agentName: row.agent_name ?? undefined,
+    username: row.username ?? undefined,
+    useDocker: row.use_docker === 1 ? true : undefined,
+    enqueuedAt,
+    telegramChatId: row.telegram_chat_id ?? undefined,
+  };
 }
 
 class CommandQueue extends EventEmitter {
   private queues = new Map<string, QueueItem[]>();
-  private nextSeqId = 1;
-  private persister = new JsonPersister(resolve(config.dataPath, "queue.json"), "queue");
 
   constructor() {
     super();
-    this.load();
+  }
+
+  async initialize(): Promise<void> {
+    const rows = await query<QueueRow[]>("SELECT * FROM queue_items ORDER BY seq_id ASC");
+    for (const row of rows) {
+      const item = rowToItem(row);
+      const key = this.targetKey(item.targetType, item.targetName);
+      const queue = this.queues.get(key) ?? [];
+      queue.push(item);
+      this.queues.set(key, queue);
+    }
   }
 
   targetKey(targetType: string, targetName: string): string {
     return `${targetType}:${targetName}`;
   }
 
-  enqueue(opts: Omit<QueueItem, "id" | "seqId" | "enqueuedAt">): QueueItem {
+  async enqueue(opts: Omit<QueueItem, "id" | "seqId" | "enqueuedAt">): Promise<QueueItem> {
+    const id = randomUUID();
+    const enqueuedAt = new Date().toISOString();
+
+    const result = await execute(
+      `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, agent_name, username, use_docker, enqueued_at, telegram_chat_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, opts.targetType, opts.targetName, opts.prompt, opts.source, opts.cwd,
+       opts.resumeSessionId ?? null, opts.model ?? null, opts.planMode ? 1 : 0,
+       opts.agentName ?? null, opts.username ?? null, opts.useDocker ? 1 : 0,
+       enqueuedAt, opts.telegramChatId ?? null],
+    );
+
     const item: QueueItem = {
       ...opts,
-      id: randomUUID(),
-      seqId: this.nextSeqId++,
-      enqueuedAt: new Date().toISOString(),
+      id,
+      seqId: result.insertId,
+      enqueuedAt,
     };
 
     const key = this.targetKey(opts.targetType, opts.targetName);
@@ -55,12 +108,11 @@ class CommandQueue extends EventEmitter {
     queue.push(item);
     this.queues.set(key, queue);
 
-    this.persist();
     this.emit("queue:add", item);
     return item;
   }
 
-  dequeue(targetKey: string): QueueItem | undefined {
+  async dequeue(targetKey: string): Promise<QueueItem | undefined> {
     const queue = this.queues.get(targetKey);
     if (!queue || queue.length === 0) return undefined;
 
@@ -69,12 +121,12 @@ class CommandQueue extends EventEmitter {
       this.queues.delete(targetKey);
     }
 
-    this.persist();
+    await execute("DELETE FROM queue_items WHERE id = ?", [item.id]);
     this.emit("queue:remove", item);
     return item;
   }
 
-  remove(seqId: number): QueueItem | null {
+  async remove(seqId: number): Promise<QueueItem | null> {
     for (const [key, queue] of this.queues) {
       const idx = queue.findIndex((item) => item.seqId === seqId);
       if (idx !== -1) {
@@ -82,7 +134,7 @@ class CommandQueue extends EventEmitter {
         if (queue.length === 0) {
           this.queues.delete(key);
         }
-        this.persist();
+        await execute("DELETE FROM queue_items WHERE seq_id = ?", [seqId]);
         this.emit("queue:remove", item);
         return item;
       }
@@ -111,30 +163,6 @@ class CommandQueue extends EventEmitter {
     const key = this.targetKey(targetType, targetName);
     const queue = this.queues.get(key);
     return queue?.[0];
-  }
-
-  private load(): void {
-    const data = this.persister.readSync() as PersistedQueue | null;
-    if (!data) return;
-    this.nextSeqId = data.nextSeqId ?? 1;
-    for (const item of data.items ?? []) {
-      const key = this.targetKey(item.targetType, item.targetName);
-      const queue = this.queues.get(key) ?? [];
-      queue.push(item);
-      this.queues.set(key, queue);
-    }
-  }
-
-  private persistData(): PersistedQueue {
-    return { nextSeqId: this.nextSeqId, items: this.getAll() };
-  }
-
-  private persist(): void {
-    this.persister.scheduleWrite(() => this.persistData());
-  }
-
-  flush(): void {
-    this.persister.flushSync(this.persistData());
   }
 }
 

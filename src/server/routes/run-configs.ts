@@ -9,13 +9,13 @@ runConfigsRouter.get("/", (_req, res) => {
   res.json(configs.map((c) => ({ ...c, status: status[c.id] ?? { running: false } })));
 });
 
-runConfigsRouter.post("/", (req, res) => {
+runConfigsRouter.post("/", async (req, res) => {
   const { name, command, workingDirectory, envVars, projectName, proxyDomain, proxyPort } = req.body;
   if (!name || !command) {
     res.status(400).json({ error: "name and command are required" });
     return;
   }
-  const cfg = runProcessManager.createConfig({
+  const cfg = await runProcessManager.createConfig({
     name,
     command,
     workingDirectory: workingDirectory || "",
@@ -27,8 +27,8 @@ runConfigsRouter.post("/", (req, res) => {
   res.json(cfg);
 });
 
-runConfigsRouter.put("/:id", (req, res) => {
-  const updated = runProcessManager.updateConfig(req.params.id, req.body);
+runConfigsRouter.put("/:id", async (req, res) => {
+  const updated = await runProcessManager.updateConfig(req.params.id, req.body);
   if (!updated) {
     res.status(404).json({ error: "Config not found" });
     return;
@@ -36,8 +36,8 @@ runConfigsRouter.put("/:id", (req, res) => {
   res.json(updated);
 });
 
-runConfigsRouter.delete("/:id", (req, res) => {
-  const deleted = runProcessManager.deleteConfig(req.params.id);
+runConfigsRouter.delete("/:id", async (req, res) => {
+  const deleted = await runProcessManager.deleteConfig(req.params.id);
   if (!deleted) {
     res.status(404).json({ error: "Config not found" });
     return;

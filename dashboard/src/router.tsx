@@ -77,6 +77,7 @@ export const router = createBrowserRouter([
       { path: "settings", element: <AdminGuard><SettingsPage /></AdminGuard> },
       { path: "tracker", element: <TrackerPage /> },
       { path: "tracker/:projectId", element: <KeyedTrackerPage /> },
+      { path: "tracker/:projectId/board", element: <KeyedTrackerPage /> },
       { path: "tracker/:projectId/cycles/:cycleId", element: <KeyedTrackerPage /> },
       { path: "tracker/:projectId/cycles/:cycleId/items/:itemId", element: <KeyedTrackerPage /> },
     ],

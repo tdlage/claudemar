@@ -1,66 +1,53 @@
-import { resolve } from "node:path";
-import { config } from "./config.js";
-import { JsonPersister } from "./json-persister.js";
-
-interface PersistedData {
-  nextNumber: number;
-  userCounters: Record<string, number>;
-  names: Record<string, string>;
-}
+import { query, execute } from "./database.js";
+import type { RowDataPacket } from "mysql2/promise";
 
 class SessionNamesManager {
-  private nextNumber = 1;
-  private userCounters = new Map<string, number>();
   private names = new Map<string, string>();
-  private persister = new JsonPersister(resolve(config.dataPath, "session-names.json"), "session-names");
+  private userCounters = new Map<string, number>();
 
-  constructor() {
-    this.applyFromDisk();
-  }
-
-  private applyFromDisk(): void {
-    const data = this.persister.readSync() as PersistedData | null;
-    if (!data) return;
-    this.nextNumber = data.nextNumber ?? 1;
-    for (const [user, count] of Object.entries(data.userCounters ?? {})) {
-      this.userCounters.set(user, count);
+  async initialize(): Promise<void> {
+    const nameRows = await query<(RowDataPacket & { session_id: string; name: string })[]>(
+      "SELECT session_id, name FROM session_names",
+    );
+    for (const row of nameRows) {
+      this.names.set(row.session_id, row.name);
     }
-    for (const [sid, name] of Object.entries(data.names ?? {})) {
-      this.names.set(sid, name);
+
+    const counterRows = await query<(RowDataPacket & { label: string; counter: number })[]>(
+      "SELECT label, counter FROM session_name_counters",
+    );
+    for (const row of counterRows) {
+      this.userCounters.set(row.label, row.counter);
     }
   }
 
-  private toJSON(): PersistedData {
-    return {
-      nextNumber: this.nextNumber,
-      userCounters: Object.fromEntries(this.userCounters),
-      names: Object.fromEntries(this.names),
-    };
-  }
-
-  reload(): void {
-    this.nextNumber = 1;
-    this.userCounters.clear();
+  async reload(): Promise<void> {
     this.names.clear();
-    this.applyFromDisk();
+    this.userCounters.clear();
+    await this.initialize();
   }
 
   getName(sessionId: string): string | undefined {
     return this.names.get(sessionId);
   }
 
-  setName(sessionId: string, name: string): void {
+  async setName(sessionId: string, name: string): Promise<void> {
     this.names.set(sessionId, name);
-    this.persister.scheduleWrite(() => this.toJSON());
+    await execute(
+      "INSERT INTO session_names (session_id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)",
+      [sessionId, name],
+    );
   }
 
-  getNextAutoName(username?: string): string {
+  async getNextAutoName(username?: string): Promise<string> {
     const label = this.formatLabel(username);
     const counter = (this.userCounters.get(label) ?? 0) + 1;
     this.userCounters.set(label, counter);
-    const name = `${label} ${counter}`;
-    this.persister.scheduleWrite(() => this.toJSON());
-    return name;
+    await execute(
+      "INSERT INTO session_name_counters (label, counter) VALUES (?, ?) ON DUPLICATE KEY UPDATE counter = ?",
+      [label, counter, counter],
+    );
+    return `${label} ${counter}`;
   }
 
   private formatLabel(username?: string): string {
@@ -81,10 +68,6 @@ class SessionNamesManager {
 
   getAllNames(): Record<string, string> {
     return Object.fromEntries(this.names);
-  }
-
-  flush(): void {
-    this.persister.flushSync(this.toJSON());
   }
 }
 

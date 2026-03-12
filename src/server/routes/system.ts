@@ -83,8 +83,8 @@ systemRouter.get("/resources", (_req, res) => {
   }
 });
 
-systemRouter.get("/metrics", (_req, res) => {
-  const metrics = loadMetrics();
+systemRouter.get("/metrics", async (_req, res) => {
+  const metrics = await loadMetrics();
   res.json(metrics);
 });
 
@@ -204,12 +204,12 @@ systemRouter.get("/changelog", (req, res) => {
   );
 });
 
-systemRouter.post("/reload-configs", (_req, res) => {
-  runProcessManager.reload();
+systemRouter.post("/reload-configs", async (_req, res) => {
+  await runProcessManager.reload();
   settingsManager.reload();
-  sessionNamesManager.reload();
+  await sessionNamesManager.reload();
   modelPreferences.reload();
-  usersManager.reload();
-  console.log("[system] All configs reloaded from disk");
+  await usersManager.reload();
+  console.log("[system] All configs reloaded");
   res.json({ reloaded: true });
 });

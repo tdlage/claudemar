@@ -11,11 +11,12 @@ export interface CycleColumn {
 const MIGRATION_FALLBACK_COLUMN_ID = "00000000-0000-4000-8000-000000000001";
 
 export const DEFAULT_COLUMNS: CycleColumn[] = [
-  { id: MIGRATION_FALLBACK_COLUMN_ID, name: "Pendente", color: "#6b7280", position: 0 },
-  { id: "00000000-0000-4000-8000-000000000002", name: "Em andamento", color: "#3b82f6", position: 1 },
-  { id: "00000000-0000-4000-8000-000000000003", name: "Em teste", color: "#f59e0b", position: 2 },
-  { id: "00000000-0000-4000-8000-000000000004", name: "Em Correção", color: "#ef4444", position: 3 },
-  { id: "00000000-0000-4000-8000-000000000005", name: "Finalizado", color: "#22c55e", position: 4 },
+  { id: "00000000-0000-4000-8000-000000000000", name: "Backlog", color: "#9ca3af", position: 0 },
+  { id: MIGRATION_FALLBACK_COLUMN_ID, name: "Pendente", color: "#6b7280", position: 1 },
+  { id: "00000000-0000-4000-8000-000000000002", name: "Em andamento", color: "#3b82f6", position: 2 },
+  { id: "00000000-0000-4000-8000-000000000003", name: "Em teste", color: "#f59e0b", position: 3 },
+  { id: "00000000-0000-4000-8000-000000000004", name: "Em Correção", color: "#ef4444", position: 4 },
+  { id: "00000000-0000-4000-8000-000000000005", name: "Finalizado", color: "#22c55e", position: 5 },
 ];
 
 const MIGRATIONS: string[] = [
@@ -327,11 +328,45 @@ async function runSchemaUpgrades(): Promise<void> {
     await pool.execute("ALTER TABLE tracker_bets ADD COLUMN priority VARCHAR(2) DEFAULT NULL AFTER appetite");
   }
 
+  if (!(await columnExists(pool, "tracker_cycles", "type"))) {
+    await pool.execute("ALTER TABLE tracker_cycles ADD COLUMN type ENUM('features','bugs') NOT NULL DEFAULT 'features' AFTER name");
+  }
+
   if (await tableExists(pool, "tracker_bet_assignees")) {
     await pool.execute("RENAME TABLE tracker_bet_assignees TO tracker_item_assignees");
   }
   if (await tableExists(pool, "tracker_item_assignees") && await columnExists(pool, "tracker_item_assignees", "bet_id")) {
     await pool.execute("ALTER TABLE tracker_item_assignees CHANGE bet_id item_id CHAR(36) NOT NULL");
+  }
+
+  const [allCycles] = await pool.execute("SELECT id, columns FROM tracker_cycles") as [Array<{ id: string; columns: string }>, unknown];
+  for (const row of allCycles) {
+    const cols: CycleColumn[] = typeof row.columns === "string" ? JSON.parse(row.columns) : row.columns;
+    const sorted = [...cols].sort((a, b) => a.position - b.position);
+    if (sorted[0]?.name === "Backlog") continue;
+
+    const backlogId = randomUUID();
+    const backlogCol: CycleColumn = { id: backlogId, name: "Backlog", color: "#9ca3af", position: 0 };
+    const oldFirstCol = sorted[0];
+    const updated = [backlogCol, ...sorted.map((c) => ({ ...c, position: c.position + 1 }))];
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute("UPDATE tracker_cycles SET columns = ? WHERE id = ?", [JSON.stringify(updated), row.id]);
+      if (oldFirstCol) {
+        await conn.execute(
+          "UPDATE tracker_bets SET column_id = ? WHERE cycle_id = ? AND column_id = ?",
+          [backlogId, row.id, oldFirstCol.id],
+        );
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 }
 

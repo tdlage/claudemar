@@ -35,7 +35,7 @@ executionsRouter.get("/", (req, res) => {
   res.json({ active, recent });
 });
 
-executionsRouter.post("/", (req, res) => {
+executionsRouter.post("/", async (req, res) => {
   const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue, model: requestModel, useDocker: requestDocker } = req.body;
 
   if (!prompt || !targetType) {
@@ -126,13 +126,13 @@ executionsRouter.post("/", (req, res) => {
   const hasQueuedItems = commandQueue.getByTarget(targetType, effectiveTargetName).length > 0;
 
   if (forceQueue && (targetActive || hasQueuedItems)) {
-    const item = commandQueue.enqueue(queuePayload);
+    const item = await commandQueue.enqueue(queuePayload);
     res.status(202).json({ queued: true, queueItem: { id: item.id, seqId: item.seqId } });
     return;
   }
 
   if (!forceQueue && targetActive) {
-    const item = commandQueue.enqueue(queuePayload);
+    const item = await commandQueue.enqueue(queuePayload);
     res.status(202).json({ queued: true, queueItem: { id: item.id, seqId: item.seqId } });
     return;
   }
@@ -148,14 +148,14 @@ executionsRouter.get("/queue", (_req, res) => {
   res.json(commandQueue.getAll());
 });
 
-executionsRouter.delete("/queue/:seqId", (req, res) => {
+executionsRouter.delete("/queue/:seqId", async (req, res) => {
   const seqId = parseInt(req.params.seqId, 10);
   if (Number.isNaN(seqId)) {
     res.status(400).json({ error: "Invalid seqId" });
     return;
   }
 
-  const removed = commandQueue.remove(seqId);
+  const removed = await commandQueue.remove(seqId);
   if (!removed) {
     res.status(404).json({ error: "Queue item not found" });
     return;
@@ -230,7 +230,7 @@ executionsRouter.delete("/session/:targetType/:targetName", (req, res) => {
   res.json({ ok: true });
 });
 
-executionsRouter.patch("/session/:targetType/:targetName/rename", (req, res) => {
+executionsRouter.patch("/session/:targetType/:targetName/rename", async (req, res) => {
   const { sessionId, name } = req.body;
   if (!sessionId || typeof sessionId !== "string") {
     res.status(400).json({ error: "sessionId required" });
@@ -240,7 +240,7 @@ executionsRouter.patch("/session/:targetType/:targetName/rename", (req, res) => 
     res.status(400).json({ error: "name required" });
     return;
   }
-  sessionNamesManager.setName(sessionId, name.trim());
+  await sessionNamesManager.setName(sessionId, name.trim());
   res.json({ ok: true });
 });
 

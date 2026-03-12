@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Pencil, Clock, Send } from "lucide-react";
+import { ArrowLeft, Pencil, Clock, Send, FileText } from "lucide-react";
 import { Tabs } from "../shared/Tabs";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
 import { useItems, useTrackerProjects, useProjectMembers, useItemPlan } from "../../hooks/useTracker";
@@ -69,6 +69,7 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
   const project = projects.find((p) => p.id === projectId);
   const [tab, setTab] = useState<TabKey>("details");
   const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [sendPlanMode, setSendPlanMode] = useState(true);
   const [editingItem, setEditingItem] = useState(false);
   const [itemTitle, setItemTitle] = useState("");
   const [editingAppetite, setEditingAppetite] = useState(false);
@@ -281,15 +282,27 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
               <Pencil size={13} />
             </button>
           )}
-          {admin && !plan && item && (
-            <button
-              onClick={() => setSendModalOpen(true)}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-accent hover:bg-accent/10 transition-colors"
-              title="Send to project"
-            >
-              <Send size={12} />
-              Send to Project
-            </button>
+          {admin && item && (
+            <>
+              <button
+                onClick={() => { setSendPlanMode(false); setSendModalOpen(true); }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-accent hover:bg-accent/10 transition-colors"
+                title="Enviar diretamente para execução"
+              >
+                <Send size={12} />
+                Enviar
+              </button>
+              {!plan && (
+                <button
+                  onClick={() => { setSendPlanMode(true); setSendModalOpen(true); }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-text-muted hover:text-accent hover:bg-accent/10 transition-colors"
+                  title="Enviar com plan mode para revisar antes de executar"
+                >
+                  <FileText size={12} />
+                  Enviar com Plano
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -379,6 +392,7 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
           onClose={() => setSendModalOpen(false)}
           item={item}
           itemCode={`${project.code}-${item.seqNumber}`}
+          planMode={sendPlanMode}
         />
       )}
     </div>

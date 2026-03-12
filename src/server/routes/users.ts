@@ -7,18 +7,18 @@ usersRouter.get("/", (_req, res) => {
   res.json(usersManager.getAll());
 });
 
-usersRouter.post("/", (req, res) => {
+usersRouter.post("/", async (req, res) => {
   const { name, email } = req.body;
   if (!name || !email) {
     res.status(400).json({ error: "name and email are required" });
     return;
   }
-  const user = usersManager.create(name, email);
+  const user = await usersManager.create(name, email);
   res.status(201).json(user);
 });
 
-usersRouter.put("/:id", (req, res) => {
-  const updated = usersManager.update(req.params.id, req.body);
+usersRouter.put("/:id", async (req, res) => {
+  const updated = await usersManager.update(req.params.id, req.body);
   if (!updated) {
     res.status(404).json({ error: "User not found" });
     return;
@@ -26,8 +26,8 @@ usersRouter.put("/:id", (req, res) => {
   res.json(updated);
 });
 
-usersRouter.delete("/:id", (req, res) => {
-  const deleted = usersManager.delete(req.params.id);
+usersRouter.delete("/:id", async (req, res) => {
+  const deleted = await usersManager.delete(req.params.id);
   if (!deleted) {
     res.status(404).json({ error: "User not found" });
     return;

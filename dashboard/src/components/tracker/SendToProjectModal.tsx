@@ -9,9 +9,10 @@ interface Props {
   onClose: () => void;
   item: TrackerItem;
   itemCode: string;
+  planMode: boolean;
 }
 
-export function SendToProjectModal({ open, onClose, item, itemCode }: Props) {
+export function SendToProjectModal({ open, onClose, item, itemCode, planMode }: Props) {
   const { addToast } = useToast();
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>("");
@@ -43,8 +44,11 @@ export function SendToProjectModal({ open, onClose, item, itemCode }: Props) {
       await api.post(`/tracker/items/${item.id}/send-to-project`, {
         targetProject: selectedProject,
         prompt: prompt.trim(),
+        planMode,
       });
-      addToast("success", `Sent to ${selectedProject} with plan mode`);
+      addToast("success", planMode
+        ? `${itemCode} enviado para ${selectedProject} com plano`
+        : `${itemCode} enviado para ${selectedProject}`);
       onClose();
     } catch (e: unknown) {
       addToast("error", e instanceof Error ? e.message : "Failed to send");
@@ -53,28 +57,36 @@ export function SendToProjectModal({ open, onClose, item, itemCode }: Props) {
     }
   };
 
+  const title = planMode
+    ? `Enviar ${itemCode} com Plano`
+    : `Enviar ${itemCode}`;
+
+  const buttonLabel = planMode
+    ? "Enviar com Plano"
+    : "Enviar";
+
   return (
-    <Modal open={open} onClose={onClose} title={`Send ${itemCode} to Project`}>
+    <Modal open={open} onClose={onClose} title={title}>
       <div className="space-y-4">
         {loading ? (
           <div className="text-sm text-text-muted">Loading...</div>
         ) : (
           <>
             <div>
-              <label className="block text-xs text-text-muted mb-1">Project</label>
+              <label className="block text-xs text-text-muted mb-1">Projeto</label>
               <select
                 value={selectedProject}
                 onChange={(e) => setSelectedProject(e.target.value)}
                 className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
               >
-                <option value="">Select a project...</option>
+                <option value="">Selecione um projeto...</option>
                 {projects.map((p) => (
                   <option key={p.name} value={p.name}>{p.name}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block text-xs text-text-muted mb-1">Prompt (plain text)</label>
+              <label className="block text-xs text-text-muted mb-1">Prompt</label>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -87,14 +99,14 @@ export function SendToProjectModal({ open, onClose, item, itemCode }: Props) {
                 onClick={onClose}
                 className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
               >
-                Cancel
+                Cancelar
               </button>
               <button
                 onClick={handleSend}
                 disabled={!selectedProject || !prompt.trim() || sending}
                 className="px-4 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent/80 transition-colors disabled:opacity-50"
               >
-                {sending ? "Sending..." : "Send with Plan Mode"}
+                {sending ? "Enviando..." : buttonLabel}
               </button>
             </div>
           </>

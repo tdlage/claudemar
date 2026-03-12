@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Plus, ArrowLeft } from "lucide-react";
+import { Plus, ArrowLeft, LayoutGrid } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { useCycles, useCycleStats, useTrackerProjects } from "../../hooks/useTracker";
 import { canEditTrackerProject } from "../../hooks/useAuth";
@@ -30,14 +30,22 @@ export function CyclesList({ projectId }: Props) {
           </Link>
           <h2 className="text-lg font-semibold text-text-primary">{project?.name ?? "Project"}</h2>
         </div>
-        {canEdit && (
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
+        <div className="flex items-center gap-2">
+          <Link
+            to={`/tracker/${projectId}/board`}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-accent text-accent hover:bg-accent/10 transition-colors"
           >
-            <Plus size={14} /> New Cycle
-          </button>
-        )}
+            <LayoutGrid size={14} /> Board
+          </Link>
+          {canEdit && (
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
+            >
+              <Plus size={14} /> New Cycle
+            </button>
+          )}
+        </div>
       </div>
 
       {loading && <p className="text-sm text-text-muted">Loading...</p>}
@@ -64,6 +72,9 @@ export function CyclesList({ projectId }: Props) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-text-primary">{cycle.name}</span>
+                  <Badge variant={cycle.type === "bugs" ? "danger" : "info"}>
+                    {cycle.type === "bugs" ? "Bugs" : "Features"}
+                  </Badge>
                   <Badge variant={CYCLE_STATUS_VARIANT[cycle.status]}>{cycle.status}</Badge>
                 </div>
                 <span className="text-xs text-text-muted">

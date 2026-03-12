@@ -1,7 +1,5 @@
-import { appendFile, readFile, writeFile, readdir, rename } from "node:fs/promises";
-import { existsSync, mkdirSync } from "node:fs";
-import { resolve } from "node:path";
-import { config } from "./config.js";
+import { query, execute } from "./database.js";
+import type { RowDataPacket } from "mysql2/promise";
 
 export interface HistoryEntry {
   id: string;
@@ -22,142 +20,76 @@ export interface HistoryEntry {
   username?: string;
 }
 
-const MAX_LINES = 500;
-const TRIM_TO = 300;
-const TRIM_DEBOUNCE_MS = 5000;
-
-const lineCounts = new Map<string, number>();
-const trimTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-function historyDir(): string {
-  return resolve(config.dataPath, "history");
+interface HistoryRow extends RowDataPacket {
+  id: string;
+  prompt: string;
+  target_type: string;
+  target_name: string;
+  agent_name: string | null;
+  status: string;
+  started_at: string | Date;
+  completed_at: string | Date | null;
+  cost_usd: number;
+  duration_ms: number;
+  source: string;
+  output: string | null;
+  error: string | null;
+  session_id: string | null;
+  plan_mode: number;
+  username: string | null;
 }
 
-function targetFilePath(targetType: string, targetName: string): string {
-  const safe = `${targetType}-${targetName}`.replace(/[^a-zA-Z0-9._-]/g, "_");
-  return resolve(historyDir(), `${safe}.jsonl`);
-}
-
-function ensureHistoryDir(): void {
-  const dir = historyDir();
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-}
-
-async function trimIfNeeded(filePath: string): Promise<void> {
-  try {
-    const content = await readFile(filePath, "utf-8");
-    const lines = content.trimEnd().split("\n");
-    if (lines.length > MAX_LINES) {
-      const trimmed = lines.slice(-TRIM_TO);
-      await writeFile(filePath, trimmed.join("\n") + "\n", "utf-8");
-      lineCounts.set(filePath, TRIM_TO);
-    } else {
-      lineCounts.set(filePath, lines.length);
-    }
-  } catch { }
+function rowToEntry(row: HistoryRow): HistoryEntry {
+  const startedAt = row.started_at instanceof Date ? row.started_at.toISOString() : String(row.started_at);
+  const completedAt = row.completed_at
+    ? (row.completed_at instanceof Date ? row.completed_at.toISOString() : String(row.completed_at))
+    : null;
+  return {
+    id: row.id,
+    prompt: row.prompt,
+    targetType: row.target_type,
+    targetName: row.target_name,
+    agentName: row.agent_name ?? undefined,
+    status: row.status,
+    startedAt,
+    completedAt,
+    costUsd: Number(row.cost_usd),
+    durationMs: Number(row.duration_ms),
+    source: row.source,
+    output: row.output ?? undefined,
+    error: row.error,
+    sessionId: row.session_id ?? undefined,
+    planMode: row.plan_mode === 1 ? true : undefined,
+    username: row.username ?? undefined,
+  };
 }
 
 export function appendHistory(entry: HistoryEntry): void {
-  ensureHistoryDir();
-  const filePath = targetFilePath(entry.targetType, entry.targetName);
-  appendFile(filePath, JSON.stringify(entry) + "\n", "utf-8").then(() => {
-    const count = (lineCounts.get(filePath) ?? 0) + 1;
-    lineCounts.set(filePath, count);
-    if (count > MAX_LINES && !trimTimers.has(filePath)) {
-      trimTimers.set(filePath, setTimeout(() => {
-        trimTimers.delete(filePath);
-        trimIfNeeded(filePath);
-      }, TRIM_DEBOUNCE_MS));
-    }
-  }).catch(() => { });
-}
-
-async function loadFile(filePath: string, limit: number): Promise<HistoryEntry[]> {
-  if (!existsSync(filePath)) return [];
-  try {
-    const content = await readFile(filePath, "utf-8");
-    const lines = content.trimEnd().split("\n").filter(Boolean);
-    lineCounts.set(filePath, lines.length);
-    const entries: HistoryEntry[] = [];
-    for (const line of lines.slice(-limit)) {
-      try {
-        entries.push(JSON.parse(line));
-      } catch { }
-    }
-    return entries;
-  } catch {
-    return [];
-  }
+  execute(
+    `INSERT INTO execution_history (id, prompt, target_type, target_name, agent_name, status, started_at, completed_at, cost_usd, duration_ms, source, output, error, session_id, plan_mode, username)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      entry.id, entry.prompt, entry.targetType, entry.targetName,
+      entry.agentName ?? null, entry.status, entry.startedAt, entry.completedAt ?? null,
+      entry.costUsd ?? 0, entry.durationMs ?? 0, entry.source ?? "telegram",
+      entry.output ?? null, entry.error ?? null, entry.sessionId ?? null,
+      entry.planMode ? 1 : 0, entry.username ?? null,
+    ],
+  ).catch((err) => console.error("[history] append failed:", err));
 }
 
 export async function loadHistory(limit = 20, targetType?: string, targetName?: string): Promise<HistoryEntry[]> {
-  await migrateOldHistory();
+  let sql: string;
+  const params: (string | number)[] = [];
 
   if (targetType && targetName) {
-    return loadFile(targetFilePath(targetType, targetName), limit);
+    sql = `SELECT * FROM (SELECT * FROM execution_history WHERE target_type = ? AND target_name = ? ORDER BY started_at DESC LIMIT ?) AS sub ORDER BY started_at ASC`;
+    params.push(targetType, targetName, limit);
+  } else {
+    sql = `SELECT * FROM (SELECT * FROM execution_history ORDER BY started_at DESC LIMIT ?) AS sub ORDER BY started_at ASC`;
+    params.push(limit);
   }
 
-  const dir = historyDir();
-  if (!existsSync(dir)) return [];
-
-  try {
-    const files = await readdir(dir);
-    const jsonlFiles = files.filter((f) => f.endsWith(".jsonl"));
-    const allEntries: HistoryEntry[] = [];
-
-    for (const file of jsonlFiles) {
-      const entries = await loadFile(resolve(dir, file), limit);
-      allEntries.push(...entries);
-    }
-
-    allEntries.sort((a, b) => {
-      const ta = a.startedAt ? new Date(a.startedAt).getTime() : 0;
-      const tb = b.startedAt ? new Date(b.startedAt).getTime() : 0;
-      return ta - tb;
-    });
-
-    return allEntries.slice(-limit);
-  } catch {
-    return [];
-  }
-}
-
-const OLD_HISTORY_PATH = resolve(config.dataPath, "history.jsonl");
-let migrated = false;
-
-async function migrateOldHistory(): Promise<void> {
-  if (migrated) return;
-  migrated = true;
-
-  if (!existsSync(OLD_HISTORY_PATH)) return;
-
-  try {
-    const content = await readFile(OLD_HISTORY_PATH, "utf-8");
-    const lines = content.trimEnd().split("\n").filter(Boolean);
-    if (lines.length === 0) return;
-
-    ensureHistoryDir();
-    const buckets = new Map<string, string[]>();
-
-    for (const line of lines) {
-      try {
-        const entry: HistoryEntry = JSON.parse(line);
-        const filePath = targetFilePath(entry.targetType, entry.targetName);
-        const bucket = buckets.get(filePath) ?? [];
-        bucket.push(line);
-        buckets.set(filePath, bucket);
-      } catch { }
-    }
-
-    for (const [filePath, entryLines] of buckets) {
-      await appendFile(filePath, entryLines.join("\n") + "\n", "utf-8");
-    }
-
-    await rename(OLD_HISTORY_PATH, OLD_HISTORY_PATH + ".bak");
-    console.log(`[history] Migrated ${lines.length} entries from history.jsonl to per-target files`);
-  } catch (err) {
-    console.error("[history] Migration failed:", err);
-  }
+  const rows = await query<HistoryRow[]>(sql, params);
+  return rows.map(rowToEntry);
 }

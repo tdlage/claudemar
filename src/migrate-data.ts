@@ -76,7 +76,7 @@ function migrateClaudeSessions(oldBase: string, newBase: string): void {
     const files = readdirSync(newPath, { recursive: true, withFileTypes: true });
     for (const file of files) {
       if (!file.isFile()) continue;
-      const filePath = join(file.parentPath ?? file.path, file.name);
+      const filePath = join(file.parentPath ?? (file as unknown as { path: string }).path, file.name);
       try {
         let content = readFileSync(filePath, "utf-8");
         let changed = false;

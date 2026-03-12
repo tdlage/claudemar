@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync, renameSync } from "node:fs";
-import { writeFile, rename } from "node:fs/promises";
+import { readdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { getAgentPaths } from "./agents/manager.js";
 import type { SessionMode } from "./agents/types.js";
 import { config } from "./config.js";
+import { query, execute } from "./database.js";
+import type { RowDataPacket } from "mysql2/promise";
 
 const PROJECT_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 
@@ -16,90 +17,42 @@ interface Session {
   nextPlanMode: boolean;
 }
 
-interface PersistedSession {
-  activeProject: string | null;
-  sessionIds: Record<string, string>;
-  mode: SessionMode;
-  activeAgent: string | null;
-}
-
 export const sessions = new Map<number, Session>();
 
-function sessionsPath(): string {
-  return resolve(config.dataPath, "sessions.json");
-}
+export async function initSessions(): Promise<void> {
+  const rows = await query<(RowDataPacket & {
+    chat_id: number;
+    active_project: string | null;
+    session_ids: string;
+    mode: SessionMode;
+    active_agent: string | null;
+  })[]>("SELECT chat_id, active_project, session_ids, mode, active_agent FROM telegram_sessions");
 
-let persistTimer: ReturnType<typeof setTimeout> | null = null;
-const PERSIST_DEBOUNCE_MS = 2000;
-
-function schedulePersist(): void {
-  if (persistTimer) return;
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    persistSessions();
-  }, PERSIST_DEBOUNCE_MS);
-}
-
-function buildSessionData(): Record<string, PersistedSession> {
-  const data: Record<string, PersistedSession> = {};
-  for (const [chatId, session] of sessions) {
-    if (Object.keys(session.sessionIds).length === 0 && !session.activeProject && !session.activeAgent) continue;
-    data[String(chatId)] = {
-      activeProject: session.activeProject,
-      sessionIds: session.sessionIds,
-      mode: session.mode,
-      activeAgent: session.activeAgent,
-    };
-  }
-  return data;
-}
-
-function persistSessions(): void {
-  const target = sessionsPath();
-  const tmp = target + ".tmp";
-  writeFile(tmp, JSON.stringify(buildSessionData(), null, 2), "utf-8")
-    .then(() => rename(tmp, target))
-    .catch((err) => console.error("[session] persist failed:", err));
-}
-
-export function flushSessions(): void {
-  if (persistTimer) {
-    clearTimeout(persistTimer);
-    persistTimer = null;
-  }
-  const target = sessionsPath();
-  const tmp = target + ".tmp";
-  try {
-    writeFileSync(tmp, JSON.stringify(buildSessionData(), null, 2), "utf-8");
-    renameSync(tmp, target);
-  } catch (err) {
-    console.error("[session] flush failed:", err);
+  for (const row of rows) {
+    let sessionIds: Record<string, string> = {};
+    try {
+      sessionIds = typeof row.session_ids === "string" ? JSON.parse(row.session_ids) : (row.session_ids ?? {});
+    } catch { }
+    sessions.set(row.chat_id, {
+      activeProject: row.active_project,
+      sessionIds,
+      busy: false,
+      mode: row.mode ?? "projects",
+      activeAgent: row.active_agent,
+      nextPlanMode: false,
+    });
   }
 }
 
-function loadPersistedSessions(): void {
-  const filePath = sessionsPath();
-  if (!existsSync(filePath)) return;
-  try {
-    const raw = readFileSync(filePath, "utf-8");
-    const data: Record<string, PersistedSession> = JSON.parse(raw);
-    for (const [chatIdStr, persisted] of Object.entries(data)) {
-      const chatId = Number(chatIdStr);
-      if (Number.isNaN(chatId)) continue;
-      sessions.set(chatId, {
-        activeProject: persisted.activeProject ?? null,
-        sessionIds: persisted.sessionIds ?? {},
-        busy: false,
-        mode: persisted.mode ?? "projects",
-        activeAgent: persisted.activeAgent ?? null,
-        nextPlanMode: false,
-      });
-    }
-  } catch {
-  }
+function persistSession(chatId: number, session: Session): void {
+  const sessionIds = JSON.stringify(session.sessionIds);
+  execute(
+    `INSERT INTO telegram_sessions (chat_id, active_project, session_ids, mode, active_agent)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE active_project = VALUES(active_project), session_ids = VALUES(session_ids), mode = VALUES(mode), active_agent = VALUES(active_agent)`,
+    [chatId, session.activeProject ?? null, sessionIds, session.mode, session.activeAgent ?? null],
+  ).catch((err) => console.error("[session] persist failed:", err));
 }
-
-loadPersistedSessions();
 
 function ensureSession(chatId: number): Session {
   let session = sessions.get(chatId);
@@ -132,13 +85,10 @@ export function getSession(chatId: number): Session {
   return ensureSession(chatId);
 }
 
-export function setActiveProject(
-  chatId: number,
-  project: string | null,
-): void {
+export function setActiveProject(chatId: number, project: string | null): void {
   const session = ensureSession(chatId);
   session.activeProject = project;
-  schedulePersist();
+  persistSession(chatId, session);
 }
 
 export function getMode(chatId: number): SessionMode {
@@ -148,7 +98,7 @@ export function getMode(chatId: number): SessionMode {
 export function setMode(chatId: number, mode: SessionMode): void {
   const session = ensureSession(chatId);
   session.mode = mode;
-  schedulePersist();
+  persistSession(chatId, session);
 }
 
 export function getActiveAgent(chatId: number): string | null {
@@ -158,7 +108,7 @@ export function getActiveAgent(chatId: number): string | null {
 export function setActiveAgent(chatId: number, agent: string | null): void {
   const session = ensureSession(chatId);
   session.activeAgent = agent;
-  schedulePersist();
+  persistSession(chatId, session);
 }
 
 export function getWorkingDirectory(chatId: number): string {
@@ -195,19 +145,19 @@ export function getSessionId(chatId: number): string | null {
 export function setSessionId(chatId: number, id: string): void {
   const session = ensureSession(chatId);
   session.sessionIds[sessionKey(session)] = id;
-  schedulePersist();
+  persistSession(chatId, session);
 }
 
 export function resetSessionId(chatId: number): void {
   const session = ensureSession(chatId);
   delete session.sessionIds[sessionKey(session)];
-  schedulePersist();
+  persistSession(chatId, session);
 }
 
 export function clearAllSessionIds(chatId: number): void {
   const session = ensureSession(chatId);
   session.sessionIds = {};
-  schedulePersist();
+  persistSession(chatId, session);
 }
 
 export function isBusy(chatId: number): boolean {

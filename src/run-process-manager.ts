@@ -4,8 +4,9 @@ import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
-import { JsonPersister } from "./json-persister.js";
 import { syncNginxProxy } from "./nginx-proxy.js";
+import { query, execute } from "./database.js";
+import type { RowDataPacket } from "mysql2/promise";
 
 export interface RunConfig {
   id: string;
@@ -30,33 +31,63 @@ interface ActiveProcess {
   output: string;
 }
 
+interface RunConfigRow extends RowDataPacket {
+  id: string;
+  name: string;
+  command: string;
+  working_directory: string;
+  env_vars: string;
+  project_name: string;
+  proxy_domain: string | null;
+  proxy_port: number | null;
+}
+
 const MAX_OUTPUT = 1024 * 1024;
 
 class RunProcessManager extends EventEmitter {
   private configs = new Map<string, RunConfig>();
   private active = new Map<string, ActiveProcess>();
   private lastOutput = new Map<string, string>();
-  private configsPersister = new JsonPersister(resolve(config.dataPath, "run-configs.json"), "run-configs");
   private shuttingDown = false;
 
   constructor() {
     super();
     this.setMaxListeners(50);
-    this.loadConfigs();
+  }
+
+  async initialize(): Promise<void> {
+    await this.loadConfigs();
     this.reconcileProcesses();
   }
 
-  private loadConfigs(): void {
-    const data = this.configsPersister.readSync() as RunConfig[] | null;
-    if (!data) return;
-    for (const c of data) {
-      this.configs.set(c.id, c);
+  private async loadConfigs(): Promise<void> {
+    this.configs.clear();
+    const rows = await query<RunConfigRow[]>(
+      "SELECT id, name, command, working_directory, env_vars, project_name, proxy_domain, proxy_port FROM run_configs",
+    );
+    for (const row of rows) {
+      let envVars: Record<string, string> = {};
+      try {
+        envVars = typeof row.env_vars === "string" ? JSON.parse(row.env_vars) : (row.env_vars ?? {});
+      } catch { }
+      const cfg: RunConfig = {
+        id: row.id,
+        name: row.name,
+        command: row.command,
+        workingDirectory: row.working_directory,
+        envVars,
+        projectName: row.project_name,
+      };
+      if (row.proxy_domain) {
+        cfg.proxyDomain = row.proxy_domain;
+        cfg.proxyPort = row.proxy_port ?? undefined;
+      }
+      this.configs.set(cfg.id, cfg);
     }
   }
 
-  reload(): void {
-    this.configs.clear();
-    this.loadConfigs();
+  async reload(): Promise<void> {
+    await this.loadConfigs();
   }
 
   private processesPath(): string {
@@ -90,8 +121,7 @@ class RunProcessManager extends EventEmitter {
           this.startProcess(configId);
         }
       }
-    } catch {
-    }
+    } catch { }
   }
 
   getAllConfigs(): RunConfig[] {
@@ -102,34 +132,45 @@ class RunProcessManager extends EventEmitter {
     return this.configs.get(id);
   }
 
-  createConfig(opts: Omit<RunConfig, "id">): RunConfig {
+  async createConfig(opts: Omit<RunConfig, "id">): Promise<RunConfig> {
     const cfg: RunConfig = { ...opts, id: randomUUID() };
     this.configs.set(cfg.id, cfg);
-    this.persistConfigs();
+    await this.persistConfig(cfg);
+    syncNginxProxy(this.getAllConfigs());
     return cfg;
   }
 
-  updateConfig(id: string, updates: Partial<Omit<RunConfig, "id">>): RunConfig | null {
+  async updateConfig(id: string, updates: Partial<Omit<RunConfig, "id">>): Promise<RunConfig | null> {
     const cfg = this.configs.get(id);
     if (!cfg) return null;
     Object.assign(cfg, updates);
     if (!cfg.proxyDomain) { delete cfg.proxyDomain; delete cfg.proxyPort; }
-    this.persistConfigs();
+    await this.persistConfig(cfg);
+    syncNginxProxy(this.getAllConfigs());
     return cfg;
   }
 
-  deleteConfig(id: string): boolean {
+  async deleteConfig(id: string): Promise<boolean> {
     if (this.active.has(id)) {
       this.stopProcess(id);
     }
     const deleted = this.configs.delete(id);
-    if (deleted) this.persistConfigs();
+    if (deleted) {
+      await execute("DELETE FROM run_configs WHERE id = ?", [id]);
+      syncNginxProxy(this.getAllConfigs());
+    }
     return deleted;
   }
 
-  private persistConfigs(): void {
-    this.configsPersister.scheduleWrite(() => this.getAllConfigs());
-    syncNginxProxy(this.getAllConfigs());
+  private async persistConfig(cfg: RunConfig): Promise<void> {
+    await execute(
+      `INSERT INTO run_configs (id, name, command, working_directory, env_vars, project_name, proxy_domain, proxy_port)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE name = VALUES(name), command = VALUES(command), working_directory = VALUES(working_directory),
+       env_vars = VALUES(env_vars), project_name = VALUES(project_name), proxy_domain = VALUES(proxy_domain), proxy_port = VALUES(proxy_port)`,
+      [cfg.id, cfg.name, cfg.command, cfg.workingDirectory, JSON.stringify(cfg.envVars),
+       cfg.projectName, cfg.proxyDomain ?? null, cfg.proxyPort ?? null],
+    );
   }
 
   startProcess(configId: string): boolean {
@@ -334,7 +375,6 @@ class RunProcessManager extends EventEmitter {
   flush(): void {
     this.shuttingDown = true;
     this.persistProcessStates();
-    this.configsPersister.flushSync(this.getAllConfigs());
     this.stopAll();
   }
 }

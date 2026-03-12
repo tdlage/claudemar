@@ -1,8 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { config } from "./config.js";
-
-const METRICS_FILE = resolve(config.dataPath, "metrics.json");
+import { query } from "./database.js";
+import type { RowDataPacket } from "mysql2/promise";
 
 export interface AgentMetrics {
   executions: number;
@@ -10,26 +7,24 @@ export interface AgentMetrics {
   totalDurationMs: number;
 }
 
-export function loadMetrics(): Record<string, AgentMetrics> {
-  try {
-    if (!existsSync(METRICS_FILE)) return {};
-    return JSON.parse(readFileSync(METRICS_FILE, "utf-8"));
-  } catch {
-    return {};
-  }
-}
+export async function loadMetrics(): Promise<Record<string, AgentMetrics>> {
+  const rows = await query<(RowDataPacket & { agent: string; executions: number; total_cost_usd: number; total_duration_ms: number })[]>(
+    `SELECT COALESCE(agent_name, target_name) AS agent,
+            COUNT(*) AS executions,
+            COALESCE(SUM(cost_usd), 0) AS total_cost_usd,
+            COALESCE(SUM(duration_ms), 0) AS total_duration_ms
+     FROM execution_history
+     WHERE target_type = 'agent'
+     GROUP BY COALESCE(agent_name, target_name)`,
+  );
 
-function saveMetrics(metrics: Record<string, AgentMetrics>): void {
-  writeFileSync(METRICS_FILE, JSON.stringify(metrics, null, 2), "utf-8");
-}
-
-export function trackExecution(agent: string, costUsd: number, durationMs: number): void {
-  const metrics = loadMetrics();
-  if (!metrics[agent]) {
-    metrics[agent] = { executions: 0, totalCostUsd: 0, totalDurationMs: 0 };
+  const result: Record<string, AgentMetrics> = {};
+  for (const row of rows) {
+    result[row.agent] = {
+      executions: Number(row.executions),
+      totalCostUsd: Number(row.total_cost_usd),
+      totalDurationMs: Number(row.total_duration_ms),
+    };
   }
-  metrics[agent].executions++;
-  metrics[agent].totalCostUsd += costUsd;
-  metrics[agent].totalDurationMs += durationMs;
-  saveMetrics(metrics);
+  return result;
 }

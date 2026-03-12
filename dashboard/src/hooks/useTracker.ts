@@ -10,6 +10,7 @@ import type {
   TrackerTestRun,
   TrackerTestRunComment,
   TrackerItemPlan,
+  ProjectBoardItem,
 } from "../lib/types";
 
 function useTrackerData<T>(path: string | null, deps: unknown[] = []) {
@@ -210,6 +211,24 @@ export function useTestRunComments(testRunId: string | undefined) {
   });
 
   return { comments: data ?? [], loading, error, refresh };
+}
+
+export function useProjectBoardItems(projectId: string | undefined, cycleIds: string[]) {
+  const cyclesParam = cycleIds.length > 0 ? cycleIds.join(",") : undefined;
+  const path = projectId
+    ? `/tracker/projects/${projectId}/board-items${cyclesParam ? `?cycles=${cyclesParam}` : ""}`
+    : null;
+  const { data, setData, loading, error, refresh } = useTrackerData<ProjectBoardItem[]>(path, [projectId, cyclesParam]);
+
+  useTrackerSocket();
+
+  useSocketEvent<TrackerItem>("tracker:item:create", () => refresh());
+  useSocketEvent<TrackerItem>("tracker:item:update", () => refresh());
+  useSocketEvent<{ id: string }>("tracker:item:delete", ({ id }) => {
+    setData((prev) => prev?.filter((i) => i.id !== id) ?? null);
+  });
+
+  return { items: data ?? [], loading, error, refresh };
 }
 
 export function useItemPlan(itemId: string | undefined) {
