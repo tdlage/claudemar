@@ -5,6 +5,7 @@ import { useCycles, useTrackerProjects, useProjectBoardItems } from "../../hooks
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { ItemCard } from "./ItemCard";
+import { getCycleColor } from "./constants";
 import type { ProjectBoardItem, CycleColumn } from "../../lib/types";
 
 interface Props {
@@ -112,15 +113,20 @@ export function ProjectBoard({ projectId }: Props) {
         {cycles.map((cycle) => {
           const isSelected = selectedCycleIds.includes(cycle.id);
           const showAll = selectedCycleIds.length === 0;
+          const active = isSelected || showAll;
+          const color = getCycleColor(cycle.id);
           return (
             <button
               key={cycle.id}
               onClick={() => toggleCycle(cycle.id)}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border transition-colors ${
-                isSelected || showAll
-                  ? "border-accent bg-accent/10 text-accent"
-                  : "border-border text-text-muted hover:border-accent/30"
+              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                active ? "" : "opacity-40 hover:opacity-70"
               }`}
+              style={{
+                backgroundColor: active ? color.bg : "transparent",
+                color: active ? color.text : color.bg,
+                border: `1px solid ${color.bg}`,
+              }}
             >
               {cycle.type === "bugs" && <Bug size={10} />}
               {cycle.name}
@@ -161,7 +167,7 @@ export function ProjectBoard({ projectId }: Props) {
                     item={item}
                     projectCode={project?.code ?? ""}
                     cycleName={item.cycleName}
-                    isBugCycle={item.cycleType === "bugs"}
+                    cycleId={item.cycleId}
                     onClick={() => navigate(`/tracker/${projectId}/cycles/${item.cycleId}/items/${item.id}`)}
                   />
                 ))}

@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
 import { spawnClaude } from "../executor.js";
 import { getAgentPaths } from "./manager.js";
-import { query, execute } from "../database.js";
+import { query, execute, toMySQLDatetime } from "../database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
 export interface ScheduleEntry {
@@ -152,7 +152,7 @@ Responda APENAS com o conteúdo do script, sem explicações. Comece com #!/usr/
 
   await execute(
     "INSERT INTO schedules (id, agent, cron, cron_human, task, script_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    [entry.id, entry.agent, entry.cron, entry.cronHuman, entry.task, entry.scriptPath, entry.createdAt],
+    [entry.id, entry.agent, entry.cron, entry.cronHuman, entry.task, entry.scriptPath, toMySQLDatetime(entry.createdAt)],
   );
 
   return entry;

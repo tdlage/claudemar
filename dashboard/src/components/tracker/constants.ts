@@ -34,3 +34,26 @@ export const ITEM_PRIORITIES = [
 export function getPriorityConfig(priority: string | null) {
   return ITEM_PRIORITIES.find((p) => p.value === priority) ?? null;
 }
+
+const CYCLE_COLORS = [
+  { bg: "#3b82f6", text: "#ffffff" },
+  { bg: "#8b5cf6", text: "#ffffff" },
+  { bg: "#ec4899", text: "#ffffff" },
+  { bg: "#f97316", text: "#ffffff" },
+  { bg: "#14b8a6", text: "#ffffff" },
+  { bg: "#eab308", text: "#1a1a1a" },
+  { bg: "#06b6d4", text: "#ffffff" },
+  { bg: "#ef4444", text: "#ffffff" },
+  { bg: "#22c55e", text: "#ffffff" },
+  { bg: "#a855f7", text: "#ffffff" },
+  { bg: "#f43f5e", text: "#ffffff" },
+  { bg: "#0ea5e9", text: "#ffffff" },
+];
+
+export function getCycleColor(cycleId: string): { bg: string; text: string } {
+  let hash = 0;
+  for (let i = 0; i < cycleId.length; i++) {
+    hash = ((hash << 5) - hash + cycleId.charCodeAt(i)) | 0;
+  }
+  return CYCLE_COLORS[Math.abs(hash) % CYCLE_COLORS.length];
+}

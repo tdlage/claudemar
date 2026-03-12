@@ -1,4 +1,4 @@
-import { query, execute } from "./database.js";
+import { query, execute, toMySQLDatetime } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
 export interface HistoryEntry {
@@ -70,7 +70,7 @@ export function appendHistory(entry: HistoryEntry): void {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       entry.id, entry.prompt, entry.targetType, entry.targetName,
-      entry.agentName ?? null, entry.status, entry.startedAt, entry.completedAt ?? null,
+      entry.agentName ?? null, entry.status, toMySQLDatetime(entry.startedAt), entry.completedAt ? toMySQLDatetime(entry.completedAt) : null,
       entry.costUsd ?? 0, entry.durationMs ?? 0, entry.source ?? "telegram",
       entry.output ?? null, entry.error ?? null, entry.sessionId ?? null,
       entry.planMode ? 1 : 0, entry.username ?? null,

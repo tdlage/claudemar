@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { query, execute, getPool } from "./database.js";
+import { query, execute, getPool, toMySQLDatetime } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
 export interface User {
@@ -103,7 +103,7 @@ class UsersManager {
 
     await execute(
       "INSERT INTO users (id, name, email, token, created_at) VALUES (?, ?, ?, ?, ?)",
-      [user.id, user.name, user.email, user.token, user.createdAt],
+      [user.id, user.name, user.email, user.token, toMySQLDatetime(user.createdAt)],
     );
 
     this.users.set(user.id, user);

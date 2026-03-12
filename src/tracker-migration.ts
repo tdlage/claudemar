@@ -332,6 +332,10 @@ async function runSchemaUpgrades(): Promise<void> {
     await pool.execute("ALTER TABLE tracker_cycles ADD COLUMN type ENUM('features','bugs') NOT NULL DEFAULT 'features' AFTER name");
   }
 
+  if (!(await columnExists(pool, "tracker_bets", "type"))) {
+    await pool.execute("ALTER TABLE tracker_bets ADD COLUMN type ENUM('feature','bug') NOT NULL DEFAULT 'feature' AFTER title");
+  }
+
   if (await tableExists(pool, "tracker_bet_assignees") && !(await tableExists(pool, "tracker_item_assignees"))) {
     await pool.execute("RENAME TABLE tracker_bet_assignees TO tracker_item_assignees");
   } else if (await tableExists(pool, "tracker_bet_assignees") && await tableExists(pool, "tracker_item_assignees")) {

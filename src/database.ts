@@ -22,6 +22,10 @@ export function getPool(): Pool {
   return pool;
 }
 
+export function toMySQLDatetime(iso: string): string {
+  return iso.replace("T", " ").replace("Z", "");
+}
+
 export async function query<T extends RowDataPacket[]>(sql: string, params?: (string | number | null | boolean)[]): Promise<T> {
   const [rows] = await getPool().execute<T>(sql, params ?? []);
   return rows;

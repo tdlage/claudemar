@@ -67,6 +67,7 @@ export interface TrackerProject {
 }
 
 export type CycleType = "features" | "bugs";
+export type ItemType = "feature" | "bug";
 
 export interface TrackerCycle {
   id: string;
@@ -90,6 +91,7 @@ export interface TrackerItem {
   id: string;
   cycleId: string;
   title: string;
+  type: ItemType;
   description: string;
   columnId: string;
   appetite: number;
@@ -237,6 +239,7 @@ interface ItemRow extends RowDataPacket {
   id: string;
   cycle_id: string;
   title: string;
+  type: string;
   description: string | null;
   column_id: string;
   appetite: number;
@@ -392,6 +395,7 @@ function mapItem(r: ItemRow, assignees: string[], testStats?: ItemTestStats): Tr
     id: r.id,
     cycleId: r.cycle_id,
     title: r.title,
+    type: (r.type as ItemType) || "feature",
     description: r.description || "",
     columnId: r.column_id,
     appetite: r.appetite,
@@ -744,7 +748,7 @@ class TrackerManager extends EventEmitter {
   }
 
   async createItem(data: {
-    cycleId: string; title: string; description?: string; columnId: string;
+    cycleId: string; title: string; type?: ItemType; description?: string; columnId: string;
     appetite?: number; priority?: string; inScope?: string; outOfScope?: string;
     assignees?: string[]; tags?: string[]; createdBy: string;
   }): Promise<TrackerItem> {
@@ -765,8 +769,8 @@ class TrackerManager extends EventEmitter {
     }
 
     await execute(
-      "INSERT INTO tracker_bets (id, cycle_id, title, description, column_id, appetite, priority, in_scope, out_of_scope, tags, seq_number, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, data.cycleId, data.title, data.description || "", data.columnId, data.appetite ?? 7,
+      "INSERT INTO tracker_bets (id, cycle_id, title, type, description, column_id, appetite, priority, in_scope, out_of_scope, tags, seq_number, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, data.cycleId, data.title, data.type || "feature", data.description || "", data.columnId, data.appetite ?? 7,
        data.priority || null, data.inScope || "", data.outOfScope || "", JSON.stringify(data.tags || []), seqNumber, position, data.createdBy],
     );
     if (data.assignees?.length) {
@@ -779,12 +783,13 @@ class TrackerManager extends EventEmitter {
   }
 
   async updateItem(id: string, data: Partial<{
-    title: string; description: string; columnId: string; appetite: number;
+    title: string; type: ItemType; description: string; columnId: string; appetite: number;
     priority: string | null; inScope: string; outOfScope: string; assignees: string[]; tags: string[];
   }>): Promise<TrackerItem | null> {
     const sets: string[] = [];
     const params: (string | number | null | boolean)[] = [];
     if (data.title !== undefined) { sets.push("title = ?"); params.push(data.title); }
+    if (data.type !== undefined) { sets.push("type = ?"); params.push(data.type); }
     if (data.description !== undefined) { sets.push("description = ?"); params.push(data.description); }
     if (data.columnId !== undefined) { sets.push("column_id = ?"); params.push(data.columnId); }
     if (data.appetite !== undefined) { sets.push("appetite = ?"); params.push(data.appetite); }

@@ -135,8 +135,9 @@ trackerRouter.get("/cycles/:cycleId/items", async (req, res) => {
 });
 
 trackerRouter.post("/items", async (req, res) => {
-  const { cycleId, title, description, appetite, priority, inScope, outOfScope, assignees, tags, columnId } = req.body;
+  const { cycleId, title, type, description, appetite, priority, inScope, outOfScope, assignees, tags, columnId } = req.body;
   if (!cycleId || !title) { res.status(400).json({ error: "cycleId and title required" }); return; }
+  if (type && !["feature", "bug"].includes(type)) { res.status(400).json({ error: "type must be 'feature' or 'bug'" }); return; }
   const cycle = await trackerManager.getCycle(cycleId);
   if (!cycle || cycle.columns.length === 0) {
     res.status(400).json({ error: "Cycle not found or has no columns" });
@@ -146,7 +147,7 @@ trackerRouter.post("/items", async (req, res) => {
   const resolvedColumnId = columnId || [...cycle.columns].sort((a, b) => a.position - b.position)[0].id;
   const author = getAuthor(req);
   const item = await trackerManager.createItem({
-    cycleId, title, description, appetite: appetite ? Number(appetite) : undefined,
+    cycleId, title, type, description, appetite: appetite ? Number(appetite) : undefined,
     priority, inScope, outOfScope, columnId: resolvedColumnId, assignees, tags, createdBy: author.id,
   });
   res.status(201).json(item);
@@ -155,6 +156,7 @@ trackerRouter.post("/items", async (req, res) => {
 trackerRouter.put("/items/:id", async (req, res) => {
   const item = await trackerManager.getItem(req.params.id);
   if (!item) { res.status(404).json({ error: "Item not found" }); return; }
+  if (req.body.type && !["feature", "bug"].includes(req.body.type)) { res.status(400).json({ error: "type must be 'feature' or 'bug'" }); return; }
   const updated = await trackerManager.updateItem(req.params.id, req.body);
   res.json(updated);
 });

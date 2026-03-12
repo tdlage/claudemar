@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, renameSync } from "node:fs";
 import { resolve } from "node:path";
-import { getPool } from "./database.js";
+import { getPool, toMySQLDatetime } from "./database.js";
 import { config } from "./config.js";
 
 const TABLE_DEFINITIONS: string[] = [
@@ -166,12 +166,6 @@ function readJsonFile(path: string): unknown | null {
   }
 }
 
-function toMysqlDatetime(val: string | null | undefined): string | null {
-  if (!val) return null;
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 19).replace("T", " ");
-}
 
 function backupFile(path: string): void {
   if (existsSync(path)) {
@@ -199,7 +193,7 @@ async function migrateUsers(pool: ReturnType<typeof getPool>): Promise<void> {
   for (const u of data) {
     await pool.execute(
       "INSERT INTO users (id, name, email, token, created_at) VALUES (?, ?, ?, ?, ?)",
-      [u.id, u.name, u.email, u.token || "", toMysqlDatetime(u.createdAt)],
+      [u.id, u.name, u.email, u.token || "", toMySQLDatetime(u.createdAt)],
     );
     for (const p of u.projects ?? []) {
       await pool.execute("INSERT INTO user_projects (user_id, project_name) VALUES (?, ?)", [u.id, p]);
@@ -259,7 +253,7 @@ async function migrateQueue(pool: ReturnType<typeof getPool>): Promise<void> {
       [item.seqId, item.id, item.targetType, item.targetName, item.prompt, item.source, item.cwd,
        item.resumeSessionId ?? null, item.model ?? null, item.planMode ? 1 : 0,
        item.agentName ?? null, item.username ?? null, item.useDocker ? 1 : 0,
-       toMysqlDatetime(item.enqueuedAt), item.telegramChatId ?? null],
+       toMySQLDatetime(item.enqueuedAt), item.telegramChatId ?? null],
     );
     if (item.seqId > maxSeqId) maxSeqId = item.seqId;
   }
@@ -337,7 +331,7 @@ async function migrateSchedules(pool: ReturnType<typeof getPool>): Promise<void>
   for (const s of data) {
     await pool.execute(
       "INSERT INTO schedules (id, agent, cron, cron_human, task, script_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [s.id, s.agent, s.cron, s.cronHuman, s.task, s.scriptPath, toMysqlDatetime(s.createdAt)],
+      [s.id, s.agent, s.cron, s.cronHuman, s.task, s.scriptPath, toMySQLDatetime(s.createdAt)],
     );
   }
   console.log(`[data-migration] Migrated ${data.length} schedules`);
@@ -388,7 +382,7 @@ async function migrateHistory(pool: ReturnType<typeof getPool>): Promise<void> {
     for (const e of batch) {
       values.push(
         e.id, e.prompt, e.targetType, e.targetName,
-        e.agentName ?? null, e.status, toMysqlDatetime(e.startedAt), toMysqlDatetime(e.completedAt),
+        e.agentName ?? null, e.status, toMySQLDatetime(e.startedAt), e.completedAt ? toMySQLDatetime(e.completedAt) : null,
         e.costUsd ?? 0, e.durationMs ?? 0, e.source ?? "telegram",
         e.output ?? null, e.error ?? null, e.sessionId ?? null,
         e.planMode ? 1 : 0, e.username ?? null,

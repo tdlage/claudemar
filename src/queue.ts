@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { query, execute } from "./database.js";
+import { query, execute, toMySQLDatetime } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type { ExecutionSource, ExecutionTargetType } from "./execution-manager.js";
 
@@ -93,7 +93,7 @@ class CommandQueue extends EventEmitter {
       [id, opts.targetType, opts.targetName, opts.prompt, opts.source, opts.cwd,
        opts.resumeSessionId ?? null, opts.model ?? null, opts.planMode ? 1 : 0,
        opts.agentName ?? null, opts.username ?? null, opts.useDocker ? 1 : 0,
-       enqueuedAt, opts.telegramChatId ?? null],
+       toMySQLDatetime(enqueuedAt), opts.telegramChatId ?? null],
     );
 
     const item: QueueItem = {

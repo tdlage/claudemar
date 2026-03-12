@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { X } from "lucide-react";
+import { X, Bug, Layers } from "lucide-react";
 import { Modal } from "../shared/Modal";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { useProjectMembers } from "../../hooks/useTracker";
 import { ITEM_PRIORITIES } from "./constants";
+import type { ItemType } from "../../lib/types";
 
 interface Props {
   open: boolean;
@@ -18,6 +19,7 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
   const { addToast } = useToast();
   const { members } = useProjectMembers(projectId);
   const [title, setTitle] = useState("");
+  const [itemType, setItemType] = useState<ItemType>("feature");
   const [appetite, setAppetite] = useState(7);
   const [priority, setPriority] = useState("");
   const [assignees, setAssignees] = useState<string[]>([]);
@@ -42,6 +44,7 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
 
   const reset = () => {
     setTitle("");
+    setItemType("feature");
     setAppetite(7);
     setPriority("");
     setAssignees([]);
@@ -52,13 +55,14 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
     setTagInput("");
   };
 
-  const handleSave = async () => {
+  const handleSave = async (keepOpen: boolean) => {
     if (!title.trim() || !description.trim() || saving) return;
     setSaving(true);
     try {
       await api.post("/tracker/items", {
         cycleId,
         title: title.trim(),
+        type: itemType,
         appetite,
         priority: priority || undefined,
         assignees: assignees.length > 0 ? assignees : undefined,
@@ -69,7 +73,7 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
       });
       addToast("success", "Item created");
       reset();
-      onClose();
+      if (!keepOpen) onClose();
     } catch (e: unknown) {
       addToast("error", e instanceof Error ? e.message : "Failed to create item");
     } finally {
@@ -80,7 +84,7 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="New Item" size="xl">
       <div className="space-y-4">
-        <div className="grid grid-cols-[1fr_auto_auto] gap-4">
+        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4">
           <div>
             <label className="block text-xs text-text-muted mb-1">Title</label>
             <input
@@ -90,6 +94,31 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
               autoFocus
               className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
             />
+          </div>
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Tipo</label>
+            <div className="flex rounded-md overflow-hidden border border-border h-[34px]">
+              <button
+                type="button"
+                onClick={() => setItemType("feature")}
+                className={`inline-flex items-center gap-1 px-2.5 text-xs font-medium transition-colors ${
+                  itemType === "feature" ? "bg-accent text-white" : "bg-bg text-text-muted hover:text-text-primary"
+                }`}
+              >
+                <Layers size={12} />
+                Feature
+              </button>
+              <button
+                type="button"
+                onClick={() => setItemType("bug")}
+                className={`inline-flex items-center gap-1 px-2.5 text-xs font-medium transition-colors ${
+                  itemType === "bug" ? "bg-danger text-white" : "bg-bg text-text-muted hover:text-text-primary"
+                }`}
+              >
+                <Bug size={12} />
+                Bug
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-xs text-text-muted mb-1">Priority</label>
@@ -201,7 +230,14 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
             Cancel
           </button>
           <button
-            onClick={handleSave}
+            onClick={() => handleSave(true)}
+            disabled={!title.trim() || !description.trim() || saving}
+            className="px-3 py-1.5 text-xs rounded-md border border-accent text-accent hover:bg-accent/10 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+          >
+            {saving ? "Salvando..." : "Salvar e Adicionar Outro"}
+          </button>
+          <button
+            onClick={() => handleSave(false)}
             disabled={!title.trim() || !description.trim() || saving}
             className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
           >

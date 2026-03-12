@@ -229,6 +229,7 @@ export interface EmailProfileMasked {
 
 export type CycleStatus = "active" | "completed";
 export type CycleType = "features" | "bugs";
+export type ItemType = "feature" | "bug";
 export type TestCasePriority = "critical" | "high" | "medium" | "low";
 export type TestRunStatus = "passed" | "failed" | "blocked" | "skipped";
 
@@ -271,6 +272,7 @@ export interface TrackerItem {
   id: string;
   cycleId: string;
   title: string;
+  type: ItemType;
   description: string;
   columnId: string;
   appetite: number;

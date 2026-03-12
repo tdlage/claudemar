@@ -1,13 +1,13 @@
 import { AlertTriangle, CheckCircle2, XCircle, Clock, Bug } from "lucide-react";
 import type { TrackerItem } from "../../lib/types";
-import { getDaysSpent, getPriorityConfig } from "./constants";
+import { getDaysSpent, getPriorityConfig, getCycleColor } from "./constants";
 
 interface Props {
   item: TrackerItem;
   projectCode: string;
   onClick: () => void;
   cycleName?: string;
-  isBugCycle?: boolean;
+  cycleId?: string;
 }
 
 function AppetiteBadge({ item }: { item: TrackerItem }) {
@@ -82,7 +82,7 @@ function TestStatusBadge({ item }: { item: TrackerItem }) {
   );
 }
 
-export function ItemCard({ item, projectCode, onClick, cycleName, isBugCycle }: Props) {
+export function ItemCard({ item, projectCode, onClick, cycleName, cycleId }: Props) {
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("text/plain", item.id);
     e.dataTransfer.effectAllowed = "move";
@@ -102,7 +102,7 @@ export function ItemCard({ item, projectCode, onClick, cycleName, isBugCycle }: 
               {projectCode}-{item.seqNumber}
             </span>
           )}
-          {isBugCycle && (
+          {item.type === "bug" && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-danger/10 text-danger shrink-0">
               <Bug size={10} />
               Bug
@@ -124,11 +124,17 @@ export function ItemCard({ item, projectCode, onClick, cycleName, isBugCycle }: 
         <p className="text-sm font-medium text-text-primary leading-snug">{item.title}</p>
       </div>
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-        {cycleName && (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-accent/10 text-accent">
-            {cycleName}
-          </span>
-        )}
+        {cycleName && (() => {
+          const color = cycleId ? getCycleColor(cycleId) : { bg: "var(--color-accent)", text: "#ffffff" };
+          return (
+            <span
+              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold"
+              style={{ backgroundColor: color.bg, color: color.text }}
+            >
+              {cycleName}
+            </span>
+          );
+        })()}
         {item.tags.map((tag) => (
           <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-border text-text-secondary">{tag}</span>
         ))}

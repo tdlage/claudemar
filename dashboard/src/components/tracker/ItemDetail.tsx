@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Pencil, Clock, Send, FileText } from "lucide-react";
+import { ArrowLeft, Pencil, Clock, Send, FileText, Bug, Layers } from "lucide-react";
 import { Tabs } from "../shared/Tabs";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
 import { useItems, useTrackerProjects, useProjectMembers, useItemPlan } from "../../hooks/useTracker";
@@ -12,6 +12,7 @@ import { CommentThread } from "./CommentThread";
 import { SendToProjectModal } from "./SendToProjectModal";
 import { ItemPlanSection } from "./ItemPlanSection";
 import { getDaysSpent, ITEM_PRIORITIES, getPriorityConfig } from "./constants";
+import type { ItemType } from "../../lib/types";
 
 interface Props {
   projectId: string;
@@ -126,6 +127,14 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
     }
   }, [itemId, description, addToast]);
 
+  const handleTypeChange = async (newType: ItemType) => {
+    try {
+      await api.put(`/tracker/items/${itemId}`, { type: newType });
+    } catch {
+      addToast("error", "Failed to update type");
+    }
+  };
+
   const handleSaveItemTitle = async () => {
     if (!itemTitle.trim()) return;
     try {
@@ -210,6 +219,36 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
               {project.code}-{item.seqNumber}
             </span>
           )}
+          {item && canEdit ? (
+            <div className="flex rounded-md overflow-hidden border border-border">
+              <button
+                type="button"
+                onClick={() => handleTypeChange("feature")}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                  item.type === "feature" ? "bg-accent text-white" : "bg-bg text-text-muted hover:text-text-primary"
+                }`}
+              >
+                <Layers size={10} />
+                Feature
+              </button>
+              <button
+                type="button"
+                onClick={() => handleTypeChange("bug")}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                  item.type === "bug" ? "bg-danger text-white" : "bg-bg text-text-muted hover:text-text-primary"
+                }`}
+              >
+                <Bug size={10} />
+                Bug
+              </button>
+            </div>
+          ) : item ? (
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${
+              item.type === "bug" ? "bg-danger/10 text-danger" : "bg-accent/10 text-accent"
+            }`}>
+              {item.type === "bug" ? <><Bug size={10} /> Bug</> : <><Layers size={10} /> Feature</>}
+            </span>
+          ) : null}
           {editingItem ? (
             <input
               value={itemTitle}
