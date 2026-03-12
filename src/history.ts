@@ -81,13 +81,13 @@ export function appendHistory(entry: HistoryEntry): void {
 export async function loadHistory(limit = 20, targetType?: string, targetName?: string): Promise<HistoryEntry[]> {
   let sql: string;
   const params: (string | number)[] = [];
+  const safeLimit = Math.max(1, Math.floor(Number(limit)));
 
   if (targetType && targetName) {
-    sql = `SELECT * FROM (SELECT * FROM execution_history WHERE target_type = ? AND target_name = ? ORDER BY started_at DESC LIMIT ?) AS sub ORDER BY started_at ASC`;
-    params.push(targetType, targetName, limit);
+    sql = `SELECT * FROM (SELECT * FROM execution_history WHERE target_type = ? AND target_name = ? ORDER BY started_at DESC LIMIT ${safeLimit}) AS sub ORDER BY started_at ASC`;
+    params.push(targetType, targetName);
   } else {
-    sql = `SELECT * FROM (SELECT * FROM execution_history ORDER BY started_at DESC LIMIT ?) AS sub ORDER BY started_at ASC`;
-    params.push(limit);
+    sql = `SELECT * FROM (SELECT * FROM execution_history ORDER BY started_at DESC LIMIT ${safeLimit}) AS sub ORDER BY started_at ASC`;
   }
 
   const rows = await query<HistoryRow[]>(sql, params);

@@ -169,7 +169,7 @@ const MIGRATIONS: string[] = [
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (item_id) REFERENCES tracker_bets(id) ON DELETE CASCADE,
     INDEX idx_item_plan (item_id)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
 const SCHEMA_UPGRADES: string[] = [
@@ -332,8 +332,11 @@ async function runSchemaUpgrades(): Promise<void> {
     await pool.execute("ALTER TABLE tracker_cycles ADD COLUMN type ENUM('features','bugs') NOT NULL DEFAULT 'features' AFTER name");
   }
 
-  if (await tableExists(pool, "tracker_bet_assignees")) {
+  if (await tableExists(pool, "tracker_bet_assignees") && !(await tableExists(pool, "tracker_item_assignees"))) {
     await pool.execute("RENAME TABLE tracker_bet_assignees TO tracker_item_assignees");
+  } else if (await tableExists(pool, "tracker_bet_assignees") && await tableExists(pool, "tracker_item_assignees")) {
+    await pool.execute("INSERT IGNORE INTO tracker_item_assignees (item_id, user_id) SELECT bet_id, user_id FROM tracker_bet_assignees");
+    await pool.execute("DROP TABLE tracker_bet_assignees");
   }
   if (await tableExists(pool, "tracker_item_assignees") && await columnExists(pool, "tracker_item_assignees", "bet_id")) {
     await pool.execute("ALTER TABLE tracker_item_assignees CHANGE bet_id item_id CHAR(36) NOT NULL");

@@ -150,10 +150,12 @@ export function spawnClaude(
       stdio: ["ignore", "pipe", "pipe"],
     });
   } else {
+    const cleanEnv = { ...process.env };
+    delete cleanEnv.CLAUDECODE;
     proc = spawn("claude", claudeArgs, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
-      env: undefined,
+      env: cleanEnv,
     });
   }
 

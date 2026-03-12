@@ -11,7 +11,7 @@ const TABLE_DEFINITIONS: string[] = [
     token VARCHAR(255) NOT NULL,
     created_at DATETIME NOT NULL,
     INDEX idx_token (token)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS user_projects (
     user_id CHAR(36) NOT NULL,
@@ -19,7 +19,7 @@ const TABLE_DEFINITIONS: string[] = [
     PRIMARY KEY (user_id, project_name),
     INDEX idx_project (project_name),
     CONSTRAINT fk_up_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS user_agents (
     user_id CHAR(36) NOT NULL,
@@ -27,7 +27,7 @@ const TABLE_DEFINITIONS: string[] = [
     PRIMARY KEY (user_id, agent_name),
     INDEX idx_agent (agent_name),
     CONSTRAINT fk_ua_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS user_tracker_projects (
     user_id CHAR(36) NOT NULL,
@@ -35,7 +35,7 @@ const TABLE_DEFINITIONS: string[] = [
     PRIMARY KEY (user_id, tracker_project_id),
     INDEX idx_tracker_project (tracker_project_id),
     CONSTRAINT fk_utp_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS run_configs (
     id CHAR(36) PRIMARY KEY,
@@ -46,7 +46,7 @@ const TABLE_DEFINITIONS: string[] = [
     project_name VARCHAR(255) NOT NULL,
     proxy_domain VARCHAR(255) DEFAULT NULL,
     proxy_port INT UNSIGNED DEFAULT NULL
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS queue_items (
     seq_id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -66,7 +66,7 @@ const TABLE_DEFINITIONS: string[] = [
     telegram_chat_id BIGINT DEFAULT NULL,
     UNIQUE KEY uk_id (id),
     INDEX idx_target (target_type, target_name)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS telegram_sessions (
     chat_id BIGINT PRIMARY KEY,
@@ -74,17 +74,17 @@ const TABLE_DEFINITIONS: string[] = [
     session_ids JSON NOT NULL DEFAULT ('{}'),
     mode ENUM('projects', 'agents') NOT NULL DEFAULT 'projects',
     active_agent VARCHAR(255) DEFAULT NULL
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS session_names (
     session_id VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS session_name_counters (
     label VARCHAR(100) PRIMARY KEY,
     counter INT NOT NULL DEFAULT 0
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS schedules (
     id VARCHAR(36) PRIMARY KEY,
@@ -95,7 +95,7 @@ const TABLE_DEFINITIONS: string[] = [
     script_path TEXT NOT NULL,
     created_at DATETIME NOT NULL,
     INDEX idx_agent (agent)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS execution_history (
     id CHAR(36) PRIMARY KEY,
@@ -119,23 +119,23 @@ const TABLE_DEFINITIONS: string[] = [
     INDEX idx_target_started (target_type, target_name, started_at),
     INDEX idx_session_lookup (target_type, target_name, username, status, started_at),
     INDEX idx_agent_metrics (target_type, agent_name)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS agent_secrets (
     id CHAR(36) PRIMARY KEY,
     agent_name VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
     value TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL,
     INDEX idx_agent (agent_name)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS agent_secret_file_descriptions (
     agent_name VARCHAR(255) NOT NULL,
     filename VARCHAR(255) NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL,
     PRIMARY KEY (agent_name, filename)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
 interface HistoryEntry {
@@ -166,6 +166,13 @@ function readJsonFile(path: string): unknown | null {
   }
 }
 
+function toMysqlDatetime(val: string | null | undefined): string | null {
+  if (!val) return null;
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 19).replace("T", " ");
+}
+
 function backupFile(path: string): void {
   if (existsSync(path)) {
     renameSync(path, path + ".bak");
@@ -192,7 +199,7 @@ async function migrateUsers(pool: ReturnType<typeof getPool>): Promise<void> {
   for (const u of data) {
     await pool.execute(
       "INSERT INTO users (id, name, email, token, created_at) VALUES (?, ?, ?, ?, ?)",
-      [u.id, u.name, u.email, u.token || "", u.createdAt],
+      [u.id, u.name, u.email, u.token || "", toMysqlDatetime(u.createdAt)],
     );
     for (const p of u.projects ?? []) {
       await pool.execute("INSERT INTO user_projects (user_id, project_name) VALUES (?, ?)", [u.id, p]);
@@ -252,7 +259,7 @@ async function migrateQueue(pool: ReturnType<typeof getPool>): Promise<void> {
       [item.seqId, item.id, item.targetType, item.targetName, item.prompt, item.source, item.cwd,
        item.resumeSessionId ?? null, item.model ?? null, item.planMode ? 1 : 0,
        item.agentName ?? null, item.username ?? null, item.useDocker ? 1 : 0,
-       item.enqueuedAt, item.telegramChatId ?? null],
+       toMysqlDatetime(item.enqueuedAt), item.telegramChatId ?? null],
     );
     if (item.seqId > maxSeqId) maxSeqId = item.seqId;
   }
@@ -330,7 +337,7 @@ async function migrateSchedules(pool: ReturnType<typeof getPool>): Promise<void>
   for (const s of data) {
     await pool.execute(
       "INSERT INTO schedules (id, agent, cron, cron_human, task, script_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [s.id, s.agent, s.cron, s.cronHuman, s.task, s.scriptPath, s.createdAt],
+      [s.id, s.agent, s.cron, s.cronHuman, s.task, s.scriptPath, toMysqlDatetime(s.createdAt)],
     );
   }
   console.log(`[data-migration] Migrated ${data.length} schedules`);
@@ -381,7 +388,7 @@ async function migrateHistory(pool: ReturnType<typeof getPool>): Promise<void> {
     for (const e of batch) {
       values.push(
         e.id, e.prompt, e.targetType, e.targetName,
-        e.agentName ?? null, e.status, e.startedAt, e.completedAt ?? null,
+        e.agentName ?? null, e.status, toMysqlDatetime(e.startedAt), toMysqlDatetime(e.completedAt),
         e.costUsd ?? 0, e.durationMs ?? 0, e.source ?? "telegram",
         e.output ?? null, e.error ?? null, e.sessionId ?? null,
         e.planMode ? 1 : 0, e.username ?? null,
