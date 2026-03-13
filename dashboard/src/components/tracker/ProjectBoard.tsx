@@ -1,10 +1,12 @@
 import { useState, useMemo, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Bug } from "lucide-react";
+import { ArrowLeft, Bug, Plus } from "lucide-react";
 import { useCycles, useTrackerProjects, useProjectBoardItems } from "../../hooks/useTracker";
+import { canEditTrackerProject } from "../../hooks/useAuth";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { ItemCard } from "./ItemCard";
+import { CreateItemModal } from "./CreateItemModal";
 import { getCycleColor } from "./constants";
 import type { ProjectBoardItem, CycleColumn } from "../../lib/types";
 
@@ -20,7 +22,9 @@ export function ProjectBoard({ projectId }: Props) {
   const [selectedCycleIds, setSelectedCycleIds] = useState<string[]>([]);
   const { items, loading } = useProjectBoardItems(projectId, selectedCycleIds);
   const project = projects.find((p) => p.id === projectId);
+  const canEdit = canEditTrackerProject(projectId);
   const [dragOverPos, setDragOverPos] = useState<number | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   const toggleCycle = (id: string) => {
     setSelectedCycleIds((prev) =>
@@ -107,6 +111,15 @@ export function ProjectBoard({ projectId }: Props) {
           </Link>
           <h2 className="text-lg font-semibold text-text-primary">{project?.name ?? "Project"} — Board</h2>
         </div>
+        {canEdit && (
+          <button
+            onClick={() => setCreateModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
+          >
+            <Plus size={14} />
+            New Item
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -176,6 +189,13 @@ export function ProjectBoard({ projectId }: Props) {
           );
         })}
       </div>
+
+      <CreateItemModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        projectId={projectId}
+        cycles={cycles}
+      />
     </div>
   );
 }

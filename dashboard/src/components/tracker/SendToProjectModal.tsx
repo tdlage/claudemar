@@ -41,14 +41,16 @@ export function SendToProjectModal({ open, onClose, item, itemCode, planMode }: 
     if (!selectedProject || !prompt.trim() || sending) return;
     setSending(true);
     try {
-      await api.post(`/tracker/items/${item.id}/send-to-project`, {
+      const result = await api.post<{ queued?: boolean }>(`/tracker/items/${item.id}/send-to-project`, {
         targetProject: selectedProject,
         prompt: prompt.trim(),
         planMode,
       });
-      addToast("success", planMode
-        ? `${itemCode} enviado para ${selectedProject} com plano`
-        : `${itemCode} enviado para ${selectedProject}`);
+      if (result.queued) {
+        addToast("success", `${itemCode} queued for ${selectedProject}`);
+      } else {
+        addToast("success", `${itemCode} sent to ${selectedProject}`);
+      }
       onClose();
     } catch (e: unknown) {
       addToast("error", e instanceof Error ? e.message : "Failed to send");

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, Pencil, Clock, Send, FileText, Bug, Layers } from "lucide-react";
 import { Tabs } from "../shared/Tabs";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
-import { useItems, useTrackerProjects, useProjectMembers, useItemPlan } from "../../hooks/useTracker";
+import { useItems, useTrackerProjects, useProjectMembers, useItemPlan, useItemCommits } from "../../hooks/useTracker";
 import { canEditTrackerProject, isAdmin } from "../../hooks/useAuth";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
@@ -20,7 +20,7 @@ interface Props {
   itemId: string;
 }
 
-type TabKey = "details" | "plan" | "tests" | "comments";
+type TabKey = "details" | "plan" | "commits" | "tests" | "comments";
 
 function AppetiteIndicator({ appetite, startedAt }: { appetite: number; startedAt: string | null }) {
   if (!startedAt) {
@@ -67,6 +67,7 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
   const { items } = useItems(cycleId);
   const { members } = useProjectMembers(projectId);
   const { plan } = useItemPlan(itemId);
+  const { commits } = useItemCommits(itemId);
   const project = projects.find((p) => p.id === projectId);
   const [tab, setTab] = useState<TabKey>("details");
   const [sendModalOpen, setSendModalOpen] = useState(false);
@@ -193,6 +194,7 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
   const tabs: { key: TabKey; label: string }[] = [
     { key: "details", label: "Detalhes" },
     ...(plan ? [{ key: "plan" as TabKey, label: "Plano" }] : []),
+    ...(commits.length > 0 ? [{ key: "commits" as TabKey, label: `Commits (${commits.length})` }] : []),
     { key: "tests", label: "Tests" },
     { key: "comments", label: "Comments" },
   ];
@@ -415,6 +417,35 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
 
       {tab === "plan" && plan && (
         <ItemPlanSection plan={plan} itemId={itemId} />
+      )}
+
+      {tab === "commits" && commits.length > 0 && (
+        <div className="space-y-3">
+          {Object.entries(
+            commits.reduce<Record<string, typeof commits>>((acc, c) => {
+              (acc[c.repo] ??= []).push(c);
+              return acc;
+            }, {}),
+          ).map(([repo, repoCommits]) => (
+            <div key={repo} className="border border-border rounded-lg overflow-hidden">
+              <div className="px-3 py-2 bg-surface border-b border-border">
+                <span className="text-xs font-semibold text-text-primary">{repo}</span>
+                <span className="text-xs text-text-muted ml-2">{repoCommits.length} commit{repoCommits.length > 1 ? "s" : ""}</span>
+              </div>
+              <div className="divide-y divide-border">
+                {repoCommits.map((c) => (
+                  <div key={c.id} className="px-3 py-2 flex items-start gap-3">
+                    <code className="text-[10px] font-mono text-accent shrink-0 mt-0.5">{c.commitHash.slice(0, 7)}</code>
+                    <p className="text-sm text-text-primary flex-1">{c.message}</p>
+                    <span className="text-[10px] text-text-muted shrink-0 mt-0.5">
+                      {new Date(c.committedAt).toLocaleDateString()} {new Date(c.committedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {tab === "tests" && (

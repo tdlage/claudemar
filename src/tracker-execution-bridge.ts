@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { basename } from "node:path";
 import { executionManager, type ExecutionInfo } from "./execution-manager.js";
 import { trackerManager } from "./tracker-manager.js";
 import { sessionNamesManager } from "./session-names-manager.js";
@@ -13,15 +15,42 @@ interface PlanMapping {
 }
 
 const planExecutionMap = new Map<string, PlanMapping>();
+const sessionNameMap = new Map<string, string>();
+const execItemMap = new Map<string, string>();
 
 export function registerPlanExecution(execId: string, planId: string, itemCode: string, action: PlanAction): void {
   planExecutionMap.set(execId, { planId, itemCode, action });
+}
+
+export function registerExecutionSessionName(execId: string, itemCode: string): void {
+  sessionNameMap.set(execId, itemCode);
+}
+
+export function registerExecutionItem(execId: string, itemId: string): void {
+  execItemMap.set(execId, itemId);
 }
 
 export async function initTrackerExecutionBridge(): Promise<void> {
   await recoverStalePlans();
 
   executionManager.on("complete", async (execId: string, info: ExecutionInfo) => {
+    const nameMapping = sessionNameMap.get(execId);
+    if (nameMapping) {
+      sessionNameMap.delete(execId);
+      const sessionId = info.result?.sessionId;
+      if (sessionId) {
+        await sessionNamesManager.setName(sessionId, nameMapping);
+      }
+    }
+
+    const itemId = execItemMap.get(execId);
+    if (itemId) {
+      execItemMap.delete(execId);
+      collectCommits(info, itemId).catch((err) =>
+        console.error("[tracker-bridge] Failed to collect commits:", err),
+      );
+    }
+
     const mapping = planExecutionMap.get(execId);
     if (!mapping) return;
     planExecutionMap.delete(execId);
@@ -57,6 +86,13 @@ export async function initTrackerExecutionBridge(): Promise<void> {
       }).catch((err) => {
         console.error("[tracker-bridge] Failed to update plan:", err);
       });
+
+      const rows = await query<RowDataPacket[]>("SELECT item_id FROM tracker_item_plans WHERE id = ?", [mapping.planId]).catch(() => []);
+      if (rows[0]?.item_id) {
+        collectCommits(info, rows[0].item_id).catch((err) =>
+          console.error("[tracker-bridge] Failed to collect commits:", err),
+        );
+      }
     }
   });
 
@@ -72,6 +108,30 @@ export async function initTrackerExecutionBridge(): Promise<void> {
       console.error("[tracker-bridge] Failed to update plan on error:", err);
     });
   });
+}
+
+async function collectCommits(info: ExecutionInfo, itemId: string): Promise<void> {
+  try {
+    const since = info.startedAt.toISOString();
+    const repo = basename(info.cwd);
+    const raw = execFileSync("git", [
+      "log", `--after=${since}`, "--format=%H||%s||%aI", "--no-merges",
+    ], { cwd: info.cwd, encoding: "utf-8", timeout: 10000 }).trim();
+    if (!raw) return;
+    for (const line of raw.split("\n")) {
+      const [hash, message, date] = line.split("||");
+      if (!hash || !message || !date) continue;
+      await trackerManager.addItemCommit({
+        itemId,
+        repo,
+        commitHash: hash,
+        message,
+        committedAt: new Date(date).toISOString(),
+      });
+    }
+  } catch {
+    // not a git repo or no commits
+  }
 }
 
 async function recoverStalePlans(): Promise<void> {

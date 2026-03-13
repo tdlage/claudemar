@@ -212,6 +212,16 @@ export interface TrackerItemPlan {
   updatedAt: string;
 }
 
+export interface TrackerItemCommit {
+  id: string;
+  itemId: string;
+  repo: string;
+  commitHash: string;
+  message: string;
+  committedAt: string;
+  createdAt: string;
+}
+
 // ── Row types ──
 
 interface ProjectRow extends RowDataPacket {
@@ -823,10 +833,13 @@ class TrackerManager extends EventEmitter {
     if (!cycle) return null;
 
     const sortedColumns = [...cycle.columns].sort((a, b) => a.position - b.position);
-    const firstColumnId = sortedColumns[0]?.id;
-    const isLeavingFirstColumn = item.columnId === firstColumnId && columnId !== firstColumnId;
+    const idleColumnIds = new Set(sortedColumns.filter((c) => c.position <= 1).map((c) => c.id));
+    const isLeavingIdle = idleColumnIds.has(item.columnId) && !idleColumnIds.has(columnId);
+    const isReturningToIdle = !idleColumnIds.has(item.columnId) && idleColumnIds.has(columnId);
 
-    if (isLeavingFirstColumn && !item.startedAt) {
+    if (isReturningToIdle && item.startedAt) {
+      await execute("UPDATE tracker_bets SET column_id = ?, position = ?, started_at = NULL WHERE id = ?", [columnId, position, id]);
+    } else if (isLeavingIdle && !item.startedAt) {
       await execute("UPDATE tracker_bets SET column_id = ?, position = ?, started_at = NOW() WHERE id = ?", [columnId, position, id]);
     } else {
       await execute("UPDATE tracker_bets SET column_id = ?, position = ? WHERE id = ?", [columnId, position, id]);
@@ -1270,6 +1283,32 @@ class TrackerManager extends EventEmitter {
   private async getItemPlanById(id: string): Promise<TrackerItemPlan | null> {
     const rows = await query<ItemPlanRow[]>("SELECT * FROM tracker_item_plans WHERE id = ?", [id]);
     return rows[0] ? mapItemPlan(rows[0]) : null;
+  }
+
+  // ── Commits ──
+
+  async addItemCommit(data: { itemId: string; repo: string; commitHash: string; message: string; committedAt: string }): Promise<void> {
+    const id = randomUUID();
+    await execute(
+      "INSERT IGNORE INTO tracker_item_commits (id, item_id, repo, commit_hash, message, committed_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [id, data.itemId, data.repo, data.commitHash, data.message, data.committedAt],
+    );
+  }
+
+  async getItemCommits(itemId: string): Promise<TrackerItemCommit[]> {
+    const rows = await query<RowDataPacket[]>(
+      "SELECT * FROM tracker_item_commits WHERE item_id = ? ORDER BY committed_at DESC",
+      [itemId],
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      itemId: r.item_id,
+      repo: r.repo,
+      commitHash: r.commit_hash,
+      message: r.message,
+      committedAt: new Date(r.committed_at).toISOString(),
+      createdAt: new Date(r.created_at).toISOString(),
+    }));
   }
 }
 

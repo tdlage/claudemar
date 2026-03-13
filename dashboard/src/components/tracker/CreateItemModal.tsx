@@ -6,20 +6,24 @@ import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { useProjectMembers } from "../../hooks/useTracker";
 import { ITEM_PRIORITIES } from "./constants";
-import type { ItemType } from "../../lib/types";
+import type { ItemType, TrackerCycle } from "../../lib/types";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  cycleId: string;
+  cycleId?: string;
+  cycleType?: "features" | "bugs";
   projectId: string;
+  cycles?: TrackerCycle[];
 }
 
-export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
+export function CreateItemModal({ open, onClose, cycleId, cycleType, projectId, cycles }: Props) {
   const { addToast } = useToast();
   const { members } = useProjectMembers(projectId);
   const [title, setTitle] = useState("");
-  const [itemType, setItemType] = useState<ItemType>("feature");
+  const [selectedCycleId, setSelectedCycleId] = useState("");
+  const defaultType: ItemType = cycleType === "bugs" ? "bug" : "feature";
+  const [itemType, setItemType] = useState<ItemType>(defaultType);
   const [appetite, setAppetite] = useState(7);
   const [priority, setPriority] = useState("");
   const [assignees, setAssignees] = useState<string[]>([]);
@@ -42,9 +46,12 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
     }
   };
 
+  const resolvedCycleId = cycleId || selectedCycleId;
+
   const reset = () => {
     setTitle("");
-    setItemType("feature");
+    if (!cycleId) setSelectedCycleId("");
+    setItemType(defaultType);
     setAppetite(7);
     setPriority("");
     setAssignees([]);
@@ -56,11 +63,11 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
   };
 
   const handleSave = async (keepOpen: boolean) => {
-    if (!title.trim() || !description.trim() || saving) return;
+    if (!title.trim() || !description.trim() || !resolvedCycleId || saving) return;
     setSaving(true);
     try {
       await api.post("/tracker/items", {
-        cycleId,
+        cycleId: resolvedCycleId,
         title: title.trim(),
         type: itemType,
         appetite,
@@ -84,6 +91,26 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="New Item" size="xl">
       <div className="space-y-4">
+        {!cycleId && cycles && cycles.length > 0 && (
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Cycle</label>
+            <select
+              value={selectedCycleId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setSelectedCycleId(id);
+                const cycle = cycles?.find((c) => c.id === id);
+                setItemType(cycle?.type === "bugs" ? "bug" : "feature");
+              }}
+              className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+            >
+              <option value="">Select a cycle...</option>
+              {cycles.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4">
           <div>
             <label className="block text-xs text-text-muted mb-1">Title</label>
@@ -96,7 +123,7 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
             />
           </div>
           <div>
-            <label className="block text-xs text-text-muted mb-1">Tipo</label>
+            <label className="block text-xs text-text-muted mb-1">Type</label>
             <div className="flex rounded-md overflow-hidden border border-border h-[34px]">
               <button
                 type="button"
@@ -231,14 +258,14 @@ export function CreateItemModal({ open, onClose, cycleId, projectId }: Props) {
           </button>
           <button
             onClick={() => handleSave(true)}
-            disabled={!title.trim() || !description.trim() || saving}
+            disabled={!title.trim() || !description.trim() || !resolvedCycleId || saving}
             className="px-3 py-1.5 text-xs rounded-md border border-accent text-accent hover:bg-accent/10 disabled:opacity-50 disabled:pointer-events-none transition-colors"
           >
-            {saving ? "Salvando..." : "Salvar e Adicionar Outro"}
+            {saving ? "Saving..." : "Save & Add Another"}
           </button>
           <button
             onClick={() => handleSave(false)}
-            disabled={!title.trim() || !description.trim() || saving}
+            disabled={!title.trim() || !description.trim() || !resolvedCycleId || saving}
             className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
           >
             {saving ? "Creating..." : "Create"}

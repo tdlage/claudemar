@@ -10,6 +10,7 @@ import type {
   TrackerTestRun,
   TrackerTestRunComment,
   TrackerItemPlan,
+  TrackerItemCommit,
   ProjectBoardItem,
 } from "../lib/types";
 
@@ -248,4 +249,10 @@ export function useItemPlan(itemId: string | undefined) {
   });
 
   return { plan: data ?? null, loading, refresh };
+}
+
+export function useItemCommits(itemId: string | undefined) {
+  const path = itemId ? `/tracker/items/${itemId}/commits` : null;
+  const { data, loading, refresh } = useTrackerData<TrackerItemCommit[]>(path, [itemId]);
+  return { commits: data ?? [], loading, refresh };
 }

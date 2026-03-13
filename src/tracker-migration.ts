@@ -170,6 +170,19 @@ const MIGRATIONS: string[] = [
     FOREIGN KEY (item_id) REFERENCES tracker_bets(id) ON DELETE CASCADE,
     INDEX idx_item_plan (item_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS tracker_item_commits (
+    id CHAR(36) PRIMARY KEY,
+    item_id CHAR(36) NOT NULL,
+    repo VARCHAR(255) NOT NULL,
+    commit_hash VARCHAR(40) NOT NULL,
+    message TEXT NOT NULL,
+    committed_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES tracker_bets(id) ON DELETE CASCADE,
+    INDEX idx_item_commits (item_id),
+    UNIQUE KEY uk_item_commit (item_id, commit_hash)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
 const SCHEMA_UPGRADES: string[] = [

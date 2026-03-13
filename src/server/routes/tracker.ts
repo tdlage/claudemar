@@ -5,7 +5,7 @@ import { usersManager } from "../../users-manager.js";
 import { executionManager } from "../../execution-manager.js";
 import { commandQueue } from "../../queue.js";
 import { safeProjectPath } from "../../session.js";
-import { registerPlanExecution } from "../../tracker-execution-bridge.js";
+import { registerPlanExecution, registerExecutionSessionName, registerExecutionItem } from "../../tracker-execution-bridge.js";
 
 export const trackerRouter = Router();
 
@@ -369,7 +369,7 @@ trackerRouter.post("/items/:itemId/send-to-project", requireAdmin, async (req, r
   const itemCode = await trackerManager.getItemCode(req.params.itemId as string);
   if (!itemCode) { res.status(404).json({ error: "Item not found" }); return; }
 
-  let execId: string;
+  const projectBusy = executionManager.isTargetActive("project", targetProject);
 
   if (planMode) {
     const author = getAuthor(req);
@@ -380,6 +380,21 @@ trackerRouter.post("/items/:itemId/send-to-project", requireAdmin, async (req, r
       createdBy: author.id,
     });
 
+    if (projectBusy) {
+      await commandQueue.enqueue({
+        targetType: "project",
+        targetName: targetProject,
+        prompt,
+        source: "web",
+        cwd: projectPath,
+        planMode: true,
+        username: "admin",
+      });
+      res.status(201).json({ planId: plan.id, queued: true });
+      return;
+    }
+
+    let execId: string;
     try {
       execId = executionManager.startExecution({
         source: "web",
@@ -402,6 +417,21 @@ trackerRouter.post("/items/:itemId/send-to-project", requireAdmin, async (req, r
 
     res.status(201).json({ planId: plan.id, executionId: execId });
   } else {
+    if (projectBusy) {
+      await commandQueue.enqueue({
+        targetType: "project",
+        targetName: targetProject,
+        prompt,
+        source: "web",
+        cwd: projectPath,
+        planMode: false,
+        username: "admin",
+      });
+      res.status(201).json({ queued: true });
+      return;
+    }
+
+    let execId: string;
     try {
       execId = executionManager.startExecution({
         source: "web",
@@ -418,6 +448,8 @@ trackerRouter.post("/items/:itemId/send-to-project", requireAdmin, async (req, r
       return;
     }
 
+    registerExecutionSessionName(execId, itemCode);
+    registerExecutionItem(execId, req.params.itemId as string);
     res.status(201).json({ executionId: execId });
   }
 });
@@ -500,6 +532,11 @@ trackerRouter.post("/items/:itemId/review-plan", requireAdmin, async (req, res) 
   await trackerManager.updateItemPlan(plan.id, { status: "reviewing", lastExecutionId: execId });
 
   res.json({ executionId: execId });
+});
+
+trackerRouter.get("/items/:itemId/commits", async (req, res) => {
+  const commits = await trackerManager.getItemCommits(req.params.itemId as string);
+  res.json(commits);
 });
 
 trackerRouter.get("/items/:itemId/generate-prompt", requireAdmin, async (req, res) => {

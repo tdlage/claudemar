@@ -389,6 +389,16 @@ export interface TrackerTestRun {
   attachments: TrackerTestRunAttachment[];
 }
 
+export interface TrackerItemCommit {
+  id: string;
+  itemId: string;
+  repo: string;
+  commitHash: string;
+  message: string;
+  committedAt: string;
+  createdAt: string;
+}
+
 export type ItemPlanStatus = "planning" | "planned" | "executing" | "reviewing" | "completed" | "error";
 
 export interface TrackerItemPlan {
