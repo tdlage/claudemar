@@ -332,7 +332,7 @@ trackerRouter.get("/items/:itemId/plan", async (req, res) => {
   res.json(plan);
 });
 
-function stripMarkdown(md: string): string {
+function cleanContent(md: string): string {
   return md
     .replace(/#{1,6}\s+/g, "")
     .replace(/\*\*(.+?)\*\*/g, "$1")
@@ -341,22 +341,29 @@ function stripMarkdown(md: string): string {
     .replace(/_(.+?)_/g, "$1")
     .replace(/~~(.+?)~~/g, "$1")
     .replace(/`{1,3}[^`]*`{1,3}/g, (m) => m.replace(/`/g, ""))
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1");
+    .replace(/\(video\)/gi, "")
+    .replace(/\(comentario\)/gi, "")
+    .replace(/\(comment\)/gi, "")
+    .replace(/https?:\/\/\S+\.(mp4|webm|mov|avi|mkv|ogg|gif|png|jpg|jpeg|svg|webp)(\?\S*)?\b/gi, "")
+    .replace(/https?:\/\/\S*(?:youtube|youtu\.be|vimeo|loom|screencast)\S*/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function generatePlanPrompt(item: { title: string; description: string; inScope: string; outOfScope: string }, itemCode: string): string {
-  let prompt = `Planeje a implementacao do item ${itemCode}: ${item.title}\n\n`;
+  let prompt = `${itemCode}: ${item.title}\n\n`;
   if (item.description) {
-    prompt += `Descricao:\n${stripMarkdown(item.description)}\n\n`;
+    prompt += `${cleanContent(item.description)}\n\n`;
   }
   if (item.inScope) {
-    prompt += `In Scope:\n${item.inScope}\n\n`;
+    prompt += `In Scope:\n${cleanContent(item.inScope)}\n\n`;
   }
   if (item.outOfScope) {
-    prompt += `Out of Scope:\n${item.outOfScope}\n\n`;
+    prompt += `Out of Scope:\n${cleanContent(item.outOfScope)}\n\n`;
   }
-  return prompt;
+  return prompt.trim();
 }
 
 trackerRouter.post("/items/:itemId/send-to-project", requireAdmin, async (req, res) => {
