@@ -111,19 +111,19 @@ export function setupWebSocket(io: SocketServer): void {
     io.to(`exec:${id}`).emit("execution:output", { id, chunk });
   });
 
-  executionManager.on("complete", (id, info) => {
+  executionManager.prependListener("complete", (id, info) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
     io.to("executions").emit("execution:complete", { id, info, hasQueued });
     io.to(`exec:${id}`).emit("execution:complete", { id, info, hasQueued });
   });
 
-  executionManager.on("error", (id, info, message) => {
+  executionManager.prependListener("error", (id, info, message) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
     io.to("executions").emit("execution:error", { id, info, error: message, hasQueued });
     io.to(`exec:${id}`).emit("execution:error", { id, info, error: message, hasQueued });
   });
 
-  executionManager.on("cancel", (id, info) => {
+  executionManager.prependListener("cancel", (id, info) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
     io.to("executions").emit("execution:cancel", { id, info, hasQueued });
     io.to(`exec:${id}`).emit("execution:cancel", { id, info, hasQueued });

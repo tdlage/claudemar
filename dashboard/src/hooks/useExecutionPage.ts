@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../lib/api";
 import { useExecutions } from "./useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "./useCachedState";
-import type { SessionData } from "../lib/types";
+import type { ExecutionInfo, SessionData } from "../lib/types";
 
 interface UseExecutionPageOptions {
   targetType: string;
@@ -17,18 +17,74 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
   const [execId, setExecId] = useCachedState<string | null>(`${cachePrefix}:execId`, null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`${cachePrefix}:expandedExecId`, null);
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
+  const [dbHistory, setDbHistory] = useState<ExecutionInfo[]>([]);
+  const [historyLimit, setHistoryLimit] = useState(20);
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
+  const loadedTargetRef = useRef("");
+  const lastLimitRef = useRef(0);
 
   const sessionPath = `/executions/session/${targetType}/${targetName}`;
 
   const filteredActive = active.filter((e) => e.targetType === targetType && e.targetName === targetName);
-  const filteredRecent = recent.filter((e) => e.targetType === targetType && e.targetName === targetName);
-  const activity = [...filteredActive, ...filteredRecent];
   const filteredQueue = queue.filter((q) => q.targetType === targetType && q.targetName === targetName);
   const filteredQuestions = pendingQuestions.filter((pq) => pq.info.targetType === targetType && pq.info.targetName === targetName);
 
+  const realtimeCompleted = recent.filter((e) => e.targetType === targetType && e.targetName === targetName);
+  const dbIds = new Set(dbHistory.map((e) => e.id));
+  const newFromRealtime = realtimeCompleted.filter((e) => !dbIds.has(e.id));
+  const activity = [...filteredActive, ...newFromRealtime, ...dbHistory];
+
   const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
   const isRunning = !!activeExec;
+
+  const fetchHistory = useCallback((limit: number) => {
+    const key = `${targetType}:${targetName}`;
+    api.get<Array<Record<string, unknown>>>(`/executions/history/${targetType}/${targetName}?limit=${limit}`).then((entries) => {
+      const mapped: ExecutionInfo[] = entries.map((e: Record<string, unknown>) => ({
+        id: e.id as string,
+        source: (e.source as string) || "telegram",
+        targetType: (e.targetType as string) || "orchestrator",
+        targetName: (e.targetName as string) || "orchestrator",
+        agentName: e.agentName as string | undefined,
+        prompt: e.prompt as string,
+        cwd: "",
+        status: (e.status as string) || "completed",
+        startedAt: e.startedAt as string,
+        completedAt: e.completedAt as string | null,
+        output: (e.output as string) ?? "",
+        result: (e.costUsd || e.durationMs) ? {
+          output: (e.output as string) ?? "",
+          sessionId: (e.sessionId as string) ?? "",
+          durationMs: e.durationMs as number,
+          costUsd: e.costUsd as number,
+          isError: e.status === "error",
+          permissionDenials: [],
+        } : null,
+        error: (e.error as string) ?? null,
+        pendingQuestion: null,
+        planMode: e.planMode ?? false,
+        username: e.username as string | undefined,
+        resumeSessionId: e.sessionId as string | undefined,
+      } as ExecutionInfo));
+      setDbHistory(mapped);
+      loadedTargetRef.current = key;
+      lastLimitRef.current = limit;
+    }).catch(() => {});
+  }, [targetType, targetName]);
+
+  useEffect(() => {
+    const key = `${targetType}:${targetName}`;
+    if (loadedTargetRef.current !== key) {
+      setHistoryLimit(20);
+      fetchHistory(20);
+    }
+  }, [targetType, targetName, fetchHistory]);
+
+  useEffect(() => {
+    if (historyLimit !== lastLimitRef.current && loadedTargetRef.current === `${targetType}:${targetName}`) {
+      fetchHistory(historyLimit);
+    }
+  }, [historyLimit, targetType, targetName, fetchHistory]);
 
   const loadSession = useCallback(() => {
     api.get<SessionData>(sessionPath).then(setSessionData).catch(() => {});
@@ -40,9 +96,10 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
       setExecId(running.id);
     } else if (execId && !active.some((e) => e.id === execId)) {
       loadSession();
+      fetchHistory(historyLimit);
       onExecutionComplete?.();
     }
-  }, [active, execId, targetType, targetName, loadSession, onExecutionComplete]);
+  }, [active, execId, targetType, targetName, loadSession, fetchHistory, historyLimit, onExecutionComplete]);
 
   const handleSessionChange = async (value: string) => {
     if (value === "__new") {
@@ -89,6 +146,8 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
     handleSessionChange,
     handleSessionRename,
     activity,
+    historyLimit,
+    setHistoryLimit,
     filteredQueue,
     filteredQuestions,
     submitAnswer,

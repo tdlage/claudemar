@@ -49,7 +49,7 @@ export function AgentDetailPage() {
   const {
     execId, setExecId, isRunning, sessionData, loadSession,
     handleSessionChange, handleSessionRename,
-    activity, filteredQueue, filteredQuestions, submitAnswer,
+    activity, historyLimit, setHistoryLimit, filteredQueue, filteredQuestions, submitAnswer,
     expandedExecId, toggleExpanded, addToast,
   } = useExecutionPage({
     targetType: "agent",
@@ -244,6 +244,8 @@ export function AgentDetailPage() {
                 expandedId={expandedExecId}
                 onToggle={toggleExpanded}
                 sessionNames={sessionData.names}
+                historyLimit={historyLimit}
+                onHistoryLimitChange={setHistoryLimit}
               />
             </div>
           )}

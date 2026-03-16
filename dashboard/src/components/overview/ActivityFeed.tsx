@@ -17,15 +17,19 @@ function formatDuration(ms: number): string {
   return `${minutes}m${seconds}s`;
 }
 
+const LIMIT_OPTIONS = [20, 50, 100] as const;
+
 interface ActivityFeedProps {
   executions: ExecutionInfo[];
   queue?: QueueItem[];
   expandedId?: string | null;
   onToggle?: (id: string) => void;
   sessionNames?: Record<string, string>;
+  historyLimit?: number;
+  onHistoryLimitChange?: (limit: number) => void;
 }
 
-export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {} }: ActivityFeedProps) {
+export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {}, historyLimit = 20, onHistoryLimitChange }: ActivityFeedProps) {
   const [mdViewer, setMdViewer] = useState<{ path: string; base: string } | null>(null);
 
   const handleOutputClick = useCallback((e: React.MouseEvent, exec: ExecutionInfo) => {
@@ -46,8 +50,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
       const dateA = a.completedAt ?? a.startedAt;
       const dateB = b.completedAt ?? b.startedAt;
       return new Date(dateB).getTime() - new Date(dateA).getTime();
-    })
-    .slice(0, 20);
+    });
 
   if (sorted.length === 0 && queue.length === 0) {
     return <p className="text-sm text-text-muted">No recent activity.</p>;
@@ -108,7 +111,6 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
         const isExpanded = expandedId === exec.id;
         const clickable = !!onToggle;
 
-        // ansiToHtml already escapes &, <, > before processing ANSI codes (safe for innerHTML)
         const sanitizedOutput = linkifyMdPaths(ansiToHtml(exec.output || "(sem output)"));
         const sessionId = exec.result?.sessionId ?? exec.resumeSessionId;
 
@@ -194,6 +196,28 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
           </div>
         );
       })}
+
+      {onHistoryLimitChange && (
+        <div className="flex items-center justify-center gap-2 pt-2 pb-1">
+          <span className="text-xs text-text-muted">Show:</span>
+          {LIMIT_OPTIONS.map((n) => (
+            <button
+              key={n}
+              onClick={() => onHistoryLimitChange(n)}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                historyLimit === n
+                  ? "bg-accent/15 text-accent"
+                  : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+          <span className="text-xs text-text-muted">
+            ({sorted.length})
+          </span>
+        </div>
+      )}
 
       {mdViewer && (
         <MarkdownViewerModal

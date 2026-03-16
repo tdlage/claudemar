@@ -93,3 +93,16 @@ export async function loadHistory(limit = 20, targetType?: string, targetName?: 
   const rows = await query<HistoryRow[]>(sql, params);
   return rows.map(rowToEntry);
 }
+
+export async function loadSessionIds(targetType: string, targetName: string): Promise<string[]> {
+  const rows = await query<(RowDataPacket & { session_id: string })[]>(
+    `SELECT session_id FROM (
+       SELECT session_id, MAX(started_at) AS last_used
+       FROM execution_history
+       WHERE target_type = ? AND target_name = ? AND session_id IS NOT NULL AND status = 'completed'
+       GROUP BY session_id
+     ) sub ORDER BY last_used DESC`,
+    [targetType, targetName],
+  );
+  return rows.map((r) => r.session_id);
+}

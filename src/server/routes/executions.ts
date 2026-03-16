@@ -10,6 +10,7 @@ import { resolveRepoPath } from "../../repositories.js";
 import { safeProjectPath } from "../../session.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { modelPreferences } from "../../model-preferences.js";
+import { loadHistory, loadSessionIds } from "../../history.js";
 
 export const executionsRouter = Router();
 
@@ -189,6 +190,25 @@ executionsRouter.get("/target-status", (req, res) => {
   res.json(statusMap);
 });
 
+executionsRouter.get("/history/:targetType/:targetName", async (req, res) => {
+  const { targetType, targetName } = req.params;
+  const limit = Math.min(Math.max(1, parseInt(req.query.limit as string, 10) || 50), 500);
+
+  if (req.ctx?.role === "user") {
+    if (targetType === "project" && !req.ctx.projects.includes(targetName)) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    if (targetType === "agent" && !req.ctx.agents.includes(targetName)) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+  }
+
+  const entries = await loadHistory(limit, targetType, targetName);
+  res.json(entries);
+});
+
 executionsRouter.get("/session-names", (_req, res) => {
   res.json(sessionNamesManager.getAllNames());
 });
@@ -203,11 +223,11 @@ function reqUsername(req: Request): string {
   return req.ctx?.role === "admin" ? "admin" : (req.ctx as { name: string })?.name ?? "admin";
 }
 
-executionsRouter.get("/session/:targetType/:targetName", (req, res) => {
+executionsRouter.get("/session/:targetType/:targetName", async (req, res) => {
   const { targetType, targetName } = req.params;
   const user = reqUsername(req);
   const sessionId = executionManager.getLastSessionId(targetType, targetName, user);
-  const history = executionManager.getSessionHistory(targetType, targetName);
+  const history = await loadSessionIds(targetType, targetName);
   const allIds = sessionId ? [sessionId, ...history] : history;
   const names = sessionNamesManager.getNames([...new Set(allIds)]);
   res.json({ sessionId: sessionId ?? null, history, names });

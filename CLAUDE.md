@@ -54,6 +54,7 @@ install.sh             # Full installer (Node, repo, build, env, cron, systemd)
 - Events: `executionManager` extends EventEmitter (output, complete, error, cancel)
 - No comments unless critical. Code must be self-explanatory
 - Production-ready only. No mocks, no hardcoded values
+- NUNCA reiniciar o serviço local do claudemar (systemctl restart claudemar). O deploy e restart são feitos externamente
 
 ## Pre-existing Issues
 
