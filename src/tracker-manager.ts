@@ -629,6 +629,15 @@ class TrackerManager extends EventEmitter {
     if (sets.length === 0) return this.getCycle(id);
     params.push(id);
     await execute(`UPDATE tracker_cycles SET ${sets.join(", ")} WHERE id = ?`, params);
+    if (data.type !== undefined) {
+      const itemType = data.type === "bugs" ? "bug" : "feature";
+      await execute("UPDATE tracker_bets SET type = ? WHERE cycle_id = ?", [itemType, id]);
+      const items = await query("SELECT id FROM tracker_bets WHERE cycle_id = ?", [id]);
+      for (const row of items) {
+        const item = await this.getItem(row.id);
+        if (item) this.emit("item:update", item);
+      }
+    }
     const cycle = await this.getCycle(id);
     if (cycle) this.emit("cycle:update", cycle);
     return cycle;

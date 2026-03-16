@@ -91,33 +91,12 @@ export function CycleBoard({ projectId, cycleId }: Props) {
             <ArrowLeft size={16} />
           </Link>
           <h2 className="text-lg font-semibold text-text-primary">{cycle?.name ?? "Cycle"}</h2>
-          {cycle && !canEdit && (
+          {cycle && (
             <>
               <Badge variant={cycle.type === "bugs" ? "danger" : "info"}>
                 {cycle.type === "bugs" ? "Bugs" : "Features"}
               </Badge>
               <Badge variant={CYCLE_STATUS_VARIANT[cycle.status]}>{cycle.status}</Badge>
-            </>
-          )}
-          {canEdit && cycle && (
-            <>
-              <select
-                value={cycle.type}
-                onChange={(e) => handleCycleTypeChange(e.target.value as CycleType)}
-                className="bg-bg border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
-              >
-                <option value="features">Features</option>
-                <option value="bugs">Bugs</option>
-              </select>
-              <select
-                value={cycle.status}
-                onChange={(e) => handleCycleStatusChange(e.target.value as CycleStatus)}
-                className="bg-bg border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
-              >
-                {(["active", "completed"] as CycleStatus[]).map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
             </>
           )}
           {canEdit && (
@@ -141,8 +120,16 @@ export function CycleBoard({ projectId, cycleId }: Props) {
         )}
       </div>
 
-      {showColumnManager && canEdit && (
-        <ColumnManager cycleId={cycleId} columns={columns} onClose={() => setShowColumnManager(false)} />
+      {showColumnManager && canEdit && cycle && (
+        <ColumnManager
+          cycleId={cycleId}
+          columns={columns}
+          cycleType={cycle.type}
+          cycleStatus={cycle.status}
+          onTypeChange={handleCycleTypeChange}
+          onStatusChange={handleCycleStatusChange}
+          onClose={() => setShowColumnManager(false)}
+        />
       )}
 
       <div className="flex gap-3 overflow-x-auto pb-4">
@@ -188,7 +175,15 @@ export function CycleBoard({ projectId, cycleId }: Props) {
   );
 }
 
-function ColumnManager({ cycleId, columns, onClose }: { cycleId: string; columns: CycleColumn[]; onClose: () => void }) {
+function ColumnManager({ cycleId, columns, cycleType, cycleStatus, onTypeChange, onStatusChange, onClose }: {
+  cycleId: string;
+  columns: CycleColumn[];
+  cycleType: CycleType;
+  cycleStatus: CycleStatus;
+  onTypeChange: (t: CycleType) => void;
+  onStatusChange: (s: CycleStatus) => void;
+  onClose: () => void;
+}) {
   const { addToast } = useToast();
   const [cols, setCols] = useState<CycleColumn[]>(() => columns.map((c) => ({ ...c })));
   const [saving, setSaving] = useState(false);
@@ -233,6 +228,31 @@ function ColumnManager({ cycleId, columns, onClose }: { cycleId: string; columns
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-text-primary">Manage Columns</h3>
         <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={14} /></button>
+      </div>
+      <div className="flex items-center gap-4">
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Type</label>
+          <select
+            value={cycleType}
+            onChange={(e) => onTypeChange(e.target.value as CycleType)}
+            className="bg-bg border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
+          >
+            <option value="features">Features</option>
+            <option value="bugs">Bugs</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Status</label>
+          <select
+            value={cycleStatus}
+            onChange={(e) => onStatusChange(e.target.value as CycleStatus)}
+            className="bg-bg border border-border rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
+          >
+            {(["active", "completed"] as CycleStatus[]).map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
       </div>
       <div className="space-y-2">
         {cols.map((col, idx) => (

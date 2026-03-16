@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, Bug, Layers } from "lucide-react";
 import { Modal } from "../shared/Modal";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
@@ -24,6 +24,10 @@ export function CreateItemModal({ open, onClose, cycleId, cycleType, projectId, 
   const [selectedCycleId, setSelectedCycleId] = useState("");
   const defaultType: ItemType = cycleType === "bugs" ? "bug" : "feature";
   const [itemType, setItemType] = useState<ItemType>(defaultType);
+
+  useEffect(() => {
+    if (open) setItemType(defaultType);
+  }, [open]);
   const [appetite, setAppetite] = useState(7);
   const [priority, setPriority] = useState("");
   const [assignees, setAssignees] = useState<string[]>([]);
