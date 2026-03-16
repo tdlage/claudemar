@@ -441,6 +441,25 @@ export interface CIWorkflowRunStep {
   number: number;
 }
 
+export interface CIWebhookEvent {
+  action: string;
+  owner: string;
+  repo: string;
+  repoFullName: string;
+  runId: number;
+  runNumber: number;
+  name: string;
+  displayTitle: string;
+  headBranch: string;
+  event: string;
+  status: string;
+  conclusion: string | null;
+  url: string;
+  actor: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type ItemPlanStatus = "planning" | "planned" | "executing" | "reviewing" | "completed" | "error";
 
 export interface TrackerItemPlan {

@@ -16,6 +16,7 @@ import {
   setBusy,
 } from "./session.js";
 import { transcribeAudio } from "./transcription.js";
+import { ciEventManager, type CIWorkflowRunEvent } from "./ci-events.js";
 
 const MAX_AUDIO_SIZE = 25 * 1024 * 1024;
 
@@ -296,6 +297,22 @@ bot.callbackQuery(/^askq:/, async (ctx) => {
   } else {
     await ctx.answerCallbackQuery({ text: "Pergunta já respondida." });
   }
+});
+
+ciEventManager.on("workflow_run", (data: CIWorkflowRunEvent) => {
+  if (data.action !== "completed") return;
+  if (data.conclusion !== "failure" && data.conclusion !== "timed_out") return;
+
+  const icon = data.conclusion === "failure" ? "❌" : "⏰";
+  const message = [
+    `${icon} <b>CI ${data.conclusion === "failure" ? "Failed" : "Timed Out"}</b>`,
+    `<b>${data.repoFullName}</b> — ${data.name} #${data.runNumber}`,
+    `Branch: <code>${data.headBranch}</code> | Event: ${data.event}`,
+    `Actor: ${data.actor}`,
+    `<a href="${data.url}">Ver no GitHub</a>`,
+  ].join("\n");
+
+  bot.api.sendMessage(config.allowedChatId, message, { parse_mode: "HTML" }).catch(() => {});
 });
 
 bot.catch((err) => {

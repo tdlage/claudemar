@@ -21,6 +21,7 @@ import { usersRouter } from "./routes/users.js";
 import { authRouter } from "./routes/auth.js";
 import { settingsRouter } from "./routes/settings.js";
 import { trackerRouter } from "./routes/tracker.js";
+import { webhooksRouter } from "./routes/webhooks.js";
 
 export function createDashboardServer() {
   const app = express();
@@ -61,6 +62,8 @@ export function createDashboardServer() {
       }
     });
   });
+
+  app.use("/webhooks", express.raw({ type: "application/json" }), webhooksRouter);
 
   app.use("/api", apiLimiter);
   app.use("/api", authMiddleware);

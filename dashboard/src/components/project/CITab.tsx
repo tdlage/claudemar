@@ -15,6 +15,7 @@ import {
   GitBranch,
 } from "lucide-react";
 import { api } from "../../lib/api";
+import { getSocket } from "../../lib/socket";
 import { Card } from "../shared/Card";
 import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
@@ -25,11 +26,13 @@ import type {
   CIWorkflow,
   CIWorkflowRun,
   CIWorkflowRunJob,
+  CIWebhookEvent,
 } from "../../lib/types";
 
 interface CITabProps {
   projectName: string;
   repos: RepoInfo[];
+  initialRepo?: string;
 }
 
 function conclusionVariant(conclusion: string | null, status: string): "success" | "danger" | "warning" | "default" | "info" {
@@ -70,9 +73,11 @@ function duration(start: string, end: string | null): string {
   return `${minutes}m ${secs}s`;
 }
 
-export function CITab({ projectName, repos }: CITabProps) {
+export function CITab({ projectName, repos, initialRepo }: CITabProps) {
   const { addToast } = useToast();
-  const [selectedRepo, setSelectedRepo] = useState<string>(repos[0]?.name ?? "");
+  const githubRepos = repos.filter((r) => r.remoteUrl.includes("github.com"));
+  const defaultRepo = initialRepo && githubRepos.some((r) => r.name === initialRepo) ? initialRepo : githubRepos[0]?.name ?? "";
+  const [selectedRepo, setSelectedRepo] = useState<string>(defaultRepo);
   const [workflows, setWorkflows] = useState<CIWorkflow[]>([]);
   const [runs, setRuns] = useState<CIWorkflowRun[]>([]);
   const [loading, setLoading] = useState(false);
@@ -91,8 +96,6 @@ export function CITab({ projectName, repos }: CITabProps) {
   const [dispatchWorkflowId, setDispatchWorkflowId] = useState("");
   const [dispatchRef, setDispatchRef] = useState("");
   const [dispatching, setDispatching] = useState(false);
-
-  const githubRepos = repos.filter((r) => r.remoteUrl.includes("github.com"));
 
   const loadWorkflows = useCallback(async (repoName: string) => {
     try {
@@ -126,6 +129,34 @@ export function CITab({ projectName, repos }: CITabProps) {
     loadWorkflows(selectedRepo);
     loadRuns(selectedRepo, filterWorkflow, filterBranch || undefined);
   }, [selectedRepo, loadWorkflows, loadRuns, filterWorkflow, filterBranch]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    const currentRepo = repos.find((r) => r.name === selectedRepo);
+    if (!currentRepo) return;
+
+    const ownerRepoMatch = currentRepo.remoteUrl.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
+    const currentFullName = ownerRepoMatch?.[1] ?? "";
+
+    const onWorkflowRun = (data: CIWebhookEvent) => {
+      if (!currentFullName || data.repoFullName !== currentFullName) return;
+
+      if (data.action === "completed") {
+        loadRuns(selectedRepo, filterWorkflow, filterBranch || undefined);
+
+        if (data.conclusion === "failure" || data.conclusion === "timed_out") {
+          addToast("error", `CI Failed: ${data.name} #${data.runNumber} (${data.headBranch})`);
+        } else if (data.conclusion === "success") {
+          addToast("success", `CI Passed: ${data.name} #${data.runNumber} (${data.headBranch})`);
+        }
+      } else if (data.action === "requested" || data.action === "in_progress") {
+        loadRuns(selectedRepo, filterWorkflow, filterBranch || undefined);
+      }
+    };
+
+    socket.on("ci:workflow_run", onWorkflowRun);
+    return () => { socket.off("ci:workflow_run", onWorkflowRun); };
+  }, [selectedRepo, repos, filterWorkflow, filterBranch, loadRuns, addToast]);
 
   const handleRefresh = () => {
     if (!selectedRepo) return;

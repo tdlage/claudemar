@@ -35,6 +35,7 @@ export function ProjectDetailPage() {
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
   const [selectedSkill, setSelectedSkill] = useCachedState(`project:${name}:skill`, "");
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
+  const [ciInitialRepo, setCiInitialRepo] = useState<string | undefined>();
   const admin = isAdmin();
 
   const loadProject = useCallback(() => {
@@ -108,7 +109,6 @@ export function ProjectDetailPage() {
   }
 
   const changedRepoCount = project.repos.filter((r) => r.hasChanges).length;
-
   const hasGithubRepos = project.repos.some((r) => r.remoteUrl.includes("github.com"));
 
   const tabs: { key: TabKey; label: string; badge?: number; badgeVariant?: "warning" }[] = [
@@ -303,6 +303,10 @@ export function ProjectDetailPage() {
           projectName={project.name}
           repos={project.repos}
           onRefresh={loadProject}
+          onNavigateCI={(repoName) => {
+            setCiInitialRepo(repoName);
+            setTab("ci");
+          }}
         />
       )}
 
@@ -313,7 +317,7 @@ export function ProjectDetailPage() {
       )}
 
       {tab === "ci" && (
-        <CITab projectName={project.name} repos={project.repos} />
+        <CITab projectName={project.name} repos={project.repos} initialRepo={ciInitialRepo} />
       )}
     </div>
   );

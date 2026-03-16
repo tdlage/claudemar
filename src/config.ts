@@ -54,6 +54,7 @@ export const config = Object.freeze({
   mysqlUser: process.env.MYSQL_USER || "claudemar",
   mysqlPassword: process.env.MYSQL_PASSWORD || "",
   mysqlDatabase: process.env.MYSQL_DATABASE || "claudemar",
+  githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET || "",
   dockerAvailable: (() => {
     try {
       execFileSync("docker", ["--version"], { stdio: "ignore" });

@@ -10,12 +10,21 @@ import { GitDiffViewer } from "./GitDiffViewer";
 import { GitLog } from "./GitLog";
 import { useToast } from "../shared/Toast";
 import { TrackerItemSelector } from "./TrackerItemSelector";
-import type { RepoInfo, RepoBranches, GitCommit, ExecutionInfo } from "../../lib/types";
+import type { RepoInfo, RepoBranches, GitCommit, ExecutionInfo, CIWorkflowRun } from "../../lib/types";
+
+interface CIStatusSummary {
+  conclusion: string | null;
+  status: string;
+  name: string;
+  runNumber: number;
+  count: number;
+}
 
 interface RepositoriesTabProps {
   projectName: string;
   repos: RepoInfo[];
   onRefresh: () => void;
+  onNavigateCI?: (repoName: string) => void;
 }
 
 type CommitPushStatus = "running" | "completed" | "error";
@@ -26,9 +35,10 @@ interface CommitPushState {
   error?: string;
 }
 
-export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesTabProps) {
+export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }: RepositoriesTabProps) {
   const { addToast } = useToast();
   const [expandedRepo, setExpandedRepo] = useState<string | null>(null);
+  const [ciStatus, setCiStatus] = useState<Record<string, CIStatusSummary>>({});
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneName, setCloneName] = useState("");
@@ -110,6 +120,62 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
       }
     };
   }, [commitPush, handleCommitPushDone]);
+
+  useEffect(() => {
+    const githubRepos = repos.filter((r) => r.remoteUrl.includes("github.com"));
+    if (githubRepos.length === 0) return;
+
+    for (const repo of githubRepos) {
+      api.get<CIWorkflowRun[]>(`/projects/${projectName}/repos/${repo.name}/ci/runs`)
+        .then((runs) => {
+          if (runs.length === 0) return;
+          const latest = runs[0];
+          const latestPerWorkflow = new Map<number, CIWorkflowRun>();
+          for (const run of runs) {
+            if (!latestPerWorkflow.has(run.workflowId)) {
+              latestPerWorkflow.set(run.workflowId, run);
+            }
+          }
+          const hasAnyFailure = [...latestPerWorkflow.values()].some(
+            (r) => r.conclusion === "failure" || r.conclusion === "timed_out",
+          );
+          const allSuccess = [...latestPerWorkflow.values()].every(
+            (r) => r.conclusion === "success",
+          );
+          const hasRunning = [...latestPerWorkflow.values()].some(
+            (r) => r.status === "in_progress" || r.status === "queued",
+          );
+
+          let conclusion: string | null;
+          let status: string;
+          if (hasRunning) {
+            conclusion = null;
+            status = "in_progress";
+          } else if (hasAnyFailure) {
+            conclusion = "failure";
+            status = "completed";
+          } else if (allSuccess) {
+            conclusion = "success";
+            status = "completed";
+          } else {
+            conclusion = latest.conclusion;
+            status = latest.status;
+          }
+
+          setCiStatus((prev) => ({
+            ...prev,
+            [repo.name]: {
+              conclusion,
+              status,
+              name: latest.name,
+              runNumber: latest.runNumber,
+              count: latestPerWorkflow.size,
+            },
+          }));
+        })
+        .catch(() => {});
+    }
+  }, [repos, projectName]);
 
   const handleCommitPush = async (repoName: string, trackerItems: string[] = []) => {
     try {
@@ -238,6 +304,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
         const repoBranches = branches[repo.name];
         const repoLog = logs[repo.name];
         const cpState = commitPush[repo.name];
+        const ci = ciStatus[repo.name];
 
         return (
           <Card key={repo.name} className="p-0 overflow-hidden">
@@ -259,6 +326,33 @@ export function RepositoriesTab({ projectName, repos, onRefresh }: RepositoriesT
               )}
               {cpState?.status === "error" && (
                 <XCircle size={12} className="text-red-500 shrink-0" />
+              )}
+              {ci && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNavigateCI?.(repo.name);
+                  }}
+                  title={ci.count > 1 ? `${ci.count} workflows — latest: ${ci.name} #${ci.runNumber}` : `${ci.name} #${ci.runNumber}`}
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium shrink-0 ${onNavigateCI ? "cursor-pointer hover:opacity-80" : ""} ${
+                    ci.status === "in_progress"
+                      ? "bg-warning/15 text-warning"
+                      : ci.conclusion === "success"
+                        ? "bg-success/15 text-success"
+                        : ci.conclusion === "failure" || ci.conclusion === "timed_out"
+                          ? "bg-danger/15 text-danger"
+                          : "bg-border text-text-secondary"
+                  }`}
+                >
+                  {ci.status === "in_progress" ? (
+                    <Loader2 size={10} className="animate-spin" />
+                  ) : ci.conclusion === "success" ? (
+                    <CheckCircle size={10} />
+                  ) : ci.conclusion === "failure" || ci.conclusion === "timed_out" ? (
+                    <XCircle size={10} />
+                  ) : null}
+                  CI{ci.count > 1 ? ` (${ci.count})` : ""}
+                </span>
               )}
               <span className="flex-1 text-xs text-text-muted truncate text-right">
                 {repo.remoteUrl}

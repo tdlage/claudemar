@@ -6,6 +6,7 @@ import { validateSocketToken } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
 import { trackerManager } from "../tracker-manager.js";
+import { ciEventManager } from "../ci-events.js";
 
 const RATE_LIMIT_WINDOW_MS = 1000;
 const RATE_LIMIT_MAX_EVENTS = 30;
@@ -178,6 +179,10 @@ export function setupWebSocket(io: SocketServer): void {
       io.to("tracker").emit(`tracker:${event}`, data);
     });
   }
+
+  ciEventManager.on("workflow_run", (data) => {
+    io.to("executions").emit("ci:workflow_run", data);
+  });
 
   startFileWatcher((event, base, path) => {
     io.to("files").emit("file:changed", { event, base, path });
