@@ -399,6 +399,48 @@ export interface TrackerItemCommit {
   createdAt: string;
 }
 
+// ── CI / GitHub Actions ──
+
+export interface CIWorkflow {
+  id: number;
+  name: string;
+  path: string;
+  state: string;
+}
+
+export interface CIWorkflowRun {
+  id: number;
+  name: string;
+  displayTitle: string;
+  headBranch: string;
+  event: string;
+  status: string;
+  conclusion: string | null;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+  runNumber: number;
+  workflowId: number;
+  actor: string;
+}
+
+export interface CIWorkflowRunJob {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  steps: CIWorkflowRunStep[];
+}
+
+export interface CIWorkflowRunStep {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  number: number;
+}
+
 export type ItemPlanStatus = "planning" | "planned" | "executing" | "reviewing" | "completed" | "error";
 
 export interface TrackerItemPlan {

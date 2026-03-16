@@ -24,6 +24,15 @@ import {
   resolveRepoPath,
   stashRepo,
 } from "../../repositories.js";
+import {
+  cancelWorkflowRun,
+  dispatchWorkflow,
+  getWorkflowRunJobs,
+  getWorkflowRunLogs,
+  listWorkflowRuns,
+  listWorkflows,
+  rerunWorkflow,
+} from "../../github-actions.js";
 import { executionManager } from "../../execution-manager.js";
 
 export const projectsRouter = Router();
@@ -497,4 +506,151 @@ projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
   });
 
   res.status(201).json({ id });
+});
+
+// ── CI / GitHub Actions ──
+
+projectsRouter.get("/:name/repos/:repo/ci/workflows", async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  try {
+    const repos = await discoverRepos(resolved.projectPath);
+    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
+    if (!repo?.remoteUrl) {
+      res.json([]);
+      return;
+    }
+    const workflows = await listWorkflows(resolved.repoPath, repo.remoteUrl);
+    res.json(workflows);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+projectsRouter.get("/:name/repos/:repo/ci/runs", async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  try {
+    const repos = await discoverRepos(resolved.projectPath);
+    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
+    if (!repo?.remoteUrl) {
+      res.json([]);
+      return;
+    }
+
+    const branch = typeof req.query.branch === "string" ? req.query.branch : undefined;
+    const workflowId = typeof req.query.workflowId === "string" ? Number(req.query.workflowId) : undefined;
+    const runs = await listWorkflowRuns(resolved.repoPath, repo.remoteUrl, branch, workflowId);
+    res.json(runs);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+projectsRouter.get("/:name/repos/:repo/ci/runs/:runId/jobs", async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  try {
+    const repos = await discoverRepos(resolved.projectPath);
+    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
+    if (!repo?.remoteUrl) {
+      res.status(400).json({ error: "No remote URL" });
+      return;
+    }
+    const jobs = await getWorkflowRunJobs(resolved.repoPath, repo.remoteUrl, Number(req.params.runId));
+    res.json(jobs);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+projectsRouter.get("/:name/repos/:repo/ci/runs/:runId/logs", async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  try {
+    const repos = await discoverRepos(resolved.projectPath);
+    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
+    if (!repo?.remoteUrl) {
+      res.status(400).json({ error: "No remote URL" });
+      return;
+    }
+    const jobName = typeof req.query.job === "string" ? req.query.job : undefined;
+    const logs = await getWorkflowRunLogs(resolved.repoPath, repo.remoteUrl, Number(req.params.runId), jobName);
+    res.json({ logs });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+projectsRouter.post("/:name/repos/:repo/ci/dispatch", async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  try {
+    const repos = await discoverRepos(resolved.projectPath);
+    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
+    if (!repo?.remoteUrl) {
+      res.status(400).json({ error: "No remote URL" });
+      return;
+    }
+
+    const { workflowId, ref, inputs } = req.body;
+    if (!workflowId || !ref) {
+      res.status(400).json({ error: "workflowId and ref are required" });
+      return;
+    }
+
+    await dispatchWorkflow(resolved.repoPath, repo.remoteUrl, String(workflowId), ref, inputs);
+    res.json({ dispatched: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+projectsRouter.post("/:name/repos/:repo/ci/runs/:runId/rerun", async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  try {
+    const repos = await discoverRepos(resolved.projectPath);
+    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
+    if (!repo?.remoteUrl) {
+      res.status(400).json({ error: "No remote URL" });
+      return;
+    }
+    const failedOnly = req.body?.failedOnly === true;
+    await rerunWorkflow(resolved.repoPath, repo.remoteUrl, Number(req.params.runId), failedOnly);
+    res.json({ rerun: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+projectsRouter.post("/:name/repos/:repo/ci/runs/:runId/cancel", async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  try {
+    const repos = await discoverRepos(resolved.projectPath);
+    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
+    if (!repo?.remoteUrl) {
+      res.status(400).json({ error: "No remote URL" });
+      return;
+    }
+    await cancelWorkflowRun(resolved.repoPath, repo.remoteUrl, Number(req.params.runId));
+    res.json({ cancelled: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
 });

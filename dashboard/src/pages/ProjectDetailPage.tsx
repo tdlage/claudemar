@@ -9,6 +9,7 @@ import { Button } from "../components/shared/Button";
 import { Badge } from "../components/shared/Badge";
 import { FilesBrowser } from "../components/project/FilesBrowser";
 import { RepositoriesTab } from "../components/project/RepositoriesTab";
+import { CITab } from "../components/project/CITab";
 import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { useCachedState } from "../hooks/useCachedState";
@@ -18,7 +19,7 @@ import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin } from "../hooks/useAuth";
 import type { ProjectDetail } from "../lib/types";
 
-type TabKey = "terminal" | "repositories" | "files" | "input";
+type TabKey = "terminal" | "repositories" | "files" | "input" | "ci";
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -108,12 +109,15 @@ export function ProjectDetailPage() {
 
   const changedRepoCount = project.repos.filter((r) => r.hasChanges).length;
 
+  const hasGithubRepos = project.repos.some((r) => r.remoteUrl.includes("github.com"));
+
   const tabs: { key: TabKey; label: string; badge?: number; badgeVariant?: "warning" }[] = [
     { key: "terminal", label: "Terminal" },
     { key: "input" as const, label: `Input (${inputFiles.length})` },
     ...(admin ? [
       { key: "repositories" as const, label: "Repositories", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) },
       { key: "files" as const, label: "Code" },
+      ...(hasGithubRepos ? [{ key: "ci" as const, label: "CI" }] : []),
     ] : []),
   ];
 
@@ -306,6 +310,10 @@ export function ProjectDetailPage() {
         <div className="flex-1 min-h-0">
           <FilesBrowser projectName={name} />
         </div>
+      )}
+
+      {tab === "ci" && (
+        <CITab projectName={project.name} repos={project.repos} />
       )}
     </div>
   );
