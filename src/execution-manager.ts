@@ -64,7 +64,7 @@ export interface StartExecutionOpts {
 
 const MAX_RECENT = 100;
 const MAX_STREAM_OUTPUT = 1024 * 1024;
-const MAX_SESSION_HISTORY = 5;
+const MAX_SESSION_HISTORY = 10;
 
 const MAX_PERSISTED_OUTPUT = 50_000;
 const MAX_MEMORY_OUTPUT = 200_000;

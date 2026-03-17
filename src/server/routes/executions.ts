@@ -227,9 +227,9 @@ executionsRouter.get("/session/:targetType/:targetName", async (req, res) => {
   const { targetType, targetName } = req.params;
   const user = reqUsername(req);
   const sessionId = executionManager.getLastSessionId(targetType, targetName, user);
-  const history = await loadSessionIds(targetType, targetName);
-  const allIds = sessionId ? [sessionId, ...history] : history;
-  const names = sessionNamesManager.getNames([...new Set(allIds)]);
+  const dbHistory = await loadSessionIds(targetType, targetName);
+  const history = sessionId ? [sessionId, ...dbHistory.filter((s) => s !== sessionId)] : dbHistory;
+  const names = sessionNamesManager.getNames([...new Set(history)]);
   res.json({ sessionId: sessionId ?? null, history, names });
 });
 

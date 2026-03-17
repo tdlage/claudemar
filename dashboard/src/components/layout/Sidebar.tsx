@@ -263,7 +263,7 @@ export function Sidebar() {
                 {showExpanded && "Overview"}
               </NavLink>
               <NavLink to="/orchestrator" className={linkClass} title="Claudemar">
-                <Crown size={16} className={Object.values(targetStatus).some((s) => s.running) ? "text-warning animate-pulse" : "text-success"} />
+                <Crown size={16} className={targetStatus["orchestrator:orchestrator"]?.running ? "text-warning animate-pulse" : "text-success"} />
                 {showExpanded && "Claudemar"}
               </NavLink>
             </div>

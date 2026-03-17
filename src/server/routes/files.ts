@@ -86,33 +86,30 @@ filesRouter.get("/", (req, res) => {
     return;
   }
 
+  const ext = extname(resolved).toLowerCase();
+  const isKnownText = TEXT_EXTENSIONS.has(ext) || ext === "" || resolved.endsWith("Makefile") || resolved.endsWith("Dockerfile");
+
+  if (!isKnownText) {
+    const fd = openSync(resolved, "r");
+    let bytesRead: number;
+    const sample = Buffer.alloc(8192);
+    try {
+      bytesRead = readSync(fd, sample, 0, 8192, 0);
+    } finally {
+      closeSync(fd);
+    }
+
+    for (let i = 0; i < bytesRead; i++) {
+      if (sample[i] === 0) {
+        res.json({ type: "file", binary: true, size: stat.size });
+        return;
+      }
+    }
+  }
+
   if (stat.size > 2 * 1024 * 1024) {
     res.status(413).json({ error: "File too large (max 2MB)" });
     return;
-  }
-
-  const ext = extname(resolved).toLowerCase();
-
-  if (TEXT_EXTENSIONS.has(ext) || ext === "" || resolved.endsWith("Makefile") || resolved.endsWith("Dockerfile")) {
-    const content = readFileSync(resolved, "utf-8");
-    res.json({ type: "file", content, size: stat.size });
-    return;
-  }
-
-  const fd = openSync(resolved, "r");
-  let bytesRead: number;
-  const sample = Buffer.alloc(8192);
-  try {
-    bytesRead = readSync(fd, sample, 0, 8192, 0);
-  } finally {
-    closeSync(fd);
-  }
-
-  for (let i = 0; i < bytesRead; i++) {
-    if (sample[i] === 0) {
-      res.json({ type: "file", binary: true, size: stat.size });
-      return;
-    }
   }
 
   const content = readFileSync(resolved, "utf-8");
