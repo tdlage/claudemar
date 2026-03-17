@@ -96,7 +96,7 @@ function syncNginxSudoers(): void {
   ].join("\n") + "\n";
 
   try {
-    const existing = readFileSync(SUDOERS_FILE, "utf-8").trim() + "\n";
+    const existing = execFileSync("sudo", ["cat", SUDOERS_FILE], { timeout: 5_000, encoding: "utf-8" }).trim() + "\n";
     if (existing === expected) return;
     if (existing.includes("NOPASSWD: ALL")) return;
   } catch {

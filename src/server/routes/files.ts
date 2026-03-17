@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync, openSync, readSync, closeSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync, openSync, readSync, closeSync } from "node:fs";
 import { resolve, sep, relative, extname, basename } from "node:path";
 import { Router } from "express";
 import { config } from "../../config.js";
@@ -143,7 +143,11 @@ filesRouter.get("/download", (req, res) => {
     return;
   }
 
-  res.download(resolved, basename(resolved));
+  const filename = basename(resolved);
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
+  res.setHeader("Content-Length", stat.size);
+  res.setHeader("Content-Type", "application/octet-stream");
+  createReadStream(resolved).pipe(res);
 });
 
 filesRouter.put("/", (req, res) => {
