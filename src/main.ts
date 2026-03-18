@@ -15,6 +15,7 @@ import { ensureAllAgentGitRepos, generateAgentsContext } from "./agents/manager.
 import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { modelPreferences } from "./model-preferences.js";
 import { settingsManager } from "./settings-manager.js";
+import { secretsManager } from "./secrets-manager.js";
 import { runTrackerMigrations } from "./tracker-migration.js";
 import { runDataMigrations } from "./data-migration.js";
 import { initTrackerExecutionBridge } from "./tracker-execution-bridge.js";
@@ -38,6 +39,7 @@ await runProcessManager.initialize();
 await initSessions();
 await executionManager.loadRecent();
 await initTrackerExecutionBridge();
+await secretsManager.syncAllToFiles();
 
 async function drainQueue(_id: string, info: ExecutionInfo) {
   try {

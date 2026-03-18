@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { query, execute } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
+import { listAgents } from "./agents/manager.js";
 
 export interface SecretEntry {
   id: string;
@@ -86,6 +87,7 @@ class SecretsManager {
       [entry.id, agentName, entry.name, entry.value, entry.description],
     );
     this.cache.delete(agentName);
+    await this.syncToFile(agentName);
     return { id: entry.id, name: entry.name, maskedValue: maskValue(entry.value), description: entry.description };
   }
 
@@ -103,6 +105,7 @@ class SecretsManager {
       [entry.name, entry.value, entry.description, id],
     );
     this.cache.delete(agentName);
+    await this.syncToFile(agentName);
     return { id: entry.id, name: entry.name, maskedValue: maskValue(entry.value), description: entry.description };
   }
 
@@ -110,6 +113,7 @@ class SecretsManager {
     const result = await execute("DELETE FROM agent_secrets WHERE id = ? AND agent_name = ?", [id, agentName]);
     if (result.affectedRows > 0) {
       this.cache.delete(agentName);
+      await this.syncToFile(agentName);
       return true;
     }
     return false;
@@ -150,6 +154,7 @@ class SecretsManager {
     writeFileSync(filePath, data);
     const stat = statSync(filePath);
     const descriptions = await this.loadFileDescriptions(agentName);
+    await this.syncToFile(agentName);
     return { name: filename, size: stat.size, description: descriptions[filename] ?? "" };
   }
 
@@ -161,6 +166,7 @@ class SecretsManager {
       "DELETE FROM agent_secret_file_descriptions WHERE agent_name = ? AND filename = ?",
       [agentName, filename],
     );
+    await this.syncToFile(agentName);
     return true;
   }
 
@@ -184,6 +190,32 @@ class SecretsManager {
       result[f] = resolve(dir, f);
     }
     return result;
+  }
+
+  async syncToFile(agentName: string): Promise<void> {
+    const secrets = await this.getSecrets(agentName);
+    const filePaths = this.getSecretFilePaths(agentName);
+    const jsonPath = resolve(config.agentsPath, agentName, "secrets.json");
+
+    if (secrets.length === 0 && Object.keys(filePaths).length === 0) {
+      if (existsSync(jsonPath)) unlinkSync(jsonPath);
+      return;
+    }
+
+    const data = {
+      secrets: secrets.map((s) => ({ name: s.name, value: s.value, description: s.description })),
+      files: filePaths,
+    };
+
+    mkdirSync(dirname(jsonPath), { recursive: true });
+    writeFileSync(jsonPath, JSON.stringify(data, null, 2), "utf-8");
+  }
+
+  async syncAllToFiles(): Promise<void> {
+    const agents = listAgents();
+    for (const name of agents) {
+      await this.syncToFile(name);
+    }
   }
 }
 
