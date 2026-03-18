@@ -31,6 +31,7 @@ interface ActivityFeedProps {
 
 export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {}, historyLimit = 20, onHistoryLimitChange }: ActivityFeedProps) {
   const [mdViewer, setMdViewer] = useState<{ path: string; base: string } | null>(null);
+  const [sessionFilter, setSessionFilter] = useState<string>("__all");
 
   const handleOutputClick = useCallback((e: React.MouseEvent, exec: ExecutionInfo) => {
     const target = e.target as HTMLElement;
@@ -43,7 +44,20 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
     setMdViewer({ path, base });
   }, []);
 
-  const sorted = [...executions]
+  const sessionIds = [...new Set(
+    executions
+      .map((e) => e.result?.sessionId ?? e.resumeSessionId)
+      .filter((s): s is string => !!s),
+  )];
+
+  const filtered = sessionFilter === "__all"
+    ? executions
+    : executions.filter((e) => {
+      const sid = e.result?.sessionId ?? e.resumeSessionId;
+      return sid === sessionFilter;
+    });
+
+  const sorted = [...filtered]
     .sort((a, b) => {
       if (a.status === "running" && b.status !== "running") return -1;
       if (b.status === "running" && a.status !== "running") return 1;
@@ -52,12 +66,28 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
       return new Date(dateB).getTime() - new Date(dateA).getTime();
     });
 
-  if (sorted.length === 0 && queue.length === 0) {
+  if (executions.length === 0 && queue.length === 0) {
     return <p className="text-sm text-text-muted">No recent activity.</p>;
   }
 
   return (
     <div className="space-y-1.5">
+      {sessionIds.length > 1 && (
+        <div className="flex items-center gap-2 px-3 pb-1">
+          <select
+            value={sessionFilter}
+            onChange={(e) => setSessionFilter(e.target.value)}
+            className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+          >
+            <option value="__all">All sessions</option>
+            {sessionIds.map((sid) => (
+              <option key={sid} value={sid}>
+                {sessionNames[sid] ?? sid.slice(0, 8)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {[...queue].reverse().map((item) => (
         <div key={`q-${item.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 rounded-md text-sm min-w-0 hover:bg-surface-hover">
           <Badge variant="warning">queued</Badge>

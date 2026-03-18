@@ -48,7 +48,7 @@ export function AgentDetailPage() {
 
   const {
     execId, setExecId, isRunning, sessionData, loadSession,
-    handleSessionChange, handleSessionRename,
+    handleSessionChange, handleSessionRename, handleSessionDelete,
     activity, historyLimit, setHistoryLimit, filteredQueue, filteredQuestions, submitAnswer,
     expandedExecId, toggleExpanded, addToast,
   } = useExecutionPage({
@@ -130,6 +130,7 @@ export function AgentDetailPage() {
           sessionData={sessionData}
           onChange={handleSessionChange}
           onRename={handleSessionRename}
+          onDelete={handleSessionDelete}
         />
       </div>
 

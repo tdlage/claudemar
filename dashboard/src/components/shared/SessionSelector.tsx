@@ -1,14 +1,15 @@
 import { useState } from "react";
-import { Pencil, Check, X } from "lucide-react";
+import { Pencil, Trash2, Check, X } from "lucide-react";
 import type { SessionData } from "../../lib/types";
 
 interface SessionSelectorProps {
   sessionData: SessionData;
   onChange: (value: string) => Promise<void>;
   onRename: (sessionId: string, name: string) => Promise<void>;
+  onDelete?: (sessionId: string) => Promise<void>;
 }
 
-export function SessionSelector({ sessionData, onChange, onRename }: SessionSelectorProps) {
+export function SessionSelector({ sessionData, onChange, onRename, onDelete }: SessionSelectorProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
 
@@ -66,16 +67,27 @@ export function SessionSelector({ sessionData, onChange, onRename }: SessionSele
         ))}
       </select>
       {sessionData.sessionId && (
-        <button
-          onClick={() => {
-            setRenameValue(getDisplayName(sessionData.sessionId!));
-            setRenaming(true);
-          }}
-          title="Rename session"
-          className="p-0.5 text-text-muted hover:text-text-primary transition-colors"
-        >
-          <Pencil size={12} />
-        </button>
+        <>
+          <button
+            onClick={() => {
+              setRenameValue(getDisplayName(sessionData.sessionId!));
+              setRenaming(true);
+            }}
+            title="Rename session"
+            className="p-0.5 text-text-muted hover:text-text-primary transition-colors"
+          >
+            <Pencil size={12} />
+          </button>
+          {onDelete && (
+            <button
+              onClick={() => onDelete(sessionData.sessionId!)}
+              title="Remove session from list"
+              className="p-0.5 text-text-muted hover:text-danger transition-colors"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </>
       )}
     </div>
   );

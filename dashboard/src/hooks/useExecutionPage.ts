@@ -131,6 +131,24 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
     }
   };
 
+  const handleSessionDelete = async (sessionId: string) => {
+    try {
+      await api.delete(`/executions/session-entry/${sessionId}`);
+      const isActive = sessionData.sessionId === sessionId;
+      setSessionData((prev) => ({
+        ...prev,
+        sessionId: isActive ? null : prev.sessionId,
+        history: prev.history.filter((s) => s !== sessionId),
+      }));
+      if (isActive) {
+        await api.delete(sessionPath);
+      }
+      addToast("success", "Session removed");
+    } catch {
+      addToast("error", "Failed to remove session");
+    }
+  };
+
   const toggleExpanded = (id: string) => {
     setExpandedExecId((prev) => (prev === id ? null : id));
   };
@@ -145,6 +163,7 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
     loadSession,
     handleSessionChange,
     handleSessionRename,
+    handleSessionDelete,
     activity,
     historyLimit,
     setHistoryLimit,

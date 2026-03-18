@@ -250,6 +250,16 @@ executionsRouter.delete("/session/:targetType/:targetName", (req, res) => {
   res.json({ ok: true });
 });
 
+executionsRouter.delete("/session-entry/:sessionId", async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId) {
+    res.status(400).json({ error: "sessionId required" });
+    return;
+  }
+  await sessionNamesManager.deleteName(sessionId);
+  res.json({ ok: true });
+});
+
 executionsRouter.patch("/session/:targetType/:targetName/rename", async (req, res) => {
   const { sessionId, name } = req.body;
   if (!sessionId || typeof sessionId !== "string") {

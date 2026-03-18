@@ -57,6 +57,11 @@ class SessionNamesManager {
     return username.charAt(0).toUpperCase() + username.slice(1);
   }
 
+  async deleteName(sessionId: string): Promise<void> {
+    this.names.delete(sessionId);
+    await execute("DELETE FROM session_names WHERE session_id = ?", [sessionId]);
+  }
+
   getNames(sessionIds: string[]): Record<string, string> {
     const result: Record<string, string> = {};
     for (const sid of sessionIds) {

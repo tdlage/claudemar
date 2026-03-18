@@ -53,7 +53,7 @@ export function ProjectDetailPage() {
 
   const {
     execId, setExecId, isRunning, sessionData, loadSession,
-    handleSessionChange, handleSessionRename,
+    handleSessionChange, handleSessionRename, handleSessionDelete,
     activity, historyLimit, setHistoryLimit, filteredQueue, filteredQuestions, submitAnswer,
     expandedExecId, toggleExpanded, addToast,
   } = useExecutionPage({
@@ -130,6 +130,7 @@ export function ProjectDetailPage() {
           sessionData={sessionData}
           onChange={handleSessionChange}
           onRename={handleSessionRename}
+          onDelete={handleSessionDelete}
         />
       </div>
 
