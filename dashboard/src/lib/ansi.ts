@@ -1,3 +1,6 @@
+import { Marked } from "marked";
+import DOMPurify from "dompurify";
+
 const ANSI_COLORS: Record<number, string> = {
   30: "#1e1e1e", 31: "#f87171", 32: "#4ade80", 33: "#facc15",
   34: "#60a5fa", 35: "#c084fc", 36: "#22d3ee", 37: "#e4e4e7",
@@ -56,4 +59,20 @@ export function extractMdPaths(text: string): string[] {
   const matches = plain.match(MD_PATH_PLAIN_RE);
   if (!matches) return [];
   return [...new Set(matches)];
+}
+
+export function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+const markedInstance = new Marked({
+  breaks: true,
+  gfm: true,
+});
+
+export function renderOutputHtml(text: string): string {
+  const plain = stripAnsi(text);
+  const raw = markedInstance.parse(plain) as string;
+  const clean = DOMPurify.sanitize(raw, { ADD_ATTR: ["data-md-path"] });
+  return linkifyMdPaths(clean);
 }

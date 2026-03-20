@@ -1,15 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import "@xterm/xterm/css/xterm.css";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { getSocket } from "../../lib/socket";
 import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
-import { extractMdPaths } from "../../lib/ansi";
+import { extractMdPaths, renderOutputHtml } from "../../lib/ansi";
 import { MdLinksBar } from "./MdLinksBar";
-
-function formatBold(text: string): string {
-  return text.replace(/\*\*(.+?)\*\*/g, "\x1b[1m$1\x1b[22m");
-}
 
 interface TerminalProps {
   executionId: string | null;
@@ -18,71 +11,42 @@ interface TerminalProps {
 
 export function Terminal({ executionId, base }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<XTerm | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
+  const [html, setHtml] = useState("");
   const [mdPaths, setMdPaths] = useState<string[]>([]);
+  const autoScrollRef = useRef(true);
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const term = new XTerm({
-      theme: {
-        background: "#0a0a0a",
-        foreground: "#e4e4e7",
-        cursor: "#6366f1",
-        selectionBackground: "#6366f133",
-        cyan: "#22d3ee",
-        yellow: "#facc15",
-        green: "#4ade80",
-        magenta: "#c084fc",
-      },
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      fontSize: 13,
-      lineHeight: 1.4,
-      cursorBlink: false,
-      disableStdin: true,
-      convertEol: true,
-    });
-
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(containerRef.current);
-
-    try { fitAddon.fit(); } catch { /* container not ready */ }
-
-    termRef.current = term;
-    fitRef.current = fitAddon;
-
-    const resizeObserver = new ResizeObserver(() => {
-      try { fitAddon.fit(); } catch { }
-    });
-    resizeObserver.observe(containerRef.current);
-
-    return () => {
-      resizeObserver.disconnect();
-      term.dispose();
-    };
+  const render = useCallback((text: string) => {
+    setHtml(renderOutputHtml(text || "(sem output)"));
+    const paths = extractMdPaths(text);
+    if (paths.length > 0) setMdPaths(paths);
   }, []);
 
   useEffect(() => {
-    const term = termRef.current;
-    if (!term) return;
+    const el = containerRef.current;
+    if (!el || !autoScrollRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [html]);
 
-    term.clear();
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const threshold = 40;
+      autoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    };
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    setHtml("");
     setMdPaths([]);
+    autoScrollRef.current = true;
 
     if (!executionId) return;
 
-    const updateMdPaths = (text: string) => {
-      const paths = extractMdPaths(text);
-      if (paths.length > 0) setMdPaths(paths);
-    };
-
     const buffered = getOutput(executionId);
-    if (buffered) {
-      term.write(formatBold(buffered));
-      updateMdPaths(buffered);
-    }
+    if (buffered) render(buffered);
 
     const socket = getSocket();
     socket.emit("subscribe:execution", executionId);
@@ -92,17 +56,14 @@ export function Terminal({ executionId, base }: TerminalProps) {
       const current = getOutput(executionId);
       if (data.output.length > current.length) {
         setOutput(executionId, data.output);
-        term.clear();
-        term.write(formatBold(data.output));
-        updateMdPaths(data.output);
+        render(data.output);
       }
     };
 
     const chunkHandler = (data: { id: string; chunk: string }) => {
       if (data.id !== executionId) return;
       appendOutput(data.id, data.chunk);
-      term.write(formatBold(data.chunk));
-      updateMdPaths(getOutput(executionId));
+      render(getOutput(executionId));
     };
 
     socket.on("execution:catchup", catchupHandler);
@@ -113,13 +74,14 @@ export function Terminal({ executionId, base }: TerminalProps) {
       socket.off("execution:output", chunkHandler);
       socket.emit("unsubscribe:execution", executionId);
     };
-  }, [executionId]);
+  }, [executionId, render]);
 
   return (
     <div className="flex flex-col w-full h-full min-h-[300px]">
       <div
         ref={containerRef}
-        className="flex-1 rounded-md overflow-hidden bg-bg min-h-0"
+        className="activity-output flex-1 rounded-md overflow-auto bg-bg p-3 md:p-4 text-sm text-text-primary min-h-0"
+        dangerouslySetInnerHTML={{ __html: html }}
       />
       {base && <MdLinksBar paths={mdPaths} base={base} />}
     </div>

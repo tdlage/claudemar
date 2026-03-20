@@ -3,7 +3,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Bot, ChevronDown, Square, User, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
-import { ansiToHtml, linkifyMdPaths } from "../../lib/ansi";
+import { renderOutputHtml } from "../../lib/ansi";
 import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
 import type { ExecutionInfo, QueueItem } from "../../lib/types";
 
@@ -141,7 +141,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
         const isExpanded = expandedId === exec.id;
         const clickable = !!onToggle;
 
-        const sanitizedOutput = linkifyMdPaths(ansiToHtml(exec.output || "(sem output)"));
+        const sanitizedOutput = renderOutputHtml(exec.output || "(sem output)");
         const sessionId = exec.result?.sessionId ?? exec.resumeSessionId;
 
         return (
@@ -216,8 +216,8 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
                     {exec.error}
                   </div>
                 )}
-                <pre
-                  className="p-2 md:p-3 bg-bg rounded-md border border-border text-xs text-text-primary max-h-[400px] overflow-auto whitespace-pre-wrap break-words"
+                <div
+                  className="activity-output p-2 md:p-3 bg-bg rounded-md border border-border text-xs text-text-primary max-h-[400px] overflow-auto break-words"
                   dangerouslySetInnerHTML={{ __html: sanitizedOutput }}
                   onClick={(e) => handleOutputClick(e, exec)}
                 />

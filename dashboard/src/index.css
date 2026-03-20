@@ -192,3 +192,27 @@ body {
 .markdown-editor .tiptap .hljs-class .hljs-title { color: #22d3ee; }
 .markdown-editor .tiptap .hljs-meta,
 .markdown-editor .tiptap .hljs-tag { color: #f87171; }
+
+.activity-output { line-height: 1.6; }
+.activity-output h1 { font-size: 1.15rem; font-weight: 700; margin: 0.8em 0 0.3em; border-bottom: 1px solid var(--color-border); padding-bottom: 0.2em; }
+.activity-output h2 { font-size: 1.05rem; font-weight: 600; margin: 0.7em 0 0.3em; }
+.activity-output h3 { font-size: 0.95rem; font-weight: 600; margin: 0.6em 0 0.2em; }
+.activity-output h4, .activity-output h5, .activity-output h6 { font-size: 0.85rem; font-weight: 600; margin: 0.5em 0 0.2em; }
+.activity-output p { margin: 0.4em 0; }
+.activity-output ul, .activity-output ol { padding-left: 1.5em; margin: 0.4em 0; }
+.activity-output ul { list-style: disc; }
+.activity-output ol { list-style: decimal; }
+.activity-output li { margin: 0.1em 0; }
+.activity-output li p { margin: 0; }
+.activity-output strong { font-weight: 600; }
+.activity-output em { font-style: italic; }
+.activity-output blockquote { border-left: 3px solid var(--color-accent); padding-left: 0.8em; margin: 0.4em 0; color: var(--color-text-secondary); }
+.activity-output code { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 3px; padding: 0.1em 0.3em; font-size: 0.85em; font-family: "JetBrains Mono", "Fira Code", monospace; color: #e879f9; }
+.activity-output pre { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.6em 0.8em; margin: 0.4em 0; overflow-x: auto; }
+.activity-output pre code { background: none; border: none; padding: 0; color: var(--color-text-primary); font-size: 0.85em; line-height: 1.5; }
+.activity-output a { color: var(--color-accent-hover); text-decoration: underline; text-underline-offset: 2px; }
+.activity-output hr { border: none; border-top: 1px solid var(--color-border); margin: 0.8em 0; }
+.activity-output table { width: 100%; border-collapse: collapse; margin: 0.4em 0; font-size: 0.85em; }
+.activity-output th, .activity-output td { border: 1px solid var(--color-border); padding: 0.3em 0.6em; text-align: left; }
+.activity-output th { background: var(--color-surface); font-weight: 600; }
+.activity-output tr:nth-child(even) { background: var(--color-surface); }
