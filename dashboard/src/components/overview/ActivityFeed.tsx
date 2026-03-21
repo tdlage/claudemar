@@ -25,13 +25,15 @@ interface ActivityFeedProps {
   expandedId?: string | null;
   onToggle?: (id: string) => void;
   sessionNames?: Record<string, string>;
+  sessionIds?: string[];
+  sessionFilter?: string;
+  onSessionFilterChange?: (filter: string) => void;
   historyLimit?: number;
   onHistoryLimitChange?: (limit: number) => void;
 }
 
-export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {}, historyLimit = 20, onHistoryLimitChange }: ActivityFeedProps) {
+export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {}, sessionIds = [], sessionFilter = "__all", onSessionFilterChange, historyLimit = 20, onHistoryLimitChange }: ActivityFeedProps) {
   const [mdViewer, setMdViewer] = useState<{ path: string; base: string } | null>(null);
-  const [sessionFilter, setSessionFilter] = useState<string>("__all");
 
   const handleOutputClick = useCallback((e: React.MouseEvent, exec: ExecutionInfo) => {
     const target = e.target as HTMLElement;
@@ -44,20 +46,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
     setMdViewer({ path, base });
   }, []);
 
-  const sessionIds = [...new Set(
-    executions
-      .map((e) => e.result?.sessionId ?? e.resumeSessionId)
-      .filter((s): s is string => !!s),
-  )];
-
-  const filtered = sessionFilter === "__all"
-    ? executions
-    : executions.filter((e) => {
-      const sid = e.result?.sessionId ?? e.resumeSessionId;
-      return sid === sessionFilter;
-    });
-
-  const sorted = [...filtered]
+  const sorted = [...executions]
     .sort((a, b) => {
       if (a.status === "running" && b.status !== "running") return -1;
       if (b.status === "running" && a.status !== "running") return 1;
@@ -72,11 +61,11 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
 
   return (
     <div className="space-y-1.5">
-      {sessionIds.length > 1 && (
+      {sessionIds.length > 1 && onSessionFilterChange && (
         <div className="flex items-center gap-2 px-3 pb-1">
           <select
             value={sessionFilter}
-            onChange={(e) => setSessionFilter(e.target.value)}
+            onChange={(e) => onSessionFilterChange(e.target.value)}
             className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
           >
             <option value="__all">All sessions</option>

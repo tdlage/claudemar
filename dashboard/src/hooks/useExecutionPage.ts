@@ -19,9 +19,11 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
   const [sessionData, setSessionData] = useState<SessionData>({ sessionId: null, history: [], names: {} });
   const [dbHistory, setDbHistory] = useState<ExecutionInfo[]>([]);
   const [historyLimit, setHistoryLimit] = useState(20);
+  const [sessionFilter, setSessionFilter] = useState<string>("__all");
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
   const loadedTargetRef = useRef("");
   const lastLimitRef = useRef(0);
+  const lastSessionFilterRef = useRef("__all");
 
   const sessionPath = `/executions/session/${targetType}/${targetName}`;
 
@@ -31,15 +33,31 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
 
   const realtimeCompleted = recent.filter((e) => e.targetType === targetType && e.targetName === targetName);
   const dbIds = new Set(dbHistory.map((e) => e.id));
-  const newFromRealtime = realtimeCompleted.filter((e) => !dbIds.has(e.id));
-  const activity = [...filteredActive, ...newFromRealtime, ...dbHistory];
+  const newFromRealtime = realtimeCompleted.filter((e) => {
+    if (dbIds.has(e.id)) return false;
+    if (sessionFilter !== "__all") {
+      const sid = e.result?.sessionId ?? e.resumeSessionId;
+      return sid === sessionFilter;
+    }
+    return true;
+  });
+  const filteredActiveBySession = sessionFilter === "__all"
+    ? filteredActive
+    : filteredActive.filter((e) => {
+      const sid = e.result?.sessionId ?? e.resumeSessionId;
+      return sid === sessionFilter;
+    });
+  const activity = [...filteredActiveBySession, ...newFromRealtime, ...dbHistory];
 
   const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
   const isRunning = !!activeExec;
 
-  const fetchHistory = useCallback((limit: number) => {
+  const fetchHistory = useCallback((limit: number, filterSessionId?: string) => {
     const key = `${targetType}:${targetName}`;
-    api.get<Array<Record<string, unknown>>>(`/executions/history/${targetType}/${targetName}?limit=${limit}`).then((entries) => {
+    const sid = filterSessionId ?? lastSessionFilterRef.current;
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (sid && sid !== "__all") params.set("sessionId", sid);
+    api.get<Array<Record<string, unknown>>>(`/executions/history/${targetType}/${targetName}?${params}`).then((entries) => {
       const mapped: ExecutionInfo[] = entries.map((e: Record<string, unknown>) => ({
         id: e.id as string,
         source: (e.source as string) || "telegram",
@@ -76,15 +94,19 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
     const key = `${targetType}:${targetName}`;
     if (loadedTargetRef.current !== key) {
       setHistoryLimit(20);
-      fetchHistory(20);
+      setSessionFilter("__all");
+      lastSessionFilterRef.current = "__all";
+      fetchHistory(20, "__all");
     }
   }, [targetType, targetName, fetchHistory]);
 
   useEffect(() => {
-    if (historyLimit !== lastLimitRef.current && loadedTargetRef.current === `${targetType}:${targetName}`) {
-      fetchHistory(historyLimit);
+    const loaded = loadedTargetRef.current === `${targetType}:${targetName}`;
+    if (loaded && (historyLimit !== lastLimitRef.current || sessionFilter !== lastSessionFilterRef.current)) {
+      lastSessionFilterRef.current = sessionFilter;
+      fetchHistory(historyLimit, sessionFilter);
     }
-  }, [historyLimit, targetType, targetName, fetchHistory]);
+  }, [historyLimit, sessionFilter, targetType, targetName, fetchHistory]);
 
   const loadSession = useCallback(() => {
     api.get<SessionData>(sessionPath).then(setSessionData).catch(() => {});
@@ -167,6 +189,8 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
     activity,
     historyLimit,
     setHistoryLimit,
+    sessionFilter,
+    setSessionFilter,
     filteredQueue,
     filteredQuestions,
     submitAnswer,

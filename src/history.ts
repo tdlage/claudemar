@@ -78,17 +78,22 @@ export function appendHistory(entry: HistoryEntry): void {
   ).catch((err) => console.error("[history] append failed:", err));
 }
 
-export async function loadHistory(limit = 20, targetType?: string, targetName?: string): Promise<HistoryEntry[]> {
-  let sql: string;
+export async function loadHistory(limit = 20, targetType?: string, targetName?: string, sessionId?: string): Promise<HistoryEntry[]> {
+  const conditions: string[] = [];
   const params: (string | number)[] = [];
   const safeLimit = Math.max(1, Math.floor(Number(limit)));
 
   if (targetType && targetName) {
-    sql = `SELECT * FROM (SELECT * FROM execution_history WHERE target_type = ? AND target_name = ? ORDER BY started_at DESC LIMIT ${safeLimit}) AS sub ORDER BY started_at ASC`;
+    conditions.push("target_type = ? AND target_name = ?");
     params.push(targetType, targetName);
-  } else {
-    sql = `SELECT * FROM (SELECT * FROM execution_history ORDER BY started_at DESC LIMIT ${safeLimit}) AS sub ORDER BY started_at ASC`;
   }
+  if (sessionId) {
+    conditions.push("session_id = ?");
+    params.push(sessionId);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const sql = `SELECT * FROM (SELECT * FROM execution_history ${where} ORDER BY started_at DESC LIMIT ${safeLimit}) AS sub ORDER BY started_at ASC`;
 
   const rows = await query<HistoryRow[]>(sql, params);
   return rows.map(rowToEntry);
@@ -99,7 +104,7 @@ export async function loadSessionIds(targetType: string, targetName: string): Pr
     `SELECT session_id FROM (
        SELECT session_id, MAX(started_at) AS last_used
        FROM execution_history
-       WHERE target_type = ? AND target_name = ? AND session_id IS NOT NULL AND status = 'completed'
+       WHERE target_type = ? AND target_name = ? AND session_id IS NOT NULL
        GROUP BY session_id
      ) sub ORDER BY last_used DESC`,
     [targetType, targetName],
