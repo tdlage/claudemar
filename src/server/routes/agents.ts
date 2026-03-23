@@ -662,6 +662,25 @@ agentsRouter.get("/:name/secrets/files", async (req, res) => {
   res.json(await secretsManager.getSecretFiles(name));
 });
 
+agentsRouter.get("/:name/secrets/files/:file/download", (req, res) => {
+  const { name, file } = req.params;
+  if (!isValidAgentName(name) || !safeFilename(file)) {
+    res.status(400).json({ error: "Invalid name or filename" });
+    return;
+  }
+  const paths = secretsManager.getSecretFilePaths(name);
+  const filePath = paths[file];
+  if (!filePath || !existsSync(filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+  const stat = statSync(filePath);
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file)}"`);
+  res.setHeader("Content-Length", stat.size);
+  res.setHeader("Content-Type", "application/octet-stream");
+  createReadStream(filePath).pipe(res);
+});
+
 agentsRouter.post("/:name/secrets/files", async (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {

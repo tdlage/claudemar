@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Plus, Trash2, Pencil, Eye, EyeOff, KeyRound, Upload, FileKey, Loader2 } from "lucide-react";
+import { Plus, Trash2, Pencil, Eye, EyeOff, KeyRound, Upload, FileKey, Loader2, Download } from "lucide-react";
 import { api } from "../../lib/api";
 import { Card } from "../shared/Card";
 import { Button } from "../shared/Button";
@@ -155,6 +155,25 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
     }
   };
 
+  const handleDownloadFile = async (filename: string) => {
+    try {
+      const token = localStorage.getItem("dashboard_token") || "";
+      const res = await fetch(`/api/agents/${agentName}/secrets/files/${encodeURIComponent(filename)}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      addToast("error", "Failed to download file");
+    }
+  };
+
   const handleDeleteFile = async (filename: string) => {
     if (!confirm(`Delete file "${filename}"?`)) return;
     try {
@@ -291,6 +310,9 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <Button size="sm" variant="secondary" onClick={() => handleDownloadFile(file.name)}>
+                      <Download size={12} />
+                    </Button>
                     <Button size="sm" variant="danger" onClick={() => handleDeleteFile(file.name)}>
                       <Trash2 size={12} />
                     </Button>
