@@ -5,8 +5,8 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { type AskQuestion, type ClaudeResult, type SpawnHandle, spawnClaude } from "./executor.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
-import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInboxMessages } from "./agents/messenger.js";
-import { getAgentPaths } from "./agents/manager.js";
+import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInboxMessages, getInboxMessages } from "./agents/messenger.js";
+import { getAgentPaths, listAgents } from "./agents/manager.js";
 import { config } from "./config.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { isEmailEnabled, getEmailScriptPath } from "./email-init.js";
@@ -492,6 +492,23 @@ class ExecutionManager extends EventEmitter {
     this.triggerInboxProcessing([agentName]);
   }
 
+  processAllPendingInboxes(): void {
+    const agents = listAgents();
+    const withMessages = agents.filter((name) => getInboxMessages(name).length > 0);
+    if (withMessages.length > 0) {
+      console.log(`[inbox] Startup: found pending messages for ${withMessages.join(", ")}`);
+      this.triggerInboxProcessing(withMessages);
+    }
+  }
+
+  private getAnyLastSessionId(targetType: string, targetName: string): string | undefined {
+    const prefix = `${targetType}:${targetName}:`;
+    for (const [key, sessionId] of this.lastSessionMap) {
+      if (key.startsWith(prefix)) return sessionId;
+    }
+    return undefined;
+  }
+
   private triggerInboxProcessing(destinations: string[]): void {
     for (const agentName of destinations) {
       if (this.isTargetActive("agent", agentName)) {
@@ -505,7 +522,8 @@ class ExecutionManager extends EventEmitter {
       const paths = getAgentPaths(agentName);
       if (!paths) continue;
 
-      console.log(`[inbox] Triggering ${agentName} to process inbox messages`);
+      const resumeSessionId = this.getAnyLastSessionId("agent", agentName);
+      console.log(`[inbox] Triggering ${agentName} to process inbox messages${resumeSessionId ? ` (session ${resumeSessionId.slice(0, 8)})` : ""}`);
       this.startExecution({
         source: "web",
         targetType: "agent",
@@ -513,6 +531,7 @@ class ExecutionManager extends EventEmitter {
         prompt: inboxPrompt,
         cwd: paths.root,
         isInboxProcessing: true,
+        resumeSessionId,
         username: "system",
       });
     }

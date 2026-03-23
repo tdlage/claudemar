@@ -40,6 +40,7 @@ await initSessions();
 await executionManager.loadRecent();
 await initTrackerExecutionBridge();
 await secretsManager.syncAllToFiles();
+executionManager.processAllPendingInboxes();
 
 async function drainQueue(_id: string, info: ExecutionInfo) {
   try {
