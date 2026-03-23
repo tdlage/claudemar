@@ -3,6 +3,7 @@ import { ArrowLeft, Download, FileText, Folder, Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { Card } from "../shared/Card";
 import { useToast } from "../shared/Toast";
+import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
 
 export interface OutputFile {
   name: string;
@@ -26,6 +27,7 @@ function formatSize(bytes: number): string {
 export function OutputBrowser({ agentName, files, onRefresh }: OutputBrowserProps) {
   const { addToast } = useToast();
   const [currentPath, setCurrentPath] = useState("");
+  const [viewerFile, setViewerFile] = useState<string | null>(null);
   const [subFiles, setSubFiles] = useState<OutputFile[] | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -148,6 +150,13 @@ export function OutputBrowser({ agentName, files, onRefresh }: OutputBrowserProp
             >
               {file.name}
             </button>
+          ) : file.name.endsWith(".md") ? (
+            <button
+              onClick={() => setViewerFile(currentPath ? `${currentPath}/${file.name}` : file.name)}
+              className="text-sm text-accent hover:underline truncate flex-1 text-left cursor-pointer"
+            >
+              {file.name}
+            </button>
           ) : (
             <span className="text-sm text-text-primary truncate flex-1">{file.name}</span>
           )}
@@ -175,6 +184,14 @@ export function OutputBrowser({ agentName, files, onRefresh }: OutputBrowserProp
           </button>
         </Card>
       ))}
+      {viewerFile && (
+        <MarkdownViewerModal
+          open
+          onClose={() => setViewerFile(null)}
+          filePath={`output/${viewerFile}`}
+          base={`agent:${agentName}`}
+        />
+      )}
     </div>
   );
 }

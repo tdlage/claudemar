@@ -4,6 +4,8 @@ import { api } from "../../lib/api";
 import { Card } from "../shared/Card";
 import { Button } from "../shared/Button";
 import { useToast } from "../shared/Toast";
+import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
+import { renderOutputHtml } from "../../lib/ansi";
 import type { AgentFileContent } from "../../lib/types";
 
 interface InboxListProps {
@@ -16,6 +18,7 @@ export function InboxList({ agentName, files, onRefresh }: InboxListProps) {
   const { addToast } = useToast();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [contents, setContents] = useState<Record<string, AgentFileContent>>({});
+  const [viewerFile, setViewerFile] = useState<string | null>(null);
 
   const toggleExpand = async (file: string) => {
     if (expanded === file) {
@@ -72,15 +75,21 @@ export function InboxList({ agentName, files, onRefresh }: InboxListProps) {
             >
               {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               <span className="text-xs text-accent font-medium min-w-[80px]">{sender}</span>
-              <span className="text-sm text-text-primary truncate flex-1">{file}</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); setViewerFile(file); }}
+                className="text-sm text-accent hover:underline truncate flex-1 text-left"
+              >
+                {file}
+              </button>
             </button>
 
             {isExpanded && (
               <div className="border-t border-border">
                 {contents[file] ? (
-                  <pre className="px-4 py-3 text-sm text-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-bg">
-                    {contents[file].content}
-                  </pre>
+                  <div
+                    className="activity-output px-4 py-3 text-sm text-text-secondary overflow-auto max-h-80 bg-bg"
+                    dangerouslySetInnerHTML={{ __html: renderOutputHtml(contents[file].content) }}
+                  />
                 ) : (
                   <p className="px-4 py-3 text-sm text-text-muted">Loading...</p>
                 )}
@@ -97,6 +106,14 @@ export function InboxList({ agentName, files, onRefresh }: InboxListProps) {
           </Card>
         );
       })}
+      {viewerFile && (
+        <MarkdownViewerModal
+          open
+          onClose={() => setViewerFile(null)}
+          filePath={`inbox/${viewerFile}`}
+          base={`agent:${agentName}`}
+        />
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { api } from "../../lib/api";
 import { Card } from "../shared/Card";
 import { Button } from "../shared/Button";
 import { useToast } from "../shared/Toast";
+import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
 
 export interface InputFile {
   name: string;
@@ -13,16 +14,18 @@ export interface InputFile {
 
 interface InputBrowserProps {
   apiBasePath: string;
+  base: string;
   files: InputFile[];
   onRefresh: () => void;
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-export function InputBrowser({ apiBasePath, files, onRefresh }: InputBrowserProps) {
+export function InputBrowser({ apiBasePath, base, files, onRefresh }: InputBrowserProps) {
   const { addToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [viewerFile, setViewerFile] = useState<string | null>(null);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -102,7 +105,16 @@ export function InputBrowser({ apiBasePath, files, onRefresh }: InputBrowserProp
           {files.map((file) => (
             <Card key={file.name} className="px-4 py-3 flex items-center gap-2">
               <FileText size={14} className="text-text-muted shrink-0" />
-              <span className="text-sm text-text-primary truncate flex-1">{file.name}</span>
+              {file.name.endsWith(".md") ? (
+                <button
+                  onClick={() => setViewerFile(file.name)}
+                  className="text-sm text-accent hover:underline truncate flex-1 text-left"
+                >
+                  {file.name}
+                </button>
+              ) : (
+                <span className="text-sm text-text-primary truncate flex-1">{file.name}</span>
+              )}
               <span className="text-xs text-text-muted whitespace-nowrap">
                 {(file.size / 1024).toFixed(1)} KB
               </span>
@@ -126,6 +138,14 @@ export function InputBrowser({ apiBasePath, files, onRefresh }: InputBrowserProp
             </Card>
           ))}
         </div>
+      )}
+      {viewerFile && (
+        <MarkdownViewerModal
+          open
+          onClose={() => setViewerFile(null)}
+          filePath={`.input/${viewerFile}`}
+          base={base}
+        />
       )}
     </div>
   );

@@ -302,7 +302,7 @@ export function ProjectDetailPage() {
       )}
 
       {tab === "input" && (
-        <InputBrowser apiBasePath={`/projects/${project.name}`} files={inputFiles} onRefresh={loadInputs} />
+        <InputBrowser apiBasePath={`/projects/${project.name}`} base={`project:${project.name}`} files={inputFiles} onRefresh={loadInputs} />
       )}
 
       {tab === "repositories" && (

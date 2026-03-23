@@ -272,7 +272,7 @@ export function AgentDetailPage() {
       )}
 
       {tab === "input" && (
-        <InputBrowser apiBasePath={`/agents/${agent.name}`} files={inputFiles} onRefresh={loadInputs} />
+        <InputBrowser apiBasePath={`/agents/${agent.name}`} base={`agent:${agent.name}`} files={inputFiles} onRefresh={loadInputs} />
       )}
 
       {tab === "output" && (
