@@ -297,16 +297,7 @@ class ExecutionManager extends EventEmitter {
           appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, durationMs: result.durationMs }));
         }
 
-        if (opts.targetType === "agent") {
-          if (opts.isInboxProcessing) {
-            archiveInboxMessages(opts.targetName);
-          }
-          const agentRoute = routeMessages(opts.targetName);
-          this.triggerInboxProcessing(agentRoute.destinations);
-        } else if (opts.targetType === "orchestrator") {
-          const orchRoute = routeOrchestratorMessages();
-          this.triggerInboxProcessing(orchRoute.destinations);
-        }
+        this.routeAgentMessages(opts);
       })
       .catch((err) => {
         if (info.status === "cancelled") return;
@@ -327,6 +318,7 @@ class ExecutionManager extends EventEmitter {
         this.emit("error", id, info, message);
 
         appendHistory(buildHistoryEntry(info, { durationMs }));
+        this.routeAgentMessages(opts);
       });
 
     return id;
@@ -479,6 +471,20 @@ class ExecutionManager extends EventEmitter {
     this.recent.push(entry.info);
     if (this.recent.length > MAX_RECENT) {
       this.recent.shift();
+    }
+  }
+
+  private routeAgentMessages(opts: ExecutionOptions): void {
+    if (opts.targetType === "agent") {
+      if (opts.isInboxProcessing) {
+        archiveInboxMessages(opts.targetName);
+      }
+      const agentRoute = routeMessages(opts.targetName);
+      this.triggerInboxProcessing(agentRoute.destinations);
+      this.triggerInboxProcessing([opts.targetName]);
+    } else if (opts.targetType === "orchestrator") {
+      const orchRoute = routeOrchestratorMessages();
+      this.triggerInboxProcessing(orchRoute.destinations);
     }
   }
 

@@ -9,7 +9,7 @@ export interface RouteResult {
   destinations: string[];
 }
 
-const OUTBOX_PATTERN = /^PARA-([a-zA-Z0-9._-]+)_(.+)$/;
+const OUTBOX_PATTERN = /^PARA-([a-zA-Z0-9.-]+)_(.+)$/;
 const INBOX_PATTERN = /^DE-.+\.md$/;
 
 export function routeMessages(sourceAgent: string): RouteResult {

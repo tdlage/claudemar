@@ -96,7 +96,7 @@ mkdir -p ${config.agentsPath}/<name>/{context,inbox,outbox,output,schedules}
 \`\`\`
 Then create \`${config.agentsPath}/<name>/CLAUDE.md\` with the agent's persona, role, and instructions.
 
-Agent names must match: \`/^[a-zA-Z0-9._-]+$/\`
+Agent names must match: \`/^[a-zA-Z0-9.-]+$/\`
 
 ### Remove an agent
 \`\`\`bash

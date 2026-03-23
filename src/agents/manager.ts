@@ -4,7 +4,7 @@ import { resolve, sep } from "node:path";
 import { config } from "../config.js";
 import type { AgentInfo, AgentPaths } from "./types.js";
 
-const AGENT_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+const AGENT_NAME_RE = /^[a-zA-Z0-9.-]+$/;
 
 export function isValidAgentName(name: string): boolean {
   return AGENT_NAME_RE.test(name);

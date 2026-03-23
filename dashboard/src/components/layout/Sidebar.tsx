@@ -448,7 +448,7 @@ export function Sidebar() {
                 <input
                   type="text"
                   value={newAgentName}
-                  onChange={(e) => setNewAgentName(e.target.value.replace(/[^a-zA-Z0-9._-]/g, ""))}
+                  onChange={(e) => setNewAgentName(e.target.value.replace(/[^a-zA-Z0-9.-]/g, ""))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleCreateAgent();
                     if (e.key === "Escape") setCreateAgentOpen(false);
