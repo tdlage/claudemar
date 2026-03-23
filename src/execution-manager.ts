@@ -488,6 +488,10 @@ class ExecutionManager extends EventEmitter {
     }
   }
 
+  processInbox(agentName: string): void {
+    this.triggerInboxProcessing([agentName]);
+  }
+
   private triggerInboxProcessing(destinations: string[]): void {
     for (const agentName of destinations) {
       if (this.isTargetActive("agent", agentName)) {

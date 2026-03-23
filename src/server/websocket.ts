@@ -184,8 +184,20 @@ export function setupWebSocket(io: SocketServer): void {
     io.to("executions").emit("ci:workflow_run", data);
   });
 
+  const inboxDebounce = new Map<string, NodeJS.Timeout>();
+
   startFileWatcher((event, base, path) => {
     io.to("files").emit("file:changed", { event, base, path });
+
+    if (event === "add" && base.startsWith("agent:") && path.startsWith("inbox/DE-")) {
+      const agentName = base.slice(6);
+      if (!inboxDebounce.has(agentName)) {
+        inboxDebounce.set(agentName, setTimeout(() => {
+          inboxDebounce.delete(agentName);
+          executionManager.processInbox(agentName);
+        }, 2000));
+      }
+    }
   });
 
   process.on("SIGTERM", stopFileWatcher);
