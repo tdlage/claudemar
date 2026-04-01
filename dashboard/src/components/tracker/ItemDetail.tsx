@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Pencil, Clock, Send, FileText, Bug, Layers } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, Pencil, Clock, Send, FileText, Bug, Layers, Trash2 } from "lucide-react";
 import { Tabs } from "../shared/Tabs";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
 import { useItems, useTrackerProjects, useProjectMembers, useItemPlan, useItemCommits } from "../../hooks/useTracker";
@@ -60,6 +60,7 @@ function AppetiteIndicator({ appetite, startedAt }: { appetite: number; startedA
 }
 
 export function ItemDetail({ projectId, cycleId, itemId }: Props) {
+  const navigate = useNavigate();
   const { addToast } = useToast();
   const canEdit = canEditTrackerProject(projectId);
   const admin = isAdmin();
@@ -188,6 +189,17 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
       await api.put(`/tracker/items/${itemId}`, { outOfScope });
     } catch {
       addToast("error", "Failed to save");
+    }
+  };
+
+  const handleDeleteItem = async () => {
+    if (!confirm("Delete this item?")) return;
+    try {
+      await api.delete(`/tracker/items/${itemId}`);
+      addToast("success", "Item deleted");
+      navigate(`/tracker/${projectId}/cycles/${cycleId}`);
+    } catch {
+      addToast("error", "Failed to delete item");
     }
   };
 
@@ -321,6 +333,11 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
               className="text-text-muted hover:text-text-primary"
             >
               <Pencil size={13} />
+            </button>
+          )}
+          {canEdit && (
+            <button onClick={handleDeleteItem} className="text-text-muted hover:text-danger" title="Delete item">
+              <Trash2 size={13} />
             </button>
           )}
           {admin && item && (

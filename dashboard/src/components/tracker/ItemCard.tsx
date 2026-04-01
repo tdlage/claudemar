@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, XCircle, Clock, Bug } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle, Clock, Bug, Trash2 } from "lucide-react";
 import type { TrackerItem } from "../../lib/types";
 import { getDaysSpent, getPriorityConfig, getCycleColor } from "./constants";
 
@@ -8,6 +8,7 @@ interface Props {
   onClick: () => void;
   cycleName?: string;
   cycleId?: string;
+  onDelete?: (id: string) => void;
 }
 
 function AppetiteBadge({ item }: { item: TrackerItem }) {
@@ -82,7 +83,7 @@ function TestStatusBadge({ item }: { item: TrackerItem }) {
   );
 }
 
-export function ItemCard({ item, projectCode, onClick, cycleName, cycleId }: Props) {
+export function ItemCard({ item, projectCode, onClick, cycleName, cycleId, onDelete }: Props) {
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("text/plain", item.id);
     e.dataTransfer.effectAllowed = "move";
@@ -93,7 +94,7 @@ export function ItemCard({ item, projectCode, onClick, cycleName, cycleId }: Pro
       draggable
       onDragStart={handleDragStart}
       onClick={onClick}
-      className="bg-surface border border-border rounded-md p-3 cursor-grab active:cursor-grabbing hover:border-accent/30 transition-colors"
+      className="group bg-surface border border-border rounded-md p-3 cursor-grab active:cursor-grabbing hover:border-accent/30 transition-colors"
     >
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
@@ -119,6 +120,15 @@ export function ItemCard({ item, projectCode, onClick, cycleName, cycleId }: Pro
             })()}
             <TestStatusBadge item={item} />
             <AppetiteBadge item={item} />
+            {onDelete && (
+              <button
+                onClick={(e) => { e.stopPropagation(); if (confirm("Delete this item?")) onDelete(item.id); }}
+                className="text-text-muted hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Delete item"
+              >
+                <Trash2 size={11} />
+              </button>
+            )}
           </div>
         </div>
         <p className="text-sm font-medium text-text-primary leading-snug">{item.title}</p>

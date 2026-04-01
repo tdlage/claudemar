@@ -65,6 +65,15 @@ export function CycleBoard({ projectId, cycleId }: Props) {
     }
   };
 
+  const handleDeleteItem = async (id: string) => {
+    try {
+      await api.delete(`/tracker/items/${id}`);
+      addToast("success", "Item deleted");
+    } catch {
+      addToast("error", "Failed to delete item");
+    }
+  };
+
   const handleDeleteCycle = async () => {
     if (!confirm("Delete this cycle and all its items?")) return;
     try {
@@ -162,6 +171,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
                     item={item}
                     projectCode={project?.code ?? ""}
                     onClick={() => navigate(`/tracker/${projectId}/cycles/${cycleId}/items/${item.id}`)}
+                    onDelete={canEdit ? handleDeleteItem : undefined}
                   />
                 ))}
               </div>

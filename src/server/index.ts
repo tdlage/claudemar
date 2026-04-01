@@ -72,7 +72,7 @@ export function createDashboardServer() {
 
   app.use("/api/auth", jsonParser, authRouter);
   app.use("/api/agents", express.json({ limit: "15mb" }), agentsRouter);
-  app.use("/api/projects", jsonParser, projectsRouter);
+  app.use("/api/projects", express.json({ limit: "15mb" }), projectsRouter);
   app.use("/api/executions", jsonParser, executionsRouter);
   app.use("/api/files", jsonParser, filesRouter);
   app.use("/api/orchestrator", jsonParser, requireAdmin, orchestratorRouter);

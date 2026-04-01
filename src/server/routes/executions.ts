@@ -132,12 +132,6 @@ executionsRouter.post("/", async (req, res) => {
     return;
   }
 
-  if (!forceQueue && targetActive) {
-    const item = await commandQueue.enqueue(queuePayload);
-    res.status(202).json({ queued: true, queueItem: { id: item.id, seqId: item.seqId } });
-    return;
-  }
-
   const id = executionManager.startExecution({
     ...queuePayload,
   });

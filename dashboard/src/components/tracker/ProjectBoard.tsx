@@ -94,6 +94,15 @@ export function ProjectBoard({ projectId }: Props) {
     }
   };
 
+  const handleDeleteItem = async (id: string) => {
+    try {
+      await api.delete(`/tracker/items/${id}`);
+      addToast("success", "Item deleted");
+    } catch {
+      addToast("error", "Failed to delete item");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 text-xs text-text-muted">
@@ -182,6 +191,7 @@ export function ProjectBoard({ projectId }: Props) {
                     cycleName={item.cycleName}
                     cycleId={item.cycleId}
                     onClick={() => navigate(`/tracker/${projectId}/cycles/${item.cycleId}/items/${item.id}`)}
+                    onDelete={canEdit ? handleDeleteItem : undefined}
                   />
                 ))}
               </div>
