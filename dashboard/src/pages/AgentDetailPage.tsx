@@ -52,6 +52,7 @@ export function AgentDetailPage() {
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
     expandedExecId, toggleExpanded, addToast,
+    searchQuery, handleSearchChange,
   } = useExecutionPage({
     targetType: "agent",
     targetName: name ?? "",
@@ -251,6 +252,8 @@ export function AgentDetailPage() {
                 onSessionFilterChange={setSessionFilter}
                 historyLimit={historyLimit}
                 onHistoryLimitChange={setHistoryLimit}
+                searchQuery={searchQuery}
+                onSearchChange={handleSearchChange}
               />
             </div>
           )}

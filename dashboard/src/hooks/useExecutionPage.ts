@@ -20,10 +20,13 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
   const [dbHistory, setDbHistory] = useState<ExecutionInfo[]>([]);
   const [historyLimit, setHistoryLimit] = useState(20);
   const [sessionFilter, setSessionFilter] = useState<string>("__all");
+  const [searchQuery, setSearchQuery] = useState("");
   const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
   const loadedTargetRef = useRef("");
   const lastLimitRef = useRef(0);
   const lastSessionFilterRef = useRef("__all");
+  const lastSearchRef = useRef("");
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const sessionPath = `/executions/session/${targetType}/${targetName}`;
 
@@ -52,11 +55,13 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
   const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
   const isRunning = !!activeExec;
 
-  const fetchHistory = useCallback((limit: number, filterSessionId?: string) => {
+  const fetchHistory = useCallback((limit: number, filterSessionId?: string, filterSearch?: string) => {
     const key = `${targetType}:${targetName}`;
     const sid = filterSessionId ?? lastSessionFilterRef.current;
+    const sq = filterSearch ?? lastSearchRef.current;
     const params = new URLSearchParams({ limit: String(limit) });
     if (sid && sid !== "__all") params.set("sessionId", sid);
+    if (sq) params.set("search", sq);
     api.get<Array<Record<string, unknown>>>(`/executions/history/${targetType}/${targetName}?${params}`).then((entries) => {
       const mapped: ExecutionInfo[] = entries.map((e: Record<string, unknown>) => ({
         id: e.id as string,
@@ -95,8 +100,10 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
     if (loadedTargetRef.current !== key) {
       setHistoryLimit(20);
       setSessionFilter("__all");
+      setSearchQuery("");
       lastSessionFilterRef.current = "__all";
-      fetchHistory(20, "__all");
+      lastSearchRef.current = "";
+      fetchHistory(20, "__all", "");
     }
   }, [targetType, targetName, fetchHistory]);
 
@@ -107,6 +114,15 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
       fetchHistory(historyLimit, sessionFilter);
     }
   }, [historyLimit, sessionFilter, targetType, targetName, fetchHistory]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      lastSearchRef.current = value;
+      fetchHistory(historyLimit, sessionFilter, value);
+    }, 400);
+  }, [fetchHistory, historyLimit, sessionFilter]);
 
   const loadSession = useCallback(() => {
     api.get<SessionData>(sessionPath).then(setSessionData).catch(() => {});
@@ -196,5 +212,7 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
     submitAnswer,
     toggleExpanded,
     addToast,
+    searchQuery,
+    handleSearchChange,
   };
 }

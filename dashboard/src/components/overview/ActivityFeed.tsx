@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { Bot, ChevronDown, Square, User, X } from "lucide-react";
+import { Bot, ChevronDown, Search, Square, User, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
 import { renderOutputHtml } from "../../lib/ansi";
@@ -30,9 +30,11 @@ interface ActivityFeedProps {
   onSessionFilterChange?: (filter: string) => void;
   historyLimit?: number;
   onHistoryLimitChange?: (limit: number) => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
 }
 
-export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {}, sessionIds = [], sessionFilter = "__all", onSessionFilterChange, historyLimit = 20, onHistoryLimitChange }: ActivityFeedProps) {
+export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {}, sessionIds = [], sessionFilter = "__all", onSessionFilterChange, historyLimit = 20, onHistoryLimitChange, searchQuery = "", onSearchChange }: ActivityFeedProps) {
   const [mdViewer, setMdViewer] = useState<{ path: string; base: string } | null>(null);
 
   const handleOutputClick = useCallback((e: React.MouseEvent, exec: ExecutionInfo) => {
@@ -61,20 +63,42 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
 
   return (
     <div className="space-y-1.5">
-      {sessionIds.length > 1 && onSessionFilterChange && (
+      {(onSearchChange || (sessionIds.length > 1 && onSessionFilterChange)) && (
         <div className="flex items-center gap-2 px-3 pb-1">
-          <select
-            value={sessionFilter}
-            onChange={(e) => onSessionFilterChange(e.target.value)}
-            className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
-          >
-            <option value="__all">All sessions</option>
-            {sessionIds.map((sid) => (
-              <option key={sid} value={sid}>
-                {sessionNames[sid] ?? sid.slice(0, 8)}
-              </option>
-            ))}
-          </select>
+          {sessionIds.length > 1 && onSessionFilterChange && (
+            <select
+              value={sessionFilter}
+              onChange={(e) => onSessionFilterChange(e.target.value)}
+              className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+            >
+              <option value="__all">All sessions</option>
+              {sessionIds.map((sid) => (
+                <option key={sid} value={sid}>
+                  {sessionNames[sid] ?? sid.slice(0, 8)}
+                </option>
+              ))}
+            </select>
+          )}
+          {onSearchChange && (
+            <div className="relative flex-1 max-w-xs">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                placeholder="Search prompts & output..."
+                className="w-full text-xs bg-surface border border-border rounded-md pl-6 pr-2 py-1 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => onSearchChange("")}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
       {[...queue].reverse().map((item) => (

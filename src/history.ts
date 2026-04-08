@@ -78,7 +78,7 @@ export function appendHistory(entry: HistoryEntry): void {
   ).catch((err) => console.error("[history] append failed:", err));
 }
 
-export async function loadHistory(limit = 20, targetType?: string, targetName?: string, sessionId?: string): Promise<HistoryEntry[]> {
+export async function loadHistory(limit = 20, targetType?: string, targetName?: string, sessionId?: string, search?: string): Promise<HistoryEntry[]> {
   const conditions: string[] = [];
   const params: (string | number)[] = [];
   const safeLimit = Math.max(1, Math.floor(Number(limit)));
@@ -90,6 +90,11 @@ export async function loadHistory(limit = 20, targetType?: string, targetName?: 
   if (sessionId) {
     conditions.push("session_id = ?");
     params.push(sessionId);
+  }
+  if (search) {
+    conditions.push("(prompt LIKE ? OR output LIKE ?)");
+    const pattern = `%${search}%`;
+    params.push(pattern, pattern);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";

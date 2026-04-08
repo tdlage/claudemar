@@ -200,7 +200,8 @@ executionsRouter.get("/history/:targetType/:targetName", async (req, res) => {
   }
 
   const sessionId = req.query.sessionId as string | undefined;
-  const entries = await loadHistory(limit, targetType, targetName, sessionId || undefined);
+  const search = req.query.search as string | undefined;
+  const entries = await loadHistory(limit, targetType, targetName, sessionId || undefined, search || undefined);
   res.json(entries);
 });
 

@@ -46,6 +46,7 @@ export function OrchestratorPage() {
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
     expandedExecId, toggleExpanded, addToast,
+    searchQuery, handleSearchChange,
   } = useExecutionPage({
     targetType: "orchestrator",
     targetName: "orchestrator",
@@ -258,6 +259,8 @@ export function OrchestratorPage() {
                 onSessionFilterChange={setSessionFilter}
                 historyLimit={historyLimit}
                 onHistoryLimitChange={setHistoryLimit}
+                searchQuery={searchQuery}
+                onSearchChange={handleSearchChange}
               />
             </div>
           )}

@@ -57,6 +57,7 @@ export function ProjectDetailPage() {
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
     expandedExecId, toggleExpanded, addToast,
+    searchQuery, handleSearchChange,
   } = useExecutionPage({
     targetType: "project",
     targetName: name ?? "",
@@ -295,6 +296,8 @@ export function ProjectDetailPage() {
                 onSessionFilterChange={setSessionFilter}
                 historyLimit={historyLimit}
                 onHistoryLimitChange={setHistoryLimit}
+                searchQuery={searchQuery}
+                onSearchChange={handleSearchChange}
               />
             </div>
           )}
