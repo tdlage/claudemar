@@ -4,6 +4,10 @@ import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { Table } from "@tiptap/extension-table";
+import { TableRow } from "@tiptap/extension-table-row";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableCell } from "@tiptap/extension-table-cell";
 import { Markdown } from "tiptap-markdown";
 import { common, createLowlight } from "lowlight";
 import {
@@ -149,6 +153,10 @@ export function MarkdownEditor({ value, onChange, placeholder, onSave }: Markdow
       StarterKit.configure({ codeBlock: false }),
       CodeBlockLowlight.configure({ lowlight }),
       Link.configure({ openOnClick: false }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Placeholder.configure({ placeholder: placeholder ?? "Write markdown..." }),
       Markdown.configure({
         html: false,

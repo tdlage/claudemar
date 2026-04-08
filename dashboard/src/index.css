@@ -193,6 +193,12 @@ body {
 .markdown-editor .tiptap .hljs-meta,
 .markdown-editor .tiptap .hljs-tag { color: #f87171; }
 
+.markdown-editor .tiptap table { width: 100%; border-collapse: collapse; margin: 0.5em 0; font-size: 0.9em; }
+.markdown-editor .tiptap th,
+.markdown-editor .tiptap td { border: 1px solid var(--color-border); padding: 0.4em 0.7em; text-align: left; }
+.markdown-editor .tiptap th { background: var(--color-surface); font-weight: 600; }
+.markdown-editor .tiptap tr:nth-child(even) { background: var(--color-surface); }
+
 .activity-output { line-height: 1.6; }
 .activity-output h1 { font-size: 1.15rem; font-weight: 700; margin: 0.8em 0 0.3em; border-bottom: 1px solid var(--color-border); padding-bottom: 0.2em; }
 .activity-output h2 { font-size: 1.05rem; font-weight: 600; margin: 0.7em 0 0.3em; }

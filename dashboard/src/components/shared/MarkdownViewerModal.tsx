@@ -3,6 +3,10 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { Table } from "@tiptap/extension-table";
+import { TableRow } from "@tiptap/extension-table-row";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableCell } from "@tiptap/extension-table-cell";
 import { Markdown } from "tiptap-markdown";
 import { common, createLowlight } from "lowlight";
 import { X, Loader2 } from "lucide-react";
@@ -27,6 +31,10 @@ export function MarkdownViewerModal({ open, onClose, filePath, base }: MarkdownV
       StarterKit.configure({ codeBlock: false }),
       CodeBlockLowlight.configure({ lowlight }),
       Link.configure({ openOnClick: true }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Markdown.configure({ html: false }),
     ],
     editable: false,
