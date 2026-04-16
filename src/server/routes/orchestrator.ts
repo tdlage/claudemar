@@ -16,7 +16,7 @@ orchestratorRouter.put("/settings", (req, res) => {
   const { prependPrompt, model } = req.body;
   saveOrchestratorSettings({
     prependPrompt: typeof prependPrompt === "string" ? prependPrompt : "",
-    model: typeof model === "string" ? model : "claude-opus-4-6",
+    model: typeof model === "string" ? model : "claude-opus-4-7",
   });
   res.json({ ok: true });
 });

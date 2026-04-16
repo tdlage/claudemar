@@ -10,6 +10,7 @@ import { Badge } from "../components/shared/Badge";
 import { MarkdownEditor } from "../components/shared/MarkdownEditor";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
+import { useModels } from "../hooks/useModels";
 import { VoiceInput } from "../components/shared/VoiceInput";
 import { SessionSelector } from "../components/shared/SessionSelector";
 
@@ -27,15 +28,11 @@ interface UpdateInfo {
   commits: string[];
 }
 
-const MODEL_OPTIONS = [
-  { value: "claude-opus-4-6", label: "Opus 4.6 (default)" },
-  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
-];
 
 type TabKey = "terminal" | "claude-md" | "settings";
 
 export function OrchestratorPage() {
+  const models = useModels();
   const [tab, setTab] = useCachedState<TabKey>("orchestrator:tab", "terminal");
   const [prompt, setPrompt] = useCachedState("orchestrator:prompt", "");
   const [planMode, setPlanMode] = useCachedState("orchestrator:planMode", false);
@@ -57,7 +54,7 @@ export function OrchestratorPage() {
   const [mdDirty, setMdDirty] = useState(false);
   const [mdSaving, setMdSaving] = useState(false);
 
-  const [settings, setSettings] = useState<OrchestratorSettings>({ prependPrompt: "", model: "claude-opus-4-6" });
+  const [settings, setSettings] = useState<OrchestratorSettings>({ prependPrompt: "", model: "claude-opus-4-7" });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -322,9 +319,9 @@ export function OrchestratorPage() {
               }}
               className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
             >
-              {MODEL_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.displayName}
                 </option>
               ))}
             </select>

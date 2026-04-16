@@ -9,7 +9,7 @@ export interface OrchestratorSettings {
 
 const DEFAULTS: OrchestratorSettings = {
   prependPrompt: "",
-  model: "claude-opus-4-6",
+  model: "claude-opus-4-7",
 };
 
 function settingsPath(): string {

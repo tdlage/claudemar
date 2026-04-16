@@ -195,13 +195,14 @@ File: \`orchestrator/settings.json\`
 \`\`\`json
 {
   "prependPrompt": "",
-  "model": "claude-opus-4-6"
+  "model": "claude-opus-4-7"
 }
 \`\`\`
 
 - **prependPrompt**: Text prepended to every orchestrator execution prompt
 - **model**: Claude model ID. Options:
-  - \`claude-opus-4-6\` (most capable)
+  - \`claude-opus-4-7\` (most capable)
+  - \`claude-opus-4-6\`
   - \`claude-sonnet-4-6\` (balanced)
   - \`claude-haiku-4-5-20251001\` (fastest)
 

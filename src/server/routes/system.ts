@@ -13,6 +13,7 @@ import { settingsManager } from "../../settings-manager.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { modelPreferences } from "../../model-preferences.js";
 import { usersManager } from "../../users-manager.js";
+import { discoverModels, invalidateModelsCache } from "../../models-discovery.js";
 
 const INSTALL_DIR = config.installDir;
 
@@ -174,6 +175,17 @@ systemRouter.get("/token-usage", async (req, res) => {
   } catch (err) {
     res.json({ error: err instanceof Error ? err.message : "Failed to fetch usage" });
   }
+});
+
+systemRouter.get("/models", async (_req, res) => {
+  const models = await discoverModels();
+  res.json(models);
+});
+
+systemRouter.post("/models/refresh", async (_req, res) => {
+  invalidateModelsCache();
+  const models = await discoverModels();
+  res.json(models);
 });
 
 systemRouter.get("/changelog", (req, res) => {

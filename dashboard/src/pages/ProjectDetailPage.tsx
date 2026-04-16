@@ -14,6 +14,7 @@ import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
 import { ActivityFeed } from "../components/overview/ActivityFeed";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
+import { useModels } from "../hooks/useModels";
 import { VoiceInput } from "../components/shared/VoiceInput";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin } from "../hooks/useAuth";
@@ -22,6 +23,7 @@ import type { ProjectDetail } from "../lib/types";
 type TabKey = "terminal" | "repositories" | "files" | "input" | "ci";
 
 export function ProjectDetailPage() {
+  const models = useModels();
   const { name } = useParams<{ name: string }>();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [tab, setTab] = useCachedState<TabKey>(`project:${name}:tab`, "terminal");
@@ -29,7 +31,7 @@ export function ProjectDetailPage() {
   const [planMode, setPlanMode] = useCachedState(`project:${name}:planMode`, false);
   const [sequential, setSequential] = useCachedState(`project:${name}:sequential`, true);
   const [dockerMode, setDockerMode] = useCachedState(`project:${name}:dockerMode`, false);
-  const [selectedModel, setSelectedModel] = useCachedState(`project:${name}:model`, "claude-opus-4-6");
+  const [selectedModel, setSelectedModel] = useCachedState(`project:${name}:model`, "claude-opus-4-7");
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
   const [agents, setAgents] = useState<string[]>([]);
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
@@ -271,9 +273,9 @@ export function ProjectDetailPage() {
                   onChange={(e) => setSelectedModel(e.target.value)}
                   className="text-xs bg-transparent border border-border rounded-md px-1 py-1.5 text-text-muted focus:outline-none focus:border-accent"
                 >
-                  <option value="claude-opus-4-6">Opus 4.6</option>
-                  <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-                  <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>{m.displayName}</option>
+                  ))}
                 </select>
               </div>
             </div>
