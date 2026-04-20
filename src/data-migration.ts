@@ -64,6 +64,7 @@ const TABLE_DEFINITIONS: string[] = [
     use_docker TINYINT(1) NOT NULL DEFAULT 0,
     enqueued_at DATETIME NOT NULL,
     telegram_chat_id BIGINT DEFAULT NULL,
+    skip_system_prompt TINYINT(1) NOT NULL DEFAULT 0,
     UNIQUE KEY uk_id (id),
     INDEX idx_target (target_type, target_name)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
@@ -479,6 +480,16 @@ export async function runDataMigrations(): Promise<void> {
   await migrateSecrets(pool);
   await migrateLastSessions();
   await migrateMetrics();
+  await ensureQueueColumns(pool);
 
   console.log("[data-migration] All data migrations completed");
+}
+
+async function ensureQueueColumns(pool: ReturnType<typeof getPool>): Promise<void> {
+  const [rows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'queue_items' AND COLUMN_NAME = 'skip_system_prompt'",
+  );
+  if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE queue_items ADD COLUMN skip_system_prompt TINYINT(1) NOT NULL DEFAULT 0");
+  }
 }

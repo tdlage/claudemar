@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Square, Map, ListOrdered, Zap } from "lucide-react";
+import { Square, Map, ListOrdered, Zap, FileText } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -60,6 +60,12 @@ export function AgentDetailPage() {
     onExecutionComplete: loadOutputs,
   });
 
+  const [sendSystemPrompt, setSendSystemPrompt] = useState(!sessionData.sessionId);
+
+  useEffect(() => {
+    setSendSystemPrompt(!sessionData.sessionId);
+  }, [sessionData.sessionId]);
+
   const loadAgent = useCallback(() => {
     if (!name) return;
     api.get<AgentDetail>(`/agents/${name}`).then((data) => {
@@ -90,6 +96,7 @@ export function AgentDetailPage() {
         resumeSessionId: sessionData.sessionId,
         planMode,
         forceQueue: sequential || undefined,
+        skipSystemPrompt: !sendSystemPrompt || undefined,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -211,6 +218,19 @@ export function AgentDetailPage() {
               >
                 <ListOrdered size={13} />
                 Queue
+              </button>
+              <button
+                type="button"
+                onClick={() => setSendSystemPrompt(!sendSystemPrompt)}
+                title={sendSystemPrompt ? "System prompt will be sent (click to skip)" : "System prompt will NOT be sent (click to include)"}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all select-none whitespace-nowrap ${
+                  sendSystemPrompt
+                    ? "bg-accent/20 text-accent border border-accent/40 shadow-[0_0_6px_rgba(var(--accent-rgb),0.15)]"
+                    : "text-text-muted hover:text-text-secondary hover:bg-surface-hover border border-transparent"
+                }`}
+              >
+                <FileText size={13} />
+                System
               </button>
               {skills.length > 0 && (
                 <div className="flex items-center gap-1">

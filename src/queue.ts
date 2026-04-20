@@ -18,6 +18,7 @@ export interface QueueItem {
   agentName?: string;
   username?: string;
   useDocker?: boolean;
+  skipSystemPrompt?: boolean;
   enqueuedAt: string;
   telegramChatId?: number;
 }
@@ -36,6 +37,7 @@ interface QueueRow extends RowDataPacket {
   agent_name: string | null;
   username: string | null;
   use_docker: number;
+  skip_system_prompt: number;
   enqueued_at: string | Date;
   telegram_chat_id: number | null;
 }
@@ -56,6 +58,7 @@ function rowToItem(row: QueueRow): QueueItem {
     agentName: row.agent_name ?? undefined,
     username: row.username ?? undefined,
     useDocker: row.use_docker === 1 ? true : undefined,
+    skipSystemPrompt: row.skip_system_prompt === 1 ? true : undefined,
     enqueuedAt,
     telegramChatId: row.telegram_chat_id ?? undefined,
   };
@@ -88,11 +91,12 @@ class CommandQueue extends EventEmitter {
     const enqueuedAt = new Date().toISOString();
 
     const result = await execute(
-      `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, agent_name, username, use_docker, enqueued_at, telegram_chat_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, agent_name, username, use_docker, skip_system_prompt, enqueued_at, telegram_chat_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, opts.targetType, opts.targetName, opts.prompt, opts.source, opts.cwd,
        opts.resumeSessionId ?? null, opts.model ?? null, opts.planMode ? 1 : 0,
        opts.agentName ?? null, opts.username ?? null, opts.useDocker ? 1 : 0,
+       opts.skipSystemPrompt ? 1 : 0,
        toMySQLDatetime(enqueuedAt), opts.telegramChatId ?? null],
     );
 

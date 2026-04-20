@@ -243,5 +243,6 @@ export function processQueueItem(item: QueueItem): string {
     agentName: item.agentName,
     useDocker: item.useDocker,
     username: item.username,
+    skipSystemPrompt: item.skipSystemPrompt,
   });
 }

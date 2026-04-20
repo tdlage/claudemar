@@ -60,6 +60,7 @@ export interface StartExecutionOpts {
   agentName?: string;
   useDocker?: boolean;
   username?: string;
+  skipSystemPrompt?: boolean;
 }
 
 const MAX_RECENT = 100;
@@ -195,37 +196,40 @@ class ExecutionManager extends EventEmitter {
 
     info.resumeSessionId = resumeId ?? null;
 
-    let systemSuffix = opts.useDocker
-      ? ""
-      : `\n\n[SYSTEM: You are confined to ${opts.cwd} — do NOT read, list, or access files outside this directory or its subdirectories. Never navigate to parent directories.]`;
-    if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
-      systemSuffix += `\n[SYSTEM: Before executing, read your CLAUDE.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`;
-    }
-    if (opts.targetType === "agent") {
-      const secretsJsonPath = resolve(config.agentsPath, opts.targetName, "secrets.json");
-      if (existsSync(secretsJsonPath)) {
-        systemSuffix += `\n[SYSTEM: You have secrets configured. Read ${secretsJsonPath} for credentials, API keys, and secret file paths.]`;
+    let systemSuffix = "";
+    if (!opts.skipSystemPrompt) {
+      systemSuffix = opts.useDocker
+        ? ""
+        : `\n\n[SYSTEM: You are confined to ${opts.cwd} — do NOT read, list, or access files outside this directory or its subdirectories. Never navigate to parent directories.]`;
+      if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
+        systemSuffix += `\n[SYSTEM: Before executing, read your CLAUDE.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`;
       }
-    }
-    if (opts.targetType === "project") {
-      const projectInputDir = resolve(opts.cwd, ".input");
-      if (existsSync(projectInputDir)) {
-        try {
-          const files = readdirSync(projectInputDir).filter((f) => !f.startsWith("."));
-          if (files.length > 0) {
-            systemSuffix += `\n[SYSTEM: You have ${files.length} reference file(s) in ${projectInputDir}/. Check them if relevant to your task.]`;
-          }
-        } catch { }
+      if (opts.targetType === "agent") {
+        const secretsJsonPath = resolve(config.agentsPath, opts.targetName, "secrets.json");
+        if (existsSync(secretsJsonPath)) {
+          systemSuffix += `\n[SYSTEM: You have secrets configured. Read ${secretsJsonPath} for credentials, API keys, and secret file paths.]`;
+        }
       }
-    }
-    if (isEmailEnabled() && (opts.targetType === "agent" || opts.targetType === "orchestrator")) {
-      const scriptPath = getEmailScriptPath();
-      const { sesFrom } = settingsManager.get();
-      const defaultFrom = sesFrom ? ` Default sender: ${sesFrom}.` : "";
-      const profiles = emailSettingsManager.getProfiles();
-      const senderList = profiles.map((p) => p.from).join(", ");
-      const availableSenders = senderList ? ` Available senders: ${senderList}.` : "";
-      systemSuffix += `\n[SYSTEM: You can send emails. Usage: ${scriptPath} --to <email> --subject "<subject>" --body "<body>" [--from <sender-email>] [--html] [--cc <email>] [--attachment <filepath> ...]. Multiple --attachment flags supported.${defaultFrom}${availableSenders}]`;
+      if (opts.targetType === "project") {
+        const projectInputDir = resolve(opts.cwd, ".input");
+        if (existsSync(projectInputDir)) {
+          try {
+            const files = readdirSync(projectInputDir).filter((f) => !f.startsWith("."));
+            if (files.length > 0) {
+              systemSuffix += `\n[SYSTEM: You have ${files.length} reference file(s) in ${projectInputDir}/. Check them if relevant to your task.]`;
+            }
+          } catch { }
+        }
+      }
+      if (isEmailEnabled() && (opts.targetType === "agent" || opts.targetType === "orchestrator")) {
+        const scriptPath = getEmailScriptPath();
+        const { sesFrom } = settingsManager.get();
+        const defaultFrom = sesFrom ? ` Default sender: ${sesFrom}.` : "";
+        const profiles = emailSettingsManager.getProfiles();
+        const senderList = profiles.map((p) => p.from).join(", ");
+        const availableSenders = senderList ? ` Available senders: ${senderList}.` : "";
+        systemSuffix += `\n[SYSTEM: You can send emails. Usage: ${scriptPath} --to <email> --subject "<subject>" --body "<body>" [--from <sender-email>] [--html] [--cc <email>] [--attachment <filepath> ...]. Multiple --attachment flags supported.${defaultFrom}${availableSenders}]`;
+      }
     }
     const effectivePrompt = opts.prompt + systemSuffix;
 

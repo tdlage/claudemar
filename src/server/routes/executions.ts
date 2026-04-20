@@ -37,7 +37,7 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", async (req, res) => {
-  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue, model: requestModel, useDocker: requestDocker } = req.body;
+  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue, model: requestModel, useDocker: requestDocker, skipSystemPrompt } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -121,6 +121,7 @@ executionsRouter.post("/", async (req, res) => {
     agentName,
     useDocker,
     username,
+    skipSystemPrompt: skipSystemPrompt || false,
   };
 
   const targetActive = executionManager.isTargetActive(targetType, effectiveTargetName);
