@@ -1,7 +1,23 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { config } from "./config.js";
+
+let dockerImageReady = false;
+
+function ensureDockerImage(): void {
+  if (dockerImageReady) return;
+  try {
+    execFileSync("docker", ["image", "inspect", config.dockerImage], { stdio: "ignore" });
+    dockerImageReady = true;
+  } catch {
+    const dockerDir = resolve(config.installDir, "docker");
+    console.log(`[executor] Building Docker image ${config.dockerImage} from ${dockerDir}...`);
+    execFileSync("docker", ["build", "-t", config.dockerImage, dockerDir], { stdio: "inherit", timeout: 600_000 });
+    dockerImageReady = true;
+    console.log(`[executor] Docker image ${config.dockerImage} built successfully`);
+  }
+}
 
 export interface QuestionOption {
   label: string;
@@ -129,6 +145,7 @@ export function spawnClaude(
   let proc: ChildProcess;
 
   if (useDocker) {
+    ensureDockerImage();
     const escapedArgs = claudeArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
     const uid = process.getuid?.() ?? 1000;
     const gid = process.getgid?.() ?? 1000;
