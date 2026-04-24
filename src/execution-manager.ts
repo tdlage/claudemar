@@ -260,6 +260,38 @@ class ExecutionManager extends EventEmitter {
     handle.promise
       .then((result) => {
         if (info.status === "cancelled") return;
+
+        if (result.isError && resumeId) {
+          const isSessionNotFound = result.errorMessages.some(
+            (m) => m.includes("No conversation found") || m.includes("not a UUID"),
+          );
+          if (isSessionNotFound) {
+            console.log(`[execution] Resume session ${resumeId} not found for ${opts.targetType}:${opts.targetName}, retrying without resume`);
+            this.lastSessionMap.delete(this.userTargetKey(opts.targetType, opts.targetName, opts.username));
+            this.finalize(id);
+
+            info.status = "error";
+            info.completedAt = new Date();
+            info.error = "Session not found, retrying...";
+            info.result = result;
+            this.emit("error", id, info, info.error);
+
+            this.startExecution({ ...opts, resumeSessionId: null, noResume: true });
+            return;
+          }
+        }
+
+        if (result.isError) {
+          info.status = "error";
+          info.completedAt = new Date();
+          info.error = result.errorMessages.join("; ") || result.output || "Unknown error";
+          info.result = result;
+          this.finalize(id);
+          this.emit("error", id, info, info.error);
+          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, durationMs: result.durationMs }));
+          return;
+        }
+
         info.completedAt = new Date();
         info.result = result;
         if (!info.output) {
@@ -316,6 +348,7 @@ class ExecutionManager extends EventEmitter {
           durationMs,
           costUsd: 0,
           isError: true,
+          errorMessages: [message],
           permissionDenials: [],
         };
         this.finalize(id);
@@ -376,6 +409,7 @@ class ExecutionManager extends EventEmitter {
           durationMs,
           costUsd: 0,
           isError: false,
+          errorMessages: [],
           permissionDenials: [],
         };
         this.lastSessionMap.set(this.userTargetKey(entry.opts.targetType, entry.opts.targetName, entry.opts.username), sessionId);

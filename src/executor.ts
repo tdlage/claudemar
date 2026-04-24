@@ -101,6 +101,7 @@ export interface ClaudeResult {
   durationMs: number;
   costUsd: number;
   isError: boolean;
+  errorMessages: string[];
   permissionDenials: PermissionDenial[];
 }
 
@@ -244,12 +245,16 @@ export function spawnClaude(
                 }
               }
             }
+            const errorMessages: string[] = Array.isArray(event.errors)
+              ? event.errors.map((e: unknown) => String(e))
+              : [];
             resultData = {
               output: event.result ?? resultText,
               sessionId: event.session_id ?? "",
               durationMs: event.duration_ms ?? 0,
               costUsd: event.total_cost_usd ?? 0,
               isError: event.is_error ?? false,
+              errorMessages,
               permissionDenials: denials,
             };
           }
@@ -325,6 +330,7 @@ export function spawnClaude(
           durationMs: 0,
           costUsd: 0,
           isError: false,
+          errorMessages: [],
           permissionDenials: [],
         });
       }
