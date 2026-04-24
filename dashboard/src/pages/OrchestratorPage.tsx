@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Save, RefreshCw, Download, CheckCircle, Square, Map, Crown } from "lucide-react";
+import { Save, RefreshCw, Download, CheckCircle, Square, Map, Crown, Container } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -62,6 +62,7 @@ export function OrchestratorPage() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [dockerRebuilding, setDockerRebuilding] = useState(false);
 
   useEffect(() => {
     api.get<{ content: string }>("/orchestrator/claude-md")
@@ -155,6 +156,18 @@ export function OrchestratorPage() {
       addToast("error", "Update request failed");
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleDockerRebuild = async () => {
+    setDockerRebuilding(true);
+    try {
+      await api.post("/system/docker/rebuild");
+      addToast("success", "Docker image rebuilt");
+    } catch {
+      addToast("error", "Failed to rebuild Docker image");
+    } finally {
+      setDockerRebuilding(false);
     }
   };
 
@@ -375,6 +388,14 @@ export function OrchestratorPage() {
                 )}
               </div>
             )}
+          </div>
+
+          <div className="border-t border-border pt-6">
+            <h3 className="text-sm font-medium text-text-muted mb-3">Docker</h3>
+            <Button size="sm" variant="secondary" onClick={handleDockerRebuild} disabled={dockerRebuilding}>
+              <Container size={12} className={`mr-1.5 ${dockerRebuilding ? "animate-spin" : ""}`} />
+              {dockerRebuilding ? "Rebuilding..." : "Rebuild image"}
+            </Button>
           </div>
         </div>
       )}

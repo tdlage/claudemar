@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn, execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { config } from "./config.js";
@@ -25,6 +26,30 @@ export function rebuildDockerImage(): void {
     execFileSync("docker", ["rmi", "-f", config.dockerImage], { stdio: "ignore" });
   } catch {}
   ensureDockerImage();
+}
+
+const DOCKER_CONFIG_DIR = resolve(config.basePath, ".docker-claude-config");
+
+function ensureDockerClaudeConfig(): string {
+  mkdirSync(DOCKER_CONFIG_DIR, { recursive: true });
+
+  const claudeJsonPath = resolve(homedir(), ".claude.json");
+  const dockerClaudeJsonPath = resolve(DOCKER_CONFIG_DIR, "claude.json");
+
+  try {
+    const raw = JSON.parse(readFileSync(claudeJsonPath, "utf-8"));
+    delete raw.mcpServers;
+    writeFileSync(dockerClaudeJsonPath, JSON.stringify(raw));
+  } catch {
+    writeFileSync(dockerClaudeJsonPath, "{}");
+  }
+
+  const settingsPath = resolve(DOCKER_CONFIG_DIR, "settings.json");
+  if (!existsSync(settingsPath)) {
+    writeFileSync(settingsPath, "{}");
+  }
+
+  return DOCKER_CONFIG_DIR;
 }
 
 export interface QuestionOption {
@@ -155,6 +180,7 @@ export function spawnClaude(
 
   if (useDocker) {
     ensureDockerImage();
+    const dockerConfigDir = ensureDockerClaudeConfig();
     const escapedArgs = claudeArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
     const uid = process.getuid?.() ?? 1000;
     const gid = process.getgid?.() ?? 1000;
@@ -164,13 +190,14 @@ export function spawnClaude(
       "--cap-add=NET_ADMIN", "--cap-add=NET_RAW",
       "-v", `${cwd}:${cwd}`,
       "-v", `${config.claudeConfigDir}:/home/claude-user/.claude`,
-      "-v", `${resolve(homedir(), ".claude.json")}:/home/claude-user/.claude.json:ro`,
+      "-v", `${resolve(dockerConfigDir, "settings.json")}:/home/claude-user/.claude/settings.json:ro`,
+      "-v", `${resolve(dockerConfigDir, "claude.json")}:/home/claude-user/.claude.json:ro`,
       "-w", cwd,
       "-e", "HOME=/home/claude-user",
       "-e", "NODE_OPTIONS=--max-old-space-size=4096",
       config.dockerImage,
       "bash", "-c",
-      `sudo /usr/local/bin/init-firewall.sh 2>/dev/null; claude ${escapedArgs}`,
+      `sudo /usr/local/bin/init-firewall.sh; claude ${escapedArgs}`,
     ];
     proc = spawn("docker", dockerArgs, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -313,6 +340,9 @@ export function spawnClaude(
       }
 
       if (resultData) {
+        if (useDocker && stderr) {
+          console.log(`[executor:docker] stderr: ${stderr.slice(0, 500)}`);
+        }
         resolve(resultData);
         return;
       }
@@ -321,6 +351,12 @@ export function spawnClaude(
         reject(
           new Error(
             `Processo encerrado (exit code: ${code}).${stderr ? ` stderr: ${stderr}` : ""}`,
+          ),
+        );
+      } else if (useDocker) {
+        reject(
+          new Error(
+            `Docker: processo finalizou sem output do Claude CLI.${stderr ? ` stderr: ${stderr}` : ""}`,
           ),
         );
       } else {
