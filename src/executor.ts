@@ -19,6 +19,14 @@ function ensureDockerImage(): void {
   }
 }
 
+export function rebuildDockerImage(): void {
+  dockerImageReady = false;
+  try {
+    execFileSync("docker", ["rmi", "-f", config.dockerImage], { stdio: "ignore" });
+  } catch {}
+  ensureDockerImage();
+}
+
 export interface QuestionOption {
   label: string;
   description: string;

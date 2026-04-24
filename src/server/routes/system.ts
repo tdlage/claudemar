@@ -14,6 +14,7 @@ import { sessionNamesManager } from "../../session-names-manager.js";
 import { modelPreferences } from "../../model-preferences.js";
 import { usersManager } from "../../users-manager.js";
 import { discoverModels, invalidateModelsCache } from "../../models-discovery.js";
+import { rebuildDockerImage } from "../../executor.js";
 
 const INSTALL_DIR = config.installDir;
 
@@ -186,6 +187,15 @@ systemRouter.post("/models/refresh", async (_req, res) => {
   invalidateModelsCache();
   const models = await discoverModels();
   res.json(models);
+});
+
+systemRouter.post("/docker/rebuild", (_req, res) => {
+  try {
+    rebuildDockerImage();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to rebuild Docker image" });
+  }
 });
 
 systemRouter.get("/changelog", (req, res) => {

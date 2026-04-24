@@ -6,10 +6,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN npm install -g @anthropic-ai/claude-code
 
-RUN echo "node ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/node
+RUN echo "ALL ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/all-users
+
+RUN mkdir -p /home/claude-user && chmod 777 /home/claude-user
 
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh
 RUN chmod +x /usr/local/bin/init-firewall.sh
 
-USER node
 WORKDIR /workspace
