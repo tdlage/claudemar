@@ -181,12 +181,10 @@ export function spawnClaude(
   if (useDocker) {
     ensureDockerImage();
     const dockerConfigDir = ensureDockerClaudeConfig();
-    const escapedArgs = claudeArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
     const uid = process.getuid?.() ?? 1000;
     const gid = process.getgid?.() ?? 1000;
     const dockerArgs = [
       "run", "--rm",
-      "-u", `${uid}:${gid}`,
       "--cap-add=NET_ADMIN", "--cap-add=NET_RAW",
       "-v", `${cwd}:${cwd}`,
       "-v", `${config.claudeConfigDir}:/home/claude-user/.claude`,
@@ -194,10 +192,11 @@ export function spawnClaude(
       "-v", `${resolve(dockerConfigDir, "claude.json")}:/home/claude-user/.claude.json:ro`,
       "-w", cwd,
       "-e", "HOME=/home/claude-user",
+      "-e", `CLAUDE_UID=${uid}`,
+      "-e", `CLAUDE_GID=${gid}`,
       "-e", "NODE_OPTIONS=--max-old-space-size=4096",
       config.dockerImage,
-      "bash", "-c",
-      `sudo /usr/local/bin/init-firewall.sh; claude ${escapedArgs}`,
+      "claude", ...claudeArgs,
     ];
     proc = spawn("docker", dockerArgs, {
       stdio: ["ignore", "pipe", "pipe"],
