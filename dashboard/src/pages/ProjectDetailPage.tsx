@@ -30,7 +30,7 @@ export function ProjectDetailPage() {
   const [prompt, setPrompt] = useCachedState(`project:${name}:prompt`, "");
   const [planMode, setPlanMode] = useCachedState(`project:${name}:planMode`, false);
   const [sequential, setSequential] = useCachedState(`project:${name}:sequential`, true);
-  const [dockerMode, setDockerMode] = useCachedState(`project:${name}:dockerMode`, false);
+  const [dockerMode, setDockerMode] = useCachedState(`project:${name}:dockerMode`, !isAdmin());
   const [selectedModel, setSelectedModel] = useCachedState(`project:${name}:model`, "claude-opus-4-7");
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
   const [agents, setAgents] = useState<string[]>([]);
@@ -92,7 +92,7 @@ export function ProjectDetailPage() {
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
         model: selectedModel || undefined,
-        useDocker: admin ? dockerMode : true,
+        useDocker: dockerMode,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -251,21 +251,19 @@ export function ProjectDetailPage() {
                 <ListOrdered size={13} />
                 Queue
               </button>
-              {admin && (
-                <button
-                  type="button"
-                  onClick={() => setDockerMode(!dockerMode)}
-                  title={dockerMode ? "Docker mode ON (runs in container)" : "Docker mode OFF (runs natively)"}
-                  className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all select-none whitespace-nowrap ${
-                    dockerMode
-                      ? "bg-accent/20 text-accent border border-accent/40 shadow-[0_0_6px_rgba(var(--accent-rgb),0.15)]"
-                      : "text-text-muted hover:text-text-secondary hover:bg-surface-hover border border-transparent"
-                  }`}
-                >
-                  <Container size={13} />
-                  Docker
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setDockerMode(!dockerMode)}
+                title={dockerMode ? "Docker mode ON (runs in container)" : "Docker mode OFF (runs natively)"}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all select-none whitespace-nowrap ${
+                  dockerMode
+                    ? "bg-accent/20 text-accent border border-accent/40 shadow-[0_0_6px_rgba(var(--accent-rgb),0.15)]"
+                    : "text-text-muted hover:text-text-secondary hover:bg-surface-hover border border-transparent"
+                }`}
+              >
+                <Container size={13} />
+                Docker
+              </button>
               <div className="flex items-center gap-1">
                 <Cpu size={13} className="text-text-muted" />
                 <select
