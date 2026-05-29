@@ -41,8 +41,8 @@ export async function discoverModels(): Promise<DiscoveredModel[]> {
   try {
     const response = await fetch("https://api.anthropic.com/v1/models?limit=100", {
       headers: {
-        "x-api-key": token,
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "oauth-2025-04-20",
         "Authorization": `Bearer ${token}`,
       },
     });
