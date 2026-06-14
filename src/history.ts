@@ -11,6 +11,7 @@ export interface HistoryEntry {
   startedAt: string;
   completedAt: string | null;
   costUsd: number;
+  totalTokens: number;
   durationMs: number;
   source: string;
   output?: string;
@@ -30,6 +31,7 @@ interface HistoryRow extends RowDataPacket {
   started_at: string | Date;
   completed_at: string | Date | null;
   cost_usd: number;
+  total_tokens: number;
   duration_ms: number;
   source: string;
   output: string | null;
@@ -54,6 +56,7 @@ function rowToEntry(row: HistoryRow): HistoryEntry {
     startedAt,
     completedAt,
     costUsd: Number(row.cost_usd),
+    totalTokens: Number(row.total_tokens),
     durationMs: Number(row.duration_ms),
     source: row.source,
     output: row.output ?? undefined,
@@ -66,12 +69,12 @@ function rowToEntry(row: HistoryRow): HistoryEntry {
 
 export function appendHistory(entry: HistoryEntry): void {
   execute(
-    `INSERT INTO execution_history (id, prompt, target_type, target_name, agent_name, status, started_at, completed_at, cost_usd, duration_ms, source, output, error, session_id, plan_mode, username)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO execution_history (id, prompt, target_type, target_name, agent_name, status, started_at, completed_at, cost_usd, total_tokens, duration_ms, source, output, error, session_id, plan_mode, username)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       entry.id, entry.prompt, entry.targetType, entry.targetName,
       entry.agentName ?? null, entry.status, toMySQLDatetime(entry.startedAt), entry.completedAt ? toMySQLDatetime(entry.completedAt) : null,
-      entry.costUsd ?? 0, entry.durationMs ?? 0, entry.source ?? "telegram",
+      entry.costUsd ?? 0, entry.totalTokens ?? 0, entry.durationMs ?? 0, entry.source ?? "telegram",
       entry.output ?? null, entry.error ?? null, entry.sessionId ?? null,
       entry.planMode ? 1 : 0, entry.username ?? null,
     ],

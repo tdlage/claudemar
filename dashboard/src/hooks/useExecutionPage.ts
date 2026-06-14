@@ -75,11 +75,12 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
         startedAt: e.startedAt as string,
         completedAt: e.completedAt as string | null,
         output: (e.output as string) ?? "",
-        result: (e.costUsd || e.durationMs) ? {
+        result: (e.costUsd || e.totalTokens || e.durationMs) ? {
           output: (e.output as string) ?? "",
           sessionId: (e.sessionId as string) ?? "",
           durationMs: e.durationMs as number,
           costUsd: e.costUsd as number,
+          totalTokens: (e.totalTokens as number) ?? 0,
           isError: e.status === "error",
           permissionDenials: [],
         } : null,

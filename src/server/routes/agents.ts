@@ -110,10 +110,10 @@ agentsRouter.get("/:name", async (req, res) => {
   }
 
   const paths = getAgentPaths(name)!;
-  let claudeMd = "";
-  const claudeMdPath = resolve(paths.root, "CLAUDE.md");
-  if (existsSync(claudeMdPath)) {
-    claudeMd = readFileSync(claudeMdPath, "utf-8");
+  let agentsMd = "";
+  const agentsMdPath = resolve(paths.root, "AGENTS.md");
+  if (existsSync(agentsMdPath)) {
+    agentsMd = readFileSync(agentsMdPath, "utf-8");
   }
 
   let inboxFiles: string[] = [];
@@ -134,7 +134,7 @@ agentsRouter.get("/:name", async (req, res) => {
 
   res.json({
     ...info,
-    claudeMd,
+    agentsMd,
     inboxFiles,
     outboxFiles,
     outputFiles,
@@ -445,8 +445,8 @@ agentsRouter.post("/:name/input", (req, res) => {
     res.status(400).json({ error: "Empty file" });
     return;
   }
-  if (data.length > 10 * 1024 * 1024) {
-    res.status(413).json({ error: "File too large (max 10MB)" });
+  if (data.length > 5 * 1024 * 1024) {
+    res.status(413).json({ error: "File too large (max 5MB)" });
     return;
   }
 

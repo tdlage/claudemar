@@ -74,13 +74,22 @@ CHANGED_AGENTS=()
 NOW=$(date +%s)
 THRESHOLD=600
 
+find_agent_md() {
+    local agent_dir="$1"
+    if [[ -f "$agent_dir/AGENTS.md" ]]; then
+        echo "$agent_dir/AGENTS.md"
+    elif [[ -f "$agent_dir/CLAUDE.md" ]]; then
+        echo "$agent_dir/CLAUDE.md"
+    fi
+}
+
 for agent_dir in "$AGENTS_DIR"/*/; do
     [[ ! -d "$agent_dir" ]] && continue
 
-    claude_md="$agent_dir/CLAUDE.md"
-    [[ ! -f "$claude_md" ]] && continue
+    agent_md=$(find_agent_md "${agent_dir%/}")
+    [[ -z "$agent_md" ]] && continue
 
-    mtime=$(stat -c %Y "$claude_md" 2>/dev/null || echo 0)
+    mtime=$(stat -c %Y "$agent_md" 2>/dev/null || echo 0)
     age=$(( NOW - mtime ))
 
     if (( age < THRESHOLD )); then
@@ -96,8 +105,8 @@ fi
 
 AGENT_LIST=""
 for agent_name in "${CHANGED_AGENTS[@]}"; do
-    claude_md="$AGENTS_DIR/$agent_name/CLAUDE.md"
-    content=$(head -c 4000 "$claude_md" 2>/dev/null || echo "")
+    agent_md=$(find_agent_md "$AGENTS_DIR/$agent_name")
+    content=$(head -c 4000 "$agent_md" 2>/dev/null || echo "")
     AGENT_LIST+="
 --- AGENT: $agent_name ---
 $content
@@ -119,7 +128,7 @@ Current agents.md:
 $EXISTING_MD
 \`\`\`
 
-Agents with recently updated CLAUDE.md:
+Agents with recently updated AGENTS.md:
 $AGENT_LIST
 
 All existing agent directories: $ALL_AGENTS
@@ -131,7 +140,14 @@ Rules:
 - Format: '## AgentName' header followed by 1-3 lines of description
 - Output ONLY the raw markdown content. No code fences, no explanations, no preamble"
 
-RESULT=$(cd /tmp && timeout 120 claude --print --model claude-haiku-4-5-20251001 --max-turns 1 "$PROMPT" 2>/dev/null) || true
+LAST_MSG_FILE=$(mktemp)
+(cd /tmp && timeout 120 codex exec --skip-git-repo-check -s read-only --output-last-message "$LAST_MSG_FILE" "$PROMPT" >/dev/null 2>&1) || true
+RESULT=$(cat "$LAST_MSG_FILE" 2>/dev/null || echo "")
+rm -f "$LAST_MSG_FILE"
+
+if [[ -z "$RESULT" ]] && command -v claude >/dev/null 2>&1; then
+    RESULT=$(cd /tmp && timeout 120 claude --print --model claude-haiku-4-5-20251001 --max-turns 1 "$PROMPT" 2>/dev/null) || true
+fi
 
 if [[ -n "$RESULT" ]]; then
     echo "$RESULT" > "$AGENTS_MD"

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { config } from "./config.js";
 import { settingsManager } from "./settings-manager.js";
 
-const CLAUDE_MD_PATH = resolve(config.orchestratorPath, "CLAUDE.md");
+const AGENTS_MD_PATH = resolve(config.orchestratorPath, "AGENTS.md");
 
 function getAgentList(): string {
   try {
@@ -27,10 +27,10 @@ function getProjectList(): string {
   }
 }
 
-function buildDefaultClaudeMd(): string {
+function buildDefaultAgentsMd(): string {
   return `# Claudemar Orchestrator
 
-You are the central orchestrator of Claudemar, a multi-agent system built on Claude CLI. You coordinate agents, manage projects, and execute tasks across the entire system.
+You are the central orchestrator of Claudemar, a multi-agent system built on AI agent CLIs (Codex CLI and Claude CLI). You coordinate agents, manage projects, and execute tasks across the entire system.
 
 You have full access to the filesystem. Use it to manage agents, projects, configurations, schedules, and messaging.
 
@@ -39,14 +39,14 @@ You have full access to the filesystem. Use it to manage agents, projects, confi
 \`\`\`
 ${config.basePath}/
 ├── orchestrator/          # Your workspace (you are here)
-│   ├── CLAUDE.md          # This file — your instructions
+│   ├── AGENTS.md          # This file — your instructions
 │   ├── agents.md          # Auto-generated agent summaries (read this to know your team)
 │   ├── settings.json      # Your settings (model, prepend prompt)
 │   ├── outbox/            # Write messages here to route to agents
 │   └── shared/            # Shared files (council decisions, etc.)
 ├── agents/                # All agents
 │   └── <name>/
-│       ├── CLAUDE.md      # Agent persona and instructions
+│       ├── AGENTS.md      # Agent persona and instructions
 │       ├── context/       # Reference docs (markdown files)
 │       ├── inbox/         # Incoming messages from other agents
 │       ├── outbox/        # Outgoing messages (routed automatically)
@@ -94,7 +94,7 @@ To check if an agent has responded, look in their outbox for files matching \`PA
 \`\`\`bash
 mkdir -p ${config.agentsPath}/<name>/{context,inbox,outbox,output,schedules}
 \`\`\`
-Then create \`${config.agentsPath}/<name>/CLAUDE.md\` with the agent's persona, role, and instructions.
+Then create \`${config.agentsPath}/<name>/AGENTS.md\` with the agent's persona, role, and instructions.
 
 Agent names must match: \`/^[a-zA-Z0-9.-]+$/\`
 
@@ -105,7 +105,7 @@ rm -rf ${config.agentsPath}/<name>
 Also remove related schedules from crontab and \`schedules.json\`.
 
 ### Edit agent instructions
-Edit \`${config.agentsPath}/<name>/CLAUDE.md\` directly.
+Edit \`${config.agentsPath}/<name>/AGENTS.md\` directly.
 
 ### Add context to an agent
 Place markdown files in \`${config.agentsPath}/<name>/context/\`.
@@ -200,11 +200,12 @@ File: \`orchestrator/settings.json\`
 \`\`\`
 
 - **prependPrompt**: Text prepended to every orchestrator execution prompt
-- **model**: Claude model ID. Options:
-  - \`claude-opus-4-7\` (most capable)
-  - \`claude-opus-4-6\`
-  - \`claude-sonnet-4-6\` (balanced)
-  - \`claude-haiku-4-5-20251001\` (fastest)
+- **model**: Agent model ID. Options:
+  - \`codex\` (OpenAI Codex CLI — recommended default)
+  - \`claude-opus-4-7\` (Claude — most capable)
+  - \`claude-opus-4-6\` (Claude)
+  - \`claude-sonnet-4-6\` (Claude — balanced)
+  - \`claude-haiku-4-5-20251001\` (Claude — fastest)
 
 ## Environment Configuration
 
@@ -239,14 +240,14 @@ Admin email for system notifications${settingsManager.get().adminEmail ? ` (curr
 
 File: \`${config.dataPath}/history.jsonl\` (one JSON object per line, most recent at end)
 
-Each entry contains: id, prompt, targetType, targetName, status, startedAt, completedAt, costUsd, durationMs, source, output, error, sessionId.
+Each entry contains: id, prompt, targetType, targetName, status, startedAt, completedAt, costUsd, totalTokens, durationMs, source, output, error, sessionId.
 
 ## Guidelines
 
 - Always read \`orchestrator/agents.md\` before handling a task to check if an agent should handle it
 - Delegate tasks to specialized agents whenever possible — you are the boss, not the worker
 - Always use absolute paths when running commands or referencing files
-- When creating agents, write a clear CLAUDE.md that defines the agent's role, expertise, and behavioral guidelines
+- When creating agents, write a clear AGENTS.md that defines the agent's role, expertise, and behavioral guidelines
 - When modifying schedules, always sync both \`schedules.json\` AND the system crontab
 - Use the messaging system (outbox files) to delegate tasks to agents
 - Check agent inboxes and outputs to monitor their work
@@ -254,14 +255,14 @@ Each entry contains: id, prompt, targetType, targetName, status, startedAt, comp
 `;
 }
 
-export function initOrchestratorClaudeMd(): void {
-  if (!existsSync(CLAUDE_MD_PATH)) {
-    writeFileSync(CLAUDE_MD_PATH, buildDefaultClaudeMd(), "utf-8");
-    console.log("Created default orchestrator CLAUDE.md");
+export function initOrchestratorAgentsMd(): void {
+  if (!existsSync(AGENTS_MD_PATH)) {
+    writeFileSync(AGENTS_MD_PATH, buildDefaultAgentsMd(), "utf-8");
+    console.log("Created default orchestrator AGENTS.md");
   }
 }
 
-export function regenerateOrchestratorClaudeMd(): void {
-  writeFileSync(CLAUDE_MD_PATH, buildDefaultClaudeMd(), "utf-8");
-  console.log("Regenerated orchestrator CLAUDE.md");
+export function regenerateOrchestratorAgentsMd(): void {
+  writeFileSync(AGENTS_MD_PATH, buildDefaultAgentsMd(), "utf-8");
+  console.log("Regenerated orchestrator AGENTS.md");
 }

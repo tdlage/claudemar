@@ -1,8 +1,17 @@
 import { type ChildProcess, spawn, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { config } from "./config.js";
+import { getProvider, resolveProvider } from "./providers/index.js";
+import type { AgentResult, AskQuestion } from "./providers/index.js";
+
+export type {
+  AgentResult,
+  AskQuestion,
+  PermissionDenial,
+  ProviderName,
+  QuestionOption,
+} from "./providers/index.js";
+export { resolveProvider } from "./providers/index.js";
 
 let dockerImageReady = false;
 
@@ -28,115 +37,13 @@ export function rebuildDockerImage(): void {
   ensureDockerImage();
 }
 
-const DOCKER_CONFIG_DIR = resolve(config.basePath, ".docker-claude-config");
-
-function ensureDockerClaudeConfig(): string {
-  mkdirSync(DOCKER_CONFIG_DIR, { recursive: true });
-
-  const claudeJsonPath = resolve(homedir(), ".claude.json");
-  const dockerClaudeJsonPath = resolve(DOCKER_CONFIG_DIR, "claude.json");
-
-  try {
-    const raw = JSON.parse(readFileSync(claudeJsonPath, "utf-8"));
-    delete raw.mcpServers;
-    writeFileSync(dockerClaudeJsonPath, JSON.stringify(raw));
-  } catch {
-    writeFileSync(dockerClaudeJsonPath, "{}");
-  }
-
-  const settingsPath = resolve(DOCKER_CONFIG_DIR, "settings.json");
-  if (!existsSync(settingsPath)) {
-    writeFileSync(settingsPath, "{}");
-  }
-
-  return DOCKER_CONFIG_DIR;
-}
-
-export interface QuestionOption {
-  label: string;
-  description: string;
-}
-
-export interface AskQuestion {
-  question: string;
-  header: string;
-  options: QuestionOption[];
-  multiSelect: boolean;
-}
-
-export interface PermissionDenial {
-  tool_name: string;
-  tool_use_id: string;
-  tool_input: { questions: AskQuestion[] };
-}
-
-const ANSI = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  cyan: "\x1b[36m",
-  yellow: "\x1b[33m",
-  green: "\x1b[32m",
-  magenta: "\x1b[35m",
-  gray: "\x1b[90m",
-};
-
-function formatToolUse(name: string, input: Record<string, unknown>): string {
-  const label = `${ANSI.cyan}${ANSI.bold}> ${name}${ANSI.reset}`;
-  let detail = "";
-
-  switch (name) {
-    case "Read":
-      detail = `${ANSI.gray}${input.file_path ?? ""}${ANSI.reset}`;
-      break;
-    case "Write":
-      detail = `${ANSI.yellow}${input.file_path ?? ""}${ANSI.reset}`;
-      break;
-    case "Edit":
-      detail = `${ANSI.yellow}${input.file_path ?? ""}${ANSI.reset}`;
-      break;
-    case "Bash":
-      detail = `${ANSI.dim}${String(input.command ?? "").slice(0, 120)}${ANSI.reset}`;
-      break;
-    case "Glob":
-      detail = `${ANSI.gray}${input.pattern ?? ""}${ANSI.reset}`;
-      break;
-    case "Grep":
-      detail = `${ANSI.gray}${input.pattern ?? ""}${ANSI.reset}`;
-      break;
-    case "Task":
-      detail = `${ANSI.magenta}${input.description ?? ""}${ANSI.reset}`;
-      break;
-    case "AskUserQuestion": {
-      const qs = input.questions as Array<{ question: string }> | undefined;
-      const preview = qs?.[0]?.question?.slice(0, 100) ?? "";
-      detail = `${ANSI.yellow}${preview}${ANSI.reset}`;
-      break;
-    }
-    default:
-      detail = `${ANSI.dim}${JSON.stringify(input).slice(0, 100)}${ANSI.reset}`;
-  }
-
-  return `\n${label} ${detail}\n`;
-}
-
-export interface ClaudeResult {
-  output: string;
-  sessionId: string;
-  durationMs: number;
-  costUsd: number;
-  isError: boolean;
-  errorMessages: string[];
-  permissionDenials: PermissionDenial[];
-}
-
 export interface SpawnHandle {
   process: ChildProcess;
-  promise: Promise<ClaudeResult>;
+  promise: Promise<AgentResult>;
   sessionId?: string;
 }
 
-export function spawnClaude(
+export function spawnAgent(
   prompt: string,
   cwd: string,
   resumeSessionId?: string | null,
@@ -148,55 +55,35 @@ export function spawnClaude(
   agentName?: string,
   useDocker?: boolean,
 ): SpawnHandle {
-  const timeout = timeoutMs ?? config.claudeTimeoutMs;
-  const claudeArgs = [
-    "--print",
-    "--verbose",
-    "--output-format",
-    "stream-json",
-  ];
-
-  if (planMode) {
-    claudeArgs.push("--permission-mode", "plan");
-  } else {
-    claudeArgs.push("--dangerously-skip-permissions");
-  }
-
-  if (model) {
-    claudeArgs.push("--model", model);
-  }
-
-  if (agentName) {
-    claudeArgs.push("--agent", agentName);
-  }
-
-  if (resumeSessionId) {
-    claudeArgs.push("--resume", resumeSessionId);
-  }
-
-  claudeArgs.push(prompt);
+  const provider = getProvider(resolveProvider(model));
+  const timeout = timeoutMs ?? config.agentTimeoutMs;
+  const args = provider.buildArgs({
+    prompt,
+    model,
+    resumeSessionId: resumeSessionId ?? undefined,
+    planMode,
+    agentName,
+    inDocker: useDocker,
+  });
 
   let proc: ChildProcess;
 
   if (useDocker) {
     ensureDockerImage();
-    const dockerConfigDir = ensureDockerClaudeConfig();
     const uid = process.getuid?.() ?? 1000;
     const gid = process.getgid?.() ?? 1000;
     const dockerArgs = [
       "run", "--rm",
       "--cap-add=NET_ADMIN", "--cap-add=NET_RAW",
       "-v", `${cwd}:${cwd}`,
-      "-v", `${config.claudeConfigDir}:/home/claude-user/.claude`,
-      "-v", `${resolve(dockerConfigDir, "settings.json")}:/home/claude-user/.claude/settings.json:ro`,
-      "-v", `${resolve(dockerConfigDir, "claude.json")}:/home/claude-user/.claude.json:ro`,
+      ...provider.dockerArgs(),
       "-w", cwd,
       "-e", "HOME=/home/claude-user",
       "-e", `CLAUDE_UID=${uid}`,
       "-e", `CLAUDE_GID=${gid}`,
       "-e", "NODE_OPTIONS=--max-old-space-size=4096",
       config.dockerImage,
-      "claude", ...claudeArgs,
+      provider.binary, ...args,
     ];
     proc = spawn("docker", dockerArgs, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -204,7 +91,7 @@ export function spawnClaude(
   } else {
     const cleanEnv = { ...process.env };
     delete cleanEnv.CLAUDECODE;
-    proc = spawn("claude", claudeArgs, {
+    proc = spawn(provider.binary, args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
       env: cleanEnv,
@@ -213,17 +100,22 @@ export function spawnClaude(
 
   let earlySessionId: string | undefined;
 
-  const promise = new Promise<ClaudeResult>((resolve, reject) => {
+  const promise = new Promise<AgentResult>((resolve, reject) => {
     let stderr = "";
     let bufferExceeded = false;
     let lineBuffer = "";
-    let resultTextSize = 0;
-    let resultText = "";
-    let resultData: ClaudeResult | null = null;
+
+    const parser = provider.createParser({
+      onChunk,
+      onQuestion,
+      onSessionId: (sessionId) => {
+        earlySessionId = sessionId;
+      },
+    });
 
     proc.stdout!.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
-      if (resultTextSize >= config.maxBufferSize) {
+      if (parser.partialOutput().length >= config.maxBufferSize) {
         if (!bufferExceeded) {
           bufferExceeded = true;
           proc.kill("SIGTERM");
@@ -238,55 +130,7 @@ export function spawnClaude(
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        try {
-          const event = JSON.parse(trimmed);
-          if (event.type === "system" && event.session_id) {
-            earlySessionId = event.session_id;
-          } else if (event.type === "assistant" && event.message?.content) {
-            for (const block of event.message.content) {
-              if (block.type === "text" && block.text) {
-                const needsNewline = resultText.length > 0 && !resultText.endsWith("\n") && !block.text.startsWith("\n");
-                if (needsNewline) {
-                  resultText += "\n";
-                  resultTextSize += 1;
-                  onChunk?.("\n");
-                }
-                resultText += block.text;
-                resultTextSize += block.text.length;
-                onChunk?.(block.text);
-              } else if (block.type === "tool_use" && block.name) {
-                if (block.name === "AskUserQuestion" && block.input?.questions) {
-                  onQuestion?.(block.id, block.input.questions as AskQuestion[]);
-                }
-                const formatted = formatToolUse(block.name, block.input ?? {});
-                onChunk?.(formatted);
-              }
-            }
-          } else if (event.type === "result") {
-            const denials: PermissionDenial[] = [];
-            if (Array.isArray(event.permission_denials)) {
-              for (const d of event.permission_denials) {
-                if (d.tool_name === "AskUserQuestion" && d.tool_input?.questions) {
-                  denials.push(d as PermissionDenial);
-                }
-              }
-            }
-            const errorMessages: string[] = Array.isArray(event.errors)
-              ? event.errors.map((e: unknown) => String(e))
-              : [];
-            resultData = {
-              output: event.result ?? resultText,
-              sessionId: event.session_id ?? "",
-              durationMs: event.duration_ms ?? 0,
-              costUsd: event.total_cost_usd ?? 0,
-              isError: event.is_error ?? false,
-              errorMessages,
-              permissionDenials: denials,
-            };
-          }
-        } catch {
-          // non-JSON line, ignore
-        }
+        parser.feedLine(trimmed);
       }
     });
 
@@ -315,7 +159,7 @@ export function spawnClaude(
       if (err.code === "ENOENT") {
         reject(new Error(useDocker
           ? "Docker não encontrado no PATH. Instale o Docker ou desative o modo Docker."
-          : "Claude CLI não encontrado no PATH."));
+          : `${provider.displayName} não encontrado no PATH.`));
       } else {
         reject(err);
       }
@@ -323,6 +167,10 @@ export function spawnClaude(
 
     proc.on("close", (code) => {
       if (timer) clearTimeout(timer);
+
+      if (lineBuffer.trim()) {
+        parser.feedLine(lineBuffer.trim());
+      }
 
       if (bufferExceeded) {
         reject(new Error("Output excedeu o limite de buffer."));
@@ -337,6 +185,8 @@ export function spawnClaude(
         );
         return;
       }
+
+      const resultData = parser.finish(code);
 
       if (resultData) {
         if (useDocker && stderr) {
@@ -355,15 +205,16 @@ export function spawnClaude(
       } else if (useDocker) {
         reject(
           new Error(
-            `Docker: processo finalizou sem output do Claude CLI.${stderr ? ` stderr: ${stderr}` : ""}`,
+            `Docker: processo finalizou sem output do ${provider.displayName}.${stderr ? ` stderr: ${stderr}` : ""}`,
           ),
         );
       } else {
         resolve({
-          output: resultText || "",
+          output: parser.partialOutput(),
           sessionId: "",
           durationMs: 0,
           costUsd: 0,
+          totalTokens: 0,
           isError: false,
           errorMessages: [],
           permissionDenials: [],

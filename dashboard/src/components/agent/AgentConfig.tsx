@@ -10,29 +10,29 @@ import type { ScheduleEntry } from "../../lib/types";
 
 interface AgentConfigProps {
   agentName: string;
-  claudeMd: string;
+  agentsMd: string;
   schedules: ScheduleEntry[];
 }
 
-export function AgentConfig({ agentName, claudeMd, schedules }: AgentConfigProps) {
+export function AgentConfig({ agentName, agentsMd, schedules }: AgentConfigProps) {
   const { addToast } = useToast();
-  const [mdContent, setMdContent] = useState(claudeMd);
+  const [mdContent, setMdContent] = useState(agentsMd);
   const [mdDirty, setMdDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setMdContent(claudeMd);
+    setMdContent(agentsMd);
     setMdDirty(false);
-  }, [claudeMd]);
+  }, [agentsMd]);
 
   const handleSaveMd = async () => {
     setSaving(true);
     try {
-      await api.put(`/files?base=agent:${agentName}&path=CLAUDE.md`, { content: mdContent });
+      await api.put(`/files?base=agent:${agentName}&path=AGENTS.md`, { content: mdContent });
       setMdDirty(false);
-      addToast("success", "CLAUDE.md saved");
+      addToast("success", "AGENTS.md saved");
     } catch {
-      addToast("error", "Failed to save CLAUDE.md");
+      addToast("error", "Failed to save AGENTS.md");
     } finally {
       setSaving(false);
     }
@@ -55,7 +55,7 @@ export function AgentConfig({ agentName, claudeMd, schedules }: AgentConfigProps
     <div className="space-y-6">
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-medium text-text-muted">CLAUDE.md</h3>
+          <h3 className="text-sm font-medium text-text-muted">AGENTS.md</h3>
           <Button
             size="sm"
             onClick={handleSaveMd}

@@ -106,10 +106,10 @@ export function listAgentInfos(): AgentInfo[] {
 }
 
 function extractAgentSummary(name: string): string | null {
-  const claudeMdPath = resolve(config.agentsPath, name, "CLAUDE.md");
-  if (!existsSync(claudeMdPath)) return null;
+  const agentsMdPath = resolve(config.agentsPath, name, "AGENTS.md");
+  if (!existsSync(agentsMdPath)) return null;
 
-  const content = readFileSync(claudeMdPath, "utf-8");
+  const content = readFileSync(agentsMdPath, "utf-8");
   const lines = content.split("\n");
 
   let title = "";

@@ -5,6 +5,7 @@ import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { api } from "../../lib/api";
+import { formatUsage } from "../../lib/types";
 import type { ExecutionInfo } from "../../lib/types";
 
 interface ExecutionCardProps {
@@ -65,7 +66,7 @@ export function ExecutionCard({ execution, expanded, onViewOutput }: ExecutionCa
       <p className="text-sm text-text-primary truncate">{execution.prompt}</p>
       {execution.result && (
         <p className="text-xs text-text-muted mt-1">
-          {(execution.result.durationMs / 1000).toFixed(1)}s · ${execution.result.costUsd.toFixed(2)}
+          {(execution.result.durationMs / 1000).toFixed(1)}s · {formatUsage(execution.result.costUsd, execution.result.totalTokens)}
         </p>
       )}
     </Card>

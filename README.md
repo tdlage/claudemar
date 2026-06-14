@@ -1,18 +1,32 @@
 # Claudemar
 
-Telegram bot that gives you full access to Claude CLI from your phone. Manage projects, orchestrate AI agents, schedule tasks, and monitor everything through a web dashboard.
+Telegram bot that gives you full access to AI agent CLIs (OpenAI Codex CLI and Claude CLI) from your phone. Manage projects, orchestrate AI agents, schedule tasks, and monitor everything through a web dashboard.
+
+## Providers
+
+Claudemar supports two agent CLIs behind a provider layer:
+
+| | Codex CLI (default) | Claude CLI |
+|---|---|---|
+| Package | `@openai/codex` | `@anthropic-ai/claude-code` |
+| Auth | `codex login` (ChatGPT account) | `claude auth` |
+| Model selection | `codex` (account default) | `claude-*` models |
+| Usage reporting | tokens | USD cost |
+| Interactive questions | — | supported |
+
+The provider is resolved from the selected model: `codex` runs via Codex CLI, `claude-*` models run via Claude CLI. `AGENT_PROVIDER` sets the default when no model is selected.
 
 ## Features
 
 ### Telegram Bot
-- **Claude CLI via Telegram** — send messages, get Claude responses with streaming
-- **Voice messages** — transcribed via OpenAI Whisper, then processed by Claude
+- **Agent CLI via Telegram** — send messages, get AI responses with streaming
+- **Voice messages** — transcribed via OpenAI Whisper, then processed by the agent
 - **Project management** — create project folders, clone multiple repos per project, switch between projects
 - **Multi-agent system** — create specialized agents with personas, context files, and inboxes
 - **Agent-to-agent messaging** — outbox/inbox routing, broadcast, delegation
 - **Council meetings** — simulate multi-agent discussions on a topic
 - **Cron scheduling** — natural language schedules ("every day at 9am review PRs")
-- **Execution metrics** — track cost, duration, and execution count per agent
+- **Execution metrics** — track cost/tokens, duration, and execution count per agent
 
 ### Web Dashboard
 - **Overview** — active executions, agent/project status, activity feed, quick command
@@ -28,7 +42,8 @@ Telegram bot that gives you full access to Claude CLI from your phone. Manage pr
 ## Requirements
 
 - Node.js >= 22
-- [Claude CLI](https://github.com/anthropics/claude-code) installed and authenticated (`claude auth`)
+- [Codex CLI](https://github.com/openai/codex) installed and authenticated (`npm install -g @openai/codex && codex login`)
+- [Claude CLI](https://github.com/anthropics/claude-code) installed and authenticated (`claude auth`) — optional, enables `claude-*` models
 - Telegram bot token (from [@BotFather](https://t.me/BotFather))
 - OpenAI API key (optional, for voice message transcription)
 
@@ -84,7 +99,8 @@ ALLOWED_CHAT_ID=your-telegram-chat-id
 
 # Optional
 OPENAI_API_KEY=your-openai-key           # for voice message transcription
-CLAUDE_TIMEOUT_MS=300000                  # Claude execution timeout (default: 5min)
+AGENT_TIMEOUT_MS=300000                   # agent execution timeout (0 = no timeout)
+AGENT_PROVIDER=codex                      # default provider: codex | claude
 MAX_OUTPUT_LENGTH=4096                    # max inline output before sending as file
 MAX_BUFFER_SIZE=10485760                  # max process buffer (10MB)
 DASHBOARD_TOKEN=your-secret-token        # dashboard auth token (empty = localhost only)
@@ -139,7 +155,7 @@ BASE_PATH=/path/to/data                   # base directory for agents/projects/o
 | `/help` | Show all commands |
 
 ### Text & Voice Messages
-Send any text message to get a Claude response in the active project/agent context. Send a voice message and it will be transcribed via Whisper and processed by Claude.
+Send any text message to get an AI response in the active project/agent context. Send a voice message and it will be transcribed via Whisper and processed by the agent.
 
 ## Dashboard API
 
@@ -222,7 +238,7 @@ Subscribe to rooms: emit `subscribe:execution <id>`, `subscribe:files`. Unsubscr
 ```
 agents/
   my-agent/
-    CLAUDE.md         # Agent persona/instructions
+    AGENTS.md         # Agent persona/instructions
     context/          # Reference materials
     inbox/            # Incoming messages from other agents
     outbox/           # Outgoing messages (routed automatically)
@@ -254,7 +270,8 @@ src/
   bot.ts                   # Grammy bot instance
   commands.ts              # All Telegram command handlers
   processor.ts             # Message processing + delegation
-  executor.ts              # Claude CLI spawning, shell execution
+  executor.ts              # Agent CLI spawning, shell execution
+  providers/               # Provider adapters (claude, codex)
   execution-manager.ts     # Singleton execution tracker (EventEmitter)
   repositories.ts          # Git repository discovery and operations
   session.ts               # Per-chat session state
@@ -265,7 +282,7 @@ src/
     manager.ts             # Agent CRUD operations
     messenger.ts           # Outbox → inbox message routing
     council.ts             # Multi-agent council simulation
-    scheduler.ts           # Cron scheduling with Claude
+    scheduler.ts           # Cron scheduling via agent CLI
     types.ts               # Agent type definitions
   server/
     index.ts               # Express + Socket.IO setup

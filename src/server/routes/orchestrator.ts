@@ -6,7 +6,7 @@ import { loadOrchestratorSettings, saveOrchestratorSettings } from "../../orches
 
 export const orchestratorRouter = Router();
 
-const claudeMdPath = resolve(config.orchestratorPath, "CLAUDE.md");
+const agentsMdPath = resolve(config.orchestratorPath, "AGENTS.md");
 
 orchestratorRouter.get("/settings", (_req, res) => {
   res.json(loadOrchestratorSettings());
@@ -16,26 +16,26 @@ orchestratorRouter.put("/settings", (req, res) => {
   const { prependPrompt, model } = req.body;
   saveOrchestratorSettings({
     prependPrompt: typeof prependPrompt === "string" ? prependPrompt : "",
-    model: typeof model === "string" ? model : "claude-opus-4-7",
+    model: typeof model === "string" ? model : "codex",
   });
   res.json({ ok: true });
 });
 
-orchestratorRouter.get("/claude-md", (_req, res) => {
+orchestratorRouter.get("/agents-md", (_req, res) => {
   try {
-    const content = readFileSync(claudeMdPath, "utf-8");
+    const content = readFileSync(agentsMdPath, "utf-8");
     res.json({ content });
   } catch {
     res.json({ content: "" });
   }
 });
 
-orchestratorRouter.put("/claude-md", (req, res) => {
+orchestratorRouter.put("/agents-md", (req, res) => {
   const { content } = req.body;
   if (typeof content !== "string") {
     res.status(400).json({ error: "content required" });
     return;
   }
-  writeFileSync(claudeMdPath, content, "utf-8");
+  writeFileSync(agentsMdPath, content, "utf-8");
   res.json({ ok: true });
 });

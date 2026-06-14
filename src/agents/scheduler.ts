@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
-import { spawnClaude } from "../executor.js";
+import { spawnAgent } from "../executor.js";
 import { getAgentPaths } from "./manager.js";
 import { query, execute, toMySQLDatetime } from "../database.js";
 import type { RowDataPacket } from "mysql2/promise";
@@ -83,7 +83,7 @@ Exemplos:
 
 Responda APENAS com o JSON, sem explicações ou markdown.`;
 
-  const parseHandle = spawnClaude(parsePrompt, config.orchestratorPath, null, 30000);
+  const parseHandle = spawnAgent(parsePrompt, config.orchestratorPath, null, 30000);
   const parseResult = await parseHandle.promise;
 
   let cron: string;
@@ -104,7 +104,7 @@ Responda APENAS com o JSON, sem explicações ou markdown.`;
   const scriptPrompt = `Construa um script bash que executa a seguinte tarefa: "${task}".
 
 O script deve:
-1. Executar o necessário para cumprir a tarefa (pode usar claude CLI neste workspace)
+1. Executar o necessário para cumprir a tarefa (pode usar o CLI de agente neste workspace: \`codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "<prompt>"\`)
 2. Salvar resultado em ./output/scheduled-${slugify(task)}-$(date +%Y%m%d-%H%M).md
 3. Enviar notificação via: curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \\
    -d "chat_id=$ALLOWED_CHAT_ID" -d "text=<resumo do resultado>"
@@ -114,7 +114,7 @@ Workspace: ${agentPaths.root}
 
 Responda APENAS com o conteúdo do script, sem explicações. Comece com #!/usr/bin/env bash`;
 
-  const scriptHandle = spawnClaude(scriptPrompt, agentPaths.root, null, 60000);
+  const scriptHandle = spawnAgent(scriptPrompt, agentPaths.root, null, 60000);
   const scriptResult = await scriptHandle.promise;
 
   const scriptContent = extractScript(scriptResult.output);

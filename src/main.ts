@@ -1,4 +1,6 @@
 import "./migrate-data.js";
+import { existsSync, readdirSync, renameSync } from "node:fs";
+import { resolve } from "node:path";
 import { config } from "./config.js";
 import { bot } from "./bot.js";
 import { executionManager, type ExecutionInfo } from "./execution-manager.js";
@@ -7,7 +9,7 @@ import { runProcessManager } from "./run-process-manager.js";
 import { processQueueItem } from "./processor.js";
 import { createDashboardServer } from "./server/index.js";
 import { tokenManager } from "./server/token-manager.js";
-import { regenerateOrchestratorClaudeMd } from "./orchestrator-init.js";
+import { regenerateOrchestratorAgentsMd } from "./orchestrator-init.js";
 import { initSessions } from "./session.js";
 import { usersManager } from "./users-manager.js";
 import { sessionNamesManager } from "./session-names-manager.js";
@@ -21,7 +23,27 @@ import { runDataMigrations } from "./data-migration.js";
 import { initTrackerExecutionBridge } from "./tracker-execution-bridge.js";
 import { closePool } from "./database.js";
 
-regenerateOrchestratorClaudeMd();
+function migrateClaudeMdToAgentsMd(): void {
+  const dirs = [config.orchestratorPath];
+  try {
+    dirs.push(
+      ...readdirSync(config.agentsPath, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => resolve(config.agentsPath, e.name)),
+    );
+  } catch { }
+  for (const dir of dirs) {
+    const claudeMd = resolve(dir, "CLAUDE.md");
+    const agentsMd = resolve(dir, "AGENTS.md");
+    if (existsSync(claudeMd) && !existsSync(agentsMd)) {
+      renameSync(claudeMd, agentsMd);
+      console.log(`[migrate] Renamed ${claudeMd} -> AGENTS.md`);
+    }
+  }
+}
+
+migrateClaudeMdToAgentsMd();
+regenerateOrchestratorAgentsMd();
 ensureCredentialsDir();
 generateSendEmailScript();
 ensureAllAgentGitRepos();

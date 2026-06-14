@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gosu iptables bash git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
 RUN mkdir -p /home/claude-user && chmod 777 /home/claude-user
 

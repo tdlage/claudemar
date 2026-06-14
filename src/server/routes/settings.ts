@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { settingsManager } from "../../settings-manager.js";
 import { emailSettingsManager } from "../../email-settings-manager.js";
-import { regenerateOrchestratorClaudeMd } from "../../orchestrator-init.js";
+import { regenerateOrchestratorAgentsMd } from "../../orchestrator-init.js";
 import { generateSendEmailScript } from "../../email-init.js";
 
 export const settingsRouter = Router();
@@ -16,7 +16,7 @@ settingsRouter.put("/", (req, res) => {
     sesFrom: typeof sesFrom === "string" ? sesFrom : undefined,
     adminEmail: typeof adminEmail === "string" ? adminEmail : undefined,
   });
-  regenerateOrchestratorClaudeMd();
+  regenerateOrchestratorAgentsMd();
   res.json(settingsManager.get());
 });
 

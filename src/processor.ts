@@ -8,6 +8,7 @@ import {
   executionManager,
 } from "./execution-manager.js";
 import type { QueueItem } from "./queue.js";
+import { formatUsage } from "./providers/format.js";
 import { markdownToTelegramHtml } from "./telegram-format.js";
 import {
   getSessionId,
@@ -134,7 +135,7 @@ function fireAndForgetReply(
       }
 
       const durationSec = (result.durationMs / 1000).toFixed(1);
-      const footer = `${prefix}${durationSec}s · $${result.costUsd.toFixed(2)}`;
+      const footer = `${prefix}${durationSec}s · ${formatUsage(result.costUsd, result.totalTokens)}`;
 
       if (!result.output) {
         try {
@@ -197,7 +198,7 @@ function fireAndForgetReply(
         await ctx.api.editMessageText(
           chatId,
           statusMsg.message_id,
-          `${prefix}Claude CLI não encontrado no PATH.`,
+          `${prefix}${message}`,
         );
       } else {
         await ctx.api.editMessageText(

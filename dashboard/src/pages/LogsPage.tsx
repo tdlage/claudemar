@@ -5,6 +5,7 @@ import { useExecutions } from "../hooks/useExecution";
 import { useDebounce } from "../hooks/useDebounce";
 import { Badge } from "../components/shared/Badge";
 import { Card } from "../components/shared/Card";
+import { formatUsage } from "../lib/types";
 import type { ExecutionInfo, ExecutionStatus, ExecutionTargetType } from "../lib/types";
 
 const STATUS_OPTIONS: ExecutionStatus[] = ["running", "completed", "error", "cancelled"];
@@ -165,7 +166,7 @@ function LogEntry({
         <span className="text-text-primary truncate flex-1 min-w-0 basis-[100px]">{exec.prompt}</span>
         {exec.result && (
           <span className="text-xs text-text-muted whitespace-nowrap">
-            {(exec.result.durationMs / 1000).toFixed(1)}s · ${exec.result.costUsd.toFixed(2)}
+            {(exec.result.durationMs / 1000).toFixed(1)}s · {formatUsage(exec.result.costUsd, exec.result.totalTokens)}
           </span>
         )}
         <span className="text-xs text-text-muted text-right whitespace-nowrap hidden sm:inline">

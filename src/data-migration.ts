@@ -108,6 +108,7 @@ const TABLE_DEFINITIONS: string[] = [
     started_at DATETIME(3) NOT NULL,
     completed_at DATETIME(3) DEFAULT NULL,
     cost_usd DECIMAL(12,6) NOT NULL DEFAULT 0,
+    total_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0,
     duration_ms BIGINT UNSIGNED NOT NULL DEFAULT 0,
     source VARCHAR(50) NOT NULL,
     output LONGTEXT DEFAULT NULL,
@@ -481,6 +482,7 @@ export async function runDataMigrations(): Promise<void> {
   await migrateLastSessions();
   await migrateMetrics();
   await ensureQueueColumns(pool);
+  await ensureExecutionHistoryColumns(pool);
 
   console.log("[data-migration] All data migrations completed");
 }
@@ -491,5 +493,14 @@ async function ensureQueueColumns(pool: ReturnType<typeof getPool>): Promise<voi
   );
   if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
     await pool.execute("ALTER TABLE queue_items ADD COLUMN skip_system_prompt TINYINT(1) NOT NULL DEFAULT 0");
+  }
+}
+
+async function ensureExecutionHistoryColumns(pool: ReturnType<typeof getPool>): Promise<void> {
+  const [rows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'execution_history' AND COLUMN_NAME = 'total_tokens'",
+  );
+  if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE execution_history ADD COLUMN total_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER cost_usd");
   }
 }

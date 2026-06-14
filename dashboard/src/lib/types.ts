@@ -32,19 +32,30 @@ export interface ExecutionInfo {
   startedAt: string;
   completedAt: string | null;
   output: string;
-  result: ClaudeResult | null;
+  result: AgentResult | null;
   error: string | null;
   pendingQuestion?: PendingQuestion | null;
   planMode?: boolean;
   resumeSessionId?: string | null;
 }
 
-export interface ClaudeResult {
+export interface AgentResult {
   output: string;
   sessionId: string;
   durationMs: number;
   costUsd: number;
+  totalTokens: number;
   isError: boolean;
+}
+
+export function formatUsage(costUsd: number, totalTokens?: number): string {
+  if (costUsd > 0) return `$${costUsd.toFixed(2)}`;
+  if (totalTokens && totalTokens > 0) {
+    return totalTokens >= 1000
+      ? `${(totalTokens / 1000).toFixed(1)}k tok`
+      : `${totalTokens} tok`;
+  }
+  return "$0.00";
 }
 
 export interface AgentInfo {
@@ -67,7 +78,7 @@ export interface SecretFile {
 }
 
 export interface AgentDetail extends AgentInfo {
-  claudeMd: string;
+  agentsMd: string;
   inboxFiles: string[];
   outboxFiles: string[];
   outputFiles: { name: string; type: "file" | "directory"; size: number; mtime: string }[];

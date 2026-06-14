@@ -5,6 +5,7 @@ import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
 import { renderOutputHtml } from "../../lib/ansi";
 import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
+import { formatUsage } from "../../lib/types";
 import type { ExecutionInfo, QueueItem } from "../../lib/types";
 
 function formatDuration(ms: number): string {
@@ -192,7 +193,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
               )}
               {exec.result && (
                 <span className="text-xs text-text-muted whitespace-nowrap">
-                  {formatDuration(exec.result.durationMs)} · ${exec.result.costUsd.toFixed(2)}
+                  {formatDuration(exec.result.durationMs)} · {formatUsage(exec.result.costUsd, exec.result.totalTokens)}
                 </span>
               )}
               <span className="text-xs text-text-muted text-right hidden sm:inline">

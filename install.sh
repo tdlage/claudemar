@@ -17,6 +17,7 @@ NC='\033[0m'
 IS_UPDATE=false
 NODE_INSTALLED=false
 CLAUDE_FOUND=false
+CODEX_FOUND=false
 ENV_CREATED=false
 SERVICE_INSTALLED=false
 CRON_INSTALLED=false
@@ -24,6 +25,7 @@ OS=""
 DISTRO=""
 NODE_BIN_DIR=""
 CLAUDE_BIN_DIR=""
+CODEX_BIN_DIR=""
 TOTAL_STEPS=10
 MYSQL_CONFIGURED=false
 
@@ -157,7 +159,18 @@ ensure_node() {
 }
 
 check_claude() {
-    step 3 "Checking Claude CLI"
+    step 3 "Checking agent CLIs"
+
+    if command -v codex &>/dev/null; then
+        CODEX_FOUND=true
+        CODEX_BIN_DIR="$(dirname "$(command -v codex)")"
+        success "Codex CLI found: $(command -v codex)"
+    else
+        CODEX_FOUND=false
+        warn "Codex CLI not found. Claudemar uses it as the default provider."
+        info "Install: npm install -g @openai/codex"
+        info "Then authenticate: codex login"
+    fi
 
     if command -v claude &>/dev/null; then
         CLAUDE_FOUND=true
@@ -165,7 +178,7 @@ check_claude() {
         success "Claude CLI found: $(command -v claude)"
     else
         CLAUDE_FOUND=false
-        warn "Claude CLI not found. Claudemar requires it to function."
+        warn "Claude CLI not found (optional — needed only for claude-* models)."
         info "Install: npm install -g @anthropic-ai/claude-code"
         info "Then authenticate: claude auth"
     fi
@@ -313,12 +326,11 @@ setup_env() {
         fi
 
         if grep -q '^CLAUDE_TIMEOUT_MS=' "$env_file" 2>/dev/null; then
-            local current_timeout
-            current_timeout="$(grep -oP '^CLAUDE_TIMEOUT_MS=\K.*' "$env_file" 2>/dev/null || true)"
-            if [[ "$current_timeout" != "0" && -n "$current_timeout" ]]; then
-                info "Removing timeout (CLAUDE_TIMEOUT_MS=${current_timeout} -> 0). Claude Code should not have a timeout."
-                sed -i "s/^CLAUDE_TIMEOUT_MS=.*/CLAUDE_TIMEOUT_MS=0/" "$env_file"
-            fi
+            info "Migrating CLAUDE_TIMEOUT_MS -> AGENT_TIMEOUT_MS"
+            sed -i "s/^CLAUDE_TIMEOUT_MS=.*/AGENT_TIMEOUT_MS=0/" "$env_file"
+        fi
+        if ! grep -q '^AGENT_TIMEOUT_MS=' "$env_file" 2>/dev/null; then
+            printf 'AGENT_TIMEOUT_MS=0\n' >> "$env_file"
         fi
 
         if ! grep -q '^CLAUDEMAR_DATA=' "$env_file" 2>/dev/null; then
@@ -440,7 +452,8 @@ setup_env() {
         printf 'TELEGRAM_BOT_TOKEN=%s\n' "$token" > "$env_file"
         printf 'ALLOWED_CHAT_ID=%s\n' "$chat_id" >> "$env_file"
         printf 'OPENAI_API_KEY=%s\n' "$openai_key" >> "$env_file"
-        printf 'CLAUDE_TIMEOUT_MS=0\n' >> "$env_file"
+        printf 'AGENT_TIMEOUT_MS=0\n' >> "$env_file"
+        printf 'AGENT_PROVIDER=codex\n' >> "$env_file"
         printf 'MAX_OUTPUT_LENGTH=4096\n' >> "$env_file"
         printf 'DASHBOARD_TOKEN=%s\n' "$dashboard_token" >> "$env_file"
         printf 'DASHBOARD_PORT=%s\n' "${dashboard_port:-3000}" >> "$env_file"
@@ -461,7 +474,8 @@ setup_env() {
 TELEGRAM_BOT_TOKEN=
 ALLOWED_CHAT_ID=
 OPENAI_API_KEY=
-CLAUDE_TIMEOUT_MS=0
+AGENT_TIMEOUT_MS=0
+AGENT_PROVIDER=codex
 MAX_OUTPUT_LENGTH=4096
 DASHBOARD_TOKEN=
 DASHBOARD_PORT=3000
@@ -747,7 +761,10 @@ setup_systemd() {
     node_bin="$(command -v node)"
 
     local path_entries="$NODE_BIN_DIR"
-    if [[ "$CLAUDE_FOUND" == true && -n "$CLAUDE_BIN_DIR" ]]; then
+    if [[ "$CODEX_FOUND" == true && -n "$CODEX_BIN_DIR" && "$CODEX_BIN_DIR" != "$NODE_BIN_DIR" ]]; then
+        path_entries="${path_entries}:${CODEX_BIN_DIR}"
+    fi
+    if [[ "$CLAUDE_FOUND" == true && -n "$CLAUDE_BIN_DIR" && "$CLAUDE_BIN_DIR" != "$NODE_BIN_DIR" ]]; then
         path_entries="${path_entries}:${CLAUDE_BIN_DIR}"
     fi
     path_entries="${path_entries}:/usr/local/bin:/usr/bin:/bin"
@@ -761,7 +778,7 @@ setup_systemd() {
 
     sudo tee "$service_path" > /dev/null <<EOF
 [Unit]
-Description=Claudemar — Telegram Bot for Claude CLI
+Description=Claudemar — Telegram Bot for AI agent CLIs (Codex/Claude)
 After=network-online.target mysql.service mariadb.service
 Wants=network-online.target
 
@@ -851,10 +868,16 @@ print_summary() {
     echo -e "${BOLD}║${NC}  Data:      ${DATA_DIR}"
     echo -e "${BOLD}║${NC}  Node:      $(node -v)"
 
+    if [[ "$CODEX_FOUND" == true ]]; then
+        echo -e "${BOLD}║${NC}  Codex:     ${GREEN}found${NC}"
+    else
+        echo -e "${BOLD}║${NC}  Codex:     ${YELLOW}not found${NC}"
+    fi
+
     if [[ "$CLAUDE_FOUND" == true ]]; then
         echo -e "${BOLD}║${NC}  Claude:    ${GREEN}found${NC}"
     else
-        echo -e "${BOLD}║${NC}  Claude:    ${YELLOW}not found${NC}"
+        echo -e "${BOLD}║${NC}  Claude:    ${YELLOW}not found (optional)${NC}"
     fi
 
     if [[ -f "$INSTALL_DIR/.env" ]]; then
@@ -914,14 +937,24 @@ print_summary() {
         fi
     fi
 
+    if [[ "$CODEX_FOUND" == false ]]; then
+        if [[ "$has_next_steps" == false ]]; then
+            echo ""
+            echo -e "${BOLD}Next steps:${NC}"
+            has_next_steps=true
+        fi
+        echo -e "  • Install Codex CLI (required): npm install -g @openai/codex"
+        echo -e "  • Authenticate: codex login"
+    fi
+
     if [[ "$CLAUDE_FOUND" == false ]]; then
         if [[ "$has_next_steps" == false ]]; then
             echo ""
             echo -e "${BOLD}Next steps:${NC}"
             has_next_steps=true
         fi
-        echo -e "  • Install Claude CLI: npm install -g @anthropic-ai/claude-code"
-        echo -e "  • Authenticate: claude auth"
+        echo -e "  • (Optional) Install Claude CLI: npm install -g @anthropic-ai/claude-code"
+        echo -e "  • (Optional) Authenticate: claude auth"
     fi
 
     echo ""

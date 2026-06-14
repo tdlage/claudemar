@@ -28,6 +28,7 @@ import { processDelegation } from "./processor.js";
 import { commandQueue } from "./queue.js";
 import { cloneRepo, discoverRepos, removeRepo } from "./repositories.js";
 import { runProcessManager } from "./run-process-manager.js";
+import { formatUsage } from "./providers/format.js";
 import { tokenManager } from "./server/token-manager.js";
 import { escapeHtml, formatStreamForTelegram } from "./telegram-format.js";
 import { checkForUpdates, performUpdate, restartService } from "./updater.js";
@@ -137,7 +138,7 @@ export function registerCommands(bot: Bot): void {
 }
 
 async function handleStart(ctx: Context): Promise<void> {
-  await ctx.reply(`Claudemar — Telegram interface for Claude CLI\n\n${HELP_TEXT}`, { parse_mode: "HTML" });
+  await ctx.reply(`Claudemar — Telegram interface for AI agent CLIs\n\n${HELP_TEXT}`, { parse_mode: "HTML" });
 }
 
 async function handleProject(ctx: Context): Promise<void> {
@@ -522,7 +523,7 @@ async function handleRepository(ctx: Context): Promise<void> {
 
 async function handleHelp(ctx: Context): Promise<void> {
   await ctx.reply(
-    `Comandos disponíveis:\n\n${HELP_TEXT}\n\nEnvie qualquer texto para conversar com o Claude no projeto/agente ativo.`,
+    `Comandos disponíveis:\n\n${HELP_TEXT}\n\nEnvie qualquer texto para conversar com o agente AI no projeto/agente ativo.`,
     { parse_mode: "HTML" },
   );
 }
@@ -638,7 +639,7 @@ async function startStreamFromExec(chatId: number, botApi: Context["api"], exec:
       : "Cancelada";
 
     const footer = info.result
-      ? `\n\n— ${statusLabel} · ${(info.result.durationMs / 1000).toFixed(1)}s · $${info.result.costUsd.toFixed(2)}`
+      ? `\n\n— ${statusLabel} · ${(info.result.durationMs / 1000).toFixed(1)}s · ${formatUsage(info.result.costUsd, info.result.totalTokens)}`
       : `\n\n— ${statusLabel}${info.error ? `: ${info.error}` : ""}`;
 
     const finalText = buffer.length > STREAM_MAX_CHARS
@@ -773,7 +774,7 @@ async function handleHistory(ctx: Context): Promise<void> {
       ? entry.prompt.slice(0, 60) + "..."
       : entry.prompt;
     const durationSec = (entry.durationMs / 1000).toFixed(1);
-    const cost = entry.costUsd > 0 ? `$${entry.costUsd.toFixed(2)}` : "-";
+    const cost = entry.costUsd > 0 || entry.totalTokens > 0 ? formatUsage(entry.costUsd, entry.totalTokens) : "-";
     lines.push(`${emoji} ${promptPreview}`);
     lines.push(`   ${durationSec}s · ${cost} — ${entry.targetName}`);
   }
@@ -879,7 +880,7 @@ async function handleAgentCreate(ctx: Context, name: string): Promise<void> {
   setActiveAgent(chatId, name);
   setMode(chatId, "agents");
   await ctx.reply(
-    `Agente "${name}" criado.\nModo: agents\n\nEstrutura:\n- context/\n- inbox/\n- outbox/\n- output/\n\nCrie um CLAUDE.md na raiz do agente para definir a persona.`,
+    `Agente "${name}" criado.\nModo: agents\n\nEstrutura:\n- context/\n- inbox/\n- outbox/\n- output/\n\nCrie um AGENTS.md na raiz do agente para definir a persona.`,
   );
 }
 
@@ -926,13 +927,13 @@ async function handleAgentInfo(ctx: Context, name: string): Promise<void> {
   const paths = getAgentPaths(name)!;
   const lines: string[] = [`Agente: ${name}`];
 
-  const claudeMdPath = resolve(paths.root, "CLAUDE.md");
-  if (existsSync(claudeMdPath)) {
-    const content = readFileSync(claudeMdPath, "utf-8");
+  const agentsMdPath = resolve(paths.root, "AGENTS.md");
+  if (existsSync(agentsMdPath)) {
+    const content = readFileSync(agentsMdPath, "utf-8");
     const preview = content.split("\n").slice(0, 5).join("\n");
-    lines.push(`\nCLAUDE.md (preview):\n${preview}`);
+    lines.push(`\nAGENTS.md (preview):\n${preview}`);
   } else {
-    lines.push("\nCLAUDE.md: não encontrado");
+    lines.push("\nAGENTS.md: não encontrado");
   }
 
   try {
@@ -1341,7 +1342,7 @@ async function handleMetrics(ctx: Context): Promise<void> {
       [
         `Métricas: ${agentName}`,
         `Execuções: ${m.executions}`,
-        `Custo total: $${m.totalCostUsd.toFixed(2)}`,
+        `Uso total: ${formatUsage(m.totalCostUsd, m.totalTokens)}`,
         `Duração média: ${avgDuration}s`,
       ].join("\n"),
     );
@@ -1361,7 +1362,7 @@ async function handleMetrics(ctx: Context): Promise<void> {
       ? (m.totalDurationMs / m.executions / 1000).toFixed(1)
       : "0";
     lines.push(
-      `${agent} — ${m.executions} exec · $${m.totalCostUsd.toFixed(2)} · avg ${avgDuration}s`,
+      `${agent} — ${m.executions} exec · ${formatUsage(m.totalCostUsd, m.totalTokens)} · avg ${avgDuration}s`,
     );
   }
 

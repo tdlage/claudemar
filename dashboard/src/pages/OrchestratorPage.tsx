@@ -29,7 +29,7 @@ interface UpdateInfo {
 }
 
 
-type TabKey = "terminal" | "claude-md" | "settings";
+type TabKey = "terminal" | "agents-md" | "settings";
 
 export function OrchestratorPage() {
   const models = useModels();
@@ -54,7 +54,7 @@ export function OrchestratorPage() {
   const [mdDirty, setMdDirty] = useState(false);
   const [mdSaving, setMdSaving] = useState(false);
 
-  const [settings, setSettings] = useState<OrchestratorSettings>({ prependPrompt: "", model: "claude-opus-4-7" });
+  const [settings, setSettings] = useState<OrchestratorSettings>({ prependPrompt: "", model: "codex" });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -65,7 +65,7 @@ export function OrchestratorPage() {
   const [dockerRebuilding, setDockerRebuilding] = useState(false);
 
   useEffect(() => {
-    api.get<{ content: string }>("/orchestrator/claude-md")
+    api.get<{ content: string }>("/orchestrator/agents-md")
       .then((data) => setMdContent(data.content))
       .catch(() => {});
 
@@ -107,11 +107,11 @@ export function OrchestratorPage() {
   const handleSaveMd = async () => {
     setMdSaving(true);
     try {
-      await api.put("/orchestrator/claude-md", { content: mdContent });
+      await api.put("/orchestrator/agents-md", { content: mdContent });
       setMdDirty(false);
-      addToast("success", "CLAUDE.md saved");
+      addToast("success", "AGENTS.md saved");
     } catch {
-      addToast("error", "Failed to save CLAUDE.md");
+      addToast("error", "Failed to save AGENTS.md");
     } finally {
       setMdSaving(false);
     }
@@ -173,7 +173,7 @@ export function OrchestratorPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "terminal", label: "Terminal" },
-    { key: "claude-md", label: "CLAUDE.md" },
+    { key: "agents-md", label: "AGENTS.md" },
     { key: "settings", label: "Settings" },
   ];
 
@@ -277,10 +277,10 @@ export function OrchestratorPage() {
         </div>
       )}
 
-      {tab === "claude-md" && (
+      {tab === "agents-md" && (
         <div>
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-text-muted">CLAUDE.md</h3>
+            <h3 className="text-sm font-medium text-text-muted">AGENTS.md</h3>
             <Button
               size="sm"
               onClick={handleSaveMd}

@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { type AskQuestion, type ClaudeResult, type SpawnHandle, spawnClaude } from "./executor.js";
+import { type AgentResult, type AskQuestion, type SpawnHandle, spawnAgent } from "./executor.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInboxMessages, getInboxMessages } from "./agents/messenger.js";
 import { getAgentPaths, listAgents } from "./agents/manager.js";
@@ -38,7 +38,7 @@ export interface ExecutionInfo {
   startedAt: Date;
   completedAt: Date | null;
   output: string;
-  result: ClaudeResult | null;
+  result: AgentResult | null;
   error: string | null;
   pendingQuestion: PendingQuestion | null;
   planMode: boolean;
@@ -70,7 +70,7 @@ const MAX_SESSION_HISTORY = 10;
 const MAX_PERSISTED_OUTPUT = 50_000;
 const MAX_MEMORY_OUTPUT = 200_000;
 
-function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<HistoryEntry, "costUsd" | "durationMs">>): HistoryEntry {
+function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<HistoryEntry, "costUsd" | "totalTokens" | "durationMs">>): HistoryEntry {
   const durationMs = overrides?.durationMs
     ?? (info.completedAt ? info.completedAt.getTime() - info.startedAt.getTime() : 0);
   const output = info.output.length > MAX_PERSISTED_OUTPUT
@@ -86,6 +86,7 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
     startedAt: info.startedAt.toISOString(),
     completedAt: info.completedAt?.toISOString() ?? null,
     costUsd: overrides?.costUsd ?? 0,
+    totalTokens: overrides?.totalTokens ?? 0,
     durationMs,
     source: info.source,
     output: output || undefined,
@@ -202,7 +203,7 @@ class ExecutionManager extends EventEmitter {
         ? ""
         : `\n\n[SYSTEM: You are confined to ${opts.cwd} — do NOT read, list, or access files outside this directory or its subdirectories. Never navigate to parent directories.]`;
       if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
-        systemSuffix += `\n[SYSTEM: Before executing, read your CLAUDE.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`;
+        systemSuffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`;
       }
       if (opts.targetType === "agent") {
         const secretsJsonPath = resolve(config.agentsPath, opts.targetName, "secrets.json");
@@ -233,7 +234,7 @@ class ExecutionManager extends EventEmitter {
     }
     const effectivePrompt = opts.prompt + systemSuffix;
 
-    const handle: SpawnHandle = spawnClaude(
+    const handle: SpawnHandle = spawnAgent(
       effectivePrompt,
       opts.cwd,
       resumeId,
@@ -263,7 +264,7 @@ class ExecutionManager extends EventEmitter {
 
         if (result.isError && resumeId) {
           const isSessionNotFound = result.errorMessages.some(
-            (m) => m.includes("No conversation found") || m.includes("not a UUID"),
+            (m) => m.includes("No conversation found") || m.includes("not a UUID") || m.includes("no rollout found"),
           );
           if (isSessionNotFound) {
             console.log(`[execution] Resume session ${resumeId} not found for ${opts.targetType}:${opts.targetName}, retrying without resume`);
@@ -288,7 +289,7 @@ class ExecutionManager extends EventEmitter {
           info.result = result;
           this.finalize(id);
           this.emit("error", id, info, info.error);
-          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, durationMs: result.durationMs }));
+          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
           return;
         }
 
@@ -324,13 +325,13 @@ class ExecutionManager extends EventEmitter {
           this.pendingQuestions.set(id, { info, opts });
           this.emit("complete", id, info);
           this.emit("question", id, info);
-          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, durationMs: result.durationMs }));
+          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
         } else {
           info.status = "completed";
           info.pendingQuestion = null;
           this.finalize(id);
           this.emit("complete", id, info);
-          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, durationMs: result.durationMs }));
+          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
         }
 
         this.routeAgentMessages(opts);
@@ -338,6 +339,21 @@ class ExecutionManager extends EventEmitter {
       .catch((err) => {
         if (info.status === "cancelled") return;
         const message = err instanceof Error ? err.message : String(err);
+
+        if (resumeId && (message.includes("No conversation found") || message.includes("not a UUID") || message.includes("no rollout found"))) {
+          console.log(`[execution] Resume session ${resumeId} not found for ${opts.targetType}:${opts.targetName}, retrying without resume`);
+          this.lastSessionMap.delete(this.userTargetKey(opts.targetType, opts.targetName, opts.username));
+          this.finalize(id);
+
+          info.status = "error";
+          info.completedAt = new Date();
+          info.error = "Session not found, retrying...";
+          this.emit("error", id, info, info.error);
+
+          this.startExecution({ ...opts, resumeSessionId: null, noResume: true });
+          return;
+        }
+
         info.status = "error";
         info.completedAt = new Date();
         info.error = message;
@@ -347,6 +363,7 @@ class ExecutionManager extends EventEmitter {
           sessionId: resumeId ?? "",
           durationMs,
           costUsd: 0,
+          totalTokens: 0,
           isError: true,
           errorMessages: [message],
           permissionDenials: [],
@@ -408,6 +425,7 @@ class ExecutionManager extends EventEmitter {
           sessionId,
           durationMs,
           costUsd: 0,
+          totalTokens: 0,
           isError: false,
           errorMessages: [],
           permissionDenials: [],
@@ -478,12 +496,14 @@ class ExecutionManager extends EventEmitter {
       startedAt: new Date(e.startedAt),
       completedAt: e.completedAt ? new Date(e.completedAt) : null,
       output: e.output ?? "",
-      result: e.costUsd || e.durationMs ? {
+      result: e.costUsd || e.totalTokens || e.durationMs ? {
         output: e.output ?? "",
         sessionId: e.sessionId ?? "",
         durationMs: e.durationMs,
         costUsd: e.costUsd,
+        totalTokens: e.totalTokens,
         isError: e.status === "error",
+        errorMessages: [],
         permissionDenials: [],
       } : null,
       error: e.error ?? null,

@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../config.js";
-import { spawnClaude } from "../executor.js";
+import { spawnAgent } from "../executor.js";
 import { listAgents, getAgentPaths } from "./manager.js";
 import { routeOrchestratorMessages } from "./messenger.js";
 
@@ -11,10 +11,10 @@ function readAgentContext(agentName: string): string {
 
   const sections: string[] = [`## Agente: ${agentName}`];
 
-  const claudeMdPath = resolve(paths.root, "CLAUDE.md");
-  if (existsSync(claudeMdPath)) {
-    const content = readFileSync(claudeMdPath, "utf-8");
-    sections.push(`### CLAUDE.md\n${content}`);
+  const agentsMdPath = resolve(paths.root, "AGENTS.md");
+  if (existsSync(agentsMdPath)) {
+    const content = readFileSync(agentsMdPath, "utf-8");
+    sections.push(`### AGENTS.md\n${content}`);
   }
 
   if (existsSync(paths.context)) {
@@ -60,7 +60,7 @@ PARA-<agente>_${new Date().toISOString().replace(/[:.]/g, "-")}_<assunto>.md
 
 O conteúdo de cada arquivo deve ser a tarefa detalhada para o agente.`;
 
-  const handle = spawnClaude(prompt, config.orchestratorPath);
+  const handle = spawnAgent(prompt, config.orchestratorPath);
   const result = await handle.promise;
 
   const routeResult = routeOrchestratorMessages();

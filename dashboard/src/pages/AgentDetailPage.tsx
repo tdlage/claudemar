@@ -305,7 +305,7 @@ export function AgentDetailPage() {
       {tab === "config" && (
         <AgentConfig
           agentName={agent.name}
-          claudeMd={agent.claudeMd}
+          agentsMd={agent.agentsMd}
           schedules={agent.schedules}
         />
       )}

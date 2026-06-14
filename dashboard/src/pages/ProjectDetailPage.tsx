@@ -31,7 +31,7 @@ export function ProjectDetailPage() {
   const [planMode, setPlanMode] = useCachedState(`project:${name}:planMode`, false);
   const [sequential, setSequential] = useCachedState(`project:${name}:sequential`, true);
   const [dockerMode, setDockerMode] = useCachedState(`project:${name}:dockerMode`, !isAdmin());
-  const [selectedModel, setSelectedModel] = useCachedState(`project:${name}:model`, "claude-opus-4-7");
+  const [selectedModel, setSelectedModel] = useCachedState(`project:${name}:model`, "codex");
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
   const [agents, setAgents] = useState<string[]>([]);
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
