@@ -17,6 +17,11 @@ export function SessionSelector({ sessionData, onChange, onRename, onDelete }: S
     return sessionData.names[sid] ?? sid.slice(0, 8);
   };
 
+  const getProviderLabel = (sid: string) => {
+    const provider = sessionData.providers[sid];
+    return provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : "Unknown";
+  };
+
   const handleRenameSubmit = async () => {
     if (!sessionData.sessionId || !renameValue.trim()) return;
     await onRename(sessionData.sessionId, renameValue.trim());
@@ -62,7 +67,7 @@ export function SessionSelector({ sessionData, onChange, onRename, onDelete }: S
         <option value="__new">New session</option>
         {sessionData.history.map((sid) => (
           <option key={sid} value={sid}>
-            {getDisplayName(sid)}{sid === sessionData.sessionId ? " (active)" : ""}
+            {getDisplayName(sid)} [{getProviderLabel(sid)}]{sid === sessionData.sessionId ? " (active)" : ""}
           </option>
         ))}
       </select>

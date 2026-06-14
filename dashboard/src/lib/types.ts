@@ -25,6 +25,7 @@ export interface ExecutionInfo {
   targetType: ExecutionTargetType;
   targetName: string;
   agentName?: string;
+  model?: string;
   username?: string;
   prompt: string;
   cwd: string;
@@ -206,6 +207,8 @@ export interface SessionData {
   sessionId: string | null;
   history: string[];
   names: Record<string, string>;
+  models: Record<string, string>;
+  providers: Record<string, "codex" | "claude">;
 }
 
 export interface SearchMatch {

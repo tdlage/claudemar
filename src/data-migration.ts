@@ -104,6 +104,7 @@ const TABLE_DEFINITIONS: string[] = [
     target_type VARCHAR(50) NOT NULL,
     target_name VARCHAR(255) NOT NULL,
     agent_name VARCHAR(255) DEFAULT NULL,
+    model VARCHAR(100) DEFAULT NULL,
     status VARCHAR(50) NOT NULL,
     started_at DATETIME(3) NOT NULL,
     completed_at DATETIME(3) DEFAULT NULL,
@@ -146,6 +147,7 @@ interface HistoryEntry {
   targetType: string;
   targetName: string;
   agentName?: string;
+  model?: string;
   status: string;
   startedAt: string;
   completedAt: string | null;
@@ -497,10 +499,17 @@ async function ensureQueueColumns(pool: ReturnType<typeof getPool>): Promise<voi
 }
 
 async function ensureExecutionHistoryColumns(pool: ReturnType<typeof getPool>): Promise<void> {
-  const [rows] = await pool.execute(
+  const [tokenRows] = await pool.execute(
     "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'execution_history' AND COLUMN_NAME = 'total_tokens'",
   );
-  if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
+  if ((tokenRows as Array<{ cnt: number }>)[0].cnt === 0) {
     await pool.execute("ALTER TABLE execution_history ADD COLUMN total_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER cost_usd");
+  }
+
+  const [modelRows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'execution_history' AND COLUMN_NAME = 'model'",
+  );
+  if ((modelRows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE execution_history ADD COLUMN model VARCHAR(100) DEFAULT NULL AFTER agent_name");
   }
 }

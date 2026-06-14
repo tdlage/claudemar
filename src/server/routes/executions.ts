@@ -10,7 +10,7 @@ import { resolveRepoPath } from "../../repositories.js";
 import { safeProjectPath } from "../../session.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { modelPreferences } from "../../model-preferences.js";
-import { loadHistory, loadSessionIds } from "../../history.js";
+import { loadHistory, loadSessionRefs, type SessionProvider } from "../../history.js";
 
 export const executionsRouter = Router();
 
@@ -101,7 +101,7 @@ executionsRouter.post("/", async (req, res) => {
   }
 
   const effectiveTargetName = targetName || "orchestrator";
-  if (!model) {
+  if (!model && targetType !== "agent") {
     const saved = modelPreferences.getLastModel(targetType, effectiveTargetName);
     if (saved) model = saved;
   }
@@ -220,14 +220,35 @@ function reqUsername(req: Request): string {
   return req.ctx?.role === "admin" ? "admin" : (req.ctx as { name: string })?.name ?? "admin";
 }
 
+function parseProvider(value: unknown): SessionProvider | undefined {
+  return value === "codex" || value === "claude" ? value : undefined;
+}
+
+function providerFromModel(model: string): SessionProvider {
+  return model.startsWith("claude") || model === "claude" ? "claude" : "codex";
+}
+
 executionsRouter.get("/session/:targetType/:targetName", async (req, res) => {
   const { targetType, targetName } = req.params;
   const user = reqUsername(req);
-  const sessionId = executionManager.getLastSessionId(targetType, targetName, user);
-  const dbHistory = await loadSessionIds(targetType, targetName);
+  const provider = parseProvider(req.query.provider);
+  const sessionRefs = await loadSessionRefs(targetType, targetName, provider);
+  const dbHistory = sessionRefs.map((s) => s.sessionId);
+  const currentSessionId = executionManager.getLastSessionId(targetType, targetName, user);
+  const currentModel = executionManager.getLastSessionModel(targetType, targetName, user);
+  if (currentSessionId && currentModel && !dbHistory.includes(currentSessionId)) {
+    const currentProvider = providerFromModel(currentModel);
+    if (!provider || provider === currentProvider) {
+      sessionRefs.unshift({ sessionId: currentSessionId, model: currentModel, provider: currentProvider });
+      dbHistory.unshift(currentSessionId);
+    }
+  }
+  const sessionId = currentSessionId && dbHistory.includes(currentSessionId) ? currentSessionId : null;
   const history = sessionId ? [sessionId, ...dbHistory.filter((s) => s !== sessionId)] : dbHistory;
   const names = sessionNamesManager.getNames([...new Set(history)]);
-  res.json({ sessionId: sessionId ?? null, history, names });
+  const models = Object.fromEntries(sessionRefs.map((s) => [s.sessionId, s.model]));
+  const providers = Object.fromEntries(sessionRefs.map((s) => [s.sessionId, s.provider]));
+  res.json({ sessionId, history, names, models, providers });
 });
 
 executionsRouter.put("/session/:targetType/:targetName", (req, res) => {

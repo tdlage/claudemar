@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { type AgentResult, type AskQuestion, type SpawnHandle, spawnAgent } from "./executor.js";
+import { type AgentResult, type AskQuestion, type SpawnHandle, resolveProvider, spawnAgent } from "./executor.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInboxMessages, getInboxMessages } from "./agents/messenger.js";
 import { getAgentPaths, listAgents } from "./agents/manager.js";
@@ -31,6 +31,7 @@ export interface ExecutionInfo {
   targetType: ExecutionTargetType;
   targetName: string;
   agentName?: string;
+  model?: string;
   username?: string;
   prompt: string;
   cwd: string;
@@ -82,6 +83,7 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
     targetType: info.targetType,
     targetName: info.targetName,
     agentName: info.agentName || undefined,
+    model: info.model || undefined,
     status: info.status,
     startedAt: info.startedAt.toISOString(),
     completedAt: info.completedAt?.toISOString() ?? null,
@@ -114,6 +116,7 @@ class ExecutionManager extends EventEmitter {
     this.setMaxListeners(50);
   }
   private lastSessionMap = new Map<string, string>();
+  private lastSessionModelMap = new Map<string, string>();
   private sessionHistoryMap = new Map<string, string[]>();
 
   private targetKey(targetType: string, targetName: string): string {
@@ -128,6 +131,10 @@ class ExecutionManager extends EventEmitter {
     return this.lastSessionMap.get(this.userTargetKey(targetType, targetName, username));
   }
 
+  getLastSessionModel(targetType: string, targetName: string, username?: string): string | undefined {
+    return this.lastSessionModelMap.get(this.userTargetKey(targetType, targetName, username));
+  }
+
   getSessionHistory(targetType: string, targetName: string): string[] {
     return this.sessionHistoryMap.get(this.targetKey(targetType, targetName)) ?? [];
   }
@@ -137,16 +144,18 @@ class ExecutionManager extends EventEmitter {
   }
 
   clearSessionId(targetType: string, targetName: string, username: string): void {
-    this.lastSessionMap.delete(this.userTargetKey(targetType, targetName, username));
+    const key = this.userTargetKey(targetType, targetName, username);
+    this.lastSessionMap.delete(key);
+    this.lastSessionModelMap.delete(key);
   }
 
   private async restoreLastSessions(): Promise<void> {
     const rows = await query<(RowDataPacket & {
-      target_type: string; target_name: string; username: string; session_id: string;
+      target_type: string; target_name: string; username: string; session_id: string; model: string | null; cost_usd: number;
     })[]>(
-      `SELECT target_type, target_name, username, session_id
+      `SELECT target_type, target_name, username, session_id, model, cost_usd
        FROM (
-         SELECT target_type, target_name, COALESCE(username, 'admin') AS username, session_id,
+         SELECT target_type, target_name, COALESCE(username, 'admin') AS username, session_id, model, cost_usd,
                 ROW_NUMBER() OVER (PARTITION BY target_type, target_name, COALESCE(username, 'admin') ORDER BY started_at DESC) AS rn
          FROM execution_history
          WHERE session_id IS NOT NULL AND status = 'completed'
@@ -155,7 +164,9 @@ class ExecutionManager extends EventEmitter {
     );
 
     for (const row of rows) {
-      this.lastSessionMap.set(this.userTargetKey(row.target_type, row.target_name, row.username), row.session_id);
+      const key = this.userTargetKey(row.target_type, row.target_name, row.username);
+      this.lastSessionMap.set(key, row.session_id);
+      this.lastSessionModelMap.set(key, row.model ?? (Number(row.cost_usd) > 0 ? "claude" : "codex"));
     }
   }
 
@@ -169,12 +180,15 @@ class ExecutionManager extends EventEmitter {
 
   startExecution(opts: StartExecutionOpts): string {
     const id = randomUUID();
+    const spawnModel = opts.model ?? (opts.targetType === "agent" ? "codex" : undefined);
+    const historyModel = spawnModel ?? resolveProvider();
     const info: ExecutionInfo = {
       id,
       source: opts.source,
       targetType: opts.targetType,
       targetName: opts.targetName,
       agentName: opts.agentName,
+      model: historyModel,
       username: opts.username,
       prompt: opts.prompt,
       cwd: opts.cwd,
@@ -245,7 +259,7 @@ class ExecutionManager extends EventEmitter {
         }
         this.emit("output", id, chunk);
       },
-      opts.model,
+      spawnModel,
       (toolUseId: string, questions: AskQuestion[]) => {
         info.pendingQuestion = { toolUseId, questions };
         this.emit("question", id, info);
@@ -268,7 +282,9 @@ class ExecutionManager extends EventEmitter {
           );
           if (isSessionNotFound) {
             console.log(`[execution] Resume session ${resumeId} not found for ${opts.targetType}:${opts.targetName}, retrying without resume`);
-            this.lastSessionMap.delete(this.userTargetKey(opts.targetType, opts.targetName, opts.username));
+            const key = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
+            this.lastSessionMap.delete(key);
+            this.lastSessionModelMap.delete(key);
             this.finalize(id);
 
             info.status = "error";
@@ -299,7 +315,9 @@ class ExecutionManager extends EventEmitter {
           info.output = result.output;
         }
         if (result.sessionId) {
-          this.lastSessionMap.set(this.userTargetKey(opts.targetType, opts.targetName, opts.username), result.sessionId);
+          const key = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
+          this.lastSessionMap.set(key, result.sessionId);
+          this.lastSessionModelMap.set(key, historyModel);
           this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
           if (!sessionNamesManager.getName(result.sessionId)) {
             sessionNamesManager.getNextAutoName(opts.username).then((name) =>
@@ -307,8 +325,8 @@ class ExecutionManager extends EventEmitter {
             );
           }
         }
-        if (opts.model) {
-          modelPreferences.setLastModel(opts.targetType, opts.targetName, opts.model);
+        if (spawnModel) {
+          modelPreferences.setLastModel(opts.targetType, opts.targetName, spawnModel);
         }
 
         const askDenial = result.permissionDenials.find(
@@ -342,7 +360,9 @@ class ExecutionManager extends EventEmitter {
 
         if (resumeId && (message.includes("No conversation found") || message.includes("not a UUID") || message.includes("no rollout found"))) {
           console.log(`[execution] Resume session ${resumeId} not found for ${opts.targetType}:${opts.targetName}, retrying without resume`);
-          this.lastSessionMap.delete(this.userTargetKey(opts.targetType, opts.targetName, opts.username));
+          const key = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
+          this.lastSessionMap.delete(key);
+          this.lastSessionModelMap.delete(key);
           this.finalize(id);
 
           info.status = "error";
@@ -430,7 +450,9 @@ class ExecutionManager extends EventEmitter {
           errorMessages: [],
           permissionDenials: [],
         };
-        this.lastSessionMap.set(this.userTargetKey(entry.opts.targetType, entry.opts.targetName, entry.opts.username), sessionId);
+        const key = this.userTargetKey(entry.opts.targetType, entry.opts.targetName, entry.opts.username);
+        this.lastSessionMap.set(key, sessionId);
+        this.lastSessionModelMap.set(key, entry.info.model ?? "codex");
         this.pushSessionHistory(entry.opts.targetType, entry.opts.targetName, sessionId);
       }
 
@@ -490,6 +512,7 @@ class ExecutionManager extends EventEmitter {
       targetType: (e.targetType as ExecutionTargetType) || "orchestrator",
       targetName: e.targetName || "orchestrator",
       agentName: e.agentName,
+      model: e.model,
       prompt: e.prompt,
       cwd: "",
       status: (e.status as ExecutionStatus) || "completed",

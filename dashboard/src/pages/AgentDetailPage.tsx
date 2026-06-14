@@ -57,6 +57,7 @@ export function AgentDetailPage() {
     targetType: "agent",
     targetName: name ?? "",
     cachePrefix: `agent:${name}`,
+    sessionProvider: "codex",
     onExecutionComplete: loadOutputs,
   });
 

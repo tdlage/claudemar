@@ -63,7 +63,7 @@ function buildExecutionOpts(chatId: number, text: string) {
     }
   }
 
-  if (!model) {
+  if (!model && targetType !== "agent") {
     const saved = modelPreferences.getLastModel(targetType, targetName);
     if (saved) model = saved;
   }

@@ -39,6 +39,7 @@ export function ProjectDetailPage() {
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
   const [ciInitialRepo, setCiInitialRepo] = useState<string | undefined>();
   const admin = isAdmin();
+  const sessionProvider = selectedModel.startsWith("claude") ? "claude" : "codex";
 
   const loadProject = useCallback(() => {
     if (!name) return;
@@ -64,18 +65,22 @@ export function ProjectDetailPage() {
     targetType: "project",
     targetName: name ?? "",
     cachePrefix: `project:${name}`,
+    sessionProvider,
     onExecutionComplete: loadProject,
   });
 
   useEffect(() => {
     loadProject();
-    loadSession();
     api.get<string[]>(`/projects/${name}/claude-agents`).then(setAgents).catch(() => {});
     api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
     api.get<{ model: string | null }>(`/executions/model-preference/project/${name}`)
       .then((data) => { if (data.model) setSelectedModel(data.model); })
       .catch(() => {});
-  }, [loadProject, loadSession]);
+  }, [loadProject, name, setSelectedModel]);
+
+  useEffect(() => {
+    loadSession();
+  }, [loadSession]);
 
   const handleExecute = async (e: React.FormEvent) => {
     e.preventDefault();
