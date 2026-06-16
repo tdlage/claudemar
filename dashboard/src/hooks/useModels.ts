@@ -9,7 +9,14 @@ interface DiscoveredModel {
 }
 
 const FALLBACK_MODELS: DiscoveredModel[] = [
-  { id: "codex", displayName: "Codex", createdAt: "", provider: "codex" },
+  { id: "codex", displayName: "Codex default", createdAt: "", provider: "codex" },
+  { id: "chat-latest", displayName: "Chat Latest (Instant)", createdAt: "", provider: "codex" },
+  { id: "gpt-5.5", displayName: "GPT-5.5", createdAt: "", provider: "codex" },
+  { id: "gpt-5.5-pro", displayName: "GPT-5.5 Pro", createdAt: "", provider: "codex" },
+  { id: "gpt-5.4", displayName: "GPT-5.4", createdAt: "", provider: "codex" },
+  { id: "gpt-5.4-pro", displayName: "GPT-5.4 Pro", createdAt: "", provider: "codex" },
+  { id: "gpt-5.4-mini", displayName: "GPT-5.4 mini", createdAt: "", provider: "codex" },
+  { id: "gpt-5.4-nano", displayName: "GPT-5.4 nano", createdAt: "", provider: "codex" },
   { id: "claude-opus-4-7", displayName: "Opus 4.7", createdAt: "", provider: "claude" },
   { id: "claude-sonnet-4-6", displayName: "Sonnet 4.6", createdAt: "", provider: "claude" },
   { id: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5", createdAt: "", provider: "claude" },

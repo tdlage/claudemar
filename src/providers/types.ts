@@ -64,7 +64,7 @@ export interface ProviderAdapter {
 export function resolveProvider(model?: string): ProviderName {
   if (model) {
     if (model.startsWith("claude")) return "claude";
-    if (model === "codex" || model.startsWith("gpt")) return "codex";
+    if (model === "codex" || model === "chat-latest" || model.startsWith("gpt")) return "codex";
   }
   return config.defaultProvider;
 }

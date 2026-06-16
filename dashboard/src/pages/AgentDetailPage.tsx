@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Square, Map, ListOrdered, Zap, FileText } from "lucide-react";
+import { Square, Map, ListOrdered, Zap, FileText, Cpu } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -20,11 +20,13 @@ import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { VoiceInput } from "../components/shared/VoiceInput";
 import { SessionSelector } from "../components/shared/SessionSelector";
+import { useModels } from "../hooks/useModels";
 import type { AgentDetail } from "../lib/types";
 
 type TabKey = "terminal" | "code" | "inbox" | "outbox" | "input" | "output" | "config" | "context" | "secrets";
 
 export function AgentDetailPage() {
+  const models = useModels();
   const { name } = useParams<{ name: string }>();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [tab, setTab] = useCachedState<TabKey>(`agent:${name}:tab`, "terminal");
@@ -33,8 +35,10 @@ export function AgentDetailPage() {
   const [sequential, setSequential] = useCachedState(`agent:${name}:sequential`, false);
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
   const [selectedSkill, setSelectedSkill] = useCachedState(`agent:${name}:skill`, "");
+  const [selectedModel, setSelectedModel] = useCachedState(`agent:${name}:model`, "codex");
   const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
+  const sessionProvider = selectedModel.startsWith("claude") ? "claude" : "codex";
 
   const loadOutputs = useCallback(() => {
     if (!name) return;
@@ -57,7 +61,7 @@ export function AgentDetailPage() {
     targetType: "agent",
     targetName: name ?? "",
     cachePrefix: `agent:${name}`,
-    sessionProvider: "codex",
+    sessionProvider,
     onExecutionComplete: loadOutputs,
   });
 
@@ -96,6 +100,7 @@ export function AgentDetailPage() {
         prompt: finalPrompt,
         resumeSessionId: sessionData.sessionId,
         planMode,
+        model: selectedModel || undefined,
         forceQueue: sequential || undefined,
         skipSystemPrompt: !sendSystemPrompt || undefined,
       });
@@ -253,6 +258,18 @@ export function AgentDetailPage() {
                   </select>
                 </div>
               )}
+              <div className="flex items-center gap-1">
+                <Cpu size={13} className="text-text-muted" />
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="text-xs bg-transparent border border-border rounded-md px-1 py-1.5 text-text-muted focus:outline-none focus:border-accent"
+                >
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>{m.displayName}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </form>
           <div className="h-[300px] md:h-[500px]">
