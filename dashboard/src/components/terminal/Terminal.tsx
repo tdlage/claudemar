@@ -99,6 +99,9 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
   const [mode, setMode] = useState<PermissionMode>("default");
   const [ultrathink, setUltrathink] = useState(false);
   const [slashCommands, setSlashCommands] = useState<string[]>([]);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const slashInputRef = useRef<HTMLTextAreaElement>(null);
   const [compactNotice, setCompactNotice] = useState<string | null>(null);
 
   const counterRef = useRef(0);
@@ -154,7 +157,6 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
     setCheckpoints([]);
     setUsage(null);
     setCompactNotice(null);
-    setSlashCommands([]);
     autoScrollRef.current = true;
 
     const prevExecId = prevExecIdRef.current;
@@ -356,30 +358,23 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
     setPendingImages((prev) => [...prev, ...blocks]);
   }, []);
 
-  const insertSlash = useCallback((cmd: string) => {
-    setInput((prev) => (prev ? `${prev} /${cmd}` : `/${cmd}`));
+  const selectSlash = useCallback((cmd: string) => {
+    setInput(`/${cmd} `);
+    setSlashIndex(0);
+    setSlashDismissed(false);
+    slashInputRef.current?.focus();
   }, []);
+
+  const slashActive = input.startsWith("/") && !input.slice(1).includes(" ") && !slashDismissed;
+  const slashMatches = slashActive
+    ? slashCommands.filter((c) => c.toLowerCase().startsWith(input.slice(1).toLowerCase()))
+    : [];
+  const slashSel = Math.min(slashIndex, Math.max(0, slashMatches.length - 1));
 
   return (
     <div className="flex flex-col w-full h-full min-h-[300px] gap-2">
       <div className="flex items-center gap-2 flex-wrap text-xs shrink-0">
         {controls}
-        {slashCommands.length > 0 && (
-          <div className="flex items-center gap-1">
-            <Slash size={13} className="text-text-muted" />
-            <select
-              value=""
-              onChange={(e) => { if (e.target.value) insertSlash(e.target.value); }}
-              title="Comandos slash disponíveis"
-              className="text-xs bg-transparent border border-border rounded-md px-1 py-1 text-text-muted focus:outline-none focus:border-accent"
-            >
-              <option value="">Slash</option>
-              {slashCommands.map((cmd) => (
-                <option key={cmd} value={cmd}>/{cmd}</option>
-              ))}
-            </select>
-          </div>
-        )}
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
           {currentModel.displayName}
         </span>
@@ -554,21 +549,48 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
             </div>
           )}
           <div className="relative flex items-end gap-2">
+            {slashMatches.length > 0 && (
+              <div className="absolute bottom-full left-0 mb-1 w-72 max-h-56 overflow-auto rounded-md border border-border bg-surface shadow-lg z-20 py-1">
+                {slashMatches.map((cmd, i) => (
+                  <button
+                    key={cmd}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); selectSlash(cmd); }}
+                    onMouseEnter={() => setSlashIndex(i)}
+                    className={`flex items-center gap-1.5 w-full text-left px-3 py-1.5 text-xs ${
+                      i === slashSel ? "bg-accent/15 text-accent" : "text-text-secondary hover:bg-surface-hover"
+                    }`}
+                  >
+                    <Slash size={11} className="shrink-0 opacity-60" />
+                    /{cmd}
+                  </button>
+                ))}
+              </div>
+            )}
             <textarea
+              ref={slashInputRef}
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
+                setSlashIndex(0);
+                setSlashDismissed(false);
                 e.target.style.height = "auto";
                 e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
               }}
               onKeyDown={(e) => {
+                if (slashMatches.length > 0) {
+                  if (e.key === "ArrowDown") { e.preventDefault(); setSlashIndex((slashSel + 1) % slashMatches.length); return; }
+                  if (e.key === "ArrowUp") { e.preventDefault(); setSlashIndex((slashSel - 1 + slashMatches.length) % slashMatches.length); return; }
+                  if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); selectSlash(slashMatches[slashSel]); return; }
+                  if (e.key === "Escape") { e.preventDefault(); setSlashDismissed(true); return; }
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   submit();
                 }
               }}
               onPaste={handlePaste}
-              placeholder={running ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, Shift+Enter quebra linha, cole imagens)")}
+              placeholder={running ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, / para comandos, cole imagens)")}
               rows={1}
               className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 160 }}
