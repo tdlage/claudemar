@@ -28,7 +28,6 @@ interface MemoryPayload {
 const CHUNK_CHARS = 6000;
 const CHUNK_OVERLAP = 400;
 const CLUSTER_THRESHOLD = 0.92;
-const HISTORY_QUERY_RE = /(antes|antig|hist[oó]ric|evolu|mud(ou|ar|ança)|anterior|costumav|deixou de|passou a|atualiz|virou|trocou|era\b)/i;
 
 export function memoryEnabled(): boolean {
   return isEnabled();
@@ -225,66 +224,6 @@ async function hybridRetrieve(target: MemoryTarget, query: string): Promise<Retr
       sessionId: payload.sessionId,
     };
   });
-}
-
-export async function retrieveContext(target: MemoryTarget, query: string): Promise<string> {
-  if (!memoryEnabled() || !query || !query.trim()) return "";
-
-  try {
-    await ensureCollection();
-    const candidates = await hybridRetrieve(target, query);
-    if (candidates.length === 0) return "";
-
-    const reranked = await rerank(query, candidates.map((c) => c.text), config.memoryDomainInstruction, config.rerankTopK);
-    if (reranked.length === 0) return "";
-
-    const selected = reranked.map((r) => candidates[r.index]).filter(Boolean);
-
-    const groups = new Map<string, RetrievedPoint[]>();
-    for (const point of selected) {
-      const arr = groups.get(point.sourceKey) ?? [];
-      arr.push(point);
-      groups.set(point.sourceKey, arr);
-    }
-
-    const wantsHistory = HISTORY_QUERY_RE.test(query);
-    const entries: { ts: number; line: string }[] = [];
-
-    for (const [, points] of groups) {
-      const sorted = points.slice().sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
-      const current = sorted.find((p) => p.current) ?? sorted[0];
-      const currentTs = new Date(current.ts).getTime();
-
-      entries.push({ ts: currentTs, line: `[ATUAL · ${formatDate(current.ts)}] ${current.text.trim()}` });
-
-      const olders = sorted.filter((p) => p !== current);
-      const sameTimeDivergent = olders.filter((p) => Math.abs(new Date(p.ts).getTime() - currentTs) < 60_000);
-      for (const conflict of sameTimeDivergent.slice(0, 1)) {
-        entries.push({ ts: new Date(conflict.ts).getTime(), line: `[CONFLITO · ${formatDate(conflict.ts)}] ${conflict.text.trim()}` });
-      }
-
-      if (wantsHistory || olders.length > 0) {
-        const prevs = olders.filter((p) => !sameTimeDivergent.includes(p));
-        const limit = wantsHistory ? 2 : 1;
-        for (const prev of prevs.slice(0, limit)) {
-          entries.push({ ts: new Date(prev.ts).getTime(), line: `[ANTERIOR · ${formatDate(prev.ts)} · substituído] ${prev.text.trim()}` });
-        }
-      }
-    }
-
-    if (entries.length === 0) return "";
-
-    entries.sort((a, b) => b.ts - a.ts);
-    const body = entries.map((e) => e.line).join("\n\n");
-
-    const preamble =
-      "Memória de longo prazo recuperada. Prefira sempre as informações marcadas como [ATUAL]; use [ANTERIOR] apenas para entender a evolução do que mudou e [CONFLITO] como sinal de divergência a confirmar.";
-
-    return `${preamble}\n\n${body}`;
-  } catch (err) {
-    console.error(`[memory] Falha ao recuperar contexto: ${err instanceof Error ? err.message : String(err)}`);
-    return "";
-  }
 }
 
 export async function searchMemory(

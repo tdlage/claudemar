@@ -7,7 +7,6 @@ import type { AgentResult, AskQuestion } from "./providers/types.js";
 import { ClaudeSession, type MessageBlock, type PendingPermission, type PermissionDecision, type UsageInfo } from "./claude/session.js";
 import type { ThinkingLevel } from "./claude/options.js";
 import { formatToolUse } from "./providers/format.js";
-import { retrieveContext } from "./memory/session-memory.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInboxMessages, getInboxMessages } from "./agents/messenger.js";
 import { getAgentPaths, listAgents } from "./agents/manager.js";
@@ -327,20 +326,11 @@ class ExecutionManager extends EventEmitter {
     }
 
     const dispatch = async () => {
-      let contextPrefix: string | undefined;
-      if (isNew) {
-        try {
-          const memoryContext = await Promise.race([
-            retrieveContext({ targetType: opts.targetType, targetName: opts.targetName }, opts.prompt),
-            new Promise<string>((resolve) => setTimeout(() => resolve(""), 8000)),
-          ]);
-          if (memoryContext) contextPrefix = memoryContext;
-        } catch { }
-      } else if (opts.thinking) {
+      if (!isNew && opts.thinking) {
         await session.setThinking(opts.thinking).catch(() => {});
       }
 
-      session.sendUserMessage(opts.blocks ?? opts.prompt, contextPrefix);
+      session.sendUserMessage(opts.blocks ?? opts.prompt);
       const result = await session.waitForResult();
       if (entry.timedOut) {
         result.isError = true;

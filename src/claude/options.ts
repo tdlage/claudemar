@@ -34,7 +34,7 @@ function buildSystemAppend(params: BuildOptionsParams): string {
   );
   if (memoryEnabled()) {
     parts.push(
-      "Você tem memória de longo prazo. Use a tool mcp__memory__search_memory para recuperar fatos, decisões e contexto de sessões anteriores antes de responder quando o pedido depender de histórico, e mcp__memory__memory_history para ver a evolução de um fato específico.",
+      "Você tem memória de longo prazo de sessões ANTERIORES (fora desta conversa), guardada por projeto/agente. Esta sessão NÃO injeta esse histórico automaticamente: quando o pedido depender de algo discutido ou decidido antes que não esteja nesta conversa, use a tool mcp__memory__search_memory para buscar nas sessões anteriores deste mesmo alvo, e mcp__memory__memory_history para ver como um fato específico (sourceKey) evoluiu ao longo do tempo. Não invente histórico: se precisar, consulte a memória.",
     );
   }
   if (params.systemAppend) parts.push(params.systemAppend);
