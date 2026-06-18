@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Pencil, Trash2, X, Save, Send, Settings } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound } from "lucide-react";
 import { api } from "../lib/api";
+import { OPEN_API_KEYS_EVENT } from "../components/layout/ApiKeysSetup";
 import type { RuntimeSettings, EmailProfileMasked } from "../lib/types";
 
 interface ProfileFormState {
@@ -129,6 +130,22 @@ export function SettingsPage() {
         <Settings size={20} className="text-text-muted" />
         <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
       </div>
+
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold text-text-primary border-b border-border pb-2">Chaves de API</h2>
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-text-muted">
+            Configure as chaves (Voyage, Qdrant, OpenAI) gravadas no <code>.env</code> do servidor, sem acessar a máquina.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event(OPEN_API_KEYS_EVENT))}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-accent hover:bg-accent-hover text-white transition-colors shrink-0"
+          >
+            <KeyRound size={14} /> Configurar chaves
+          </button>
+        </div>
+      </section>
 
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-text-primary border-b border-border pb-2">Email</h2>

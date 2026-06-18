@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import { Sidebar, SidebarProvider, useSidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { CommandPalette } from "../CommandPalette";
+import { ApiKeysSetup } from "./ApiKeysSetup";
 
 function LayoutInner() {
   const { collapsed, isMobile } = useSidebar();
@@ -20,6 +21,7 @@ function LayoutInner() {
         </main>
       </div>
       <CommandPalette />
+      <ApiKeysSetup />
     </div>
   );
 }

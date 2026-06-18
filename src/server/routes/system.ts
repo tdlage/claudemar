@@ -4,6 +4,8 @@ import { cpus, homedir } from "node:os";
 import { resolve } from "node:path";
 import { Router } from "express";
 import { config } from "../../config.js";
+import { requireAdmin } from "../middleware.js";
+import { getEnvStatus, updateEnv } from "../../env-manager.js";
 import { loadMetrics } from "../../metrics.js";
 import { executionManager } from "../../execution-manager.js";
 import { checkForUpdates, performUpdate, restartService } from "../../updater.js";
@@ -89,6 +91,28 @@ systemRouter.get("/update-check", async (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to check for updates" });
   }
+});
+
+systemRouter.get("/env", requireAdmin, (_req, res) => {
+  res.json(getEnvStatus());
+});
+
+systemRouter.post("/env", requireAdmin, (req, res) => {
+  const values = req.body?.values;
+  if (!values || typeof values !== "object") {
+    res.status(400).json({ error: "values (object) required" });
+    return;
+  }
+  const updated = updateEnv(values as Record<string, string>);
+  res.json({ updated, restartRequired: updated.length > 0 });
+});
+
+systemRouter.post("/restart", requireAdmin, (_req, res) => {
+  res.json({ restarting: true });
+  setTimeout(() => restartService({
+    onWaiting: (count) => console.log(`[restart] ${count} execução(ões) ativa(s), aguardando...`),
+    onRestarting: () => console.log("[restart] Reiniciando serviço..."),
+  }), 1500);
 });
 
 systemRouter.post("/update", async (_req, res) => {
