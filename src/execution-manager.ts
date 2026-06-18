@@ -327,19 +327,20 @@ class ExecutionManager extends EventEmitter {
     }
 
     const dispatch = async () => {
+      let contextPrefix: string | undefined;
       if (isNew) {
         try {
-          const memoryContext = await retrieveContext(
-            { targetType: opts.targetType, targetName: opts.targetName },
-            opts.prompt,
-          );
-          if (memoryContext) session.injectContext(memoryContext);
+          const memoryContext = await Promise.race([
+            retrieveContext({ targetType: opts.targetType, targetName: opts.targetName }, opts.prompt),
+            new Promise<string>((resolve) => setTimeout(() => resolve(""), 8000)),
+          ]);
+          if (memoryContext) contextPrefix = memoryContext;
         } catch { }
       } else if (opts.thinking) {
         await session.setThinking(opts.thinking).catch(() => {});
       }
 
-      session.sendUserMessage(opts.blocks ?? opts.prompt);
+      session.sendUserMessage(opts.blocks ?? opts.prompt, contextPrefix);
       const result = await session.waitForResult();
       if (entry.timedOut) {
         result.isError = true;

@@ -81,16 +81,6 @@ function createPushableQueue(): PushableQueue {
   };
 }
 
-function toContentBlocks(blocksOrText: string | MessageBlock[]): SDKUserMessage["message"]["content"] {
-  if (typeof blocksOrText === "string") return blocksOrText;
-  const blocks = blocksOrText.map((b) =>
-    b.type === "image" && b.source
-      ? { type: "image" as const, source: b.source }
-      : { type: "text" as const, text: b.text ?? "" },
-  );
-  return blocks as SDKUserMessage["message"]["content"];
-}
-
 function blocksToText(blocksOrText: string | MessageBlock[]): string {
   if (typeof blocksOrText === "string") return blocksOrText;
   return blocksOrText.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
@@ -327,25 +317,28 @@ export class ClaudeSession extends EventEmitter {
     this.emit("result", result);
   }
 
-  sendUserMessage(blocksOrText: string | MessageBlock[]): void {
+  sendUserMessage(blocksOrText: string | MessageBlock[], contextPrefix?: string): void {
     const text = blocksToText(blocksOrText);
     this.pendingUserText = text.trim() ? text : null;
     this.settled = false;
-    const message: SDKUserMessage = {
-      type: "user",
-      parent_tool_use_id: null,
-      message: { role: "user", content: toContentBlocks(blocksOrText) },
-    };
-    this.queue.push(message);
-  }
 
-  injectContext(text: string): void {
-    if (!text.trim()) return;
+    let content: SDKUserMessage["message"]["content"];
+    if (typeof blocksOrText === "string") {
+      content = contextPrefix ? `${contextPrefix}\n\n${blocksOrText}` : blocksOrText;
+    } else {
+      const base = blocksOrText.map((b) =>
+        b.type === "image" && b.source
+          ? { type: "image" as const, source: b.source }
+          : { type: "text" as const, text: b.text ?? "" },
+      );
+      const blocks = contextPrefix ? [{ type: "text" as const, text: contextPrefix }, ...base] : base;
+      content = blocks as SDKUserMessage["message"]["content"];
+    }
+
     const message: SDKUserMessage = {
       type: "user",
       parent_tool_use_id: null,
-      shouldQuery: false,
-      message: { role: "user", content: text },
+      message: { role: "user", content },
     };
     this.queue.push(message);
   }
