@@ -9,7 +9,6 @@ import { ExecutionActivity } from "../components/terminal/ExecutionActivity";
 import { Tabs } from "../components/shared/Tabs";
 import { Badge } from "../components/shared/Badge";
 import { ToggleButton } from "../components/shared/ToggleButton";
-import { MessageList } from "../components/agent/MessageList";
 import { OutputBrowser, type OutputFile } from "../components/agent/OutputBrowser";
 import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
 import { AgentConfig } from "../components/agent/AgentConfig";
@@ -21,7 +20,7 @@ import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import type { AgentDetail } from "../lib/types";
 
-type TabKey = "terminal" | "code" | "inbox" | "outbox" | "input" | "output" | "config" | "context" | "secrets";
+type TabKey = "terminal" | "code" | "input" | "output" | "config" | "context" | "secrets";
 
 export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -115,8 +114,6 @@ export function AgentDetailPage() {
   const tabs: { key: TabKey; label: string }[] = [
     { key: "terminal", label: "Terminal" },
     { key: "code", label: "Code" },
-    { key: "inbox", label: `Inbox (${agent.inboxFiles.length})` },
-    { key: "outbox", label: `Outbox (${agent.outboxFiles.length})` },
     { key: "input", label: `Input (${inputFiles.length})` },
     { key: "output", label: `Output (${outputFiles.length})` },
     { key: "config", label: "Config" },
@@ -128,7 +125,6 @@ export function AgentDetailPage() {
     <div className={`flex flex-col gap-4 ${tab === "code" ? "h-full" : ""}`}>
       <div className="flex items-center gap-2 md:gap-3 flex-wrap">
         <h1 className="text-base md:text-lg font-semibold">{agent.name}</h1>
-        <Badge>{agent.inboxCount} inbox</Badge>
         {agent.schedules.length > 0 && (
           <Badge variant="info">{agent.schedules.length} schedules</Badge>
         )}
@@ -225,14 +221,6 @@ export function AgentDetailPage() {
         <div className="flex-1 min-h-0">
           <FilesBrowser base={`agent:${name}`} />
         </div>
-      )}
-
-      {tab === "inbox" && (
-        <MessageList kind="inbox" agentName={agent.name} files={agent.inboxFiles} onRefresh={loadAgent} />
-      )}
-
-      {tab === "outbox" && (
-        <MessageList kind="outbox" agentName={agent.name} files={agent.outboxFiles} onRefresh={loadAgent} />
       )}
 
       {tab === "input" && (

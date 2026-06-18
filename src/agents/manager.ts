@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { config } from "../config.js";
 import type { AgentInfo, AgentPaths } from "./types.js";
@@ -23,8 +23,6 @@ export function getAgentPaths(name: string): AgentPaths | null {
   return {
     root,
     context: resolve(root, "context"),
-    inbox: resolve(root, "inbox"),
-    outbox: resolve(root, "outbox"),
     output: resolve(root, "output"),
     input: resolve(root, "input"),
   };
@@ -36,14 +34,30 @@ export function createAgentStructure(name: string): AgentPaths | null {
 
   mkdirSync(paths.root, { recursive: true });
   mkdirSync(paths.context, { recursive: true });
-  mkdirSync(paths.inbox, { recursive: true });
-  mkdirSync(paths.outbox, { recursive: true });
   mkdirSync(paths.output, { recursive: true });
   mkdirSync(paths.input, { recursive: true });
 
   ensureAgentGitRepo(paths.root);
 
   return paths;
+}
+
+export function cleanupLegacyMailboxes(): void {
+  const dirs = [config.orchestratorPath, ...listAgents().map((name) => resolve(config.agentsPath, name))];
+  let removed = 0;
+  for (const dir of dirs) {
+    for (const box of ["inbox", "outbox"]) {
+      const target = resolve(dir, box);
+      if (!existsSync(target)) continue;
+      try {
+        rmSync(target, { recursive: true, force: true });
+        removed++;
+      } catch {
+        // non-critical
+      }
+    }
+  }
+  if (removed > 0) console.log(`[migrate] Removed ${removed} legacy inbox/outbox folder(s)`);
 }
 
 export function ensureAgentGitRepo(agentRoot: string): void {
@@ -75,13 +89,6 @@ export function getAgentInfo(name: string): AgentInfo | null {
   const paths = getAgentPaths(name);
   if (!paths || !existsSync(paths.root)) return null;
 
-  let inboxCount = 0;
-  try {
-    inboxCount = readdirSync(paths.inbox).length;
-  } catch {
-    // empty
-  }
-
   let lastExecution: Date | null = null;
   try {
     const outputFiles = readdirSync(paths.output);
@@ -96,7 +103,7 @@ export function getAgentInfo(name: string): AgentInfo | null {
     // empty
   }
 
-  return { name, inboxCount, lastExecution };
+  return { name, lastExecution };
 }
 
 export function listAgentInfos(): AgentInfo[] {
@@ -105,11 +112,7 @@ export function listAgentInfos(): AgentInfo[] {
     .filter((info): info is AgentInfo => info !== null);
 }
 
-function extractAgentSummary(name: string): string | null {
-  const agentsMdPath = resolve(config.agentsPath, name, "AGENTS.md");
-  if (!existsSync(agentsMdPath)) return null;
-
-  const content = readFileSync(agentsMdPath, "utf-8");
+export function summarizeAgentsMd(content: string): string | null {
   const lines = content.split("\n");
 
   let title = "";
@@ -134,60 +137,8 @@ function extractAgentSummary(name: string): string | null {
   return desc ? `**${title}**\n${desc}` : `**${title}**`;
 }
 
-export function generateAgentsContext(): number {
-  const agents = listAgents();
-  const summaries = new Map<string, string>();
-
-  for (const name of agents) {
-    const summary = extractAgentSummary(name);
-    if (summary) summaries.set(name, summary);
-  }
-
-  const header = `# Available Agents
-
-Use the messaging system to delegate tasks to specialized agents.
-Write a file in your \`outbox/\` folder with the naming convention:
-\`PARA-<agent-name>_<timestamp>_<subject>.md\`
-
-The message will be automatically routed to the agent's inbox and they will be triggered to process it.
-
-`;
-
-  let updated = 0;
-
-  for (const name of agents) {
-    const paths = getAgentPaths(name);
-    if (!paths) continue;
-
-    const otherAgents = agents.filter((a) => a !== name);
-    if (otherAgents.length === 0) continue;
-
-    const sections = otherAgents
-      .map((a) => {
-        const summary = summaries.get(a);
-        return summary ? `## ${a}\n${summary}` : `## ${a}\n(no description available)`;
-      })
-      .join("\n\n");
-
-    const content = header + sections + "\n";
-    mkdirSync(paths.context, { recursive: true });
-    writeFileSync(resolve(paths.context, "agents.md"), content, "utf-8");
-    updated++;
-  }
-
-  const orchestratorAgentsMd = resolve(config.orchestratorPath, "agents.md");
-  if (agents.length > 0) {
-    const allSections = agents
-      .map((a) => {
-        const summary = summaries.get(a);
-        return summary ? `## ${a}\n${summary}` : `## ${a}\n(no description available)`;
-      })
-      .join("\n\n");
-
-    writeFileSync(orchestratorAgentsMd, header + allSections + "\n", "utf-8");
-    updated++;
-  }
-
-  console.log(`[agents-context] Updated ${updated} agents.md files`);
-  return updated;
+export function extractAgentSummary(name: string): string | null {
+  const agentsMdPath = resolve(config.agentsPath, name, "AGENTS.md");
+  if (!existsSync(agentsMdPath)) return null;
+  return summarizeAgentsMd(readFileSync(agentsMdPath, "utf-8"));
 }

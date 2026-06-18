@@ -1,4 +1,4 @@
-import type { CanUseTool, Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentDefinition, CanUseTool, Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { createMemoryMcpServer, memoryEnabled, type MemoryTarget } from "../memory/session-memory.js";
 
 export type ThinkingLevel = "off" | "think" | "think_hard" | "ultrathink";
@@ -17,6 +17,7 @@ export interface BuildOptionsParams {
   forkSession?: boolean;
   thinking?: ThinkingLevel;
   systemAppend?: string;
+  subagents?: Record<string, AgentDefinition>;
   stderr?: (data: string) => void;
 }
 
@@ -89,6 +90,11 @@ export function buildOptions(params: BuildOptionsParams): Options {
   const memoryServer = createMemoryMcpServer(params.target);
   if (memoryServer) {
     options.mcpServers = { memory: memoryServer };
+  }
+
+  if (params.subagents && Object.keys(params.subagents).length > 0) {
+    options.agents = params.subagents;
+    options.allowedTools = ["Agent"];
   }
 
   return options;

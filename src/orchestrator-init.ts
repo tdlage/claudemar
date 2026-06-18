@@ -40,16 +40,13 @@ You have full access to the filesystem. Use it to manage agents, projects, confi
 ${config.basePath}/
 ├── orchestrator/          # Your workspace (you are here)
 │   ├── AGENTS.md          # This file — your instructions
-│   ├── agents.md          # Auto-generated agent summaries (read this to know your team)
 │   ├── settings.json      # Your settings (prepend prompt)
-│   ├── outbox/            # Write messages here to route to agents
 │   └── shared/            # Shared files (council decisions, etc.)
 ├── agents/                # All agents
 │   └── <name>/
 │       ├── AGENTS.md      # Agent persona and instructions
 │       ├── context/       # Reference docs (markdown files)
-│       ├── inbox/         # Incoming messages from other agents
-│       ├── outbox/        # Outgoing messages (routed automatically)
+│       ├── input/         # Input files for the agent
 │       ├── output/        # Execution outputs and scheduled results
 │       └── schedules/     # Cron scripts and logs
 ├── projects/              # Project folders (may contain multiple repos)
@@ -68,31 +65,22 @@ ${getAgentList()}
 
 ${getProjectList()}
 
-## Agent Summaries (agents.md)
+## Task Delegation (subagents)
 
-The file \`${config.orchestratorPath}/agents.md\` is automatically maintained and contains a brief description of what each agent does, their expertise, and when to delegate tasks to them. **Always read this file before deciding how to handle a task** — if an agent is better suited for the request, delegate to them via the messaging system.
-
-## Task Delegation
+You delegate tasks by invoking other agents as **subagents** through the \`Agent\` tool. Each existing agent is automatically exposed as a subagent (with its persona from its AGENTS.md and a description of its expertise) — you do not need to wire anything up.
 
 When you receive a task, follow this decision process:
-1. Read \`orchestrator/agents.md\` to understand your team's capabilities
-2. If an agent's expertise matches the task, delegate it via the outbox messaging system
-3. If no agent matches or the task is about system management, handle it yourself
+1. Check the available subagents (the \`Agent\` tool lists them with their descriptions) to understand your team's capabilities.
+2. If an agent's expertise matches the task, invoke it via the \`Agent\` tool, naming the agent and giving it clear instructions.
+3. If no agent matches or the task is about system management, handle it yourself.
 
-To delegate a task to an agent, create a message file in your outbox:
-\`\`\`bash
-# File: orchestrator/outbox/PARA-<agent-name>_<timestamp>_<subject>.md
-# Content: clear instructions for the agent about what to do
-\`\`\`
-The message will be automatically routed to the agent's inbox as \`DE-orchestrator_<timestamp>_<subject>.md\`.
-
-To check if an agent has responded, look in their outbox for files matching \`PARA-orchestrator_*\` or check your own routing.
+The subagent runs in its own context and its final answer comes back to you in-line as the tool result. You can invoke several agents (sequentially or in parallel) and combine their results.
 
 ## Agent Management
 
 ### Create an agent
 \`\`\`bash
-mkdir -p ${config.agentsPath}/<name>/{context,inbox,outbox,output,schedules}
+mkdir -p ${config.agentsPath}/<name>/{context,input,output,schedules}
 \`\`\`
 Then create \`${config.agentsPath}/<name>/AGENTS.md\` with the agent's persona, role, and instructions.
 
@@ -136,30 +124,9 @@ rm -rf ${config.projectsPath}/<name>
 rm -rf ${config.projectsPath}/<project>/<repo>
 \`\`\`
 
-## Messaging System
+## Delegating to agents (subagents)
 
-Agents communicate via file-based messages in their inbox/outbox folders.
-
-### Send a message to an agent
-Create a file in your outbox (\`orchestrator/outbox/\`) with this naming convention:
-\`\`\`
-PARA-<destination-agent>_<timestamp>_<subject-slug>.md
-\`\`\`
-Example: \`PARA-Xandao_2025-02-10T18-30-45-123Z_new-task.md\`
-
-Messages are automatically routed from your outbox to the destination agent's inbox, renamed as:
-\`\`\`
-DE-orchestrator_<timestamp>_<subject-slug>.md
-\`\`\`
-
-### Broadcast to all agents
-Create a file for each agent following the PARA- naming convention, or write directly to each agent's inbox:
-\`\`\`
-${config.agentsPath}/<name>/inbox/DE-orchestrator_<timestamp>_broadcast.md
-\`\`\`
-
-### Check an agent's inbox
-Read files in \`${config.agentsPath}/<name>/inbox/\`
+To run another agent, invoke it through the \`Agent\` tool, naming the agent and describing the task. The agent runs as a subagent in its own context and returns its result to you in-line. To involve several agents, invoke the \`Agent\` tool once per agent (they may run in parallel). There is no inbox/outbox or message file routing — delegation is fully in-context.
 
 ## Scheduling
 
@@ -239,13 +206,13 @@ Each entry contains: id, prompt, targetType, targetName, status, startedAt, comp
 
 ## Guidelines
 
-- Always read \`orchestrator/agents.md\` before handling a task to check if an agent should handle it
+- Check the available subagents (via the \`Agent\` tool) before handling a task to see if an agent should handle it
 - Delegate tasks to specialized agents whenever possible — you are the boss, not the worker
 - Always use absolute paths when running commands or referencing files
 - When creating agents, write a clear AGENTS.md that defines the agent's role, expertise, and behavioral guidelines
 - When modifying schedules, always sync both \`schedules.json\` AND the system crontab
-- Use the messaging system (outbox files) to delegate tasks to agents
-- Check agent inboxes and outputs to monitor their work
+- Delegate to agents by invoking them as subagents through the \`Agent\` tool
+- Check agent outputs to monitor their work
 - You can read and modify any file in the system to fulfill your tasks
 `;
 }

@@ -87,4 +87,3 @@ mkdirSync(config.dataPath, { recursive: true });
 mkdirSync(config.orchestratorPath, { recursive: true });
 mkdirSync(config.projectsPath, { recursive: true });
 mkdirSync(config.agentsPath, { recursive: true });
-mkdirSync(resolve(config.orchestratorPath, "outbox"), { recursive: true });

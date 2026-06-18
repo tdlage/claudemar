@@ -12,7 +12,7 @@ import { tokenManager } from "./server/token-manager.js";
 import { regenerateOrchestratorAgentsMd } from "./orchestrator-init.js";
 import { usersManager } from "./users-manager.js";
 import { sessionNamesManager } from "./session-names-manager.js";
-import { ensureAllAgentGitRepos, generateAgentsContext } from "./agents/manager.js";
+import { ensureAllAgentGitRepos, cleanupLegacyMailboxes } from "./agents/manager.js";
 import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 import { secretsManager } from "./secrets-manager.js";
@@ -46,7 +46,7 @@ regenerateOrchestratorAgentsMd();
 ensureCredentialsDir();
 generateSendEmailScript();
 ensureAllAgentGitRepos();
-generateAgentsContext();
+cleanupLegacyMailboxes();
 await runTrackerMigrations().catch((err) => {
   console.error("[tracker] Migration failed (MySQL may not be configured):", err.message);
 });
@@ -63,8 +63,6 @@ await secretsManager.syncAllToFiles();
 await ensureMemoryReady().catch((err) => {
   console.error("[memory] Initialization failed:", err instanceof Error ? err.message : String(err));
 });
-executionManager.processAllPendingInboxes();
-
 async function drainQueue(_id: string, info: ExecutionInfo) {
   try {
     const key = commandQueue.targetKey(info.targetType, info.targetName);

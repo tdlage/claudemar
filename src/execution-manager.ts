@@ -2,19 +2,16 @@ import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentDefinition, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentResult, AskQuestion } from "./providers/types.js";
 import { ClaudeSession, type MessageBlock, type PendingPermission, type PermissionDecision, type UsageInfo } from "./claude/session.js";
 import type { ThinkingLevel } from "./claude/options.js";
 import { formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
-import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInboxMessages, getInboxMessages } from "./agents/messenger.js";
-import { getAgentPaths, listAgents } from "./agents/manager.js";
+import { buildAgentDefinitions } from "./agents/subagents.js";
+import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
 import { config } from "./config.js";
 import { sessionNamesManager } from "./session-names-manager.js";
-import { isEmailEnabled, getEmailScriptPath } from "./email-init.js";
-import { settingsManager } from "./settings-manager.js";
-import { emailSettingsManager } from "./email-settings-manager.js";
 import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
@@ -60,7 +57,6 @@ export interface StartExecutionOpts {
   timeoutMs?: number;
   model?: string;
   planMode?: boolean;
-  isInboxProcessing?: boolean;
   agentName?: string;
   username?: string;
   skipSystemPrompt?: boolean;
@@ -210,13 +206,10 @@ class ExecutionManager extends EventEmitter {
     if (opts.skipSystemPrompt) return "";
     let suffix = "";
     if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
-      suffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`;
+      suffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions. To delegate a task to another agent, invoke it as a subagent via the Agent tool (the available agents are exposed automatically).]`;
     }
     if (opts.targetType === "agent") {
-      const secretsJsonPath = resolve(config.agentsPath, opts.targetName, "secrets.json");
-      if (existsSync(secretsJsonPath)) {
-        suffix += `\n[SYSTEM: You have secrets configured. Read ${secretsJsonPath} for credentials, API keys, and secret file paths.]`;
-      }
+      suffix += buildSecretsHint(opts.targetName);
     }
     if (opts.targetType === "project") {
       const projectInputDir = resolve(opts.cwd, ".input");
@@ -229,16 +222,16 @@ class ExecutionManager extends EventEmitter {
         } catch { }
       }
     }
-    if (isEmailEnabled() && (opts.targetType === "agent" || opts.targetType === "orchestrator")) {
-      const scriptPath = getEmailScriptPath();
-      const { sesFrom } = settingsManager.get();
-      const defaultFrom = sesFrom ? ` Default sender: ${sesFrom}.` : "";
-      const profiles = emailSettingsManager.getProfiles();
-      const senderList = profiles.map((p) => p.from).join(", ");
-      const availableSenders = senderList ? ` Available senders: ${senderList}.` : "";
-      suffix += `\n[SYSTEM: You can send emails. Usage: ${scriptPath} --to <email> --subject "<subject>" --body "<body>" [--from <sender-email>] [--html] [--cc <email>] [--attachment <filepath> ...]. Multiple --attachment flags supported.${defaultFrom}${availableSenders}]`;
+    if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
+      suffix += buildEmailHint();
     }
     return suffix;
+  }
+
+  private buildSubagents(opts: StartExecutionOpts): Record<string, AgentDefinition> | undefined {
+    if (opts.targetType === "orchestrator") return buildAgentDefinitions();
+    if (opts.targetType === "agent") return buildAgentDefinitions(opts.targetName);
+    return undefined;
   }
 
   private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined): { session: ClaudeSession; isNew: boolean } {
@@ -254,7 +247,7 @@ class ExecutionManager extends EventEmitter {
       this.sessions.delete(sessionKey);
     }
 
-    const interactive = opts.source === "web" && !opts.isInboxProcessing && !opts.autoApprove;
+    const interactive = opts.source === "web" && !opts.autoApprove;
     const bypass = opts.autoApprove || opts.permissionMode === "bypassPermissions" || (!opts.planMode && !interactive);
     const session = new ClaudeSession({
       cwd: opts.cwd,
@@ -266,6 +259,7 @@ class ExecutionManager extends EventEmitter {
       resumeSessionId: resumeId ?? null,
       thinking: opts.thinking,
       systemAppend: this.buildSystemSuffix(opts),
+      subagents: this.buildSubagents(opts),
     });
     this.sessions.set(sessionKey, session);
     return { session, isNew: true };
@@ -444,7 +438,6 @@ class ExecutionManager extends EventEmitter {
       this.finalize(entry);
       this.emit("error", info.id, info, info.error);
       appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
-      this.routeAgentMessages(opts);
       return;
     }
 
@@ -479,7 +472,6 @@ class ExecutionManager extends EventEmitter {
     }
 
     appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
-    this.routeAgentMessages(opts);
   }
 
   private handleFailure(entry: ActiveEntry, message: string): void {
@@ -521,7 +513,6 @@ class ExecutionManager extends EventEmitter {
     this.finalize(entry);
     this.emit("error", info.id, info, message);
     appendHistory(buildHistoryEntry(info, { durationMs }));
-    this.routeAgentMessages(opts);
   }
 
   sendMessage(id: string, blocksOrText: string | MessageBlock[]): boolean {
@@ -704,69 +695,6 @@ class ExecutionManager extends EventEmitter {
     }
     this.recent.push(entry.info);
     if (this.recent.length > MAX_RECENT) this.recent.shift();
-  }
-
-  private routeAgentMessages(opts: StartExecutionOpts): void {
-    if (opts.targetType === "agent") {
-      if (opts.isInboxProcessing) {
-        archiveInboxMessages(opts.targetName);
-      }
-      const agentRoute = routeMessages(opts.targetName);
-      this.triggerInboxProcessing(agentRoute.destinations);
-      this.triggerInboxProcessing([opts.targetName]);
-    } else if (opts.targetType === "orchestrator") {
-      const orchRoute = routeOrchestratorMessages();
-      this.triggerInboxProcessing(orchRoute.destinations);
-    }
-  }
-
-  processInbox(agentName: string): void {
-    this.triggerInboxProcessing([agentName]);
-  }
-
-  processAllPendingInboxes(): void {
-    const agents = listAgents();
-    const withMessages = agents.filter((name) => getInboxMessages(name).length > 0);
-    if (withMessages.length > 0) {
-      console.log(`[inbox] Startup: found pending messages for ${withMessages.join(", ")}`);
-      this.triggerInboxProcessing(withMessages);
-    }
-  }
-
-  private getAnyLastSessionId(targetType: string, targetName: string): string | undefined {
-    const prefix = `${targetType}:${targetName}:`;
-    for (const [key, sessionId] of this.lastSessionMap) {
-      if (key.startsWith(prefix)) return sessionId;
-    }
-    return undefined;
-  }
-
-  private triggerInboxProcessing(destinations: string[]): void {
-    for (const agentName of destinations) {
-      if (this.isTargetActive("agent", agentName)) {
-        console.log(`[inbox] ${agentName} is busy, skipping inbox trigger`);
-        continue;
-      }
-
-      const inboxPrompt = buildInboxPrompt(agentName);
-      if (!inboxPrompt) continue;
-
-      const paths = getAgentPaths(agentName);
-      if (!paths) continue;
-
-      const resumeSessionId = this.getAnyLastSessionId("agent", agentName);
-      console.log(`[inbox] Triggering ${agentName} to process inbox messages${resumeSessionId ? ` (session ${resumeSessionId.slice(0, 8)})` : ""}`);
-      this.startExecution({
-        source: "web",
-        targetType: "agent",
-        targetName: agentName,
-        prompt: inboxPrompt,
-        cwd: paths.root,
-        isInboxProcessing: true,
-        resumeSessionId,
-        username: "system",
-      });
-    }
   }
 }
 

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Bot, Inbox } from "lucide-react";
+import { Bot } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Card } from "../shared/Card";
 import type { AgentInfo } from "../../lib/types";
@@ -23,11 +23,7 @@ export function AgentStatusGrid({ agents }: AgentStatusGridProps) {
             <Bot size={16} className="text-accent" />
             <span className="text-sm font-medium">{agent.name}</span>
           </div>
-          <div className="flex items-center justify-between text-xs text-text-muted">
-            <span className="flex items-center gap-1">
-              <Inbox size={12} />
-              {agent.inboxCount} msg
-            </span>
+          <div className="flex items-center justify-end text-xs text-text-muted">
             <span>
               {agent.lastExecution
                 ? formatDistanceToNow(new Date(agent.lastExecution), { addSuffix: true })

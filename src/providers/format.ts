@@ -29,7 +29,8 @@ export function formatToolUse(name: string, input: Record<string, unknown>): str
       detail = `${ANSI.gray}${input.pattern ?? ""}${ANSI.reset}`;
       break;
     case "Task":
-      detail = `${ANSI.magenta}${input.description ?? ""}${ANSI.reset}`;
+    case "Agent":
+      detail = `${ANSI.magenta}${input.description ?? input.subagent_type ?? ""}${ANSI.reset}`;
       break;
     case "AskUserQuestion": {
       const qs = input.questions as Array<{ question: string }> | undefined;

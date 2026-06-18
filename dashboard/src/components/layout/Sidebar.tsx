@@ -13,7 +13,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  RefreshCw,
   KanbanSquare,
 } from "lucide-react";
 import { api } from "../../lib/api";
@@ -101,7 +100,6 @@ export function Sidebar() {
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
-  const [refreshingContext, setRefreshingContext] = useState(false);
 
   const loadAgents = useCallback(() => {
     api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
@@ -129,17 +127,6 @@ export function Sidebar() {
     } catch {
     } finally {
       setCreatingAgent(false);
-    }
-  };
-
-  const handleRefreshContext = async () => {
-    if (refreshingContext) return;
-    setRefreshingContext(true);
-    try {
-      await api.post("/agents/regenerate-context");
-    } catch {
-    } finally {
-      setRefreshingContext(false);
     }
   };
 
@@ -278,14 +265,6 @@ export function Sidebar() {
                 {admin && (
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={handleRefreshContext}
-                      className="text-text-muted hover:text-accent transition-colors"
-                      title="Regenerate agents context"
-                      disabled={refreshingContext}
-                    >
-                      <RefreshCw size={13} className={refreshingContext ? "animate-spin" : ""} />
-                    </button>
-                    <button
                       onClick={() => setCreateAgentOpen(true)}
                       className="text-text-muted hover:text-accent transition-colors"
                       title="Create agent"
@@ -316,17 +295,7 @@ export function Sidebar() {
                   <StatusDot targetKey={`agent:${a.name}`} statusMap={targetStatus} />
                   <Bot size={14} />
                   {showExpanded && (
-                    <>
-                      <span className="flex-1 truncate">{a.name}</span>
-                      {a.inboxCount > 0 && (
-                        <span className="bg-accent/20 text-accent text-xs px-1.5 py-0.5 rounded-full">
-                          {a.inboxCount}
-                        </span>
-                      )}
-                    </>
-                  )}
-                  {!isMobile && collapsed && a.inboxCount > 0 && (
-                    <span className="absolute top-0 right-0 w-2 h-2 bg-accent rounded-full" />
+                    <span className="flex-1 truncate">{a.name}</span>
                   )}
                 </NavLink>
               ))}

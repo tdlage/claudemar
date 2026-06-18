@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, unlinkSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, unlinkSync } from "node:fs";
 import { extname, resolve, sep } from "node:path";
 import { rm } from "node:fs/promises";
 import archiver from "archiver";
@@ -6,7 +6,6 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import {
   createAgentStructure,
-  generateAgentsContext,
   getAgentInfo,
   getAgentPaths,
   isValidAgentName,
@@ -30,7 +29,7 @@ agentsRouter.param("name", (req, res, next) => {
 function resolveAgentFile(
   req: Request,
   res: Response,
-  subdir: keyof Pick<AgentPaths, "inbox" | "outbox" | "output" | "input" | "context">,
+  subdir: keyof Pick<AgentPaths, "output" | "input" | "context">,
 ): { paths: AgentPaths; filePath: string } | null {
   const { name, file } = req.params;
   if (!isValidAgentName(name) || !safeFilename(file)) {
@@ -116,12 +115,6 @@ agentsRouter.get("/:name", async (req, res) => {
     agentsMd = readFileSync(agentsMdPath, "utf-8");
   }
 
-  let inboxFiles: string[] = [];
-  try { inboxFiles = readdirSync(paths.inbox).filter((f) => !f.startsWith(".")).sort(); } catch { }
-
-  let outboxFiles: string[] = [];
-  try { outboxFiles = readdirSync(paths.outbox).filter((f) => !f.startsWith(".")).sort(); } catch { }
-
   const outputFiles = listDirEntries(paths.output);
   const inputFiles = listFiles(paths.input);
 
@@ -135,8 +128,6 @@ agentsRouter.get("/:name", async (req, res) => {
   res.json({
     ...info,
     agentsMd,
-    inboxFiles,
-    outboxFiles,
     outputFiles,
     inputFiles,
     contextFiles,
@@ -172,15 +163,6 @@ agentsRouter.post("/", (req, res) => {
   res.status(201).json({ name, paths: created });
 });
 
-agentsRouter.post("/regenerate-context", (req, res) => {
-  if (req.ctx?.role !== "admin") {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-  const updated = generateAgentsContext();
-  res.json({ updated });
-});
-
 agentsRouter.delete("/:name", async (req, res) => {
   if (req.ctx?.role !== "admin") {
     res.status(403).json({ error: "Forbidden" });
@@ -202,106 +184,6 @@ agentsRouter.delete("/:name", async (req, res) => {
   await rm(paths.root, { recursive: true, force: true });
 
   res.json({ removed: name, removedSchedules });
-});
-
-agentsRouter.get("/:name/inbox/:file", (req, res) => {
-  const result = resolveAgentFile(req, res, "inbox");
-  if (!result) return;
-
-  if (!existsSync(result.filePath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
-
-  const content = readFileSync(result.filePath, "utf-8");
-  const stat = statSync(result.filePath);
-  res.json({ name: req.params.file, content, size: stat.size, mtime: stat.mtime.toISOString() });
-});
-
-agentsRouter.post("/:name/inbox/:file/archive", (req, res) => {
-  const result = resolveAgentFile(req, res, "inbox");
-  if (!result) return;
-
-  if (!existsSync(result.filePath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
-
-  const archivedDir = resolve(result.paths.inbox, "archived");
-  mkdirSync(archivedDir, { recursive: true });
-  const archivePath = resolve(archivedDir, req.params.file);
-  if (!archivePath.startsWith(archivedDir + "/")) {
-    res.status(400).json({ error: "Invalid path" });
-    return;
-  }
-  renameSync(result.filePath, archivePath);
-  res.json({ archived: true });
-});
-
-agentsRouter.delete("/:name/inbox/:file", (req, res) => {
-  const result = resolveAgentFile(req, res, "inbox");
-  if (!result) return;
-
-  if (!existsSync(result.filePath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
-
-  unlinkSync(result.filePath);
-  res.json({ deleted: true });
-});
-
-agentsRouter.post("/:name/outbox", (req, res) => {
-  const { name } = req.params;
-  const { recipient, content } = req.body;
-
-  if (!isValidAgentName(name)) {
-    res.status(400).json({ error: "Invalid agent name" });
-    return;
-  }
-  if (!recipient || !isValidAgentName(recipient)) {
-    res.status(400).json({ error: "Invalid recipient" });
-    return;
-  }
-  if (!content || typeof content !== "string") {
-    res.status(400).json({ error: "content string required" });
-    return;
-  }
-
-  const paths = getAgentPaths(name);
-  if (!paths) { res.status(404).json({ error: "Agent not found" }); return; }
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const filename = `PARA-${recipient}_${timestamp}_reply.md`;
-  writeFileSync(resolve(paths.outbox, filename), content, "utf-8");
-  res.status(201).json({ created: filename });
-});
-
-agentsRouter.get("/:name/outbox/:file", (req, res) => {
-  const result = resolveAgentFile(req, res, "outbox");
-  if (!result) return;
-
-  if (!existsSync(result.filePath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
-
-  const content = readFileSync(result.filePath, "utf-8");
-  const stat = statSync(result.filePath);
-  res.json({ name: req.params.file, content, size: stat.size, mtime: stat.mtime.toISOString() });
-});
-
-agentsRouter.delete("/:name/outbox/:file", (req, res) => {
-  const result = resolveAgentFile(req, res, "outbox");
-  if (!result) return;
-
-  if (!existsSync(result.filePath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
-
-  unlinkSync(result.filePath);
-  res.json({ deleted: true });
 });
 
 agentsRouter.get("/:name/output", (req, res) => {

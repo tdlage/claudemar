@@ -61,7 +61,6 @@ export function formatUsage(costUsd: number, totalTokens?: number): string {
 
 export interface AgentInfo {
   name: string;
-  inboxCount: number;
   lastExecution: string | null;
 }
 
@@ -80,8 +79,6 @@ export interface SecretFile {
 
 export interface AgentDetail extends AgentInfo {
   agentsMd: string;
-  inboxFiles: string[];
-  outboxFiles: string[];
   outputFiles: { name: string; type: "file" | "directory"; size: number; mtime: string }[];
   inputFiles: { name: string; size: number; mtime: string }[];
   contextFiles: string[];
