@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "./config.js";
 
@@ -62,7 +62,8 @@ export function updateEnv(values: Record<string, string>): string[] {
 
   let content = lines.join("\n");
   if (!content.endsWith("\n")) content += "\n";
-  writeFileSync(ENV_PATH, content, "utf-8");
+  writeFileSync(ENV_PATH, content, { encoding: "utf-8", mode: 0o600 });
+  chmodSync(ENV_PATH, 0o600);
 
   return updated;
 }
