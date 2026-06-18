@@ -140,6 +140,7 @@ executionsRouter.post("/", async (req, res) => {
   const resolvedThinking = typeof thinking === "string" && validThinking.includes(thinking) ? (thinking as ThinkingLevel) : undefined;
   const id = executionManager.startExecution({
     ...queuePayload,
+    rawPrompt: prompt,
     blocks: execBlocks,
     permissionMode: resolvedMode,
     thinking: resolvedThinking,

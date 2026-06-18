@@ -317,22 +317,20 @@ export class ClaudeSession extends EventEmitter {
     this.emit("result", result);
   }
 
-  sendUserMessage(blocksOrText: string | MessageBlock[], contextPrefix?: string): void {
-    const text = blocksToText(blocksOrText);
-    this.pendingUserText = text.trim() ? text : null;
+  sendUserMessage(blocksOrText: string | MessageBlock[], ingestText?: string): void {
+    const stored = (ingestText ?? blocksToText(blocksOrText)).trim();
+    this.pendingUserText = stored ? stored : null;
     this.settled = false;
 
     let content: SDKUserMessage["message"]["content"];
     if (typeof blocksOrText === "string") {
-      content = contextPrefix ? `${contextPrefix}\n\n${blocksOrText}` : blocksOrText;
+      content = blocksOrText;
     } else {
-      const base = blocksOrText.map((b) =>
+      content = blocksOrText.map((b) =>
         b.type === "image" && b.source
           ? { type: "image" as const, source: b.source }
           : { type: "text" as const, text: b.text ?? "" },
-      );
-      const blocks = contextPrefix ? [{ type: "text" as const, text: contextPrefix }, ...base] : base;
-      content = blocks as SDKUserMessage["message"]["content"];
+      ) as SDKUserMessage["message"]["content"];
     }
 
     const message: SDKUserMessage = {

@@ -53,6 +53,7 @@ export interface StartExecutionOpts {
   targetType: ExecutionTargetType;
   targetName: string;
   prompt: string;
+  rawPrompt?: string;
   cwd: string;
   resumeSessionId?: string | null;
   noResume?: boolean;
@@ -330,7 +331,7 @@ class ExecutionManager extends EventEmitter {
         await session.setThinking(opts.thinking).catch(() => {});
       }
 
-      session.sendUserMessage(opts.blocks ?? opts.prompt);
+      session.sendUserMessage(opts.blocks ?? opts.prompt, opts.rawPrompt);
       const result = await session.waitForResult();
       if (entry.timedOut) {
         result.isError = true;
