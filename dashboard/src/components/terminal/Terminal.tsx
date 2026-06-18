@@ -6,10 +6,13 @@ import { getSocket } from "../../lib/socket";
 import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
 import { extractMdPaths, renderOutputHtml } from "../../lib/ansi";
 import { useCurrentModel } from "../../hooks/useCurrentModel";
+import { isAdmin } from "../../hooks/useAuth";
+import { formatToolDetail } from "../../lib/toolDetail";
+import { fileToImageBlock, imageBlocksFromClipboard, type ImageBlock } from "../../lib/imageBlock";
 import { MdLinksBar } from "./MdLinksBar";
 import { PermissionPrompt, type PermissionRequest } from "./PermissionPrompt";
 
-type PermissionMode = "default" | "auto" | "plan" | "acceptEdits" | "bypassPermissions";
+export type PermissionMode = "default" | "auto" | "plan" | "acceptEdits" | "bypassPermissions";
 
 const MODE_LABELS: Record<PermissionMode, string> = {
   default: "Padrão",
@@ -43,25 +46,33 @@ interface UsageState {
   contextPct: number;
 }
 
+export interface StartOpts {
+  planMode: boolean;
+  permissionMode: PermissionMode;
+  thinking: "off" | "ultrathink";
+}
+
+interface UserMessage {
+  id: number;
+  text: string;
+  imageCount: number;
+  status: "queued" | "sent";
+}
+
 interface TerminalProps {
   executionId: string | null;
   base?: string;
+  controls?: React.ReactNode;
+  startPlaceholder?: string;
+  queueMode?: boolean;
+  onStart?: (text: string, images: ImageBlock[], opts: StartOpts) => Promise<void> | void;
 }
 
-function fileToImageBlock(file: File): Promise<{ type: "image"; source: { type: "base64"; media_type: string; data: string } }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const data = result.split(",")[1] ?? "";
-      resolve({ type: "image", source: { type: "base64", media_type: file.type || "image/png", data } });
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+function startPermissionMode(mode: PermissionMode): PermissionMode {
+  return mode === "plan" ? "default" : mode;
 }
 
-export function Terminal({ executionId, base }: TerminalProps) {
+export function Terminal({ executionId, base, controls, startPlaceholder, queueMode, onStart }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const currentModel = useCurrentModel();
@@ -70,8 +81,14 @@ export function Terminal({ executionId, base }: TerminalProps) {
   const [mdPaths, setMdPaths] = useState<string[]>([]);
 
   const [input, setInput] = useState("");
-  const [pendingImages, setPendingImages] = useState<{ type: "image"; source: { type: "base64"; media_type: string; data: string } }[]>([]);
+  const [pendingImages, setPendingImages] = useState<ImageBlock[]>([]);
   const [running, setRunning] = useState(false);
+  const [messages, setMessages] = useState<UserMessage[]>([]);
+
+  const queueRef = useRef<{ msgId: number; text: string; images: ImageBlock[] }[]>([]);
+  const onStartRef = useRef<TerminalProps["onStart"]>(onStart);
+  const modeRef = useRef<PermissionMode>("default");
+  const ultrathinkRef = useRef(false);
 
   const [thinking, setThinking] = useState<ThinkingBlock[]>([]);
   const [thinkingCollapsed, setThinkingCollapsed] = useState(true);
@@ -82,15 +99,33 @@ export function Terminal({ executionId, base }: TerminalProps) {
   const [mode, setMode] = useState<PermissionMode>("default");
   const [ultrathink, setUltrathink] = useState(false);
   const [slashCommands, setSlashCommands] = useState<string[]>([]);
-  const [slashOpen, setSlashOpen] = useState(false);
   const [compactNotice, setCompactNotice] = useState<string | null>(null);
 
   const counterRef = useRef(0);
+  const prevExecIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    onStartRef.current = onStart;
+    modeRef.current = mode;
+    ultrathinkRef.current = ultrathink;
+  });
 
   const render = useCallback((text: string) => {
     setHtml(renderOutputHtml(text || "(sem output)"));
     const paths = extractMdPaths(text);
     if (paths.length > 0) setMdPaths(paths);
+  }, []);
+
+  const flushQueue = useCallback(() => {
+    const items = queueRef.current;
+    if (items.length === 0 || !onStartRef.current) return;
+    queueRef.current = [];
+    const text = items.map((i) => i.text).filter(Boolean).join("\n\n");
+    const images = items.flatMap((i) => i.images);
+    const ids = new Set(items.map((i) => i.msgId));
+    setMessages((prev) => prev.map((m) => (ids.has(m.id) ? { ...m, status: "sent" } : m)));
+    const m = modeRef.current;
+    void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), thinking: ultrathinkRef.current ? "ultrathink" : "off" });
   }, []);
 
   useEffect(() => {
@@ -121,6 +156,13 @@ export function Terminal({ executionId, base }: TerminalProps) {
     setCompactNotice(null);
     setSlashCommands([]);
     autoScrollRef.current = true;
+
+    const prevExecId = prevExecIdRef.current;
+    prevExecIdRef.current = executionId;
+    if (prevExecId && prevExecId !== executionId) {
+      setMessages([]);
+      setUltrathink(false);
+    }
 
     if (!executionId) {
       setRunning(false);
@@ -204,6 +246,15 @@ export function Terminal({ executionId, base }: TerminalProps) {
       if (!matches(data.id)) return;
       setRunning(false);
       setPermissions([]);
+      flushQueue();
+    };
+
+    const stopHandler = (data: { id: string }) => {
+      if (!matches(data.id)) return;
+      setRunning(false);
+      setPermissions([]);
+      queueRef.current = [];
+      setMessages((prev) => prev.filter((m) => m.status !== "queued"));
     };
 
     socket.on("execution:catchup", catchupHandler);
@@ -217,8 +268,8 @@ export function Terminal({ executionId, base }: TerminalProps) {
     socket.on("execution:compact", compactHandler);
     socket.on("execution:checkpoint", checkpointHandler);
     socket.on("execution:complete", completeHandler);
-    socket.on("execution:error", completeHandler);
-    socket.on("execution:cancel", completeHandler);
+    socket.on("execution:error", stopHandler);
+    socket.on("execution:cancel", stopHandler);
 
     return () => {
       socket.off("execution:catchup", catchupHandler);
@@ -232,30 +283,44 @@ export function Terminal({ executionId, base }: TerminalProps) {
       socket.off("execution:compact", compactHandler);
       socket.off("execution:checkpoint", checkpointHandler);
       socket.off("execution:complete", completeHandler);
-      socket.off("execution:error", completeHandler);
-      socket.off("execution:cancel", completeHandler);
+      socket.off("execution:error", stopHandler);
+      socket.off("execution:cancel", stopHandler);
       socket.emit("unsubscribe:execution", executionId);
     };
-  }, [executionId, render]);
+  }, [executionId, render, flushQueue]);
 
-  const sendMessage = useCallback(() => {
-    if (!executionId) return;
+  const submit = useCallback(() => {
     const text = input.trim();
-    if (!text && pendingImages.length === 0) return;
-    const socket = getSocket();
-    if (pendingImages.length > 0) {
-      const blocks = [
-        ...pendingImages,
-        ...(text ? [{ type: "text" as const, text }] : []),
-      ];
-      socket.emit("execution:send", { execId: executionId, blocks });
-    } else {
-      socket.emit("execution:send", { execId: executionId, text });
+    const images = pendingImages;
+    if (!text && images.length === 0) return;
+
+    const msgId = counterRef.current++;
+    const addMessage = (status: UserMessage["status"]) =>
+      setMessages((prev) => [...prev.slice(-29), { id: msgId, text, imageCount: images.length, status }]);
+
+    if (running && executionId) {
+      if (queueMode) {
+        addMessage("queued");
+        queueRef.current.push({ msgId, text, images });
+      } else {
+        addMessage("sent");
+        const socket = getSocket();
+        if (images.length > 0) {
+          socket.emit("execution:send", { execId: executionId, blocks: [...images, ...(text ? [{ type: "text" as const, text }] : [])] });
+        } else {
+          socket.emit("execution:send", { execId: executionId, text });
+        }
+      }
+    } else if (onStartRef.current) {
+      addMessage("sent");
+      const m = modeRef.current;
+      void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), thinking: ultrathink ? "ultrathink" : "off" });
+      if (m === "plan") setMode("default");
     }
+
     setInput("");
     setPendingImages([]);
-    setSlashOpen(false);
-  }, [executionId, input, pendingImages]);
+  }, [input, pendingImages, running, executionId, queueMode, ultrathink]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -285,22 +350,36 @@ export function Terminal({ executionId, base }: TerminalProps) {
   }, [executionId]);
 
   const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = Array.from(e.clipboardData.items).filter((i) => i.type.startsWith("image/"));
-    if (items.length === 0) return;
+    const blocks = await imageBlocksFromClipboard(e.clipboardData);
+    if (blocks.length === 0) return;
     e.preventDefault();
-    const files = items.map((i) => i.getAsFile()).filter((f): f is File => !!f);
-    const blocks = await Promise.all(files.map(fileToImageBlock));
     setPendingImages((prev) => [...prev, ...blocks]);
   }, []);
 
   const insertSlash = useCallback((cmd: string) => {
     setInput((prev) => (prev ? `${prev} /${cmd}` : `/${cmd}`));
-    setSlashOpen(false);
   }, []);
 
   return (
     <div className="flex flex-col w-full h-full min-h-[300px] gap-2">
       <div className="flex items-center gap-2 flex-wrap text-xs shrink-0">
+        {controls}
+        {slashCommands.length > 0 && (
+          <div className="flex items-center gap-1">
+            <Slash size={13} className="text-text-muted" />
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) insertSlash(e.target.value); }}
+              title="Comandos slash disponíveis"
+              className="text-xs bg-transparent border border-border rounded-md px-1 py-1 text-text-muted focus:outline-none focus:border-accent"
+            >
+              <option value="">Slash</option>
+              {slashCommands.map((cmd) => (
+                <option key={cmd} value={cmd}>/{cmd}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
           {currentModel.displayName}
         </span>
@@ -316,28 +395,30 @@ export function Terminal({ executionId, base }: TerminalProps) {
           </>
         )}
         <div className="flex-1" />
-        <button
-          type="button"
-          onClick={() => handleSetMode(mode === "bypassPermissions" ? "default" : "bypassPermissions")}
-          disabled={!executionId}
-          title="Permissões automáticas: executa tudo sem pedir aprovação. Pode ligar/desligar durante o processamento (equivalente ao Shift+Tab do CLI)."
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-colors disabled:opacity-40 ${
-            mode === "bypassPermissions"
-              ? "bg-warning/20 text-warning border-warning/40"
-              : "text-text-muted border-border hover:text-text-secondary"
-          }`}
-        >
-          <Zap size={12} /> Auto {mode === "bypassPermissions" ? "ON" : "OFF"}
-        </button>
-        <div className="w-px h-4 bg-border" />
+        {isAdmin() && (
+          <>
+            <button
+              type="button"
+              onClick={() => handleSetMode(mode === "bypassPermissions" ? "default" : "bypassPermissions")}
+              title="Permissões automáticas: executa tudo sem pedir aprovação. Pode ligar/desligar durante o processamento (equivalente ao Shift+Tab do CLI)."
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
+                mode === "bypassPermissions"
+                  ? "bg-warning/20 text-warning border-warning/40"
+                  : "text-text-muted border-border hover:text-text-secondary"
+              }`}
+            >
+              <Zap size={12} /> Auto {mode === "bypassPermissions" ? "ON" : "OFF"}
+            </button>
+            <div className="w-px h-4 bg-border" />
+          </>
+        )}
         <div className="flex items-center gap-1">
           {MODE_ORDER.map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => handleSetMode(m)}
-              disabled={!executionId}
-              className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors disabled:opacity-40 ${
+              className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
                 mode === m
                   ? "bg-accent/20 text-accent border border-accent/40"
                   : "text-text-muted hover:text-text-secondary border border-transparent"
@@ -385,12 +466,18 @@ export function Terminal({ executionId, base }: TerminalProps) {
 
         {tools.length > 0 && (
           <div className="space-y-1">
-            {tools.map((t) => (
-              <div key={t.id} className="flex items-start gap-1.5 text-xs">
-                <Wrench size={12} className="text-accent mt-0.5 shrink-0" />
-                <span className="font-mono text-accent">{t.name}</span>
-              </div>
-            ))}
+            {tools.map((t) => {
+              const detail = formatToolDetail(t.name, t.input);
+              return (
+                <div key={t.id} className="flex items-start gap-1.5 text-xs min-w-0">
+                  <Wrench size={12} className="text-accent mt-0.5 shrink-0" />
+                  <span className="font-mono text-accent shrink-0">{t.name}</span>
+                  {detail && (
+                    <span className="font-mono text-text-muted truncate" title={detail}>{detail}</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -422,8 +509,30 @@ export function Terminal({ executionId, base }: TerminalProps) {
 
       {base && <MdLinksBar paths={mdPaths} base={base} />}
 
-      {executionId && (
+      {onStart && (
         <div className="shrink-0 space-y-1.5">
+          {messages.length > 0 && (
+            <div className="space-y-1">
+              {messages.slice(-6).map((m) => (
+                <div key={m.id} className="flex items-start gap-1.5 text-xs">
+                  <span className="text-text-muted shrink-0">›</span>
+                  <span className="flex-1 text-text-secondary whitespace-pre-wrap break-words min-w-0">
+                    {m.text || (m.imageCount > 0 ? `(${m.imageCount} imagem${m.imageCount > 1 ? "s" : ""})` : "")}
+                    {m.text && m.imageCount > 0 ? ` (+${m.imageCount} img)` : ""}
+                  </span>
+                  <span
+                    className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      m.status === "queued"
+                        ? "bg-warning/15 text-warning"
+                        : "bg-accent/15 text-accent"
+                    }`}
+                  >
+                    {m.status === "queued" ? "na fila" : "considerada"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           {pendingImages.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {pendingImages.map((img, idx) => (
@@ -445,32 +554,6 @@ export function Terminal({ executionId, base }: TerminalProps) {
             </div>
           )}
           <div className="relative flex items-end gap-2">
-            {slashCommands.length > 0 && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setSlashOpen((v) => !v)}
-                  title="Comandos slash"
-                  className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-surface-hover transition-colors"
-                >
-                  <Slash size={14} />
-                </button>
-                {slashOpen && (
-                  <div className="absolute bottom-full mb-1 left-0 z-10 bg-surface border border-border rounded-md shadow-lg max-h-60 overflow-auto w-48">
-                    {slashCommands.map((cmd) => (
-                      <button
-                        key={cmd}
-                        type="button"
-                        onClick={() => insertSlash(cmd)}
-                        className="block w-full text-left px-3 py-1.5 text-xs font-mono text-text-secondary hover:bg-surface-hover"
-                      >
-                        /{cmd}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
             <textarea
               value={input}
               onChange={(e) => {
@@ -481,11 +564,11 @@ export function Terminal({ executionId, base }: TerminalProps) {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  sendMessage();
+                  submit();
                 }
               }}
               onPaste={handlePaste}
-              placeholder="Mensagem... (Enter envia, Shift+Enter quebra linha, cole imagens)"
+              placeholder={running ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, Shift+Enter quebra linha, cole imagens)")}
               rows={1}
               className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 160 }}
@@ -521,7 +604,7 @@ export function Terminal({ executionId, base }: TerminalProps) {
             </label>
             <button
               type="button"
-              onClick={sendMessage}
+              onClick={submit}
               disabled={!input.trim() && pendingImages.length === 0}
               className="inline-flex items-center justify-center p-1.5 rounded-md bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >

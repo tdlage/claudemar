@@ -77,9 +77,17 @@ export function ApiKeysSetup() {
   const handleRestart = async () => {
     setRestarting(true);
     try {
+      const before = await api.get<{ uptime: number }>("/system/status").then((s) => s.uptime).catch(() => Infinity);
       await api.post("/system/restart");
-      addToast("success", "Reiniciando o serviço — a página recarregará em instantes.");
-      setTimeout(() => window.location.reload(), 8000);
+      addToast("success", "Reiniciando o serviço — a página recarregará quando voltar.");
+      const startedAt = Date.now();
+      const poll = setInterval(async () => {
+        if (Date.now() - startedAt > 120000) { clearInterval(poll); setRestarting(false); return; }
+        try {
+          const s = await api.get<{ uptime: number }>("/system/status");
+          if (s.uptime < before) { clearInterval(poll); window.location.reload(); }
+        } catch { /* serviço ainda reiniciando */ }
+      }, 3000);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Falha ao reiniciar");
       setRestarting(false);

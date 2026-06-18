@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Map, ListOrdered, Zap, FileText, Cpu } from "lucide-react";
+import { ListOrdered, Zap, FileText } from "lucide-react";
 import { api } from "../lib/api";
-import { Terminal } from "../components/terminal/Terminal";
+import { Terminal, type StartOpts } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
-import { PromptComposer } from "../components/terminal/PromptComposer";
+import type { ImageBlock } from "../lib/imageBlock";
 import { ExecutionActivity } from "../components/terminal/ExecutionActivity";
 import { Tabs } from "../components/shared/Tabs";
 import { Badge } from "../components/shared/Badge";
@@ -19,18 +19,14 @@ import { FilesBrowser } from "../components/project/FilesBrowser";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
-import { useCurrentModel } from "../hooks/useCurrentModel";
 import type { AgentDetail } from "../lib/types";
 
 type TabKey = "terminal" | "code" | "inbox" | "outbox" | "input" | "output" | "config" | "context" | "secrets";
 
 export function AgentDetailPage() {
-  const currentModel = useCurrentModel();
   const { name } = useParams<{ name: string }>();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [tab, setTab] = useCachedState<TabKey>(`agent:${name}:tab`, "terminal");
-  const [prompt, setPrompt] = useCachedState(`agent:${name}:prompt`, "");
-  const [planMode, setPlanMode] = useCachedState(`agent:${name}:planMode`, false);
   const [sequential, setSequential] = useCachedState(`agent:${name}:sequential`, false);
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
   const [selectedSkill, setSelectedSkill] = useCachedState(`agent:${name}:skill`, "");
@@ -48,7 +44,7 @@ export function AgentDetailPage() {
   }, [name]);
 
   const {
-    execId, setExecId, isRunning, sessionData, loadSession,
+    execId, setExecId, sessionData, loadSession,
     handleSessionChange, handleSessionRename, handleSessionDelete,
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
@@ -84,18 +80,21 @@ export function AgentDetailPage() {
     api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
   }, [loadAgent, loadSession, loadOutputs, loadInputs]);
 
-  const handleExecute = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim() || !name) return;
+  const handleStart = async (text: string, images: ImageBlock[], opts: StartOpts) => {
+    if ((!text.trim() && images.length === 0) || !name) return;
 
     try {
-      const finalPrompt = selectedSkill ? `/${selectedSkill} ${prompt.trim()}` : prompt.trim();
+      const finalPrompt = selectedSkill ? `/${selectedSkill} ${text.trim()}` : text.trim();
+      const blocks = images.length > 0 ? [...images, { type: "text" as const, text: finalPrompt }] : undefined;
       const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
         targetType: "agent",
         targetName: name,
         prompt: finalPrompt,
+        blocks,
         resumeSessionId: sessionData.sessionId,
-        planMode,
+        planMode: opts.planMode,
+        permissionMode: opts.permissionMode,
+        thinking: opts.thinking,
         forceQueue: sequential || undefined,
         skipSystemPrompt: !sendSystemPrompt || undefined,
       });
@@ -103,10 +102,7 @@ export function AgentDetailPage() {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
       } else if (result.id) {
         setExecId(result.id);
-        addToast("success", "Execution started");
       }
-      setPrompt("");
-      setPlanMode(false);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
     }
@@ -160,68 +156,53 @@ export function AgentDetailPage() {
               }}
             />
           ))}
-          <PromptComposer
-            value={prompt}
-            onChange={setPrompt}
-            onSubmit={handleExecute}
-            isRunning={isRunning}
-            onStop={() => {
-              if (execId) api.post(`/executions/${execId}/stop`).catch(() => {});
-            }}
-            placeholder={`Message ${name}...`}
-            toolbarClassName="flex items-center gap-2"
-            toolbar={
-              <>
-                <ToggleButton
-                  active={planMode}
-                  onToggle={() => setPlanMode(!planMode)}
-                  icon={Map}
-                  label="Plan"
-                  title={planMode ? "Plan mode ON (read-only)" : "Plan mode OFF"}
-                />
-                <ToggleButton
-                  active={sequential}
-                  onToggle={() => setSequential(!sequential)}
-                  icon={ListOrdered}
-                  label="Queue"
-                  title={sequential ? "Sequential mode ON (commands queue in order)" : "Sequential mode OFF (parallel execution)"}
-                />
-                <ToggleButton
-                  active={sendSystemPrompt}
-                  onToggle={() => setSendSystemPrompt(!sendSystemPrompt)}
-                  icon={FileText}
-                  label="System"
-                  title={sendSystemPrompt ? "System prompt will be sent (click to skip)" : "System prompt will NOT be sent (click to include)"}
-                />
-                {skills.length > 0 && (
-                  <div className="flex items-center gap-1">
-                    <Zap size={13} className={selectedSkill ? "text-accent" : "text-text-muted"} />
-                    <select
-                      value={selectedSkill}
-                      onChange={(e) => setSelectedSkill(e.target.value)}
-                      title={selectedSkill ? skills.find((s) => s.name === selectedSkill)?.description : ""}
-                      className={`text-xs bg-transparent border rounded-md px-1 py-1.5 focus:outline-none focus:border-accent ${
-                        selectedSkill
-                          ? "border-accent/40 text-accent"
-                          : "border-border text-text-muted"
-                      }`}
-                    >
-                      <option value="">No skill</option>
-                      {skills.map((s) => (
-                        <option key={s.name} value={s.name}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div className="flex items-center gap-1 text-xs text-text-muted" title="Modelo atual">
-                  <Cpu size={13} />
-                  <span className="font-medium text-text-secondary">{currentModel.displayName}</span>
-                </div>
-              </>
-            }
-          />
           <div className="h-[300px] md:h-[500px]">
-            <Terminal key={name} executionId={execId} base={`agent:${name}`} />
+            <Terminal
+              key={name}
+              executionId={execId}
+              base={`agent:${name}`}
+              startPlaceholder={`Message ${name}...`}
+              queueMode={sequential}
+              onStart={handleStart}
+              controls={
+                <>
+                  <ToggleButton
+                    active={sequential}
+                    onToggle={() => setSequential(!sequential)}
+                    icon={ListOrdered}
+                    label="Queue"
+                    title={sequential ? "Sequential mode ON (commands queue in order)" : "Sequential mode OFF (parallel execution)"}
+                  />
+                  <ToggleButton
+                    active={sendSystemPrompt}
+                    onToggle={() => setSendSystemPrompt(!sendSystemPrompt)}
+                    icon={FileText}
+                    label="System"
+                    title={sendSystemPrompt ? "System prompt will be sent (click to skip)" : "System prompt will NOT be sent (click to include)"}
+                  />
+                  {skills.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <Zap size={13} className={selectedSkill ? "text-accent" : "text-text-muted"} />
+                      <select
+                        value={selectedSkill}
+                        onChange={(e) => setSelectedSkill(e.target.value)}
+                        title={selectedSkill ? skills.find((s) => s.name === selectedSkill)?.description : ""}
+                        className={`text-xs bg-transparent border rounded-md px-1 py-1 focus:outline-none focus:border-accent ${
+                          selectedSkill
+                            ? "border-accent/40 text-accent"
+                            : "border-border text-text-muted"
+                        }`}
+                      >
+                        <option value="">No skill</option>
+                        {skills.map((s) => (
+                          <option key={s.name} value={s.name}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
+              }
+            />
           </div>
 
           <ExecutionActivity

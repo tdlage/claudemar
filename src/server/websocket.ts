@@ -103,6 +103,7 @@ export function setupWebSocket(io: SocketServer): void {
 
     socket.on("execution:set-mode", ({ id, mode }: { id: string; mode: PermissionMode }) => {
       if (!ownsExecution(id)) return;
+      if (mode === "bypassPermissions" && getCtx()?.role !== "admin") return;
       executionManager.setPermissionMode(id, mode).catch(() => {});
     });
 

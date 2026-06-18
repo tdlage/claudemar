@@ -66,6 +66,8 @@ export interface StartExecutionOpts {
   skipSystemPrompt?: boolean;
   blocks?: MessageBlock[];
   thinking?: ThinkingLevel;
+  autoApprove?: boolean;
+  permissionMode?: PermissionMode;
 }
 
 const MAX_RECENT = 100;
@@ -252,13 +254,15 @@ class ExecutionManager extends EventEmitter {
       this.sessions.delete(sessionKey);
     }
 
-    const interactive = opts.source === "web" && !opts.isInboxProcessing;
+    const interactive = opts.source === "web" && !opts.isInboxProcessing && !opts.autoApprove;
+    const bypass = opts.autoApprove || opts.permissionMode === "bypassPermissions" || (!opts.planMode && !interactive);
     const session = new ClaudeSession({
       cwd: opts.cwd,
       target: { targetType: opts.targetType, targetName: opts.targetName },
       agentName: opts.agentName,
       planMode: opts.planMode,
-      bypassPermissions: !opts.planMode && !interactive,
+      permissionMode: opts.permissionMode,
+      bypassPermissions: bypass,
       resumeSessionId: resumeId ?? null,
       thinking: opts.thinking,
       systemAppend: this.buildSystemSuffix(opts),

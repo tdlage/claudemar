@@ -46,7 +46,7 @@ export function updateEnv(values: Record<string, string>): string[] {
 
   for (const [key, raw] of Object.entries(values)) {
     if (!allowed.has(key)) continue;
-    const value = String(raw ?? "").trim();
+    const value = String(raw ?? "").replace(/[\x00-\x1f\x7f]/g, "").trim();
     if (!value) continue;
 
     const line = `${key}=${escapeEnvValue(value)}`;

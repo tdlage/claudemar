@@ -469,6 +469,7 @@ projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
     cwd: resolved.repoPath,
     noResume: true,
     username,
+    autoApprove: true,
   });
 
   res.status(201).json({ id });

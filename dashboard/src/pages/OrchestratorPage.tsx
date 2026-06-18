@@ -1,14 +1,13 @@
 import { useState, useEffect } from "react";
-import { Save, RefreshCw, Download, CheckCircle, Map, Crown, Container, Cpu } from "lucide-react";
+import { Save, RefreshCw, Download, CheckCircle, Crown, Container, Cpu } from "lucide-react";
 import { api } from "../lib/api";
-import { Terminal } from "../components/terminal/Terminal";
+import { Terminal, type StartOpts } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
-import { PromptComposer } from "../components/terminal/PromptComposer";
+import type { ImageBlock } from "../lib/imageBlock";
 import { ExecutionActivity } from "../components/terminal/ExecutionActivity";
 import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
 import { Badge } from "../components/shared/Badge";
-import { ToggleButton } from "../components/shared/ToggleButton";
 import { MarkdownEditor } from "../components/shared/MarkdownEditor";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
@@ -34,11 +33,9 @@ type TabKey = "terminal" | "agents-md" | "settings";
 export function OrchestratorPage() {
   const currentModel = useCurrentModel();
   const [tab, setTab] = useCachedState<TabKey>("orchestrator:tab", "terminal");
-  const [prompt, setPrompt] = useCachedState("orchestrator:prompt", "");
-  const [planMode, setPlanMode] = useCachedState("orchestrator:planMode", false);
 
   const {
-    execId, setExecId, isRunning, sessionData, loadSession,
+    execId, setExecId, sessionData, loadSession,
     handleSessionChange, handleSessionRename, handleSessionDelete,
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
@@ -79,26 +76,27 @@ export function OrchestratorPage() {
     loadSession();
   }, [loadSession]);
 
-  const handleExecute = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim()) return;
+  const handleStart = async (text: string, images: ImageBlock[], opts: StartOpts) => {
+    if (!text.trim() && images.length === 0) return;
 
     try {
+      const finalPrompt = text.trim();
+      const blocks = images.length > 0 ? [...images, { type: "text" as const, text: finalPrompt }] : undefined;
       const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
         targetType: "orchestrator",
         targetName: "orchestrator",
-        prompt: prompt.trim(),
+        prompt: finalPrompt,
+        blocks,
         resumeSessionId: sessionData.sessionId,
-        planMode,
+        planMode: opts.planMode,
+        permissionMode: opts.permissionMode,
+        thinking: opts.thinking,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
       } else if (result.id) {
         setExecId(result.id);
-        addToast("success", "Execution started");
       }
-      setPrompt("");
-      setPlanMode(false);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
     }
@@ -206,27 +204,13 @@ export function OrchestratorPage() {
               }}
             />
           ))}
-          <PromptComposer
-            value={prompt}
-            onChange={setPrompt}
-            onSubmit={handleExecute}
-            isRunning={isRunning}
-            onStop={() => {
-              if (execId) api.post(`/executions/${execId}/stop`).catch(() => {});
-            }}
-            placeholder="Message orchestrator... (Shift+Enter for new line)"
-            inlineControls={
-              <ToggleButton
-                active={planMode}
-                onToggle={() => setPlanMode(!planMode)}
-                icon={Map}
-                label="Plan"
-                title={planMode ? "Plan mode ON (read-only)" : "Plan mode OFF"}
-              />
-            }
-          />
           <div className="h-[500px]">
-            <Terminal executionId={execId} base="orchestrator" />
+            <Terminal
+              executionId={execId}
+              base="orchestrator"
+              startPlaceholder="Message orchestrator... (Shift+Enter quebra linha)"
+              onStart={handleStart}
+            />
           </div>
 
           <ExecutionActivity

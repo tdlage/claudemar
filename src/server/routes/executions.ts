@@ -2,6 +2,9 @@ import { existsSync } from "node:fs";
 import type { Request } from "express";
 import { Router } from "express";
 import { executionManager } from "../../execution-manager.js";
+import type { MessageBlock } from "../../claude/session.js";
+import type { ThinkingLevel } from "../../claude/options.js";
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { getAgentPaths } from "../../agents/manager.js";
 import { config } from "../../config.js";
 import { loadOrchestratorSettings } from "../../orchestrator-settings.js";
@@ -36,12 +39,14 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", async (req, res) => {
-  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue, skipSystemPrompt } = req.body;
+  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, thinking, agentName, forceQueue, skipSystemPrompt } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
     return;
   }
+
+  const messageBlocks: MessageBlock[] | undefined = Array.isArray(blocks) && blocks.length > 0 ? blocks : undefined;
 
   if (req.ctx?.role === "user") {
     if (targetType === "orchestrator") {
@@ -95,6 +100,11 @@ executionsRouter.post("/", async (req, res) => {
     }
   }
 
+  const imageBlocks = messageBlocks?.filter((b) => b.type === "image") ?? [];
+  const execBlocks: MessageBlock[] | undefined = imageBlocks.length > 0
+    ? [...imageBlocks, { type: "text", text: finalPrompt }]
+    : undefined;
+
   const effectiveTargetName = targetName || "orchestrator";
   const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
   const queuePayload = {
@@ -114,13 +124,25 @@ executionsRouter.post("/", async (req, res) => {
   const hasQueuedItems = commandQueue.getByTarget(targetType, effectiveTargetName).length > 0;
 
   if (forceQueue && (targetActive || hasQueuedItems)) {
+    if (execBlocks) {
+      res.status(409).json({ error: "Não é possível enfileirar mensagens com imagem enquanto há execução ou fila ativa. Aguarde terminar." });
+      return;
+    }
     const item = await commandQueue.enqueue(queuePayload);
     res.status(202).json({ queued: true, queueItem: { id: item.id, seqId: item.seqId } });
     return;
   }
 
+  const validModes = ["default", "acceptEdits", "bypassPermissions", "plan"];
+  const requestedMode = typeof permissionMode === "string" && validModes.includes(permissionMode) ? (permissionMode as PermissionMode) : undefined;
+  const resolvedMode = requestedMode === "bypassPermissions" && req.ctx?.role !== "admin" ? undefined : requestedMode;
+  const validThinking = ["off", "think", "think_hard", "ultrathink"];
+  const resolvedThinking = typeof thinking === "string" && validThinking.includes(thinking) ? (thinking as ThinkingLevel) : undefined;
   const id = executionManager.startExecution({
     ...queuePayload,
+    blocks: execBlocks,
+    permissionMode: resolvedMode,
+    thinking: resolvedThinking,
   });
 
   res.status(201).json({ id });

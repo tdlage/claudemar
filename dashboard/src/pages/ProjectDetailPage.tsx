@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Map, Bot, ListOrdered, Cpu, Container, Zap } from "lucide-react";
-import { useCurrentModel } from "../hooks/useCurrentModel";
+import { Bot, ListOrdered, Zap } from "lucide-react";
 import { api } from "../lib/api";
-import { Terminal } from "../components/terminal/Terminal";
+import { Terminal, type StartOpts } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
-import { PromptComposer } from "../components/terminal/PromptComposer";
+import type { ImageBlock } from "../lib/imageBlock";
 import { ExecutionActivity } from "../components/terminal/ExecutionActivity";
 import { Tabs } from "../components/shared/Tabs";
 import { Badge } from "../components/shared/Badge";
@@ -23,14 +22,10 @@ import type { ProjectDetail } from "../lib/types";
 type TabKey = "terminal" | "repositories" | "files" | "input" | "ci";
 
 export function ProjectDetailPage() {
-  const currentModel = useCurrentModel();
   const { name } = useParams<{ name: string }>();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [tab, setTab] = useCachedState<TabKey>(`project:${name}:tab`, "terminal");
-  const [prompt, setPrompt] = useCachedState(`project:${name}:prompt`, "");
-  const [planMode, setPlanMode] = useCachedState(`project:${name}:planMode`, false);
   const [sequential, setSequential] = useCachedState(`project:${name}:sequential`, true);
-  const [dockerMode, setDockerMode] = useCachedState(`project:${name}:dockerMode`, !isAdmin());
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
   const [agents, setAgents] = useState<string[]>([]);
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
@@ -53,7 +48,7 @@ export function ProjectDetailPage() {
   }, [name]);
 
   const {
-    execId, setExecId, isRunning, sessionData, loadSession,
+    execId, setExecId, sessionData, loadSession,
     handleSessionChange, handleSessionRename, handleSessionDelete,
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
@@ -76,31 +71,29 @@ export function ProjectDetailPage() {
     loadSession();
   }, [loadSession]);
 
-  const handleExecute = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim() || !name) return;
+  const handleStart = async (text: string, images: ImageBlock[], opts: StartOpts) => {
+    if ((!text.trim() && images.length === 0) || !name) return;
 
     try {
-      const finalPrompt = selectedSkill ? `/${selectedSkill} ${prompt.trim()}` : prompt.trim();
+      const finalPrompt = selectedSkill ? `/${selectedSkill} ${text.trim()}` : text.trim();
+      const blocks = images.length > 0 ? [...images, { type: "text" as const, text: finalPrompt }] : undefined;
       const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
         targetType: "project",
         targetName: name,
         prompt: finalPrompt,
+        blocks,
         resumeSessionId: sessionData.sessionId,
-        planMode,
+        planMode: opts.planMode,
+        permissionMode: opts.permissionMode,
+        thinking: opts.thinking,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
-        useDocker: dockerMode,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
       } else if (result.id) {
         setExecId(result.id);
-        addToast("success", "Execution started");
       }
-      setPrompt("");
-      setPlanMode(false);
-      setSelectedAgent("");
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
     }
@@ -152,84 +145,63 @@ export function ProjectDetailPage() {
               }}
             />
           ))}
-          <PromptComposer
-            value={prompt}
-            onChange={setPrompt}
-            onSubmit={handleExecute}
-            isRunning={isRunning}
-            onStop={() => {
-              if (execId) api.post(`/executions/${execId}/stop`).catch(() => {});
-            }}
-            placeholder={`Message ${name}...`}
-            toolbar={
-              <>
-                <div className="flex items-center gap-1">
-                  <Bot size={13} className={selectedAgent ? "text-accent" : "text-text-muted"} />
-                  <select
-                    value={selectedAgent}
-                    onChange={(e) => setSelectedAgent(e.target.value)}
-                    className={`text-xs bg-transparent border rounded-md px-1 py-1.5 focus:outline-none focus:border-accent ${
-                      selectedAgent
-                        ? "border-accent/40 text-accent"
-                        : "border-border text-text-muted"
-                    }`}
-                  >
-                    <option value="">No agent</option>
-                    {agents.map((a) => (
-                      <option key={a} value={a}>{a}</option>
-                    ))}
-                  </select>
-                </div>
-                {skills.length > 0 && (
+          <div className="h-[300px] md:h-[500px]">
+            <Terminal
+              key={name}
+              executionId={execId}
+              base={`project:${name}`}
+              startPlaceholder={`Message ${name}...`}
+              queueMode={sequential}
+              onStart={handleStart}
+              controls={
+                <>
                   <div className="flex items-center gap-1">
-                    <Zap size={13} className={selectedSkill ? "text-accent" : "text-text-muted"} />
+                    <Bot size={13} className={selectedAgent ? "text-accent" : "text-text-muted"} />
                     <select
-                      value={selectedSkill}
-                      onChange={(e) => setSelectedSkill(e.target.value)}
-                      title={selectedSkill ? skills.find((s) => s.name === selectedSkill)?.description : ""}
-                      className={`text-xs bg-transparent border rounded-md px-1 py-1.5 focus:outline-none focus:border-accent ${
-                        selectedSkill
+                      value={selectedAgent}
+                      onChange={(e) => setSelectedAgent(e.target.value)}
+                      className={`text-xs bg-transparent border rounded-md px-1 py-1 focus:outline-none focus:border-accent ${
+                        selectedAgent
                           ? "border-accent/40 text-accent"
                           : "border-border text-text-muted"
                       }`}
                     >
-                      <option value="">No skill</option>
-                      {skills.map((s) => (
-                        <option key={s.name} value={s.name}>{s.name}</option>
+                      <option value="">No agent</option>
+                      {agents.map((a) => (
+                        <option key={a} value={a}>{a}</option>
                       ))}
                     </select>
                   </div>
-                )}
-                <ToggleButton
-                  active={planMode}
-                  onToggle={() => setPlanMode(!planMode)}
-                  icon={Map}
-                  label="Plan"
-                  title={planMode ? "Plan mode ON (read-only)" : "Plan mode OFF"}
-                />
-                <ToggleButton
-                  active={sequential}
-                  onToggle={() => setSequential(!sequential)}
-                  icon={ListOrdered}
-                  label="Queue"
-                  title={sequential ? "Sequential mode ON (commands queue in order)" : "Sequential mode OFF (parallel execution)"}
-                />
-                <ToggleButton
-                  active={dockerMode}
-                  onToggle={() => setDockerMode(!dockerMode)}
-                  icon={Container}
-                  label="Docker"
-                  title={dockerMode ? "Docker mode ON (runs in container)" : "Docker mode OFF (runs natively)"}
-                />
-                <div className="flex items-center gap-1 text-xs text-text-muted" title="Modelo atual">
-                  <Cpu size={13} />
-                  <span className="font-medium text-text-secondary">{currentModel.displayName}</span>
-                </div>
-              </>
-            }
-          />
-          <div className="h-[300px] md:h-[500px]">
-            <Terminal key={name} executionId={execId} base={`project:${name}`} />
+                  {skills.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <Zap size={13} className={selectedSkill ? "text-accent" : "text-text-muted"} />
+                      <select
+                        value={selectedSkill}
+                        onChange={(e) => setSelectedSkill(e.target.value)}
+                        title={selectedSkill ? skills.find((s) => s.name === selectedSkill)?.description : ""}
+                        className={`text-xs bg-transparent border rounded-md px-1 py-1 focus:outline-none focus:border-accent ${
+                          selectedSkill
+                            ? "border-accent/40 text-accent"
+                            : "border-border text-text-muted"
+                        }`}
+                      >
+                        <option value="">No skill</option>
+                        {skills.map((s) => (
+                          <option key={s.name} value={s.name}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <ToggleButton
+                    active={sequential}
+                    onToggle={() => setSequential(!sequential)}
+                    icon={ListOrdered}
+                    label="Queue"
+                    title={sequential ? "Sequential mode ON (commands queue in order)" : "Sequential mode OFF (parallel execution)"}
+                  />
+                </>
+              }
+            />
           </div>
 
           <ExecutionActivity
