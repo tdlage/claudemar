@@ -1,5 +1,6 @@
 import type { AgentDefinition, CanUseTool, Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { createMemoryMcpServer, memoryEnabled, type MemoryTarget } from "../memory/session-memory.js";
+import { createSchedulerMcpServer } from "../agents/scheduler.js";
 
 export type ThinkingLevel = "off" | "think" | "think_hard" | "ultrathink";
 
@@ -18,6 +19,7 @@ export interface BuildOptionsParams {
   thinking?: ThinkingLevel;
   systemAppend?: string;
   subagents?: Record<string, AgentDefinition>;
+  schedulerMode?: boolean;
   stderr?: (data: string) => void;
 }
 
@@ -87,9 +89,16 @@ export function buildOptions(params: BuildOptionsParams): Options {
     if (params.forkSession) options.forkSession = true;
   }
 
+  const mcpServers: NonNullable<Options["mcpServers"]> = {};
   const memoryServer = createMemoryMcpServer(params.target);
   if (memoryServer) {
-    options.mcpServers = { memory: memoryServer };
+    mcpServers.memory = memoryServer;
+  }
+  if (params.schedulerMode && params.target.targetType === "agent") {
+    mcpServers.scheduler = createSchedulerMcpServer(params.target.targetName);
+  }
+  if (Object.keys(mcpServers).length > 0) {
+    options.mcpServers = mcpServers;
   }
 
   if (params.subagents && Object.keys(params.subagents).length > 0) {

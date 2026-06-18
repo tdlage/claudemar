@@ -15,7 +15,7 @@ import { sessionNamesManager } from "./session-names-manager.js";
 import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
-export type ExecutionSource = "telegram" | "web";
+export type ExecutionSource = "telegram" | "web" | "schedule";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
 export type ExecutionStatus = "running" | "completed" | "error" | "cancelled";
 
@@ -64,6 +64,7 @@ export interface StartExecutionOpts {
   thinking?: ThinkingLevel;
   autoApprove?: boolean;
   permissionMode?: PermissionMode;
+  schedulerMode?: boolean;
 }
 
 const MAX_RECENT = 100;
@@ -225,6 +226,9 @@ class ExecutionManager extends EventEmitter {
     if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
       suffix += buildEmailHint();
     }
+    if (opts.schedulerMode && opts.targetType === "agent") {
+      suffix += `\n[SYSTEM: MODO AGENDAMENTO ATIVO. Quando o usuário pedir uma tarefa recorrente ou para rodar em determinado horário, NÃO edite crontab nem arquivos manualmente: use a tool mcp__scheduler__schedule_task (passe a expressão cron, uma descrição legível do horário, o que a tarefa faz e o prompt completo a ser executado). Use mcp__scheduler__list_schedules e mcp__scheduler__remove_schedule para consultar/remover. Sempre confirme ao usuário o que foi agendado.]`;
+    }
     return suffix;
   }
 
@@ -239,8 +243,9 @@ class ExecutionManager extends EventEmitter {
     if (existing) {
       const planChanged = Boolean(opts.planMode) !== existing.planMode;
       const agentChanged = (opts.agentName ?? "") !== (existing.agentName ?? "");
+      const schedulerChanged = Boolean(opts.schedulerMode) !== existing.schedulerMode;
       const resumeChanged = Boolean(resumeId) && resumeId !== existing.getSessionId();
-      if (existing.isAlive() && !planChanged && !agentChanged && !resumeChanged) {
+      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged) {
         return { session: existing, isNew: false };
       }
       existing.end();
@@ -260,6 +265,7 @@ class ExecutionManager extends EventEmitter {
       thinking: opts.thinking,
       systemAppend: this.buildSystemSuffix(opts),
       subagents: this.buildSubagents(opts),
+      schedulerMode: opts.schedulerMode,
     });
     this.sessions.set(sessionKey, session);
     return { session, isNew: true };

@@ -130,31 +130,11 @@ To run another agent, invoke it through the \`Agent\` tool, naming the agent and
 
 ## Scheduling
 
-Schedule metadata is stored in \`${config.dataPath}/schedules.json\`:
-\`\`\`json
-[{
-  "id": "8-char-uuid",
-  "agent": "agent-name",
-  "cron": "0 9 * * *",
-  "cronHuman": "todo dia as 9h",
-  "task": "description of the task",
-  "scriptPath": "/full/path/to/script.sh",
-  "createdAt": "ISO-timestamp"
-}]
-\`\`\`
+Schedules are stored in the MySQL table \`schedules\` (id, agent, cron, cron_human, task, prompt, script_path, created_at). Each schedule has a generated bash script at \`${config.agentsPath}/<agent>/schedules/<slug>-<id>.sh\` that, when fired by cron, runs \`node ${config.installDir}/dist/schedule-run.js <id>\` — this triggers an autonomous execution of the agent with the stored prompt (output goes to the matching \`.log\`).
 
-### Create a schedule
-1. Add entry to \`schedules.json\`
-2. Create executable bash script at \`${config.agentsPath}/<agent>/schedules/<slug>-<id>.sh\`
-3. Install in system crontab: \`(crontab -l; echo "<cron> <script> >> <log> 2>&1") | crontab -\`
+Schedules are created and managed through the agent's **Scheduler mode** in the dashboard: when a user turns it on and asks for a recurring task, the agent uses the \`mcp__scheduler__schedule_task\` tool, which atomically writes the DB row, the \`.sh\` script and the crontab entry. Do NOT hand-edit \`schedules.json\` or the crontab — that legacy flow is deprecated and inconsistent with the DB.
 
-### Remove a schedule
-1. Remove from \`schedules.json\`
-2. Remove script and log files
-3. Remove entry from crontab
-
-### List schedules
-Read \`${config.dataPath}/schedules.json\`
+Users can view and remove schedules (read-only otherwise) in the agent's **Scheduler** tab.
 
 ## Orchestrator Settings
 

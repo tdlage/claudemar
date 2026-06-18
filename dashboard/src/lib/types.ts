@@ -94,6 +94,7 @@ export interface ScheduleEntry {
   cronHuman: string;
   task: string;
   scriptPath: string;
+  createdAt?: string;
 }
 
 export interface AgentFileContent {

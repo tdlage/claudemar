@@ -39,7 +39,7 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", async (req, res) => {
-  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, thinking, agentName, forceQueue, skipSystemPrompt } = req.body;
+  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, thinking, agentName, forceQueue, skipSystemPrompt, schedulerMode } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -144,6 +144,7 @@ executionsRouter.post("/", async (req, res) => {
     blocks: execBlocks,
     permissionMode: resolvedMode,
     thinking: resolvedThinking,
+    schedulerMode: targetType === "agent" && Boolean(schedulerMode),
   });
 
   res.status(201).json({ id });

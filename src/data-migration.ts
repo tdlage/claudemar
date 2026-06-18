@@ -85,6 +85,7 @@ const TABLE_DEFINITIONS: string[] = [
     cron VARCHAR(100) NOT NULL,
     cron_human TEXT NOT NULL,
     task TEXT NOT NULL,
+    prompt TEXT DEFAULT NULL,
     script_path TEXT NOT NULL,
     created_at DATETIME NOT NULL,
     INDEX idx_agent (agent)
@@ -300,8 +301,8 @@ async function migrateSchedules(pool: ReturnType<typeof getPool>): Promise<void>
 
   for (const s of data) {
     await pool.execute(
-      "INSERT INTO schedules (id, agent, cron, cron_human, task, script_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [s.id, s.agent, s.cron, s.cronHuman, s.task, s.scriptPath, toMySQLDatetime(s.createdAt)],
+      "INSERT INTO schedules (id, agent, cron, cron_human, task, prompt, script_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [s.id, s.agent, s.cron, s.cronHuman, s.task, s.task, s.scriptPath, toMySQLDatetime(s.createdAt)],
     );
   }
   console.log(`[data-migration] Migrated ${data.length} schedules`);
@@ -450,8 +451,18 @@ export async function runDataMigrations(): Promise<void> {
   await migrateMetrics();
   await ensureQueueColumns(pool);
   await ensureExecutionHistoryColumns(pool);
+  await ensureScheduleColumns(pool);
 
   console.log("[data-migration] All data migrations completed");
+}
+
+async function ensureScheduleColumns(pool: ReturnType<typeof getPool>): Promise<void> {
+  const [rows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'schedules' AND COLUMN_NAME = 'prompt'",
+  );
+  if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE schedules ADD COLUMN prompt TEXT DEFAULT NULL AFTER task");
+  }
 }
 
 async function ensureQueueColumns(pool: ReturnType<typeof getPool>): Promise<void> {

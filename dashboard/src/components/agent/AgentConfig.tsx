@@ -1,20 +1,16 @@
 import { useState, useEffect } from "react";
-import { Save, Play } from "lucide-react";
+import { Save } from "lucide-react";
 import { api } from "../../lib/api";
-import { Card } from "../shared/Card";
 import { Button } from "../shared/Button";
-import { Badge } from "../shared/Badge";
 import { MarkdownEditor } from "../shared/MarkdownEditor";
 import { useToast } from "../shared/Toast";
-import type { ScheduleEntry } from "../../lib/types";
 
 interface AgentConfigProps {
   agentName: string;
   agentsMd: string;
-  schedules: ScheduleEntry[];
 }
 
-export function AgentConfig({ agentName, agentsMd, schedules }: AgentConfigProps) {
+export function AgentConfig({ agentName, agentsMd }: AgentConfigProps) {
   const { addToast } = useToast();
   const [mdContent, setMdContent] = useState(agentsMd);
   const [mdDirty, setMdDirty] = useState(false);
@@ -35,19 +31,6 @@ export function AgentConfig({ agentName, agentsMd, schedules }: AgentConfigProps
       addToast("error", "Failed to save AGENTS.md");
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleExecuteSchedule = async (schedule: ScheduleEntry) => {
-    try {
-      await api.post("/executions", {
-        targetType: "agent",
-        targetName: agentName,
-        prompt: schedule.task,
-      });
-      addToast("success", "Schedule task started");
-    } catch {
-      addToast("error", "Failed to start task");
     }
   };
 
@@ -75,32 +58,6 @@ export function AgentConfig({ agentName, agentsMd, schedules }: AgentConfigProps
           placeholder="Write agent instructions..."
         />
       </div>
-
-      {schedules.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-text-muted mb-2">
-            Schedules ({schedules.length})
-          </h3>
-          <div className="space-y-2">
-            {schedules.map((s) => (
-              <Card key={s.id} className="py-2 px-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge>{s.cron}</Badge>
-                      <span className="text-xs text-text-muted">{s.cronHuman}</span>
-                    </div>
-                    <p className="text-sm text-text-primary truncate">{s.task}</p>
-                  </div>
-                  <Button size="sm" variant="secondary" onClick={() => handleExecuteSchedule(s)}>
-                    <Play size={12} className="mr-1" /> Run Now
-                  </Button>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

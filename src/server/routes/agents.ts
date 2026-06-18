@@ -12,7 +12,7 @@ import {
   listAgentInfos,
 } from "../../agents/manager.js";
 import type { AgentPaths } from "../../agents/types.js";
-import { listSchedulesByAgent, removeSchedulesByAgent } from "../../agents/scheduler.js";
+import { listSchedulesByAgent, removeSchedule, removeSchedulesByAgent } from "../../agents/scheduler.js";
 import { secretsManager } from "../../secrets-manager.js";
 import { safeFilename, listFiles, listDirEntries } from "../route-utils.js";
 
@@ -180,10 +180,44 @@ agentsRouter.delete("/:name", async (req, res) => {
     return;
   }
 
-  const removedSchedules = removeSchedulesByAgent(name);
+  const removedSchedules = await removeSchedulesByAgent(name);
   await rm(paths.root, { recursive: true, force: true });
 
   res.json({ removed: name, removedSchedules });
+});
+
+agentsRouter.get("/:name/schedules", async (req, res) => {
+  const { name } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  const paths = getAgentPaths(name);
+  if (!paths || !existsSync(paths.root)) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  res.json(await listSchedulesByAgent(name));
+});
+
+agentsRouter.delete("/:name/schedules/:id", async (req, res) => {
+  const { name, id } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  const paths = getAgentPaths(name);
+  if (!paths || !existsSync(paths.root)) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+
+  const removed = await removeSchedule(id);
+  if (!removed) {
+    res.status(404).json({ error: "Schedule not found" });
+    return;
+  }
+  res.json({ deleted: true });
 });
 
 agentsRouter.get("/:name/output", (req, res) => {

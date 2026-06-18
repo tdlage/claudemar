@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { ListOrdered, Zap, FileText } from "lucide-react";
+import { ListOrdered, Zap, FileText, CalendarClock } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal, type StartOpts } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -12,6 +12,7 @@ import { ToggleButton } from "../components/shared/ToggleButton";
 import { OutputBrowser, type OutputFile } from "../components/agent/OutputBrowser";
 import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
 import { AgentConfig } from "../components/agent/AgentConfig";
+import { AgentSchedules } from "../components/agent/AgentSchedules";
 import { AgentContextFiles } from "../components/agent/AgentContextFiles";
 import { AgentSecrets } from "../components/agent/AgentSecrets";
 import { FilesBrowser } from "../components/project/FilesBrowser";
@@ -20,13 +21,14 @@ import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import type { AgentDetail } from "../lib/types";
 
-type TabKey = "terminal" | "code" | "input" | "output" | "config" | "context" | "secrets";
+type TabKey = "terminal" | "code" | "input" | "output" | "config" | "scheduler" | "context" | "secrets";
 
 export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [tab, setTab] = useCachedState<TabKey>(`agent:${name}:tab`, "terminal");
   const [sequential, setSequential] = useCachedState(`agent:${name}:sequential`, false);
+  const [schedulerMode, setSchedulerMode] = useCachedState(`agent:${name}:schedulerMode`, false);
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
   const [selectedSkill, setSelectedSkill] = useCachedState(`agent:${name}:skill`, "");
   const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
@@ -42,6 +44,15 @@ export function AgentDetailPage() {
     api.get<InputFile[]>(`/agents/${name}/input`).then(setInputFiles).catch(() => {});
   }, [name]);
 
+  const loadAgent = useCallback(() => {
+    if (!name) return;
+    api.get<AgentDetail>(`/agents/${name}`).then((data) => {
+      setAgent(data);
+      setOutputFiles(data.outputFiles);
+      setInputFiles(data.inputFiles);
+    }).catch(() => {});
+  }, [name]);
+
   const {
     execId, setExecId, sessionData, loadSession,
     handleSessionChange, handleSessionRename, handleSessionDelete,
@@ -53,7 +64,7 @@ export function AgentDetailPage() {
     targetType: "agent",
     targetName: name ?? "",
     cachePrefix: `agent:${name}`,
-    onExecutionComplete: loadOutputs,
+    onExecutionComplete: () => { loadOutputs(); loadAgent(); },
   });
 
   const [sendSystemPrompt, setSendSystemPrompt] = useState(!sessionData.sessionId);
@@ -61,15 +72,6 @@ export function AgentDetailPage() {
   useEffect(() => {
     setSendSystemPrompt(!sessionData.sessionId);
   }, [sessionData.sessionId]);
-
-  const loadAgent = useCallback(() => {
-    if (!name) return;
-    api.get<AgentDetail>(`/agents/${name}`).then((data) => {
-      setAgent(data);
-      setOutputFiles(data.outputFiles);
-      setInputFiles(data.inputFiles);
-    }).catch(() => {});
-  }, [name]);
 
   useEffect(() => {
     loadAgent();
@@ -96,6 +98,7 @@ export function AgentDetailPage() {
         thinking: opts.thinking,
         forceQueue: sequential || undefined,
         skipSystemPrompt: !sendSystemPrompt || undefined,
+        schedulerMode: schedulerMode || undefined,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -117,6 +120,7 @@ export function AgentDetailPage() {
     { key: "input", label: `Input (${inputFiles.length})` },
     { key: "output", label: `Output (${outputFiles.length})` },
     { key: "config", label: "Config" },
+    { key: "scheduler", label: `Scheduler (${agent.schedules.length})` },
     { key: "context", label: `Context (${agent.contextFiles.length})` },
     { key: "secrets", label: `Secrets (${agent.secrets.length})` },
   ];
@@ -175,6 +179,13 @@ export function AgentDetailPage() {
                     icon={FileText}
                     label="System"
                     title={sendSystemPrompt ? "System prompt will be sent (click to skip)" : "System prompt will NOT be sent (click to include)"}
+                  />
+                  <ToggleButton
+                    active={schedulerMode}
+                    onToggle={() => setSchedulerMode(!schedulerMode)}
+                    icon={CalendarClock}
+                    label="Scheduler"
+                    title={schedulerMode ? "Modo Scheduler ON: peça uma tarefa recorrente e o agente vai agendá-la (aba Scheduler)" : "Modo Scheduler OFF (clique para deixar o agente criar agendamentos)"}
                   />
                   {skills.length > 0 && (
                     <div className="flex items-center gap-1">
@@ -235,7 +246,14 @@ export function AgentDetailPage() {
         <AgentConfig
           agentName={agent.name}
           agentsMd={agent.agentsMd}
+        />
+      )}
+
+      {tab === "scheduler" && (
+        <AgentSchedules
+          agentName={agent.name}
           schedules={agent.schedules}
+          onRefresh={loadAgent}
         />
       )}
 

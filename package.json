@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "dev:dashboard": "cd dashboard && npm run dev",
-    "build": "tsup src/main.ts --format esm",
+    "build": "tsup src/main.ts src/schedule-run.ts --format esm",
     "build:dashboard": "cd dashboard && npm run build",
     "build:all": "npm run build:dashboard && npm run build",
     "start": "node dist/main.js"

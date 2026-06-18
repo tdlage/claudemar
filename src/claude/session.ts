@@ -92,6 +92,7 @@ export class ClaudeSession extends EventEmitter {
   readonly target: MemoryTarget;
   readonly planMode: boolean;
   readonly agentName?: string;
+  readonly schedulerMode: boolean;
   private queue = createPushableQueue();
   private abortController = new AbortController();
   private runner: Query | null = null;
@@ -113,6 +114,7 @@ export class ClaudeSession extends EventEmitter {
     this.target = init.target;
     this.planMode = Boolean(init.planMode);
     this.agentName = init.agentName;
+    this.schedulerMode = Boolean(init.schedulerMode);
     this.permissionTimeoutMs = init.permissionTimeoutMs ?? 0;
     this.bypass = Boolean(init.bypassPermissions);
     this.currentPermissionMode = init.planMode ? "plan" : init.permissionMode ?? (this.bypass ? "bypassPermissions" : "default");
