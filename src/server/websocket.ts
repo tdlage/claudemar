@@ -1,11 +1,11 @@
 import type { Server as SocketServer, Socket } from "socket.io";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { executionManager } from "../execution-manager.js";
+import { executionManager, type ExecutionInfo } from "../execution-manager.js";
 import type { MessageBlock, PermissionDecision } from "../claude/session.js";
 import type { ThinkingLevel } from "../claude/options.js";
 import { commandQueue } from "../queue.js";
 import { runProcessManager } from "../run-process-manager.js";
-import { validateSocketToken } from "./middleware.js";
+import { resolveContext, type RequestContext } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
 import { trackerManager } from "../tracker-manager.js";
@@ -33,22 +33,37 @@ function applyRateLimit(socket: Socket): void {
   });
 }
 
+function canAccessExecution(ctx: RequestContext | undefined, info: ExecutionInfo | undefined): boolean {
+  if (!ctx || !info) return false;
+  if (ctx.role === "admin") return true;
+  if (info.username && info.username === ctx.name) return true;
+  if (info.targetType === "project") return ctx.projects.includes(info.targetName);
+  if (info.targetType === "agent") return ctx.agents.includes(info.targetName);
+  return false;
+}
+
 export function setupWebSocket(io: SocketServer): void {
   io.use((socket, next) => {
     const token = socket.handshake.auth.token as string;
-    if (validateSocketToken(token)) {
-      next();
-    } else {
+    const ctx = resolveContext(token);
+    if (!ctx) {
       next(new Error("Unauthorized"));
+      return;
     }
+    socket.data.ctx = ctx;
+    next();
   });
 
   io.on("connection", (socket) => {
     applyRateLimit(socket);
 
+    const getCtx = (): RequestContext | undefined => socket.data.ctx as RequestContext | undefined;
+    const canAccess = (id: string): boolean => canAccessExecution(getCtx(), executionManager.getExecution(id));
+
     socket.join("executions");
 
     socket.on("subscribe:execution", (id: string) => {
+      if (!canAccess(id)) return;
       socket.join(`exec:${id}`);
       const exec = executionManager.getExecution(id);
       if (exec?.output) {
@@ -68,7 +83,7 @@ export function setupWebSocket(io: SocketServer): void {
       socket.leave("files");
     });
 
-    const ownsExecution = (id: string): boolean => socket.rooms.has(`exec:${id}`);
+    const ownsExecution = (id: string): boolean => canAccess(id);
 
     socket.on("execution:answer", ({ execId, answer }: { execId: string; answer: string }) => {
       if (!ownsExecution(execId)) return;
@@ -130,9 +145,12 @@ export function setupWebSocket(io: SocketServer): void {
   const sweepInvalidSockets = () => {
     for (const [, socket] of io.sockets.sockets) {
       const token = socket.handshake.auth.token as string;
-      if (!validateSocketToken(token)) {
+      const ctx = resolveContext(token);
+      if (!ctx) {
         socket.emit("auth:expired");
         socket.disconnect(true);
+      } else {
+        socket.data.ctx = ctx;
       }
     }
   };

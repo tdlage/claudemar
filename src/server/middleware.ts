@@ -14,24 +14,27 @@ declare global {
   }
 }
 
+export function resolveContext(token: string): RequestContext | null {
+  if (tokenManager.validate(token)) return { role: "admin" };
+  const user = token ? usersManager.findByToken(token) : null;
+  if (user) {
+    return { role: "user", userId: user.id, name: user.name, projects: user.projects, agents: user.agents, trackerProjects: user.trackerProjects };
+  }
+  return null;
+}
+
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice(7) : "";
 
-  if (tokenManager.validate(token)) {
-    req.ctx = { role: "admin" };
-    next();
+  const ctx = resolveContext(token);
+  if (!ctx) {
+    res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
-  const user = token ? usersManager.findByToken(token) : null;
-  if (user) {
-    req.ctx = { role: "user", userId: user.id, name: user.name, projects: user.projects, agents: user.agents, trackerProjects: user.trackerProjects };
-    next();
-    return;
-  }
-
-  res.status(401).json({ error: "Unauthorized" });
+  req.ctx = ctx;
+  next();
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
@@ -43,8 +46,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
 }
 
 export function validateSocketToken(token: string): boolean {
-  if (tokenManager.validate(token)) return true;
-  return !!usersManager.findByToken(token);
+  return !!resolveContext(token);
 }
 
 export function securityHeaders(_req: Request, res: Response, next: NextFunction): void {
