@@ -10,17 +10,16 @@ import { processQueueItem } from "./processor.js";
 import { createDashboardServer } from "./server/index.js";
 import { tokenManager } from "./server/token-manager.js";
 import { regenerateOrchestratorAgentsMd } from "./orchestrator-init.js";
-import { initSessions } from "./session.js";
 import { usersManager } from "./users-manager.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { ensureAllAgentGitRepos, generateAgentsContext } from "./agents/manager.js";
 import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
-import { modelPreferences } from "./model-preferences.js";
 import { settingsManager } from "./settings-manager.js";
 import { secretsManager } from "./secrets-manager.js";
 import { runTrackerMigrations } from "./tracker-migration.js";
 import { runDataMigrations } from "./data-migration.js";
 import { initTrackerExecutionBridge } from "./tracker-execution-bridge.js";
+import { ensureMemoryReady } from "./memory/session-memory.js";
 import { closePool } from "./database.js";
 
 function migrateClaudeMdToAgentsMd(): void {
@@ -58,10 +57,12 @@ await usersManager.initialize();
 await sessionNamesManager.initialize();
 await commandQueue.initialize();
 await runProcessManager.initialize();
-await initSessions();
 await executionManager.loadRecent();
 await initTrackerExecutionBridge();
 await secretsManager.syncAllToFiles();
+await ensureMemoryReady().catch((err) => {
+  console.error("[memory] Initialization failed:", err instanceof Error ? err.message : String(err));
+});
 executionManager.processAllPendingInboxes();
 
 async function drainQueue(_id: string, info: ExecutionInfo) {
@@ -97,7 +98,6 @@ function shutdown() {
   console.log("Shutting down...");
   runProcessManager.flush();
   settingsManager.flush();
-  modelPreferences.flush();
   tokenManager.stop();
   closePool().catch(() => {});
   bot.stop();

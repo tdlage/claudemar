@@ -1,11 +1,6 @@
-import { chmodSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { config } from "../config.js";
-import { spawnAgent } from "../executor.js";
-import { getAgentPaths } from "./manager.js";
-import { query, execute, toMySQLDatetime } from "../database.js";
+import { query, execute } from "../database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
 export interface ScheduleEntry {
@@ -50,123 +45,6 @@ function getCurrentCrontab(): string {
 
 function setCrontab(content: string): void {
   execFileSync("crontab", ["-"], { input: content, encoding: "utf-8" });
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40);
-}
-
-export async function createSchedule(
-  agent: string,
-  naturalLanguageInput: string,
-  chatId: number,
-): Promise<ScheduleEntry> {
-  const agentPaths = getAgentPaths(agent);
-  if (!agentPaths) throw new Error(`Agente inválido: ${agent}`);
-  if (!existsSync(agentPaths.root)) throw new Error(`Agente não encontrado: ${agent}`);
-
-  const parsePrompt = `Extraia da instrução abaixo APENAS a expressão cron e a tarefa separadamente.
-Responda em JSON: { "cron": "<expr>", "task": "<tarefa>" }
-
-Instrução: "${naturalLanguageInput}"
-
-Exemplos:
-- "todo dia as 9h mande o fluxo de caixa" → { "cron": "0 9 * * *", "task": "Envie o fluxo de caixa" }
-- "toda segunda as 8h revise o pipeline" → { "cron": "0 8 * * 1", "task": "Revise o pipeline" }
-- "a cada 6 horas verifique os alertas" → { "cron": "0 */6 * * *", "task": "Verifique os alertas" }
-
-Responda APENAS com o JSON, sem explicações ou markdown.`;
-
-  const parseHandle = spawnAgent(parsePrompt, config.orchestratorPath, null, 30000);
-  const parseResult = await parseHandle.promise;
-
-  let cron: string;
-  let task: string;
-  const CRON_RE = /^[0-9*,/\-]+\s+[0-9*,/\-]+\s+[0-9*,/\-]+\s+[0-9*,/\-]+\s+[0-9*,/\-]+$/;
-  try {
-    const jsonMatch = parseResult.output.match(/\{[^}]+\}/);
-    if (!jsonMatch) throw new Error("JSON não encontrado");
-    const parsed = JSON.parse(jsonMatch[0]);
-    cron = String(parsed.cron ?? "").trim();
-    task = String(parsed.task ?? "").trim();
-    if (!cron || !task) throw new Error("Campos cron/task ausentes");
-    if (!CRON_RE.test(cron)) throw new Error(`Expressão cron inválida: ${cron}`);
-  } catch {
-    throw new Error(`Não foi possível interpretar a instrução. Output: ${parseResult.output}`);
-  }
-
-  const scriptPrompt = `Construa um script bash que executa a seguinte tarefa: "${task}".
-
-O script deve:
-1. Executar o necessário para cumprir a tarefa (pode usar o CLI de agente neste workspace: \`codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "<prompt>"\`)
-2. Salvar resultado em ./output/scheduled-${slugify(task)}-$(date +%Y%m%d-%H%M).md
-3. Enviar notificação via: curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \\
-   -d "chat_id=$ALLOWED_CHAT_ID" -d "text=<resumo do resultado>"
-
-Variáveis de ambiente disponíveis: TELEGRAM_BOT_TOKEN, ALLOWED_CHAT_ID
-Workspace: ${agentPaths.root}
-
-Responda APENAS com o conteúdo do script, sem explicações. Comece com #!/usr/bin/env bash`;
-
-  const scriptHandle = spawnAgent(scriptPrompt, agentPaths.root, null, 60000);
-  const scriptResult = await scriptHandle.promise;
-
-  const scriptContent = extractScript(scriptResult.output);
-  if (!scriptContent) {
-    throw new Error("Não foi possível extrair o script do output do agente.");
-  }
-
-  const schedulesDir = resolve(agentPaths.root, "schedules");
-  mkdirSync(schedulesDir, { recursive: true });
-
-  const slug = slugify(task);
-  const id = randomUUID().slice(0, 8);
-  const scriptPath = resolve(schedulesDir, `${slug}-${id}.sh`);
-
-  writeFileSync(scriptPath, scriptContent, "utf-8");
-  chmodSync(scriptPath, 0o755);
-
-  const logPath = resolve(schedulesDir, `${slug}-${id}.log`);
-  const envFile = resolve(config.installDir, ".env");
-  const cronLine = `${cron} cd ${agentPaths.root} && set -a && . ${envFile} && set +a && bash ${scriptPath} >> ${logPath} 2>&1`;
-
-  const currentCrontab = getCurrentCrontab();
-  const newCrontab = currentCrontab.trimEnd() + "\n" + cronLine + "\n";
-  setCrontab(newCrontab);
-
-  const entry: ScheduleEntry = {
-    id,
-    agent,
-    cron,
-    cronHuman: naturalLanguageInput,
-    task,
-    scriptPath,
-    createdAt: new Date().toISOString(),
-  };
-
-  await execute(
-    "INSERT INTO schedules (id, agent, cron, cron_human, task, script_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    [entry.id, entry.agent, entry.cron, entry.cronHuman, entry.task, entry.scriptPath, toMySQLDatetime(entry.createdAt)],
-  );
-
-  return entry;
-}
-
-function extractScript(output: string): string | null {
-  const shebangIndex = output.indexOf("#!/");
-  if (shebangIndex === -1) return null;
-  return output.slice(shebangIndex).trim();
-}
-
-export async function listSchedules(): Promise<ScheduleEntry[]> {
-  const rows = await query<ScheduleRow[]>("SELECT id, agent, cron, cron_human, task, script_path, created_at FROM schedules");
-  return rows.map(rowToEntry);
 }
 
 export async function removeSchedule(id: string): Promise<boolean> {

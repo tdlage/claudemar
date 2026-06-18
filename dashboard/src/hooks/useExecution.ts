@@ -58,7 +58,7 @@ export function useExecutions() {
     setActive((prev) => [...prev, info]);
   });
 
-  useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:complete", ({ id, info }) => {
+  const moveToRecent = useCallback((id: string, info: ExecutionInfo) => {
     setActive((prev) => prev.filter((e) => e.id !== id));
     setRecent((prev) => {
       const updated = [...prev.filter((e) => e.id !== id), info];
@@ -66,27 +66,11 @@ export function useExecutions() {
       for (const d of dropped) clearOutput(d.id);
       return updated.slice(-MAX_RECENT);
     });
-  });
+  }, []);
 
-  useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:error", ({ id, info }) => {
-    setActive((prev) => prev.filter((e) => e.id !== id));
-    setRecent((prev) => {
-      const updated = [...prev.filter((e) => e.id !== id), info];
-      const dropped = updated.slice(0, Math.max(0, updated.length - MAX_RECENT));
-      for (const d of dropped) clearOutput(d.id);
-      return updated.slice(-MAX_RECENT);
-    });
-  });
-
-  useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:cancel", ({ id, info }) => {
-    setActive((prev) => prev.filter((e) => e.id !== id));
-    setRecent((prev) => {
-      const updated = [...prev.filter((e) => e.id !== id), info];
-      const dropped = updated.slice(0, Math.max(0, updated.length - MAX_RECENT));
-      for (const d of dropped) clearOutput(d.id);
-      return updated.slice(-MAX_RECENT);
-    });
-  });
+  useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:complete", ({ id, info }) => moveToRecent(id, info));
+  useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:error", ({ id, info }) => moveToRecent(id, info));
+  useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:cancel", ({ id, info }) => moveToRecent(id, info));
 
   useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:question", ({ id, info }) => {
     if (!info.pendingQuestion) return;

@@ -69,14 +69,6 @@ const TABLE_DEFINITIONS: string[] = [
     INDEX idx_target (target_type, target_name)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
-  `CREATE TABLE IF NOT EXISTS telegram_sessions (
-    chat_id BIGINT PRIMARY KEY,
-    active_project VARCHAR(255) DEFAULT NULL,
-    session_ids JSON NOT NULL DEFAULT ('{}'),
-    mode ENUM('projects', 'agents') NOT NULL DEFAULT 'projects',
-    active_agent VARCHAR(255) DEFAULT NULL
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-
   `CREATE TABLE IF NOT EXISTS session_names (
     session_id VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL
@@ -269,32 +261,6 @@ async function migrateQueue(pool: ReturnType<typeof getPool>): Promise<void> {
   backupFile(filePath);
 }
 
-async function migrateTelegramSessions(pool: ReturnType<typeof getPool>): Promise<void> {
-  const filePath = resolve(config.dataPath, "sessions.json");
-  const data = readJsonFile(filePath) as Record<string, {
-    activeProject: string | null; sessionIds: Record<string, string>;
-    mode: string; activeAgent: string | null;
-  }> | null;
-  if (!data || !(await tableIsEmpty(pool, "telegram_sessions"))) {
-    if (data) backupFile(filePath);
-    return;
-  }
-
-  let count = 0;
-  for (const [chatIdStr, session] of Object.entries(data)) {
-    const chatId = Number(chatIdStr);
-    if (Number.isNaN(chatId)) continue;
-    await pool.execute(
-      "INSERT INTO telegram_sessions (chat_id, active_project, session_ids, mode, active_agent) VALUES (?, ?, ?, ?, ?)",
-      [chatId, session.activeProject ?? null, JSON.stringify(session.sessionIds ?? {}),
-       session.mode || "projects", session.activeAgent ?? null],
-    );
-    count++;
-  }
-  console.log(`[data-migration] Migrated ${count} telegram sessions`);
-  backupFile(filePath);
-}
-
 async function migrateSessionNames(pool: ReturnType<typeof getPool>): Promise<void> {
   const filePath = resolve(config.dataPath, "session-names.json");
   const data = readJsonFile(filePath) as {
@@ -476,7 +442,6 @@ export async function runDataMigrations(): Promise<void> {
   await migrateUsers(pool);
   await migrateRunConfigs(pool);
   await migrateQueue(pool);
-  await migrateTelegramSessions(pool);
   await migrateSessionNames(pool);
   await migrateSchedules(pool);
   await migrateHistory(pool);

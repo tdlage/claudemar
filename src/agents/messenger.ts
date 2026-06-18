@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { config } from "../config.js";
-import { getAgentPaths, isValidAgentName, listAgents } from "./manager.js";
+import { getAgentPaths, isValidAgentName } from "./manager.js";
 
 export interface RouteResult {
   routed: number;
@@ -147,26 +147,4 @@ export function buildInboxPrompt(agentName: string): string | null {
   );
 
   return parts.join("\n");
-}
-
-export function broadcastMessage(content: string): { sent: number; errors: string[] } {
-  const agents = listAgents();
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const filename = `DE-usuario_${timestamp}_broadcast.md`;
-  const result = { sent: 0, errors: [] as string[] };
-
-  for (const agent of agents) {
-    const paths = getAgentPaths(agent);
-    if (!paths) continue;
-
-    try {
-      writeFileSync(resolve(paths.inbox, filename), content, "utf-8");
-      result.sent++;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      result.errors.push(`${agent}: ${message}`);
-    }
-  }
-
-  return result;
 }

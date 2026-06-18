@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil, Trash2, Check, X } from "lucide-react";
+import { Pencil, Trash2, Check, X, GitFork } from "lucide-react";
 import type { SessionData } from "../../lib/types";
 
 interface SessionSelectorProps {
@@ -7,19 +7,17 @@ interface SessionSelectorProps {
   onChange: (value: string) => Promise<void>;
   onRename: (sessionId: string, name: string) => Promise<void>;
   onDelete?: (sessionId: string) => Promise<void>;
+  // TODO: backend fork route/event ausente. Quando existir (forkSession do SDK),
+  // ligar onFork nas paginas para criar uma sessao bifurcada a partir da atual.
+  onFork?: (sessionId: string) => Promise<void>;
 }
 
-export function SessionSelector({ sessionData, onChange, onRename, onDelete }: SessionSelectorProps) {
+export function SessionSelector({ sessionData, onChange, onRename, onDelete, onFork }: SessionSelectorProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
 
   const getDisplayName = (sid: string) => {
     return sessionData.names[sid] ?? sid.slice(0, 8);
-  };
-
-  const getProviderLabel = (sid: string) => {
-    const provider = sessionData.providers[sid];
-    return provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : "Unknown";
   };
 
   const handleRenameSubmit = async () => {
@@ -64,10 +62,10 @@ export function SessionSelector({ sessionData, onChange, onRename, onDelete }: S
         onChange={(e) => onChange(e.target.value)}
         className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
       >
-        <option value="__new">New session</option>
+        <option value="__new">Nova sessão</option>
         {sessionData.history.map((sid) => (
           <option key={sid} value={sid}>
-            {getDisplayName(sid)} [{getProviderLabel(sid)}]{sid === sessionData.sessionId ? " (active)" : ""}
+            {getDisplayName(sid)}{sid === sessionData.sessionId ? " (active)" : ""}
           </option>
         ))}
       </select>
@@ -78,15 +76,24 @@ export function SessionSelector({ sessionData, onChange, onRename, onDelete }: S
               setRenameValue(getDisplayName(sessionData.sessionId!));
               setRenaming(true);
             }}
-            title="Rename session"
+            title="Renomear sessão"
             className="p-0.5 text-text-muted hover:text-text-primary transition-colors"
           >
             <Pencil size={12} />
           </button>
+          {onFork && (
+            <button
+              onClick={() => onFork(sessionData.sessionId!)}
+              title="Bifurcar sessão (fork)"
+              className="p-0.5 text-text-muted hover:text-accent transition-colors"
+            >
+              <GitFork size={12} />
+            </button>
+          )}
           {onDelete && (
             <button
               onClick={() => onDelete(sessionData.sessionId!)}
-              title="Remove session from list"
+              title="Remover sessão da lista"
               className="p-0.5 text-text-muted hover:text-danger transition-colors"
             >
               <Trash2 size={12} />

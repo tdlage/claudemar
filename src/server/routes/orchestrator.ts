@@ -13,10 +13,9 @@ orchestratorRouter.get("/settings", (_req, res) => {
 });
 
 orchestratorRouter.put("/settings", (req, res) => {
-  const { prependPrompt, model } = req.body;
+  const { prependPrompt } = req.body;
   saveOrchestratorSettings({
     prependPrompt: typeof prependPrompt === "string" ? prependPrompt : "",
-    model: typeof model === "string" ? model : "codex",
   });
   res.json({ ok: true });
 });

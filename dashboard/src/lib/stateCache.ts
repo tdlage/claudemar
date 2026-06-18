@@ -11,10 +11,6 @@ export function setCached<T>(key: string, value: T): void {
   evict();
 }
 
-export function deleteCached(key: string): void {
-  cache.delete(key);
-}
-
 function evict(): void {
   if (cache.size <= MAX_ENTRIES) return;
   const it = cache.keys();

@@ -152,22 +152,6 @@ export interface FileReadResult {
   entries?: FileEntry[];
 }
 
-export interface SessionSnapshot {
-  mode: "projects" | "agents";
-  activeProject: string | null;
-  activeAgent: string | null;
-  busy: boolean;
-  sessionId: string | null;
-  activeExecutions: number;
-  uptime: number;
-}
-
-export interface AgentMetrics {
-  executions: number;
-  totalCostUsd: number;
-  totalDurationMs: number;
-}
-
 export interface QueueItem {
   id: string;
   seqId: number;
@@ -208,7 +192,6 @@ export interface SessionData {
   history: string[];
   names: Record<string, string>;
   models: Record<string, string>;
-  providers: Record<string, "codex" | "claude">;
 }
 
 export interface SearchMatch {

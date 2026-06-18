@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, readdirSync } from "node:fs";
+import { writeFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "./config.js";
 import { settingsManager } from "./settings-manager.js";
@@ -30,7 +30,7 @@ function getProjectList(): string {
 function buildDefaultAgentsMd(): string {
   return `# Claudemar Orchestrator
 
-You are the central orchestrator of Claudemar, a multi-agent system built on AI agent CLIs (Codex CLI and Claude CLI). You coordinate agents, manage projects, and execute tasks across the entire system.
+You are the central orchestrator of Claudemar, a multi-agent system built on the Claude Agent SDK (Claude/Opus). You coordinate agents, manage projects, and execute tasks across the entire system.
 
 You have full access to the filesystem. Use it to manage agents, projects, configurations, schedules, and messaging.
 
@@ -41,7 +41,7 @@ ${config.basePath}/
 ├── orchestrator/          # Your workspace (you are here)
 │   ├── AGENTS.md          # This file — your instructions
 │   ├── agents.md          # Auto-generated agent summaries (read this to know your team)
-│   ├── settings.json      # Your settings (model, prepend prompt)
+│   ├── settings.json      # Your settings (prepend prompt)
 │   ├── outbox/            # Write messages here to route to agents
 │   └── shared/            # Shared files (council decisions, etc.)
 ├── agents/                # All agents
@@ -194,18 +194,13 @@ Read \`${config.dataPath}/schedules.json\`
 File: \`orchestrator/settings.json\`
 \`\`\`json
 {
-  "prependPrompt": "",
-  "model": "claude-opus-4-7"
+  "prependPrompt": ""
 }
 \`\`\`
 
 - **prependPrompt**: Text prepended to every orchestrator execution prompt
-- **model**: Agent model ID. Options:
-  - \`codex\` (OpenAI Codex CLI — recommended default)
-  - \`claude-opus-4-7\` (Claude — most capable)
-  - \`claude-opus-4-6\` (Claude)
-  - \`claude-sonnet-4-6\` (Claude — balanced)
-  - \`claude-haiku-4-5-20251001\` (Claude — fastest)
+
+All executions run on the Claude Agent SDK using the Opus model.
 
 ## Environment Configuration
 
@@ -253,13 +248,6 @@ Each entry contains: id, prompt, targetType, targetName, status, startedAt, comp
 - Check agent inboxes and outputs to monitor their work
 - You can read and modify any file in the system to fulfill your tasks
 `;
-}
-
-export function initOrchestratorAgentsMd(): void {
-  if (!existsSync(AGENTS_MD_PATH)) {
-    writeFileSync(AGENTS_MD_PATH, buildDefaultAgentsMd(), "utf-8");
-    console.log("Created default orchestrator AGENTS.md");
-  }
 }
 
 export function regenerateOrchestratorAgentsMd(): void {

@@ -110,43 +110,23 @@ export async function loadHistory(limit = 20, targetType?: string, targetName?: 
   return rows.map(rowToEntry);
 }
 
-export async function loadSessionIds(targetType: string, targetName: string): Promise<string[]> {
-  const rows = await loadSessionRefs(targetType, targetName);
-  return rows.map((r) => r.sessionId);
-}
-
-export type SessionProvider = "codex" | "claude";
-
 export interface SessionRef {
   sessionId: string;
   model: string;
-  provider: SessionProvider;
 }
 
-function inferProvider(model: string | null, costUsd: number): SessionProvider {
-  if (model?.startsWith("claude")) return "claude";
-  if (model === "claude") return "claude";
-  if (!model && costUsd > 0) return "claude";
-  return "codex";
-}
-
-export async function loadSessionRefs(targetType: string, targetName: string, provider?: SessionProvider): Promise<SessionRef[]> {
-  const rows = await query<(RowDataPacket & { session_id: string; model: string | null; cost_usd: number })[]>(
-    `SELECT session_id, model, cost_usd FROM (
-       SELECT session_id, model, cost_usd, started_at,
+export async function loadSessionRefs(targetType: string, targetName: string): Promise<SessionRef[]> {
+  const rows = await query<(RowDataPacket & { session_id: string; model: string | null })[]>(
+    `SELECT session_id, model FROM (
+       SELECT session_id, model, started_at,
               ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY started_at DESC) AS rn
        FROM execution_history
        WHERE target_type = ? AND target_name = ? AND session_id IS NOT NULL
      ) sub WHERE rn = 1 ORDER BY started_at DESC`,
     [targetType, targetName],
   );
-  const refs = rows.map((r) => {
-    const inferredProvider = inferProvider(r.model, Number(r.cost_usd));
-    return {
-      sessionId: r.session_id,
-      model: r.model ?? inferredProvider,
-      provider: inferredProvider,
-    };
-  });
-  return provider ? refs.filter((r) => r.provider === provider) : refs;
+  return rows.map((r) => ({
+    sessionId: r.session_id,
+    model: r.model ?? "opus",
+  }));
 }

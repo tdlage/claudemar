@@ -9,13 +9,12 @@ interface UseExecutionPageOptions {
   targetType: string;
   targetName: string;
   cachePrefix: string;
-  sessionProvider?: "codex" | "claude";
   onExecutionComplete?: () => void;
 }
 
-const EMPTY_SESSION_DATA: SessionData = { sessionId: null, history: [], names: {}, models: {}, providers: {} };
+const EMPTY_SESSION_DATA: SessionData = { sessionId: null, history: [], names: {}, models: {} };
 
-export function useExecutionPage({ targetType, targetName, cachePrefix, sessionProvider, onExecutionComplete }: UseExecutionPageOptions) {
+export function useExecutionPage({ targetType, targetName, cachePrefix, onExecutionComplete }: UseExecutionPageOptions) {
   const { addToast } = useToast();
   const [execId, setExecId] = useCachedState<string | null>(`${cachePrefix}:execId`, null);
   const [expandedExecId, setExpandedExecId] = useCachedState<string | null>(`${cachePrefix}:expandedExecId`, null);
@@ -32,7 +31,7 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, sessionP
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const sessionPath = `/executions/session/${targetType}/${targetName}`;
-  const sessionUrl = sessionProvider ? `${sessionPath}?provider=${sessionProvider}` : sessionPath;
+  const sessionUrl = sessionPath;
 
   const filteredActive = active.filter((e) => e.targetType === targetType && e.targetName === targetName);
   const filteredQueue = queue.filter((q) => q.targetType === targetType && q.targetName === targetName);
@@ -137,7 +136,6 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, sessionP
         history: data.history,
         names: data.names ?? {},
         models: data.models ?? {},
-        providers: data.providers ?? {},
       }))
       .catch(() => {});
   }, [sessionUrl]);
@@ -192,7 +190,6 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, sessionP
         sessionId: isActive ? null : prev.sessionId,
         history: prev.history.filter((s) => s !== sessionId),
         models: Object.fromEntries(Object.entries(prev.models).filter(([sid]) => sid !== sessionId)),
-        providers: Object.fromEntries(Object.entries(prev.providers).filter(([sid]) => sid !== sessionId)),
       }));
       if (isActive) {
         await api.delete(sessionPath);

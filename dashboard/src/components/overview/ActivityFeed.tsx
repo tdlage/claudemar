@@ -6,17 +6,8 @@ import { api } from "../../lib/api";
 import { renderOutputHtml } from "../../lib/ansi";
 import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
 import { formatUsage } from "../../lib/types";
+import { formatDuration } from "../../lib/format";
 import type { ExecutionInfo, QueueItem } from "../../lib/types";
-
-function formatDuration(ms: number): string {
-  const totalSec = Math.round(ms / 1000);
-  if (totalSec < 60) return `${totalSec}s`;
-  const hours = Math.floor(totalSec / 3600);
-  const minutes = Math.floor((totalSec % 3600) / 60);
-  const seconds = totalSec % 60;
-  if (hours > 0) return `${hours}h${minutes}m${seconds}s`;
-  return `${minutes}m${seconds}s`;
-}
 
 const LIMIT_OPTIONS = [20, 50, 100] as const;
 

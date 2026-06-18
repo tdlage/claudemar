@@ -1,22 +1,22 @@
 import { useState, useEffect } from "react";
-import { Save, RefreshCw, Download, CheckCircle, Square, Map, Crown, Container } from "lucide-react";
+import { Save, RefreshCw, Download, CheckCircle, Map, Crown, Container, Cpu } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
-import { ActivityFeed } from "../components/overview/ActivityFeed";
+import { PromptComposer } from "../components/terminal/PromptComposer";
+import { ExecutionActivity } from "../components/terminal/ExecutionActivity";
 import { Tabs } from "../components/shared/Tabs";
 import { Button } from "../components/shared/Button";
 import { Badge } from "../components/shared/Badge";
+import { ToggleButton } from "../components/shared/ToggleButton";
 import { MarkdownEditor } from "../components/shared/MarkdownEditor";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
-import { useModels } from "../hooks/useModels";
-import { VoiceInput } from "../components/shared/VoiceInput";
+import { useCurrentModel } from "../hooks/useCurrentModel";
 import { SessionSelector } from "../components/shared/SessionSelector";
 
 interface OrchestratorSettings {
   prependPrompt: string;
-  model: string;
 }
 
 interface UpdateInfo {
@@ -32,7 +32,7 @@ interface UpdateInfo {
 type TabKey = "terminal" | "agents-md" | "settings";
 
 export function OrchestratorPage() {
-  const models = useModels();
+  const currentModel = useCurrentModel();
   const [tab, setTab] = useCachedState<TabKey>("orchestrator:tab", "terminal");
   const [prompt, setPrompt] = useCachedState("orchestrator:prompt", "");
   const [planMode, setPlanMode] = useCachedState("orchestrator:planMode", false);
@@ -54,7 +54,7 @@ export function OrchestratorPage() {
   const [mdDirty, setMdDirty] = useState(false);
   const [mdSaving, setMdSaving] = useState(false);
 
-  const [settings, setSettings] = useState<OrchestratorSettings>({ prependPrompt: "", model: "codex" });
+  const [settings, setSettings] = useState<OrchestratorSettings>({ prependPrompt: "" });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -206,74 +206,42 @@ export function OrchestratorPage() {
               }}
             />
           ))}
-          <form onSubmit={handleExecute} className="flex gap-2 items-end">
-            <VoiceInput onTranscription={(text) => setPrompt((prev) => prev ? `${prev} ${text}` : text)} />
-            <textarea
-              value={prompt}
-              onChange={(e) => {
-                setPrompt(e.target.value);
-                e.target.style.height = "auto";
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (prompt.trim()) handleExecute(e);
-                }
-              }}
-              placeholder="Message orchestrator... (Shift+Enter for new line)"
-              rows={1}
-              className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
-              style={{ maxHeight: 200 }}
-            />
-            <button
-              type="button"
-              onClick={() => setPlanMode(!planMode)}
-              title={planMode ? "Plan mode ON (read-only)" : "Plan mode OFF"}
-              className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all select-none whitespace-nowrap ${
-                planMode
-                  ? "bg-accent/20 text-accent border border-accent/40 shadow-[0_0_6px_rgba(var(--accent-rgb),0.15)]"
-                  : "text-text-muted hover:text-text-secondary hover:bg-surface-hover border border-transparent"
-              }`}
-            >
-              <Map size={13} />
-              Plan
-            </button>
-            <Button type="submit" disabled={!prompt.trim()}>Send</Button>
-            {isRunning && (
-              <Button
-                variant="danger"
-                onClick={() => {
-                  if (execId) api.post(`/executions/${execId}/stop`).catch(() => {});
-                }}
-              >
-                <Square size={14} />
-              </Button>
-            )}
-          </form>
+          <PromptComposer
+            value={prompt}
+            onChange={setPrompt}
+            onSubmit={handleExecute}
+            isRunning={isRunning}
+            onStop={() => {
+              if (execId) api.post(`/executions/${execId}/stop`).catch(() => {});
+            }}
+            placeholder="Message orchestrator... (Shift+Enter for new line)"
+            inlineControls={
+              <ToggleButton
+                active={planMode}
+                onToggle={() => setPlanMode(!planMode)}
+                icon={Map}
+                label="Plan"
+                title={planMode ? "Plan mode ON (read-only)" : "Plan mode OFF"}
+              />
+            }
+          />
           <div className="h-[500px]">
             <Terminal executionId={execId} base="orchestrator" />
           </div>
 
-          {(activity.length > 0 || filteredQueue.length > 0) && (
-            <div>
-              <h2 className="text-sm font-medium text-text-muted mb-2">Activity</h2>
-              <ActivityFeed
-                executions={activity}
-                queue={filteredQueue}
-                expandedId={expandedExecId}
-                onToggle={toggleExpanded}
-                sessionNames={sessionData.names}
-                sessionIds={sessionData.history}
-                sessionFilter={sessionFilter}
-                onSessionFilterChange={setSessionFilter}
-                historyLimit={historyLimit}
-                onHistoryLimitChange={setHistoryLimit}
-                searchQuery={searchQuery}
-                onSearchChange={handleSearchChange}
-              />
-            </div>
-          )}
+          <ExecutionActivity
+            activity={activity}
+            filteredQueue={filteredQueue}
+            expandedExecId={expandedExecId}
+            toggleExpanded={toggleExpanded}
+            sessionData={sessionData}
+            sessionFilter={sessionFilter}
+            setSessionFilter={setSessionFilter}
+            historyLimit={historyLimit}
+            setHistoryLimit={setHistoryLimit}
+            searchQuery={searchQuery}
+            handleSearchChange={handleSearchChange}
+          />
         </div>
       )}
 
@@ -322,22 +290,12 @@ export function OrchestratorPage() {
 
           <div>
             <label className="block text-sm font-medium text-text-muted mb-1.5">
-              Model
+              Modelo
             </label>
-            <select
-              value={settings.model}
-              onChange={(e) => {
-                setSettings({ ...settings, model: e.target.value });
-                setSettingsDirty(true);
-              }}
-              className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
-            >
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.displayName}
-                </option>
-              ))}
-            </select>
+            <div className="inline-flex items-center gap-2 bg-bg border border-border rounded-md px-3 py-2 text-sm text-text-primary">
+              <Cpu size={14} className="text-text-muted" />
+              <span className="font-medium">{currentModel.displayName}</span>
+            </div>
           </div>
 
           <Button

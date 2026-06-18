@@ -1,5 +1,17 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import type { Request, Response } from "express";
+
+export function asyncHandler(
+  fn: (req: Request, res: Response) => Promise<void>,
+): (req: Request, res: Response) => void {
+  return (req, res) => {
+    fn(req, res).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    });
+  };
+}
 
 const SAFE_FILENAME_RE = /^[a-zA-Z0-9._-]+$/;
 

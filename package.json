@@ -11,6 +11,8 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.179",
+    "@qdrant/js-client-rest": "^1.18",
     "archiver": "^7.0.1",
     "chokidar": "^5.0.0",
     "cors": "^2.8.6",
@@ -20,7 +22,8 @@
     "grammy": "^1.40.0",
     "mysql2": "^3.19.1",
     "openai": "^6.19.0",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",

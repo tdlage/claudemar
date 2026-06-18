@@ -1,5 +1,3 @@
-export type SessionMode = "projects" | "agents";
-
 export interface AgentInfo {
   name: string;
   inboxCount: number;

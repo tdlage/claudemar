@@ -1,9 +1,8 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
-import { readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs";
+import { writeFileSync, existsSync, chmodSync } from "node:fs";
 import { config } from "./config.js";
 import { executionManager } from "./execution-manager.js";
-import { rebuildDockerImage } from "./executor.js";
 
 const INSTALL_DIR = config.installDir;
 const NOTIFIED_FILE = resolve(config.basePath, ".update-notified");
@@ -60,18 +59,6 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
     commitCount,
     commits,
   };
-}
-
-export function getNotifiedCommit(): string | null {
-  try {
-    return readFileSync(NOTIFIED_FILE, "utf-8").trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-export function setNotifiedCommit(commit: string): void {
-  writeFileSync(NOTIFIED_FILE, commit, "utf-8");
 }
 
 export function clearNotifiedCommit(): void {
@@ -145,16 +132,6 @@ export async function performUpdate(): Promise<{ success: boolean; output: strin
     steps.push("syncing cron jobs...");
     await syncCronJobs();
     steps.push("cron jobs synced");
-
-    if (config.dockerAvailable) {
-      steps.push("rebuilding Docker image...");
-      try {
-        rebuildDockerImage();
-        steps.push("Docker image rebuilt");
-      } catch (e) {
-        steps.push(`Docker image rebuild failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
 
     clearNotifiedCommit();
 

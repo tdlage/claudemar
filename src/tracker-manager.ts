@@ -1152,7 +1152,7 @@ class TrackerManager extends EventEmitter {
     return false;
   }
 
-  async uploadTestRunAttachment(testRunId: string, base64: string, filename: string, mimeType: string, uploadedBy: string): Promise<TrackerTestRunAttachment> {
+  async uploadTestRunAttachment(testRunId: string, base64: string, _filename: string, mimeType: string, uploadedBy: string): Promise<TrackerTestRunAttachment> {
     const buf = Buffer.from(base64, "base64");
     validateMedia(mimeType, buf.length);
     const file = saveUploadFile(base64, mimeType);

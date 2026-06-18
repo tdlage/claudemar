@@ -1,6 +1,6 @@
 # Claudemar
 
-Telegram + Web interface for AI agent CLIs (OpenAI Codex CLI and Claude CLI, behind a provider layer; codex is the default). Manages projects, agents, and AI executions.
+Interface Telegram + Web para o Claude Agent SDK (só Claude/Opus), com memória de longo prazo via Qdrant+Voyage. Manages projects, agents, and AI executions.
 
 ## Stack
 
@@ -25,9 +25,10 @@ src/                   # Backend
   bot.ts               # Telegram bot setup, message handlers
   commands.ts          # All /commands and callback handlers
   config.ts            # Environment config (frozen object)
-  execution-manager.ts # Agent CLI process lifecycle
-  executor.ts          # Spawn/exec wrappers, output formatting
-  providers/           # Provider adapters: claude.ts, codex.ts, types.ts, format.ts
+  execution-manager.ts # Agent SDK session lifecycle
+  executor.ts          # Claude Agent SDK runner, output formatting
+  providers/           # SDK types and formatting helpers (types.ts, format.ts)
+  memory/              # Long-term memory (Qdrant + Voyage)
   processor.ts         # Message → execution orchestration
   queue.ts             # Command queue (persisted, per-target)
   updater.ts           # Auto-update check and perform
@@ -55,7 +56,7 @@ install.sh             # Full installer (Node, repo, build, env, cron, systemd)
 - Events: `executionManager` extends EventEmitter (output, complete, error, cancel)
 - No comments unless critical. Code must be self-explanatory
 - Production-ready only. No mocks, no hardcoded values
-- Provider resolution: model `codex` → Codex CLI, `claude-*` → Claude CLI, none → `AGENT_PROVIDER` (default codex). Codex reports tokens (no USD cost) and never asks interactive questions; Claude reports USD cost and supports the question flow
+- All executions run on the Claude Agent SDK using the Opus model alias (`opus`); the resolved model id comes from the SDK `system/init` message
 - Agent instructions live in AGENTS.md (CLAUDE.md is legacy, auto-migrated on startup)
 - NUNCA reiniciar o serviço local do claudemar (systemctl restart claudemar). O deploy e restart são feitos externamente
 

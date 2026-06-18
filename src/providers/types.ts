@@ -1,7 +1,3 @@
-import { config } from "../config.js";
-
-export type ProviderName = "claude" | "codex";
-
 export interface QuestionOption {
   label: string;
   description: string;
@@ -31,40 +27,3 @@ export interface AgentResult {
   permissionDenials: PermissionDenial[];
 }
 
-export interface SpawnOptions {
-  prompt: string;
-  model?: string;
-  resumeSessionId?: string;
-  planMode?: boolean;
-  agentName?: string;
-  inDocker?: boolean;
-}
-
-export interface ParserCallbacks {
-  onChunk?: (chunk: string) => void;
-  onQuestion?: (toolUseId: string, questions: AskQuestion[]) => void;
-  onSessionId?: (sessionId: string) => void;
-}
-
-export interface LineParser {
-  feedLine(line: string): void;
-  partialOutput(): string;
-  finish(exitCode: number | null): AgentResult | null;
-}
-
-export interface ProviderAdapter {
-  name: ProviderName;
-  binary: string;
-  displayName: string;
-  buildArgs(opts: SpawnOptions): string[];
-  dockerArgs(): string[];
-  createParser(callbacks: ParserCallbacks): LineParser;
-}
-
-export function resolveProvider(model?: string): ProviderName {
-  if (model) {
-    if (model.startsWith("claude")) return "claude";
-    if (model === "codex" || model === "chat-latest" || model.startsWith("gpt")) return "codex";
-  }
-  return config.defaultProvider;
-}

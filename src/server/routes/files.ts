@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { createReadStream, existsSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync, openSync, readSync, closeSync } from "node:fs";
 import { resolve, sep, relative, extname, basename } from "node:path";
+import type { Request, Response } from "express";
 import { Router } from "express";
 import { config } from "../../config.js";
 import { getAgentPaths, isValidAgentName } from "../../agents/manager.js";
@@ -45,26 +46,40 @@ function safePath(basePath: string, filePath: string): string | null {
   return resolved;
 }
 
-filesRouter.get("/", (req, res) => {
+function resolveRequestPath(
+  req: Request,
+  res: Response,
+  requirePath: boolean,
+): { basePath: string; resolved: string } | null {
   const base = req.query.base as string;
-  const filePath = (req.query.path as string) || "";
+  const filePath = requirePath ? (req.query.path as string) : ((req.query.path as string) || "");
 
-  if (!base) {
-    res.status(400).json({ error: "base query param required" });
-    return;
+  if (!base || (requirePath && !filePath)) {
+    res.status(400).json({
+      error: requirePath ? "base and path query params required" : "base query param required",
+    });
+    return null;
   }
 
   const basePath = resolveBase(base);
   if (!basePath || !existsSync(basePath)) {
     res.status(404).json({ error: "Base not found" });
-    return;
+    return null;
   }
 
   const resolved = safePath(basePath, filePath);
   if (!resolved) {
     res.status(400).json({ error: "Invalid path" });
-    return;
+    return null;
   }
+
+  return { basePath, resolved };
+}
+
+filesRouter.get("/", (req, res) => {
+  const p = resolveRequestPath(req, res, false);
+  if (!p) return;
+  const { basePath, resolved } = p;
 
   if (!existsSync(resolved)) {
     res.status(404).json({ error: "Path not found" });
@@ -76,7 +91,7 @@ filesRouter.get("/", (req, res) => {
   if (stat.isDirectory()) {
     const showHidden = req.query.showHidden === "true";
     const entries = readdirSync(resolved, { withFileTypes: true })
-      .filter((e) => showHidden || !e.name.startsWith(".") || e.name === ".claude" || e.name === ".codex")
+      .filter((e) => showHidden || !e.name.startsWith(".") || e.name === ".claude")
       .map((e) => ({
         name: e.name,
         type: e.isDirectory() ? "directory" as const : "file" as const,
@@ -165,49 +180,23 @@ filesRouter.put("/", (req, res) => {
     return;
   }
 
-  const basePath = resolveBase(base);
-  if (!basePath || !existsSync(basePath)) {
-    res.status(404).json({ error: "Base not found" });
-    return;
-  }
+  const p = resolveRequestPath(req, res, true);
+  if (!p) return;
 
-  const resolved = safePath(basePath, filePath);
-  if (!resolved) {
-    res.status(400).json({ error: "Invalid path" });
-    return;
-  }
-
-  writeFileSync(resolved, content, "utf-8");
+  writeFileSync(p.resolved, content, "utf-8");
   res.json({ saved: true });
 });
 
 filesRouter.delete("/", (req, res) => {
-  const base = req.query.base as string;
-  const filePath = req.query.path as string;
+  const p = resolveRequestPath(req, res, true);
+  if (!p) return;
 
-  if (!base || !filePath) {
-    res.status(400).json({ error: "base and path query params required" });
-    return;
-  }
-
-  const basePath = resolveBase(base);
-  if (!basePath || !existsSync(basePath)) {
-    res.status(404).json({ error: "Base not found" });
-    return;
-  }
-
-  const resolved = safePath(basePath, filePath);
-  if (!resolved) {
-    res.status(400).json({ error: "Invalid path" });
-    return;
-  }
-
-  if (!existsSync(resolved)) {
+  if (!existsSync(p.resolved)) {
     res.status(404).json({ error: "File not found" });
     return;
   }
 
-  unlinkSync(resolved);
+  unlinkSync(p.resolved);
   res.json({ deleted: true });
 });
 

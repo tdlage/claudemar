@@ -29,10 +29,6 @@ function resolveBase(
   return null;
 }
 
-function buildAgentBases(): WatchedBase[] {
-  return [];
-}
-
 export function startFileWatcher(callback: FileChangeCallback): void {
   if (watcher) return;
 
@@ -40,7 +36,6 @@ export function startFileWatcher(callback: FileChangeCallback): void {
     { path: config.orchestratorPath, base: "orchestrator" },
     { path: config.agentsPath, base: "__agents_root__" },
     { path: config.projectsPath, base: "__projects_root__" },
-    ...buildAgentBases(),
   ];
 
   const paths = [

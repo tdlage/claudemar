@@ -8,18 +8,11 @@ import { MediaUpload, type MediaFile } from "./MediaUpload";
 import { CreateTestRunModal } from "./CreateTestRunModal";
 import { AttachmentPreview } from "./AttachmentPreview";
 import { TEST_RUN_STATUS_CONFIG } from "./constants";
+import { formatDuration } from "../../lib/format";
 import type { TrackerTestRun } from "../../lib/types";
 
 interface Props {
   testCaseId: string;
-}
-
-function formatDuration(seconds: number | null): string {
-  if (!seconds) return "";
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}m ${s}s`;
 }
 
 function RunDetail({ run }: { run: TrackerTestRun }) {
@@ -59,7 +52,7 @@ function RunDetail({ run }: { run: TrackerTestRun }) {
         <div className="flex items-center gap-2">
           <Badge variant={cfg.variant}>{cfg.icon} {run.status}</Badge>
           {run.durationSeconds != null && (
-            <span className="text-xs text-text-muted">{formatDuration(run.durationSeconds)}</span>
+            <span className="text-xs text-text-muted">{formatDuration(run.durationSeconds * 1000)}</span>
           )}
         </div>
         <div className="text-xs text-text-muted">
@@ -163,7 +156,7 @@ export function TestRunPanel({ testCaseId }: Props) {
                   <Badge variant={cfg.variant}>{cfg.icon} {run.status}</Badge>
                   <span className="text-xs text-text-secondary">{run.executedByName}</span>
                   {run.durationSeconds != null && (
-                    <span className="text-xs text-text-muted">{formatDuration(run.durationSeconds)}</span>
+                    <span className="text-xs text-text-muted">{formatDuration(run.durationSeconds * 1000)}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">

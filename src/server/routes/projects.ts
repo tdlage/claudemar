@@ -4,7 +4,7 @@ import { resolve, sep } from "node:path";
 import { rm } from "node:fs/promises";
 import type { Request, Response } from "express";
 import { Router } from "express";
-import { safeFilename, listFiles } from "../route-utils.js";
+import { safeFilename, listFiles, asyncHandler } from "../route-utils.js";
 import {
   isValidProjectName,
   listProjects,
@@ -67,6 +67,28 @@ function resolveProjectAndRepo(req: Request, res: Response): { projectPath: stri
   }
 
   return { projectPath, repoPath };
+}
+
+async function resolveRepoWithRemote(
+  req: Request,
+  res: Response,
+  onMissingRemote: "empty" | "error",
+): Promise<{ repoPath: string; remoteUrl: string } | null> {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return null;
+
+  const repos = await discoverRepos(resolved.projectPath);
+  const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
+  if (!repo?.remoteUrl) {
+    if (onMissingRemote === "empty") {
+      res.json([]);
+    } else {
+      res.status(400).json({ error: "No remote URL" });
+    }
+    return null;
+  }
+
+  return { repoPath: resolved.repoPath, remoteUrl: repo.remoteUrl };
 }
 
 projectsRouter.get("/", async (req, res) => {
@@ -137,21 +159,16 @@ projectsRouter.get("/claude-skills", (_req, res) => {
   res.json(skills);
 });
 
-projectsRouter.get("/:name", async (req, res) => {
+projectsRouter.get("/:name", asyncHandler(async (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
 
-  try {
-    const repos = await discoverRepos(projectPath);
-    const inputFiles = listFiles(inputDir(projectPath));
-    res.json({ name: req.params.name, repos, inputFiles });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const repos = await discoverRepos(projectPath);
+  const inputFiles = listFiles(inputDir(projectPath));
+  res.json({ name: req.params.name, repos, inputFiles });
+}));
 
-projectsRouter.post("/", async (req, res) => {
+projectsRouter.post("/", asyncHandler(async (req, res) => {
   if (req.ctx?.role !== "admin") {
     res.status(403).json({ error: "Forbidden" });
     return;
@@ -178,16 +195,11 @@ projectsRouter.post("/", async (req, res) => {
     return;
   }
 
-  try {
-    mkdirSync(targetPath, { recursive: true });
-    res.status(201).json({ name });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  mkdirSync(targetPath, { recursive: true });
+  res.status(201).json({ name });
+}));
 
-projectsRouter.delete("/:name", async (req, res) => {
+projectsRouter.delete("/:name", asyncHandler(async (req, res) => {
   if (req.ctx?.role !== "admin") {
     res.status(403).json({ error: "Forbidden" });
     return;
@@ -197,22 +209,17 @@ projectsRouter.delete("/:name", async (req, res) => {
 
   await rm(projectPath, { recursive: true, force: true });
   res.json({ removed: req.params.name });
-});
+}));
 
-projectsRouter.get("/:name/repos", async (req, res) => {
+projectsRouter.get("/:name/repos", asyncHandler(async (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
 
-  try {
-    const repos = await discoverRepos(projectPath);
-    res.json(repos);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const repos = await discoverRepos(projectPath);
+  res.json(repos);
+}));
 
-projectsRouter.post("/:name/repos", async (req, res) => {
+projectsRouter.post("/:name/repos", asyncHandler(async (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
 
@@ -222,14 +229,9 @@ projectsRouter.post("/:name/repos", async (req, res) => {
     return;
   }
 
-  try {
-    const clonedName = await cloneRepo(projectPath, url, repoName);
-    res.status(201).json({ name: clonedName });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const clonedName = await cloneRepo(projectPath, url, repoName);
+  res.status(201).json({ name: clonedName });
+}));
 
 projectsRouter.delete("/:name/repos/:repo", async (req, res) => {
   const projectPath = resolveProject(req, res);
@@ -256,20 +258,15 @@ projectsRouter.get("/:name/repos/:repo/log", async (req, res) => {
   }
 });
 
-projectsRouter.get("/:name/repos/:repo/branches", async (req, res) => {
+projectsRouter.get("/:name/repos/:repo/branches", asyncHandler(async (req, res) => {
   const resolved = resolveProjectAndRepo(req, res);
   if (!resolved) return;
 
-  try {
-    const branches = await getRepoBranches(resolved.repoPath);
-    res.json(branches);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const branches = await getRepoBranches(resolved.repoPath);
+  res.json(branches);
+}));
 
-projectsRouter.post("/:name/repos/:repo/checkout", async (req, res) => {
+projectsRouter.post("/:name/repos/:repo/checkout", asyncHandler(async (req, res) => {
   const resolved = resolveProjectAndRepo(req, res);
   if (!resolved) return;
 
@@ -279,68 +276,43 @@ projectsRouter.post("/:name/repos/:repo/checkout", async (req, res) => {
     return;
   }
 
-  try {
-    const output = await checkoutBranch(resolved.repoPath, branch);
-    res.json({ output });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const output = await checkoutBranch(resolved.repoPath, branch);
+  res.json({ output });
+}));
 
-projectsRouter.post("/:name/repos/:repo/pull", async (req, res) => {
+projectsRouter.post("/:name/repos/:repo/pull", asyncHandler(async (req, res) => {
   const resolved = resolveProjectAndRepo(req, res);
   if (!resolved) return;
 
-  try {
-    const output = await pullRepo(resolved.repoPath);
-    res.json({ output });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const output = await pullRepo(resolved.repoPath);
+  res.json({ output });
+}));
 
-projectsRouter.post("/:name/repos/:repo/stash", async (req, res) => {
+projectsRouter.post("/:name/repos/:repo/stash", asyncHandler(async (req, res) => {
   const resolved = resolveProjectAndRepo(req, res);
   if (!resolved) return;
 
-  try {
-    const output = await stashRepo(resolved.repoPath, req.body?.pop === true);
-    res.json({ output });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const output = await stashRepo(resolved.repoPath, req.body?.pop === true);
+  res.json({ output });
+}));
 
-projectsRouter.post("/:name/repos/:repo/fetch", async (req, res) => {
+projectsRouter.post("/:name/repos/:repo/fetch", asyncHandler(async (req, res) => {
   const resolved = resolveProjectAndRepo(req, res);
   if (!resolved) return;
 
-  try {
-    const output = await fetchRepo(resolved.repoPath);
-    res.json({ output });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const output = await fetchRepo(resolved.repoPath);
+  res.json({ output });
+}));
 
-projectsRouter.get("/:name/repos/:repo/status", async (req, res) => {
+projectsRouter.get("/:name/repos/:repo/status", asyncHandler(async (req, res) => {
   const resolved = resolveProjectAndRepo(req, res);
   if (!resolved) return;
 
-  try {
-    const files = await getRepoStatus(resolved.repoPath);
-    res.json(files);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const files = await getRepoStatus(resolved.repoPath);
+  res.json(files);
+}));
 
-projectsRouter.get("/:name/repos/:repo/diff", async (req, res) => {
+projectsRouter.get("/:name/repos/:repo/diff", asyncHandler(async (req, res) => {
   const resolved = resolveProjectAndRepo(req, res);
   if (!resolved) return;
 
@@ -350,14 +322,9 @@ projectsRouter.get("/:name/repos/:repo/diff", async (req, res) => {
     return;
   }
 
-  try {
-    const diff = await getFileDiff(resolved.repoPath, filePath);
-    res.json(diff);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const diff = await getFileDiff(resolved.repoPath, filePath);
+  res.json(diff);
+}));
 
 projectsRouter.get("/:name/claude-agents", (_req, res) => {
   const agentsDir = resolve(homedir(), ".claude", "agents");
@@ -501,7 +468,6 @@ projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
     prompt,
     cwd: resolved.repoPath,
     noResume: true,
-    model: "codex",
     username,
   });
 
@@ -510,147 +476,68 @@ projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
 
 // ── CI / GitHub Actions ──
 
-projectsRouter.get("/:name/repos/:repo/ci/workflows", async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
-  if (!resolved) return;
+projectsRouter.get("/:name/repos/:repo/ci/workflows", asyncHandler(async (req, res) => {
+  const repo = await resolveRepoWithRemote(req, res, "empty");
+  if (!repo) return;
 
-  try {
-    const repos = await discoverRepos(resolved.projectPath);
-    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
-    if (!repo?.remoteUrl) {
-      res.json([]);
-      return;
-    }
-    const workflows = await listWorkflows(resolved.repoPath, repo.remoteUrl);
-    res.json(workflows);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
+  const workflows = await listWorkflows(repo.repoPath, repo.remoteUrl);
+  res.json(workflows);
+}));
+
+projectsRouter.get("/:name/repos/:repo/ci/runs", asyncHandler(async (req, res) => {
+  const repo = await resolveRepoWithRemote(req, res, "empty");
+  if (!repo) return;
+
+  const branch = typeof req.query.branch === "string" ? req.query.branch : undefined;
+  const workflowId = typeof req.query.workflowId === "string" ? Number(req.query.workflowId) : undefined;
+  const runs = await listWorkflowRuns(repo.repoPath, repo.remoteUrl, branch, workflowId);
+  res.json(runs);
+}));
+
+projectsRouter.get("/:name/repos/:repo/ci/runs/:runId/jobs", asyncHandler(async (req, res) => {
+  const repo = await resolveRepoWithRemote(req, res, "error");
+  if (!repo) return;
+
+  const jobs = await getWorkflowRunJobs(repo.repoPath, repo.remoteUrl, Number(req.params.runId));
+  res.json(jobs);
+}));
+
+projectsRouter.get("/:name/repos/:repo/ci/runs/:runId/logs", asyncHandler(async (req, res) => {
+  const repo = await resolveRepoWithRemote(req, res, "error");
+  if (!repo) return;
+
+  const jobName = typeof req.query.job === "string" ? req.query.job : undefined;
+  const logs = await getWorkflowRunLogs(repo.repoPath, repo.remoteUrl, Number(req.params.runId), jobName);
+  res.json({ logs });
+}));
+
+projectsRouter.post("/:name/repos/:repo/ci/dispatch", asyncHandler(async (req, res) => {
+  const repo = await resolveRepoWithRemote(req, res, "error");
+  if (!repo) return;
+
+  const { workflowId, ref, inputs } = req.body;
+  if (!workflowId || !ref) {
+    res.status(400).json({ error: "workflowId and ref are required" });
+    return;
   }
-});
 
-projectsRouter.get("/:name/repos/:repo/ci/runs", async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
-  if (!resolved) return;
+  await dispatchWorkflow(repo.repoPath, repo.remoteUrl, String(workflowId), ref, inputs);
+  res.json({ dispatched: true });
+}));
 
-  try {
-    const repos = await discoverRepos(resolved.projectPath);
-    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
-    if (!repo?.remoteUrl) {
-      res.json([]);
-      return;
-    }
+projectsRouter.post("/:name/repos/:repo/ci/runs/:runId/rerun", asyncHandler(async (req, res) => {
+  const repo = await resolveRepoWithRemote(req, res, "error");
+  if (!repo) return;
 
-    const branch = typeof req.query.branch === "string" ? req.query.branch : undefined;
-    const workflowId = typeof req.query.workflowId === "string" ? Number(req.query.workflowId) : undefined;
-    const runs = await listWorkflowRuns(resolved.repoPath, repo.remoteUrl, branch, workflowId);
-    res.json(runs);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  const failedOnly = req.body?.failedOnly === true;
+  await rerunWorkflow(repo.repoPath, repo.remoteUrl, Number(req.params.runId), failedOnly);
+  res.json({ rerun: true });
+}));
 
-projectsRouter.get("/:name/repos/:repo/ci/runs/:runId/jobs", async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
-  if (!resolved) return;
+projectsRouter.post("/:name/repos/:repo/ci/runs/:runId/cancel", asyncHandler(async (req, res) => {
+  const repo = await resolveRepoWithRemote(req, res, "error");
+  if (!repo) return;
 
-  try {
-    const repos = await discoverRepos(resolved.projectPath);
-    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
-    if (!repo?.remoteUrl) {
-      res.status(400).json({ error: "No remote URL" });
-      return;
-    }
-    const jobs = await getWorkflowRunJobs(resolved.repoPath, repo.remoteUrl, Number(req.params.runId));
-    res.json(jobs);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
-
-projectsRouter.get("/:name/repos/:repo/ci/runs/:runId/logs", async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
-  if (!resolved) return;
-
-  try {
-    const repos = await discoverRepos(resolved.projectPath);
-    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
-    if (!repo?.remoteUrl) {
-      res.status(400).json({ error: "No remote URL" });
-      return;
-    }
-    const jobName = typeof req.query.job === "string" ? req.query.job : undefined;
-    const logs = await getWorkflowRunLogs(resolved.repoPath, repo.remoteUrl, Number(req.params.runId), jobName);
-    res.json({ logs });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
-
-projectsRouter.post("/:name/repos/:repo/ci/dispatch", async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
-  if (!resolved) return;
-
-  try {
-    const repos = await discoverRepos(resolved.projectPath);
-    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
-    if (!repo?.remoteUrl) {
-      res.status(400).json({ error: "No remote URL" });
-      return;
-    }
-
-    const { workflowId, ref, inputs } = req.body;
-    if (!workflowId || !ref) {
-      res.status(400).json({ error: "workflowId and ref are required" });
-      return;
-    }
-
-    await dispatchWorkflow(resolved.repoPath, repo.remoteUrl, String(workflowId), ref, inputs);
-    res.json({ dispatched: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
-
-projectsRouter.post("/:name/repos/:repo/ci/runs/:runId/rerun", async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
-  if (!resolved) return;
-
-  try {
-    const repos = await discoverRepos(resolved.projectPath);
-    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
-    if (!repo?.remoteUrl) {
-      res.status(400).json({ error: "No remote URL" });
-      return;
-    }
-    const failedOnly = req.body?.failedOnly === true;
-    await rerunWorkflow(resolved.repoPath, repo.remoteUrl, Number(req.params.runId), failedOnly);
-    res.json({ rerun: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
-
-projectsRouter.post("/:name/repos/:repo/ci/runs/:runId/cancel", async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
-  if (!resolved) return;
-
-  try {
-    const repos = await discoverRepos(resolved.projectPath);
-    const repo = repos.find((r) => resolveRepoPath(resolved.projectPath, r.name) === resolved.repoPath);
-    if (!repo?.remoteUrl) {
-      res.status(400).json({ error: "No remote URL" });
-      return;
-    }
-    await cancelWorkflowRun(resolved.repoPath, repo.remoteUrl, Number(req.params.runId));
-    res.json({ cancelled: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message });
-  }
-});
+  await cancelWorkflowRun(repo.repoPath, repo.remoteUrl, Number(req.params.runId));
+  res.json({ cancelled: true });
+}));

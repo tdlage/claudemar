@@ -4,12 +4,10 @@ import { config } from "./config.js";
 
 export interface OrchestratorSettings {
   prependPrompt: string;
-  model: string;
 }
 
 const DEFAULTS: OrchestratorSettings = {
   prependPrompt: "",
-  model: "codex",
 };
 
 function settingsPath(): string {
@@ -22,7 +20,6 @@ export function loadOrchestratorSettings(): OrchestratorSettings {
     const parsed = JSON.parse(raw);
     return {
       prependPrompt: typeof parsed.prependPrompt === "string" ? parsed.prependPrompt : DEFAULTS.prependPrompt,
-      model: typeof parsed.model === "string" ? parsed.model : DEFAULTS.model,
     };
   } catch {
     return { ...DEFAULTS };

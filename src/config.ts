@@ -1,5 +1,4 @@
 import "dotenv/config";
-import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -25,6 +24,17 @@ function numericEnv(key: string, fallback: number): number {
   return parsed;
 }
 
+function stringEnv(key: string, fallback: string): string {
+  const raw = process.env[key];
+  return raw && raw.length > 0 ? raw : fallback;
+}
+
+function booleanEnv(key: string, fallback: boolean): boolean {
+  const raw = process.env[key];
+  if (raw === undefined || raw === "") return fallback;
+  return raw === "true" || raw === "1";
+}
+
 const installDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const basePath = process.env.CLAUDEMAR_DATA || process.env.BASE_PATH || resolve(homedir(), ".claudemar");
 const dataPath = resolve(basePath, "data");
@@ -36,7 +46,6 @@ export const config = Object.freeze({
   basePath,
   dataPath,
   agentTimeoutMs: numericEnv("AGENT_TIMEOUT_MS", numericEnv("CLAUDE_TIMEOUT_MS", 0)),
-  defaultProvider: (process.env.AGENT_PROVIDER === "claude" ? "claude" : "codex") as "claude" | "codex",
   maxOutputLength: numericEnv("MAX_OUTPUT_LENGTH", 4096),
   maxBufferSize: numericEnv("MAX_BUFFER_SIZE", 10 * 1024 * 1024),
   orchestratorPath: resolve(basePath, "orchestrator"),
@@ -46,9 +55,19 @@ export const config = Object.freeze({
   dashboardPort: numericEnv("DASHBOARD_PORT", 3000),
   dashboardToken: process.env.DASHBOARD_TOKEN || "",
   tokenRotationHours: numericEnv("TOKEN_ROTATION_HOURS", 24),
-  dockerImage: process.env.DOCKER_IMAGE || "claudemar-devcontainer",
   claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || resolve(homedir(), ".claude"),
-  codexConfigDir: process.env.CODEX_HOME || resolve(homedir(), ".codex"),
+  qdrantUrl: stringEnv("QDRANT_URL", ""),
+  qdrantApiKey: stringEnv("QDRANT_API_KEY", ""),
+  qdrantCollection: stringEnv("QDRANT_COLLECTION", "claudemar_sessions"),
+  voyageApiKey: stringEnv("VOYAGE_API_KEY", ""),
+  embeddingModel: stringEnv("EMBEDDING_MODEL", "voyage-4-large"),
+  embeddingDim: numericEnv("EMBEDDING_DIM", 1024),
+  rerankModel: stringEnv("RERANK_MODEL", "rerank-2.5"),
+  memoryDomainInstruction: stringEnv("MEMORY_DOMAIN_INSTRUCTION", ""),
+  retrieveCandidates: numericEnv("RETRIEVE_CANDIDATES", 40),
+  rerankTopK: numericEnv("RERANK_TOP_K", 8),
+  hybridBm25: booleanEnv("HYBRID_BM25", true),
+  memoryReconcile: booleanEnv("MEMORY_RECONCILE", false),
   sesFrom: process.env.AWS_SES_FROM || "",
   adminEmail: process.env.ADMIN_EMAIL || "",
   mysqlHost: process.env.MYSQL_HOST || "localhost",
@@ -57,14 +76,6 @@ export const config = Object.freeze({
   mysqlPassword: process.env.MYSQL_PASSWORD || "",
   mysqlDatabase: process.env.MYSQL_DATABASE || "claudemar",
   githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET || "",
-  dockerAvailable: (() => {
-    try {
-      execFileSync("docker", ["--version"], { stdio: "ignore" });
-      return true;
-    } catch {
-      return false;
-    }
-  })(),
 });
 
 if (Number.isNaN(config.allowedChatId)) {

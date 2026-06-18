@@ -1,9 +1,13 @@
-import { type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { type AgentResult, type AskQuestion, type SpawnHandle, resolveProvider, spawnAgent } from "./executor.js";
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentResult, AskQuestion } from "./providers/types.js";
+import { ClaudeSession, type MessageBlock, type PendingPermission, type PermissionDecision, type UsageInfo } from "./claude/session.js";
+import type { ThinkingLevel } from "./claude/options.js";
+import { formatToolUse } from "./providers/format.js";
+import { retrieveContext } from "./memory/session-memory.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { routeMessages, routeOrchestratorMessages, buildInboxPrompt, archiveInboxMessages, getInboxMessages } from "./agents/messenger.js";
 import { getAgentPaths, listAgents } from "./agents/manager.js";
@@ -12,7 +16,6 @@ import { sessionNamesManager } from "./session-names-manager.js";
 import { isEmailEnabled, getEmailScriptPath } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 import { emailSettingsManager } from "./email-settings-manager.js";
-import { modelPreferences } from "./model-preferences.js";
 import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
@@ -59,17 +62,18 @@ export interface StartExecutionOpts {
   planMode?: boolean;
   isInboxProcessing?: boolean;
   agentName?: string;
-  useDocker?: boolean;
   username?: string;
   skipSystemPrompt?: boolean;
+  blocks?: MessageBlock[];
+  thinking?: ThinkingLevel;
 }
 
 const MAX_RECENT = 100;
 const MAX_STREAM_OUTPUT = 1024 * 1024;
 const MAX_SESSION_HISTORY = 10;
-
 const MAX_PERSISTED_OUTPUT = 50_000;
 const MAX_MEMORY_OUTPUT = 200_000;
+const DEFAULT_MODEL = "opus";
 
 function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<HistoryEntry, "costUsd" | "totalTokens" | "durationMs">>): HistoryEntry {
   const durationMs = overrides?.durationMs
@@ -101,23 +105,28 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
 
 interface ActiveEntry {
   info: ExecutionInfo;
-  process: ChildProcess;
-  handle: SpawnHandle;
+  session: ClaudeSession;
   opts: StartExecutionOpts;
+  sessionKey: string;
+  detach?: () => void;
+  timer?: ReturnType<typeof setTimeout>;
+  timedOut?: boolean;
 }
 
 class ExecutionManager extends EventEmitter {
   private active = new Map<string, ActiveEntry>();
   private recent: ExecutionInfo[] = [];
   private pendingQuestions = new Map<string, { info: ExecutionInfo; opts: StartExecutionOpts }>();
+  private sessions = new Map<string, ClaudeSession>();
+
+  private lastSessionMap = new Map<string, string>();
+  private lastSessionModelMap = new Map<string, string>();
+  private sessionHistoryMap = new Map<string, string[]>();
 
   constructor() {
     super();
     this.setMaxListeners(50);
   }
-  private lastSessionMap = new Map<string, string>();
-  private lastSessionModelMap = new Map<string, string>();
-  private sessionHistoryMap = new Map<string, string[]>();
 
   private targetKey(targetType: string, targetName: string): string {
     return `${targetType}:${targetName}`;
@@ -135,6 +144,18 @@ class ExecutionManager extends EventEmitter {
     return this.lastSessionModelMap.get(this.userTargetKey(targetType, targetName, username));
   }
 
+  getResolvedModelId(): string | undefined {
+    for (const entry of this.active.values()) {
+      const model = entry.session.getModel();
+      if (model && model !== DEFAULT_MODEL) return model;
+    }
+    let latest: string | undefined;
+    for (const model of this.lastSessionModelMap.values()) {
+      if (model && model !== DEFAULT_MODEL) latest = model;
+    }
+    return latest;
+  }
+
   getSessionHistory(targetType: string, targetName: string): string[] {
     return this.sessionHistoryMap.get(this.targetKey(targetType, targetName)) ?? [];
   }
@@ -147,15 +168,20 @@ class ExecutionManager extends EventEmitter {
     const key = this.userTargetKey(targetType, targetName, username);
     this.lastSessionMap.delete(key);
     this.lastSessionModelMap.delete(key);
+    const session = this.sessions.get(key);
+    if (session) {
+      session.end();
+      this.sessions.delete(key);
+    }
   }
 
-  private async restoreLastSessions(): Promise<void> {
+  async restoreLastSessions(): Promise<void> {
     const rows = await query<(RowDataPacket & {
-      target_type: string; target_name: string; username: string; session_id: string; model: string | null; cost_usd: number;
+      target_type: string; target_name: string; username: string; session_id: string; model: string | null;
     })[]>(
-      `SELECT target_type, target_name, username, session_id, model, cost_usd
+      `SELECT target_type, target_name, username, session_id, model
        FROM (
-         SELECT target_type, target_name, COALESCE(username, 'admin') AS username, session_id, model, cost_usd,
+         SELECT target_type, target_name, COALESCE(username, 'admin') AS username, session_id, model,
                 ROW_NUMBER() OVER (PARTITION BY target_type, target_name, COALESCE(username, 'admin') ORDER BY started_at DESC) AS rn
          FROM execution_history
          WHERE session_id IS NOT NULL AND status = 'completed'
@@ -166,7 +192,7 @@ class ExecutionManager extends EventEmitter {
     for (const row of rows) {
       const key = this.userTargetKey(row.target_type, row.target_name, row.username);
       this.lastSessionMap.set(key, row.session_id);
-      this.lastSessionModelMap.set(key, row.model ?? (Number(row.cost_usd) > 0 ? "claude" : "codex"));
+      this.lastSessionModelMap.set(key, row.model ?? DEFAULT_MODEL);
     }
   }
 
@@ -178,17 +204,86 @@ class ExecutionManager extends EventEmitter {
     this.sessionHistoryMap.set(key, filtered.slice(0, MAX_SESSION_HISTORY));
   }
 
+  private buildSystemSuffix(opts: StartExecutionOpts): string {
+    if (opts.skipSystemPrompt) return "";
+    let suffix = "";
+    if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
+      suffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`;
+    }
+    if (opts.targetType === "agent") {
+      const secretsJsonPath = resolve(config.agentsPath, opts.targetName, "secrets.json");
+      if (existsSync(secretsJsonPath)) {
+        suffix += `\n[SYSTEM: You have secrets configured. Read ${secretsJsonPath} for credentials, API keys, and secret file paths.]`;
+      }
+    }
+    if (opts.targetType === "project") {
+      const projectInputDir = resolve(opts.cwd, ".input");
+      if (existsSync(projectInputDir)) {
+        try {
+          const files = readdirSync(projectInputDir).filter((f) => !f.startsWith("."));
+          if (files.length > 0) {
+            suffix += `\n[SYSTEM: You have ${files.length} reference file(s) in ${projectInputDir}/. Check them if relevant to your task.]`;
+          }
+        } catch { }
+      }
+    }
+    if (isEmailEnabled() && (opts.targetType === "agent" || opts.targetType === "orchestrator")) {
+      const scriptPath = getEmailScriptPath();
+      const { sesFrom } = settingsManager.get();
+      const defaultFrom = sesFrom ? ` Default sender: ${sesFrom}.` : "";
+      const profiles = emailSettingsManager.getProfiles();
+      const senderList = profiles.map((p) => p.from).join(", ");
+      const availableSenders = senderList ? ` Available senders: ${senderList}.` : "";
+      suffix += `\n[SYSTEM: You can send emails. Usage: ${scriptPath} --to <email> --subject "<subject>" --body "<body>" [--from <sender-email>] [--html] [--cc <email>] [--attachment <filepath> ...]. Multiple --attachment flags supported.${defaultFrom}${availableSenders}]`;
+    }
+    return suffix;
+  }
+
+  private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined): { session: ClaudeSession; isNew: boolean } {
+    const existing = this.sessions.get(sessionKey);
+    if (existing) {
+      const planChanged = Boolean(opts.planMode) !== existing.planMode;
+      const agentChanged = (opts.agentName ?? "") !== (existing.agentName ?? "");
+      const resumeChanged = Boolean(resumeId) && resumeId !== existing.getSessionId();
+      if (existing.isAlive() && !planChanged && !agentChanged && !resumeChanged) {
+        return { session: existing, isNew: false };
+      }
+      existing.end();
+      this.sessions.delete(sessionKey);
+    }
+
+    const interactive = opts.source === "web" && !opts.isInboxProcessing;
+    const session = new ClaudeSession({
+      cwd: opts.cwd,
+      target: { targetType: opts.targetType, targetName: opts.targetName },
+      agentName: opts.agentName,
+      planMode: opts.planMode,
+      bypassPermissions: !opts.planMode && !interactive,
+      resumeSessionId: resumeId ?? null,
+      thinking: opts.thinking,
+      systemAppend: this.buildSystemSuffix(opts),
+    });
+    this.sessions.set(sessionKey, session);
+    return { session, isNew: true };
+  }
+
+  private dropSession(sessionKey: string): void {
+    const session = this.sessions.get(sessionKey);
+    if (session) {
+      session.end();
+      this.sessions.delete(sessionKey);
+    }
+  }
+
   startExecution(opts: StartExecutionOpts): string {
     const id = randomUUID();
-    const spawnModel = opts.model ?? (opts.targetType === "agent" ? "codex" : undefined);
-    const historyModel = spawnModel ?? resolveProvider();
     const info: ExecutionInfo = {
       id,
       source: opts.source,
       targetType: opts.targetType,
       targetName: opts.targetName,
       agentName: opts.agentName,
-      model: historyModel,
+      model: opts.model ?? DEFAULT_MODEL,
       username: opts.username,
       prompt: opts.prompt,
       cwd: opts.cwd,
@@ -211,191 +306,268 @@ class ExecutionManager extends EventEmitter {
 
     info.resumeSessionId = resumeId ?? null;
 
-    let systemSuffix = "";
-    if (!opts.skipSystemPrompt) {
-      systemSuffix = opts.useDocker
-        ? ""
-        : `\n\n[SYSTEM: You are confined to ${opts.cwd} — do NOT read, list, or access files outside this directory or its subdirectories. Never navigate to parent directories.]`;
-      if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
-        systemSuffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions, and context/agents.md to know the available agents and how to communicate with them via inbox/outbox.]`;
-      }
-      if (opts.targetType === "agent") {
-        const secretsJsonPath = resolve(config.agentsPath, opts.targetName, "secrets.json");
-        if (existsSync(secretsJsonPath)) {
-          systemSuffix += `\n[SYSTEM: You have secrets configured. Read ${secretsJsonPath} for credentials, API keys, and secret file paths.]`;
-        }
-      }
-      if (opts.targetType === "project") {
-        const projectInputDir = resolve(opts.cwd, ".input");
-        if (existsSync(projectInputDir)) {
-          try {
-            const files = readdirSync(projectInputDir).filter((f) => !f.startsWith("."));
-            if (files.length > 0) {
-              systemSuffix += `\n[SYSTEM: You have ${files.length} reference file(s) in ${projectInputDir}/. Check them if relevant to your task.]`;
-            }
-          } catch { }
-        }
-      }
-      if (isEmailEnabled() && (opts.targetType === "agent" || opts.targetType === "orchestrator")) {
-        const scriptPath = getEmailScriptPath();
-        const { sesFrom } = settingsManager.get();
-        const defaultFrom = sesFrom ? ` Default sender: ${sesFrom}.` : "";
-        const profiles = emailSettingsManager.getProfiles();
-        const senderList = profiles.map((p) => p.from).join(", ");
-        const availableSenders = senderList ? ` Available senders: ${senderList}.` : "";
-        systemSuffix += `\n[SYSTEM: You can send emails. Usage: ${scriptPath} --to <email> --subject "<subject>" --body "<body>" [--from <sender-email>] [--html] [--cc <email>] [--attachment <filepath> ...]. Multiple --attachment flags supported.${defaultFrom}${availableSenders}]`;
-      }
+    const sessionKey = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
+    const { session, isNew } = this.getOrCreateSession(opts, sessionKey, resumeId);
+
+    const entry: ActiveEntry = { info, session, opts, sessionKey };
+    this.active.set(id, entry);
+
+    this.wireSession(entry);
+
+    const timeout = opts.timeoutMs ?? config.agentTimeoutMs;
+    if (timeout > 0) {
+      entry.timer = setTimeout(() => {
+        entry.timedOut = true;
+        entry.session.interrupt().catch(() => {});
+      }, timeout);
     }
-    const effectivePrompt = opts.prompt + systemSuffix;
 
-    const handle: SpawnHandle = spawnAgent(
-      effectivePrompt,
-      opts.cwd,
-      resumeId,
-      opts.timeoutMs,
-      (chunk: string) => {
-        if (info.output.length < MAX_STREAM_OUTPUT) {
-          info.output += chunk;
-        }
-        this.emit("output", id, chunk);
-      },
-      spawnModel,
-      (toolUseId: string, questions: AskQuestion[]) => {
-        info.pendingQuestion = { toolUseId, questions };
-        this.emit("question", id, info);
-      },
-      opts.planMode,
-      opts.agentName,
-      opts.useDocker,
-    );
-
-    this.active.set(id, { info, process: handle.process, handle, opts });
-    this.emit("start", id, info);
-
-    handle.promise
-      .then((result) => {
-        if (info.status === "cancelled") return;
-
-        if (result.isError && resumeId) {
-          const isSessionNotFound = result.errorMessages.some(
-            (m) => m.includes("No conversation found") || m.includes("not a UUID") || m.includes("no rollout found"),
+    const dispatch = async () => {
+      if (isNew) {
+        try {
+          const memoryContext = await retrieveContext(
+            { targetType: opts.targetType, targetName: opts.targetName },
+            opts.prompt,
           );
-          if (isSessionNotFound) {
-            console.log(`[execution] Resume session ${resumeId} not found for ${opts.targetType}:${opts.targetName}, retrying without resume`);
-            const key = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
-            this.lastSessionMap.delete(key);
-            this.lastSessionModelMap.delete(key);
-            this.finalize(id);
+          if (memoryContext) session.injectContext(memoryContext);
+        } catch { }
+      } else if (opts.thinking) {
+        await session.setThinking(opts.thinking).catch(() => {});
+      }
 
-            info.status = "error";
-            info.completedAt = new Date();
-            info.error = "Session not found, retrying...";
-            info.result = result;
-            this.emit("error", id, info, info.error);
+      session.sendUserMessage(opts.blocks ?? opts.prompt);
+      const result = await session.waitForResult();
+      if (entry.timedOut) {
+        result.isError = true;
+        result.errorMessages = [`Timeout após ${Math.round(timeout / 60000)} min.`];
+      }
+      this.handleResult(entry, result);
+    };
 
-            this.startExecution({ ...opts, resumeSessionId: null, noResume: true });
-            return;
-          }
-        }
+    this.emit("start", id, info);
+    dispatch().catch((err) => {
+      this.handleFailure(entry, err instanceof Error ? err.message : String(err));
+    });
 
-        if (result.isError) {
-          info.status = "error";
-          info.completedAt = new Date();
-          info.error = result.errorMessages.join("; ") || result.output || "Unknown error";
-          info.result = result;
-          this.finalize(id);
-          this.emit("error", id, info, info.error);
-          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
-          return;
-        }
+    return id;
+  }
 
-        info.completedAt = new Date();
-        info.result = result;
-        if (!info.output) {
-          info.output = result.output;
-        }
-        if (result.sessionId) {
-          const key = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
-          this.lastSessionMap.set(key, result.sessionId);
-          this.lastSessionModelMap.set(key, historyModel);
-          this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
-          if (!sessionNamesManager.getName(result.sessionId)) {
-            sessionNamesManager.getNextAutoName(opts.username).then((name) =>
-              sessionNamesManager.setName(result.sessionId, name),
-            );
-          }
-        }
-        if (spawnModel) {
-          modelPreferences.setLastModel(opts.targetType, opts.targetName, spawnModel);
-        }
+  private wireSession(entry: ActiveEntry): void {
+    const { info, session } = entry;
 
-        const askDenial = result.permissionDenials.find(
-          (d) => d.tool_name === "AskUserQuestion",
-        );
+    const onChunk = (chunk: string) => {
+      if (info.output.length < MAX_STREAM_OUTPUT) info.output += chunk;
+      this.emit("output", info.id, chunk);
+    };
+    const onThinking = (chunk: string) => this.emit("thinking", info.id, chunk);
+    const onToolUse = (name: string, toolInput: Record<string, unknown>) => {
+      const formatted = formatToolUse(name, toolInput);
+      if (info.output.length < MAX_STREAM_OUTPUT) info.output += formatted;
+      this.emit("output", info.id, formatted);
+      this.emit("tool", info.id, name, toolInput, name);
+    };
+    const onSessionId = (sessionId: string, model: string) => {
+      info.model = model || info.model;
+      const key = entry.sessionKey;
+      this.lastSessionMap.set(key, sessionId);
+      this.lastSessionModelMap.set(key, info.model ?? DEFAULT_MODEL);
+      this.pushSessionHistory(info.targetType, info.targetName, sessionId);
+      if (!sessionNamesManager.getName(sessionId)) {
+        sessionNamesManager.getNextAutoName(info.username).then((name) => sessionNamesManager.setName(sessionId, name));
+      }
+    };
+    const onPermission = (p: PendingPermission) => this.emit("permission", info.id, p.reqId, p.toolName, p.input);
+    const onUsage = (u: UsageInfo) => this.emit("usage", info.id, u.costUsd, u.tokens, u.contextPct);
+    const onCompact = (trigger: string) => this.emit("compact", info.id, trigger);
+    const onCheckpoint = (uuid: string) => this.emit("checkpoint", info.id, uuid);
+    const onMode = (mode: PermissionMode) => this.emit("mode", info.id, mode);
+    const onSlash = (commands: string[]) => this.emit("slash-commands", info.id, commands);
+    const onMcp = (servers: { name: string; status: string }[]) => this.emit("mcp-status", info.id, servers);
 
-        if (askDenial) {
-          info.status = "completed";
-          info.pendingQuestion = {
-            toolUseId: askDenial.tool_use_id,
-            questions: askDenial.tool_input.questions,
-          };
-          this.finalize(id);
-          this.pendingQuestions.set(id, { info, opts });
-          this.emit("complete", id, info);
-          this.emit("question", id, info);
-          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
-        } else {
-          info.status = "completed";
-          info.pendingQuestion = null;
-          this.finalize(id);
-          this.emit("complete", id, info);
-          appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
-        }
+    session.on("chunk", onChunk);
+    session.on("thinking", onThinking);
+    session.on("toolUse", onToolUse);
+    session.on("sessionId", onSessionId);
+    session.on("permission", onPermission);
+    session.on("usage", onUsage);
+    session.on("compact", onCompact);
+    session.on("checkpoint", onCheckpoint);
+    session.on("mode", onMode);
+    session.on("slashCommands", onSlash);
+    session.on("mcpStatus", onMcp);
 
-        this.routeAgentMessages(opts);
-      })
-      .catch((err) => {
-        if (info.status === "cancelled") return;
-        const message = err instanceof Error ? err.message : String(err);
+    entry.detach = () => {
+      session.off("chunk", onChunk);
+      session.off("thinking", onThinking);
+      session.off("toolUse", onToolUse);
+      session.off("sessionId", onSessionId);
+      session.off("permission", onPermission);
+      session.off("usage", onUsage);
+      session.off("compact", onCompact);
+      session.off("checkpoint", onCheckpoint);
+      session.off("mode", onMode);
+      session.off("slashCommands", onSlash);
+      session.off("mcpStatus", onMcp);
+    };
+  }
 
-        if (resumeId && (message.includes("No conversation found") || message.includes("not a UUID") || message.includes("no rollout found"))) {
-          console.log(`[execution] Resume session ${resumeId} not found for ${opts.targetType}:${opts.targetName}, retrying without resume`);
-          const key = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
-          this.lastSessionMap.delete(key);
-          this.lastSessionModelMap.delete(key);
-          this.finalize(id);
+  private handleResult(entry: ActiveEntry, result: AgentResult): void {
+    const { info, opts } = entry;
+    if (info.status === "cancelled") return;
 
-          info.status = "error";
-          info.completedAt = new Date();
-          info.error = "Session not found, retrying...";
-          this.emit("error", id, info, info.error);
+    const resumeId = info.resumeSessionId ?? undefined;
 
-          this.startExecution({ ...opts, resumeSessionId: null, noResume: true });
-          return;
-        }
+    if (result.isError && resumeId) {
+      const isSessionNotFound = result.errorMessages.some(
+        (m) => m.includes("No conversation found") || m.includes("not a UUID") || m.includes("no rollout found") || m.includes("session not found"),
+      );
+      if (isSessionNotFound) {
+        console.log(`[execution] Resume session ${resumeId} not found for ${opts.targetType}:${opts.targetName}, retrying without resume`);
+        const key = entry.sessionKey;
+        this.lastSessionMap.delete(key);
+        this.lastSessionModelMap.delete(key);
+        this.dropSession(key);
+        this.finalize(entry);
 
         info.status = "error";
         info.completedAt = new Date();
-        info.error = message;
-        const durationMs = info.completedAt.getTime() - info.startedAt.getTime();
-        info.result = {
-          output: info.output,
-          sessionId: resumeId ?? "",
-          durationMs,
-          costUsd: 0,
-          totalTokens: 0,
-          isError: true,
-          errorMessages: [message],
-          permissionDenials: [],
-        };
-        this.finalize(id);
-        this.emit("error", id, info, message);
+        info.error = "Session not found, retrying...";
+        info.result = result;
+        this.emit("error", info.id, info, info.error);
 
-        appendHistory(buildHistoryEntry(info, { durationMs }));
-        this.routeAgentMessages(opts);
-      });
+        this.startExecution({ ...opts, resumeSessionId: null, noResume: true });
+        return;
+      }
+    }
 
-    return id;
+    if (result.isError) {
+      info.status = "error";
+      info.completedAt = new Date();
+      info.error = result.errorMessages.join("; ") || result.output || "Unknown error";
+      info.result = result;
+      this.finalize(entry);
+      this.emit("error", info.id, info, info.error);
+      appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
+      this.routeAgentMessages(opts);
+      return;
+    }
+
+    info.completedAt = new Date();
+    info.result = result;
+    if (!info.output) info.output = result.output;
+
+    if (result.sessionId) {
+      const key = entry.sessionKey;
+      this.lastSessionMap.set(key, result.sessionId);
+      this.lastSessionModelMap.set(key, info.model ?? DEFAULT_MODEL);
+      this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
+      if (!sessionNamesManager.getName(result.sessionId)) {
+        sessionNamesManager.getNextAutoName(opts.username).then((name) => sessionNamesManager.setName(result.sessionId, name));
+      }
+    }
+
+    const askDenial = result.permissionDenials.find((d) => d.tool_name === "AskUserQuestion");
+
+    if (askDenial) {
+      info.status = "completed";
+      info.pendingQuestion = { toolUseId: askDenial.tool_use_id, questions: askDenial.tool_input.questions };
+      this.finalize(entry);
+      this.pendingQuestions.set(info.id, { info, opts });
+      this.emit("complete", info.id, info);
+      this.emit("question", info.id, info);
+    } else {
+      info.status = "completed";
+      info.pendingQuestion = null;
+      this.finalize(entry);
+      this.emit("complete", info.id, info);
+    }
+
+    appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
+    this.routeAgentMessages(opts);
+  }
+
+  private handleFailure(entry: ActiveEntry, message: string): void {
+    const { info, opts } = entry;
+    if (info.status === "cancelled") return;
+
+    const resumeId = info.resumeSessionId ?? undefined;
+    if (resumeId && (message.includes("No conversation found") || message.includes("not a UUID") || message.includes("no rollout found"))) {
+      console.log(`[execution] Resume session ${resumeId} not found for ${opts.targetType}:${opts.targetName}, retrying without resume`);
+      const key = entry.sessionKey;
+      this.lastSessionMap.delete(key);
+      this.lastSessionModelMap.delete(key);
+      this.dropSession(key);
+      this.finalize(entry);
+
+      info.status = "error";
+      info.completedAt = new Date();
+      info.error = "Session not found, retrying...";
+      this.emit("error", info.id, info, info.error);
+
+      this.startExecution({ ...opts, resumeSessionId: null, noResume: true });
+      return;
+    }
+
+    info.status = "error";
+    info.completedAt = new Date();
+    info.error = message;
+    const durationMs = info.completedAt.getTime() - info.startedAt.getTime();
+    info.result = {
+      output: info.output,
+      sessionId: resumeId ?? "",
+      durationMs,
+      costUsd: 0,
+      totalTokens: 0,
+      isError: true,
+      errorMessages: [message],
+      permissionDenials: [],
+    };
+    this.finalize(entry);
+    this.emit("error", info.id, info, message);
+    appendHistory(buildHistoryEntry(info, { durationMs }));
+    this.routeAgentMessages(opts);
+  }
+
+  sendMessage(id: string, blocksOrText: string | MessageBlock[]): boolean {
+    const entry = this.active.get(id);
+    if (!entry) return false;
+    entry.session.sendUserMessage(blocksOrText);
+    return true;
+  }
+
+  async interrupt(id: string): Promise<boolean> {
+    const entry = this.active.get(id);
+    if (!entry) return false;
+    await entry.session.interrupt();
+    return true;
+  }
+
+  async setPermissionMode(id: string, mode: PermissionMode): Promise<boolean> {
+    const entry = this.active.get(id);
+    if (!entry) return false;
+    await entry.session.setPermissionMode(mode);
+    return true;
+  }
+
+  async setThinking(id: string, level: ThinkingLevel): Promise<boolean> {
+    const entry = this.active.get(id);
+    if (!entry) return false;
+    await entry.session.setThinking(level);
+    return true;
+  }
+
+  respondPermission(id: string, reqId: string, decision: PermissionDecision): boolean {
+    const entry = this.active.get(id);
+    if (!entry) return false;
+    return entry.session.respondPermission(reqId, decision);
+  }
+
+  async rewind(id: string, uuid: string): Promise<boolean> {
+    const entry = this.active.get(id);
+    if (!entry) return false;
+    await entry.session.rewind(uuid);
+    this.emit("checkpoint", id, uuid);
+    return true;
   }
 
   submitAnswer(execId: string, answer: string): string | null {
@@ -410,13 +582,7 @@ class ExecutionManager extends EventEmitter {
     info.pendingQuestion = null;
     this.emit("question:answered", execId, info);
 
-    const newExecId = this.startExecution({
-      ...opts,
-      prompt: answer,
-      resumeSessionId: sessionId,
-    });
-
-    return newExecId;
+    return this.startExecution({ ...opts, prompt: answer, blocks: undefined, resumeSessionId: sessionId });
   }
 
   getPendingQuestion(execId: string): PendingQuestion | null {
@@ -434,10 +600,10 @@ class ExecutionManager extends EventEmitter {
       entry.info.completedAt = new Date();
       entry.info.error = "Cancelado pelo usuário.";
 
-      const sessionId = entry.handle.sessionId
-        ?? entry.opts.resumeSessionId
-        ?? this.getLastSessionId(entry.opts.targetType, entry.opts.targetName, entry.opts.username)
-        ?? "";
+      const sessionId = entry.session.getSessionId()
+        || entry.opts.resumeSessionId
+        || this.getLastSessionId(entry.opts.targetType, entry.opts.targetName, entry.opts.username)
+        || "";
       if (sessionId) {
         const durationMs = entry.info.completedAt.getTime() - entry.info.startedAt.getTime();
         entry.info.result = {
@@ -450,20 +616,14 @@ class ExecutionManager extends EventEmitter {
           errorMessages: [],
           permissionDenials: [],
         };
-        const key = this.userTargetKey(entry.opts.targetType, entry.opts.targetName, entry.opts.username);
+        const key = entry.sessionKey;
         this.lastSessionMap.set(key, sessionId);
-        this.lastSessionModelMap.set(key, entry.info.model ?? "codex");
+        this.lastSessionModelMap.set(key, entry.info.model ?? DEFAULT_MODEL);
         this.pushSessionHistory(entry.opts.targetType, entry.opts.targetName, sessionId);
       }
 
-      entry.process.kill("SIGTERM");
-      setTimeout(() => {
-        if (!entry.process.killed) {
-          entry.process.kill("SIGKILL");
-        }
-      }, 5000);
-
-      this.finalize(id);
+      entry.session.interrupt().catch(() => {});
+      this.finalize(entry);
       this.emit("cancel", id, entry.info);
       appendHistory(buildHistoryEntry(entry.info));
       return true;
@@ -497,10 +657,6 @@ class ExecutionManager extends EventEmitter {
 
   getRecentExecutions(limit = 50): ExecutionInfo[] {
     return this.recent.slice(-limit);
-  }
-
-  getProcess(id: string): ChildProcess | undefined {
-    return this.active.get(id)?.process;
   }
 
   async loadRecent(): Promise<void> {
@@ -542,20 +698,19 @@ class ExecutionManager extends EventEmitter {
     }
   }
 
-  private finalize(id: string): void {
-    const entry = this.active.get(id);
-    if (!entry) return;
-    this.active.delete(id);
+  private finalize(entry: ActiveEntry): void {
+    if (!this.active.has(entry.info.id)) return;
+    if (entry.timer) clearTimeout(entry.timer);
+    this.active.delete(entry.info.id);
+    entry.detach?.();
     if (entry.info.output.length > MAX_MEMORY_OUTPUT) {
       entry.info.output = entry.info.output.slice(0, MAX_MEMORY_OUTPUT) + "\n...(truncated)";
     }
     this.recent.push(entry.info);
-    if (this.recent.length > MAX_RECENT) {
-      this.recent.shift();
-    }
+    if (this.recent.length > MAX_RECENT) this.recent.shift();
   }
 
-  private routeAgentMessages(opts: ExecutionOptions): void {
+  private routeAgentMessages(opts: StartExecutionOpts): void {
     if (opts.targetType === "agent") {
       if (opts.isInboxProcessing) {
         archiveInboxMessages(opts.targetName);

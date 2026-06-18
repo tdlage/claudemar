@@ -4,31 +4,23 @@ import { cpus, homedir } from "node:os";
 import { resolve } from "node:path";
 import { Router } from "express";
 import { config } from "../../config.js";
-import { getSessionSnapshot } from "../../session.js";
 import { loadMetrics } from "../../metrics.js";
 import { executionManager } from "../../execution-manager.js";
 import { checkForUpdates, performUpdate, restartService } from "../../updater.js";
 import { runProcessManager } from "../../run-process-manager.js";
 import { settingsManager } from "../../settings-manager.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
-import { modelPreferences } from "../../model-preferences.js";
 import { usersManager } from "../../users-manager.js";
-import { discoverModels, invalidateModelsCache } from "../../models-discovery.js";
-import { rebuildDockerImage } from "../../executor.js";
+import { getModelDisplayName, DEFAULT_OPUS_DISPLAY } from "../../models-discovery.js";
 
 const INSTALL_DIR = config.installDir;
 
 export const systemRouter = Router();
 
 systemRouter.get("/status", (_req, res) => {
-  const snapshot = getSessionSnapshot(config.allowedChatId);
-  const activeExecutions = executionManager.getActiveExecutions().length;
-
   res.json({
-    ...snapshot,
-    activeExecutions,
+    activeExecutions: executionManager.getActiveExecutions().length,
     uptime: process.uptime(),
-    dockerAvailable: config.dockerAvailable,
   });
 });
 
@@ -178,24 +170,11 @@ systemRouter.get("/token-usage", async (req, res) => {
   }
 });
 
-systemRouter.get("/models", async (_req, res) => {
-  const models = await discoverModels();
-  res.json(models);
-});
-
-systemRouter.post("/models/refresh", async (_req, res) => {
-  invalidateModelsCache();
-  const models = await discoverModels();
-  res.json(models);
-});
-
-systemRouter.post("/docker/rebuild", (_req, res) => {
-  try {
-    rebuildDockerImage();
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to rebuild Docker image" });
-  }
+systemRouter.get("/model", (_req, res) => {
+  const resolved = executionManager.getResolvedModelId();
+  const id = resolved ?? "opus";
+  const displayName = resolved ? getModelDisplayName(resolved) : DEFAULT_OPUS_DISPLAY;
+  res.json({ id, displayName });
 });
 
 systemRouter.get("/changelog", (req, res) => {
@@ -230,7 +209,6 @@ systemRouter.post("/reload-configs", async (_req, res) => {
   await runProcessManager.reload();
   settingsManager.reload();
   await sessionNamesManager.reload();
-  modelPreferences.reload();
   await usersManager.reload();
   console.log("[system] All configs reloaded");
   res.json({ reloaded: true });

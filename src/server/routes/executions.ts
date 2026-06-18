@@ -9,8 +9,7 @@ import { commandQueue } from "../../queue.js";
 import { resolveRepoPath } from "../../repositories.js";
 import { safeProjectPath } from "../../session.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
-import { modelPreferences } from "../../model-preferences.js";
-import { loadHistory, loadSessionRefs, type SessionProvider } from "../../history.js";
+import { loadHistory, loadSessionRefs } from "../../history.js";
 
 export const executionsRouter = Router();
 
@@ -37,7 +36,7 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", async (req, res) => {
-  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue, model: requestModel, useDocker: requestDocker, skipSystemPrompt } = req.body;
+  const { targetType, targetName, prompt, resumeSessionId, repoName, planMode, agentName, forceQueue, skipSystemPrompt } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -88,26 +87,15 @@ executionsRouter.post("/", async (req, res) => {
   }
 
   let finalPrompt = prompt;
-  let model: string | undefined = requestModel || undefined;
 
   if (targetType === "orchestrator") {
     const settings = loadOrchestratorSettings();
     if (settings.prependPrompt) {
       finalPrompt = `${settings.prependPrompt}\n\n${prompt}`;
     }
-    if (!model && settings.model) {
-      model = settings.model;
-    }
   }
 
   const effectiveTargetName = targetName || "orchestrator";
-  if (!model && targetType !== "agent") {
-    const saved = modelPreferences.getLastModel(targetType, effectiveTargetName);
-    if (saved) model = saved;
-  }
-  const useDocker = (req.ctx?.role === "user" && targetType === "project")
-    ? config.dockerAvailable
-    : (requestDocker ? config.dockerAvailable : false);
   const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
   const queuePayload = {
     targetType,
@@ -116,10 +104,8 @@ executionsRouter.post("/", async (req, res) => {
     source: "web" as const,
     cwd,
     resumeSessionId,
-    model,
     planMode,
     agentName,
-    useDocker,
     username,
     skipSystemPrompt: skipSystemPrompt || false,
   };
@@ -210,45 +196,26 @@ executionsRouter.get("/session-names", (_req, res) => {
   res.json(sessionNamesManager.getAllNames());
 });
 
-executionsRouter.get("/model-preference/:targetType/:targetName", (req, res) => {
-  const { targetType, targetName } = req.params;
-  const model = modelPreferences.getLastModel(targetType, targetName);
-  res.json({ model: model ?? null });
-});
-
 function reqUsername(req: Request): string {
   return req.ctx?.role === "admin" ? "admin" : (req.ctx as { name: string })?.name ?? "admin";
-}
-
-function parseProvider(value: unknown): SessionProvider | undefined {
-  return value === "codex" || value === "claude" ? value : undefined;
-}
-
-function providerFromModel(model: string): SessionProvider {
-  return model.startsWith("claude") || model === "claude" ? "claude" : "codex";
 }
 
 executionsRouter.get("/session/:targetType/:targetName", async (req, res) => {
   const { targetType, targetName } = req.params;
   const user = reqUsername(req);
-  const provider = parseProvider(req.query.provider);
-  const sessionRefs = await loadSessionRefs(targetType, targetName, provider);
+  const sessionRefs = await loadSessionRefs(targetType, targetName);
   const dbHistory = sessionRefs.map((s) => s.sessionId);
   const currentSessionId = executionManager.getLastSessionId(targetType, targetName, user);
   const currentModel = executionManager.getLastSessionModel(targetType, targetName, user);
   if (currentSessionId && currentModel && !dbHistory.includes(currentSessionId)) {
-    const currentProvider = providerFromModel(currentModel);
-    if (!provider || provider === currentProvider) {
-      sessionRefs.unshift({ sessionId: currentSessionId, model: currentModel, provider: currentProvider });
-      dbHistory.unshift(currentSessionId);
-    }
+    sessionRefs.unshift({ sessionId: currentSessionId, model: currentModel });
+    dbHistory.unshift(currentSessionId);
   }
   const sessionId = currentSessionId && dbHistory.includes(currentSessionId) ? currentSessionId : null;
   const history = sessionId ? [sessionId, ...dbHistory.filter((s) => s !== sessionId)] : dbHistory;
   const names = sessionNamesManager.getNames([...new Set(history)]);
   const models = Object.fromEntries(sessionRefs.map((s) => [s.sessionId, s.model]));
-  const providers = Object.fromEntries(sessionRefs.map((s) => [s.sessionId, s.provider]));
-  res.json({ sessionId, history, names, models, providers });
+  res.json({ sessionId, history, names, models });
 });
 
 executionsRouter.put("/session/:targetType/:targetName", (req, res) => {
