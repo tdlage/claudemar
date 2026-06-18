@@ -9,6 +9,7 @@ import { useCurrentModel } from "../../hooks/useCurrentModel";
 import { isAdmin } from "../../hooks/useAuth";
 import { formatToolDetail } from "../../lib/toolDetail";
 import { fileToImageBlock, imageBlocksFromClipboard, type ImageBlock } from "../../lib/imageBlock";
+import { getSlashCache, setSlashCache } from "../../lib/slashCache";
 import { MdLinksBar } from "./MdLinksBar";
 import { PermissionPrompt, type PermissionRequest } from "./PermissionPrompt";
 
@@ -98,7 +99,8 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [mode, setMode] = useState<PermissionMode>("default");
   const [ultrathink, setUltrathink] = useState(false);
-  const [slashCommands, setSlashCommands] = useState<string[]>([]);
+  const slashCacheKey = base ?? "default";
+  const [slashCommands, setSlashCommands] = useState<string[]>(() => getSlashCache(slashCacheKey));
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const slashInputRef = useRef<HTMLTextAreaElement>(null);
@@ -232,6 +234,7 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
     const slashHandler = (data: { id: string; commands: string[] }) => {
       if (!matches(data.id)) return;
       setSlashCommands(data.commands);
+      setSlashCache(slashCacheKey, data.commands);
     };
 
     const compactHandler = (data: { id: string; trigger: string }) => {
