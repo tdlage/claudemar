@@ -222,3 +222,12 @@ body {
 .activity-output th, .activity-output td { border: 1px solid var(--color-border); padding: 0.3em 0.6em; text-align: left; }
 .activity-output th { background: var(--color-surface); font-weight: 600; }
 .activity-output tr:nth-child(even) { background: var(--color-surface); }
+
+/* Pixel office (Teams) */
+.pixel-art { image-rendering: pixelated; image-rendering: crisp-edges; }
+@keyframes pixel-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes pixel-type { 0%,100% { transform: translateY(0); } 50% { transform: translateY(1px); } }
+.pixel-bob { animation: pixel-bob 2.4s ease-in-out infinite; }
+.pixel-type { animation: pixel-type 0.35s steps(2) infinite; }
+@keyframes pixel-pop { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } }
+.pixel-pop { animation: pixel-pop 0.25s ease-out; }

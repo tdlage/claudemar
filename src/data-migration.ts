@@ -132,6 +132,30 @@ const TABLE_DEFINITIONS: string[] = [
     description TEXT NOT NULL,
     PRIMARY KEY (agent_name, filename)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS teams (
+    id CHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT,
+    color VARCHAR(16) DEFAULT NULL,
+    emoji VARCHAR(16) DEFAULT NULL,
+    created_at DATETIME NOT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS team_members (
+    agent_name VARCHAR(255) PRIMARY KEY,
+    team_id CHAR(36) NOT NULL,
+    role VARCHAR(16) NOT NULL DEFAULT 'member',
+    joined_at DATETIME NOT NULL,
+    INDEX idx_team (team_id),
+    CONSTRAINT fk_tm_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS agent_appearance (
+    agent_name VARCHAR(255) PRIMARY KEY,
+    color VARCHAR(16) DEFAULT NULL,
+    emoji VARCHAR(16) DEFAULT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
 interface HistoryEntry {

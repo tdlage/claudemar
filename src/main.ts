@@ -19,6 +19,7 @@ import { secretsManager } from "./secrets-manager.js";
 import { runTrackerMigrations } from "./tracker-migration.js";
 import { runDataMigrations } from "./data-migration.js";
 import { initTrackerExecutionBridge } from "./tracker-execution-bridge.js";
+import { initTeams } from "./agents/teams-manager.js";
 import { ensureMemoryReady } from "./memory/session-memory.js";
 import { closePool } from "./database.js";
 
@@ -54,6 +55,9 @@ await runDataMigrations().catch((err) => {
   console.error("[data-migration] Migration failed:", err.message);
 });
 await usersManager.initialize();
+await initTeams().catch((err) => {
+  console.error("[teams] Initialization failed:", err.message);
+});
 await sessionNamesManager.initialize();
 await commandQueue.initialize();
 await runProcessManager.initialize();

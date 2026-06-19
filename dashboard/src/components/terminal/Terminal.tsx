@@ -179,16 +179,21 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
     if (buffered) render(buffered);
 
     const socket = getSocket();
-    socket.emit("subscribe:execution", executionId);
+    const resubscribe = () => socket.emit("subscribe:execution", executionId);
+    resubscribe();
 
     const matches = (id: string) => id === executionId;
 
-    const catchupHandler = (data: { id: string; output: string }) => {
+    const catchupHandler = (data: { id: string; output: string; running?: boolean }) => {
       if (!matches(data.id)) return;
       const current = getOutput(executionId);
       if (data.output.length > current.length) {
         setOutput(executionId, data.output);
         render(data.output);
+      }
+      if (data.running === false) {
+        setRunning(false);
+        setPermissions([]);
       }
     };
 
@@ -262,6 +267,7 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
       setMessages((prev) => prev.filter((m) => m.status !== "queued"));
     };
 
+    socket.on("connect", resubscribe);
     socket.on("execution:catchup", catchupHandler);
     socket.on("execution:output", chunkHandler);
     socket.on("execution:thinking", thinkingHandler);
@@ -277,6 +283,7 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
     socket.on("execution:cancel", stopHandler);
 
     return () => {
+      socket.off("connect", resubscribe);
       socket.off("execution:catchup", catchupHandler);
       socket.off("execution:output", chunkHandler);
       socket.off("execution:thinking", thinkingHandler);
@@ -381,6 +388,17 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
           {currentModel.displayName}
         </span>
+        {usage && (
+          <span
+            className="h-1.5 w-16 rounded-full bg-border overflow-hidden"
+            title={`${Math.round(usage.contextPct)}% do limite de contexto do modelo`}
+          >
+            <span
+              className={`block h-full rounded-full transition-all ${usage.contextPct >= 80 ? "bg-warning" : "bg-accent"}`}
+              style={{ width: `${Math.min(100, Math.max(0, usage.contextPct))}%` }}
+            />
+          </span>
+        )}
         {usage && (
           <>
             <span className="text-text-muted">${usage.costUsd.toFixed(2)}</span>

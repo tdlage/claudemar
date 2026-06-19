@@ -46,6 +46,7 @@ export const config = Object.freeze({
   basePath,
   dataPath,
   agentTimeoutMs: numericEnv("AGENT_TIMEOUT_MS", numericEnv("CLAUDE_TIMEOUT_MS", 0)),
+  permissionTimeoutMs: numericEnv("PERMISSION_TIMEOUT_MS", 10 * 60 * 1000),
   maxOutputLength: numericEnv("MAX_OUTPUT_LENGTH", 4096),
   maxBufferSize: numericEnv("MAX_BUFFER_SIZE", 10 * 1024 * 1024),
   orchestratorPath: resolve(basePath, "orchestrator"),

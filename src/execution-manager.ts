@@ -9,6 +9,7 @@ import type { ThinkingLevel } from "./claude/options.js";
 import { formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
+import { teammatesOf } from "./agents/teams-manager.js";
 import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
 import { config } from "./config.js";
 import { sessionNamesManager } from "./session-names-manager.js";
@@ -234,7 +235,7 @@ class ExecutionManager extends EventEmitter {
 
   private buildSubagents(opts: StartExecutionOpts): Record<string, AgentDefinition> | undefined {
     if (opts.targetType === "orchestrator") return buildAgentDefinitions();
-    if (opts.targetType === "agent") return buildAgentDefinitions(opts.targetName);
+    if (opts.targetType === "agent") return buildAgentDefinitions(opts.targetName, teammatesOf(opts.targetName));
     return undefined;
   }
 
@@ -265,7 +266,11 @@ class ExecutionManager extends EventEmitter {
       thinking: opts.thinking,
       systemAppend: this.buildSystemSuffix(opts),
       subagents: this.buildSubagents(opts),
+      isSubagentAllowed: opts.targetType === "agent"
+        ? (name: string) => teammatesOf(opts.targetName).includes(name)
+        : undefined,
       schedulerMode: opts.schedulerMode,
+      permissionTimeoutMs: config.permissionTimeoutMs,
     });
     this.sessions.set(sessionKey, session);
     return { session, isNew: true };
@@ -635,6 +640,14 @@ class ExecutionManager extends EventEmitter {
 
   getExecution(id: string): ExecutionInfo | undefined {
     return this.active.get(id)?.info ?? this.recent.find((e) => e.id === id);
+  }
+
+  isExecutionActive(id: string): boolean {
+    return this.active.has(id);
+  }
+
+  getPendingPermissions(id: string): PendingPermission[] {
+    return this.active.get(id)?.session.getPendingPermissions() ?? [];
   }
 
   isTargetActive(targetType: string, targetName: string): boolean {

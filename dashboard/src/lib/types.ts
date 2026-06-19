@@ -471,3 +471,33 @@ export interface TrackerItemPlan {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface Team {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  emoji: string | null;
+  createdAt: string;
+  memberCount: number;
+}
+
+export interface TeamMember {
+  agentName: string;
+  role: string;
+}
+
+export interface AgentAppearance {
+  color: string | null;
+  emoji: string | null;
+}
+
+export interface TeamWithMembers extends Team {
+  members: TeamMember[];
+}
+
+export interface TeamsOverview {
+  teams: TeamWithMembers[];
+  loose: string[];
+  appearances: Record<string, AgentAppearance>;
+}

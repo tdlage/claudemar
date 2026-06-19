@@ -27,6 +27,7 @@ export interface UsageInfo {
 
 export interface ClaudeSessionInit extends Omit<BuildOptionsParams, "canUseTool" | "abortController"> {
   permissionTimeoutMs?: number;
+  isSubagentAllowed?: (subagentType: string) => boolean;
 }
 
 interface PushableQueue {
@@ -96,10 +97,11 @@ export class ClaudeSession extends EventEmitter {
   private queue = createPushableQueue();
   private abortController = new AbortController();
   private runner: Query | null = null;
-  private permissionResolvers = new Map<string, { settle: (result: PermissionResult) => void; toolName: string }>();
+  private permissionResolvers = new Map<string, { settle: (result: PermissionResult) => void; toolName: string; input: Record<string, unknown> }>();
   private permissionTimeoutMs: number;
   private bypass: boolean;
   private currentPermissionMode: PermissionMode;
+  private isSubagentAllowed: ((subagentType: string) => boolean) | null;
   private sessionId = "";
   private model = "";
   private assistantBuffer = "";
@@ -118,6 +120,7 @@ export class ClaudeSession extends EventEmitter {
     this.permissionTimeoutMs = init.permissionTimeoutMs ?? 0;
     this.bypass = Boolean(init.bypassPermissions);
     this.currentPermissionMode = init.planMode ? "plan" : init.permissionMode ?? (this.bypass ? "bypassPermissions" : "default");
+    this.isSubagentAllowed = init.isSubagentAllowed ?? null;
 
     const options = buildOptions({
       ...init,
@@ -140,6 +143,12 @@ export class ClaudeSession extends EventEmitter {
     if (toolName === "AskUserQuestion") {
       return Promise.resolve({ behavior: "deny", message: "Pergunta encaminhada ao usuário." });
     }
+    if ((toolName === "Agent" || toolName === "Task") && this.isSubagentAllowed) {
+      const target = typeof input.subagent_type === "string" ? input.subagent_type : undefined;
+      if (target && !this.isSubagentAllowed(target)) {
+        return Promise.resolve({ behavior: "deny", message: `O agente "${target}" não está no seu time e não pode ser acionado.` });
+      }
+    }
     if (this.autoApproves(toolName)) {
       return Promise.resolve({ behavior: "allow", updatedInput: input });
     }
@@ -152,7 +161,7 @@ export class ClaudeSession extends EventEmitter {
         this.permissionResolvers.delete(reqId);
         resolve(result);
       };
-      this.permissionResolvers.set(reqId, { settle, toolName });
+      this.permissionResolvers.set(reqId, { settle, toolName, input });
       this.emit("permission", { reqId, toolName, input } satisfies PendingPermission);
 
       if (this.permissionTimeoutMs > 0) {
@@ -161,6 +170,10 @@ export class ClaudeSession extends EventEmitter {
         }, this.permissionTimeoutMs);
       }
     });
+  }
+
+  getPendingPermissions(): PendingPermission[] {
+    return [...this.permissionResolvers.entries()].map(([reqId, e]) => ({ reqId, toolName: e.toolName, input: e.input }));
   }
 
   respondPermission(reqId: string, decision: PermissionDecision): boolean {

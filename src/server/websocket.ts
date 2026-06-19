@@ -4,6 +4,7 @@ import { executionManager, type ExecutionInfo } from "../execution-manager.js";
 import type { MessageBlock, PermissionDecision } from "../claude/session.js";
 import type { ThinkingLevel } from "../claude/options.js";
 import { commandQueue } from "../queue.js";
+import { teamEvents } from "../agents/teams-manager.js";
 import { runProcessManager } from "../run-process-manager.js";
 import { resolveContext, type RequestContext } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
@@ -66,8 +67,15 @@ export function setupWebSocket(io: SocketServer): void {
       if (!canAccess(id)) return;
       socket.join(`exec:${id}`);
       const exec = executionManager.getExecution(id);
-      if (exec?.output) {
-        socket.emit("execution:catchup", { id, output: exec.output });
+      if (exec) {
+        socket.emit("execution:catchup", {
+          id,
+          output: exec.output ?? "",
+          running: executionManager.isExecutionActive(id),
+        });
+        for (const p of executionManager.getPendingPermissions(id)) {
+          socket.emit("execution:permission", { id, reqId: p.reqId, toolName: p.toolName, input: p.input });
+        }
       }
     });
 
@@ -229,6 +237,10 @@ export function setupWebSocket(io: SocketServer): void {
   executionManager.on("question:answered", (id, info) => {
     io.to("executions").emit("execution:question:answered", { id, info });
     io.to(`exec:${id}`).emit("execution:question:answered", { id, info });
+  });
+
+  teamEvents.on("changed", () => {
+    io.to("executions").emit("team:updated", {});
   });
 
   commandQueue.on("queue:add", (item) => {

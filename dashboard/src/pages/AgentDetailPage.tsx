@@ -19,6 +19,7 @@ import { FilesBrowser } from "../components/project/FilesBrowser";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
+import { AgentTeamChip } from "../components/teams/AgentTeamChip";
 import type { AgentDetail } from "../lib/types";
 
 type TabKey = "terminal" | "code" | "input" | "output" | "config" | "scheduler" | "context" | "secrets";
@@ -129,6 +130,7 @@ export function AgentDetailPage() {
     <div className={`flex flex-col gap-4 ${tab === "code" ? "h-full" : ""}`}>
       <div className="flex items-center gap-2 md:gap-3 flex-wrap">
         <h1 className="text-base md:text-lg font-semibold">{agent.name}</h1>
+        <AgentTeamChip agentName={agent.name} />
         {agent.schedules.length > 0 && (
           <Badge variant="info">{agent.schedules.length} schedules</Badge>
         )}

@@ -10,7 +10,14 @@ import { ChangelogPage } from "./pages/ChangelogPage";
 import { UsersPage } from "./pages/UsersPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TrackerPage } from "./pages/TrackerPage";
+import { TeamsPage } from "./pages/TeamsPage";
+import { TeamDetailPage } from "./pages/TeamDetailPage";
 import { getMe } from "./hooks/useAuth";
+
+function KeyedTeamPage() {
+  const { id } = useParams();
+  return <TeamDetailPage key={id} />;
+}
 
 function KeyedTrackerPage() {
   const { projectId, cycleId, itemId } = useParams();
@@ -75,6 +82,8 @@ export const router = createBrowserRouter([
       { path: "changelog", element: <AdminGuard><ChangelogPage /></AdminGuard> },
       { path: "users", element: <AdminGuard><UsersPage /></AdminGuard> },
       { path: "settings", element: <AdminGuard><SettingsPage /></AdminGuard> },
+      { path: "teams", element: <AdminGuard><TeamsPage /></AdminGuard> },
+      { path: "teams/:id", element: <AdminGuard><KeyedTeamPage /></AdminGuard> },
       { path: "tracker", element: <TrackerPage /> },
       { path: "tracker/:projectId", element: <KeyedTrackerPage /> },
       { path: "tracker/:projectId/board", element: <KeyedTrackerPage /> },

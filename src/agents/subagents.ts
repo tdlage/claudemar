@@ -17,10 +17,12 @@ function buildPrompt(name: string, agentRoot: string, agentsMd: string): string 
   return `${base}${buildSecretsHint(name)}${buildEmailHint()}`;
 }
 
-export function buildAgentDefinitions(excludeName?: string): Record<string, AgentDefinition> {
+export function buildAgentDefinitions(excludeName?: string, allowList?: string[]): Record<string, AgentDefinition> {
+  const allowed = allowList ? new Set(allowList) : null;
   const definitions: Record<string, AgentDefinition> = {};
   for (const name of listAgents()) {
     if (name === excludeName) continue;
+    if (allowed && !allowed.has(name)) continue;
     const paths = getAgentPaths(name);
     if (!paths) continue;
 

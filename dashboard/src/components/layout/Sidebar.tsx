@@ -14,12 +14,13 @@ import {
   PanelLeftOpen,
   Plus,
   KanbanSquare,
+  Building2,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth, getMe } from "../../hooks/useAuth";
 import { TokenUsage } from "./TokenUsage";
 import { useSocketEvent, useSocketRoom } from "../../hooks/useSocket";
-import type { AgentInfo, ProjectInfo, ExecutionInfo } from "../../lib/types";
+import type { AgentInfo, ProjectInfo, ExecutionInfo, Team } from "../../lib/types";
 
 interface SidebarContextValue {
   collapsed: boolean;
@@ -93,6 +94,7 @@ export function Sidebar() {
   const location = useLocation();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [targetStatus, setTargetStatus] = useState<TargetStatus>({});
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const [newAgentName, setNewAgentName] = useState("");
@@ -105,11 +107,18 @@ export function Sidebar() {
     api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
   }, []);
 
+  const loadTeams = useCallback(() => {
+    api.get<Team[]>("/teams").then(setTeams).catch(() => {});
+  }, []);
+
   useEffect(() => {
     loadAgents();
+    loadTeams();
     api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
     api.get<TargetStatus>("/executions/target-status").then(setTargetStatus).catch(() => {});
-  }, [loadAgents]);
+  }, [loadAgents, loadTeams]);
+
+  useSocketEvent("team:updated", loadTeams);
 
   useEffect(() => {
     if (isMobile) setMobileOpen(false);
@@ -358,6 +367,44 @@ export function Sidebar() {
               )}
             </div>
           </div>
+
+          {admin && (
+            <div>
+              {showExpanded && (
+                <div className="flex items-center justify-between px-3 mb-1.5">
+                  <NavLink to="/teams" className="text-xs font-medium text-text-muted uppercase tracking-wider hover:text-text-secondary transition-colors">
+                    Teams / Squads
+                  </NavLink>
+                  <NavLink to="/teams" className="text-text-muted hover:text-accent transition-colors" title="Teams">
+                    <Plus size={14} />
+                  </NavLink>
+                </div>
+              )}
+              {!isMobile && collapsed && (
+                <NavLink to="/teams" className="flex items-center justify-center w-full h-8 text-text-muted hover:text-accent transition-colors" title="Teams / Squads">
+                  <Building2 size={16} />
+                </NavLink>
+              )}
+              <div className="space-y-0.5">
+                {teams.map((t) => (
+                  <NavLink key={t.id} to={`/teams/${t.id}`} className={linkClass} title={t.name}>
+                    <span className="text-sm leading-none w-4 text-center">{t.emoji ?? "🏢"}</span>
+                    {showExpanded && (
+                      <>
+                        <span className="flex-1 truncate">{t.name}</span>
+                        {t.memberCount > 0 && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-accent/15 text-accent">{t.memberCount}</span>
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                ))}
+                {teams.length === 0 && showExpanded && (
+                  <p className="px-3 text-xs text-text-muted">No teams</p>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-0.5">
             <NavLink to="/tracker" className={linkClass} title="Tracker">
