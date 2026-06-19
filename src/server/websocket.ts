@@ -167,8 +167,32 @@ export function setupWebSocket(io: SocketServer): void {
   tokenManager.on("rotate", sweepInvalidSockets);
   tokenManager.on("grace:expired", sweepInvalidSockets);
 
+  const emitToExecutions = (event: string, info: ExecutionInfo, payload: unknown) => {
+    for (const [, s] of io.sockets.sockets) {
+      if (canAccessExecution(s.data.ctx as RequestContext | undefined, info)) s.emit(event, payload);
+    }
+  };
+
+  const lastActivity = new Map<string, string>();
+  const emitActivity = (id: string, info: ExecutionInfo, activity: string) => {
+    if (lastActivity.get(id) === activity) return;
+    lastActivity.set(id, activity);
+    emitToExecutions("execution:activity", info, { id, targetType: info.targetType, targetName: info.targetName, activity });
+  };
+  const finalActivity = (info: ExecutionInfo): string => {
+    if (info.pendingQuestion) return "waiting";
+    return executionManager.isTargetActive(info.targetType, info.targetName) ? "working" : "idle";
+  };
+
+  const classifyTool = (name: string): string => {
+    if (name.startsWith("mcp__")) return "mcp";
+    if (name === "Skill") return "skill";
+    return "working";
+  };
+
   executionManager.on("start", (id, info) => {
-    io.to("executions").emit("execution:start", { id, info });
+    emitToExecutions("execution:start", info, { id, info });
+    emitActivity(id, info, "working");
   });
 
   executionManager.on("output", (id, chunk) => {
@@ -177,20 +201,26 @@ export function setupWebSocket(io: SocketServer): void {
 
   executionManager.prependListener("complete", (id, info) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
-    io.to("executions").emit("execution:complete", { id, info, hasQueued });
+    emitToExecutions("execution:complete", info, { id, info, hasQueued });
     io.to(`exec:${id}`).emit("execution:complete", { id, info, hasQueued });
+    emitActivity(id, info, finalActivity(info));
+    lastActivity.delete(id);
   });
 
   executionManager.prependListener("error", (id, info, message) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
-    io.to("executions").emit("execution:error", { id, info, error: message, hasQueued });
+    emitToExecutions("execution:error", info, { id, info, error: message, hasQueued });
     io.to(`exec:${id}`).emit("execution:error", { id, info, error: message, hasQueued });
+    emitActivity(id, info, finalActivity(info));
+    lastActivity.delete(id);
   });
 
   executionManager.prependListener("cancel", (id, info) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
-    io.to("executions").emit("execution:cancel", { id, info, hasQueued });
+    emitToExecutions("execution:cancel", info, { id, info, hasQueued });
     io.to(`exec:${id}`).emit("execution:cancel", { id, info, hasQueued });
+    emitActivity(id, info, finalActivity(info));
+    lastActivity.delete(id);
   });
 
   executionManager.on("thinking", (id, chunk) => {
@@ -199,6 +229,8 @@ export function setupWebSocket(io: SocketServer): void {
 
   executionManager.on("tool", (id, name, input, kind) => {
     io.to(`exec:${id}`).emit("execution:tool", { id, name, input, kind });
+    const info = executionManager.getExecution(id);
+    if (info) emitActivity(id, info, classifyTool(name));
   });
 
   executionManager.on("permission", (id, reqId, toolName, input) => {
@@ -230,12 +262,13 @@ export function setupWebSocket(io: SocketServer): void {
   });
 
   executionManager.on("question", (id, info) => {
-    io.to("executions").emit("execution:question", { id, info });
+    emitToExecutions("execution:question", info, { id, info });
     io.to(`exec:${id}`).emit("execution:question", { id, info });
+    emitActivity(id, info, "waiting");
   });
 
   executionManager.on("question:answered", (id, info) => {
-    io.to("executions").emit("execution:question:answered", { id, info });
+    emitToExecutions("execution:question:answered", info, { id, info });
     io.to(`exec:${id}`).emit("execution:question:answered", { id, info });
   });
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Trash2, Crown, UserMinus, UserPlus } from "lucide-react";
 import { api } from "../lib/api";
@@ -6,8 +7,9 @@ import { useCachedState } from "../hooks/useCachedState";
 import { useTeams } from "../hooks/useTeams";
 import { Tabs } from "../components/shared/Tabs";
 import { AgentAvatar } from "../components/teams/AgentAvatar";
+import { AppearanceEditor } from "../components/teams/AppearanceEditor";
 import { agentColor } from "../lib/avatar";
-import { TEAM_COLORS as COLORS, TEAM_EMOJIS as EMOJIS, AVATAR_EMOJIS } from "../lib/teamStyle";
+import { TEAM_COLORS as COLORS, TEAM_EMOJIS as EMOJIS } from "../lib/teamStyle";
 
 type TabKey = "members" | "appearance" | "activity";
 
@@ -17,6 +19,7 @@ export function TeamDetailPage() {
   const admin = isAdmin();
   const { overview, reload, statusOf, recent } = useTeams();
   const [tab, setTab] = useCachedState<TabKey>(`team:${id}:tab`, "members");
+  const [editingAvatar, setEditingAvatar] = useState<string | null>(null);
 
   const team = overview?.teams.find((t) => t.id === id);
   if (!overview) return <p className="text-text-muted text-sm">Carregando...</p>;
@@ -37,11 +40,6 @@ export function TeamDetailPage() {
     await api.delete(`/teams/${id}`).catch(() => {});
     navigate("/teams");
   };
-  const setAgentAppearance = async (agent: string, appearance: { color?: string; emoji?: string }) => {
-    await api.put(`/teams/appearance/${agent}`, appearance).catch(() => {});
-    reload();
-  };
-
   const memberActivity = recent
     .filter((e) => e.targetType === "agent" && memberNames.includes(e.targetName))
     .slice(-30).reverse();
@@ -127,28 +125,21 @@ export function TeamDetailPage() {
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             <h2 className="text-sm font-medium text-text-secondary">Avatares dos membros</h2>
             {team.members.map((m) => (
-              <div key={m.agentName} className="flex items-center gap-3 flex-wrap">
+              <div key={m.agentName} className="flex items-center gap-3">
                 <AgentAvatar name={m.agentName} appearance={overview.appearances[m.agentName]} size={28} />
-                <span className="text-sm text-text-secondary w-32 truncate">{m.agentName}</span>
-                <div className="flex gap-1">
-                  {COLORS.map((c) => (
-                    <button key={c} disabled={!admin} onClick={() => setAgentAppearance(m.agentName, { color: c, emoji: overview.appearances[m.agentName]?.emoji ?? undefined })}
-                      className="w-5 h-5 rounded transition-transform hover:scale-110 disabled:opacity-50" style={{ backgroundColor: c }} />
-                  ))}
-                </div>
-                <div className="flex gap-1">
-                  {AVATAR_EMOJIS.map((e) => (
-                    <button key={e || "none"} disabled={!admin} onClick={() => setAgentAppearance(m.agentName, { color: overview.appearances[m.agentName]?.color ?? undefined, emoji: e || undefined })}
-                      className="w-6 h-6 rounded text-sm flex items-center justify-center bg-bg hover:bg-surface-hover transition-colors disabled:opacity-50">
-                      {e || "–"}
-                    </button>
-                  ))}
-                </div>
+                <span className="text-sm text-text-secondary flex-1 truncate">{m.agentName}</span>
+                {admin && (
+                  <button onClick={() => setEditingAvatar(m.agentName)}
+                    className="text-xs px-2 py-1 rounded-md border border-border text-text-muted hover:text-accent hover:border-accent transition-colors">
+                    Editar avatar
+                  </button>
+                )}
               </div>
             ))}
+            {team.members.length === 0 && <p className="text-sm text-text-muted">Nenhum membro.</p>}
           </div>
 
           {admin && (
@@ -171,6 +162,10 @@ export function TeamDetailPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {editingAvatar && (
+        <AppearanceEditor agentName={editingAvatar} open onClose={() => setEditingAvatar(null)} onSaved={reload} />
       )}
     </div>
   );

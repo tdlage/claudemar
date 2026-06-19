@@ -20,7 +20,10 @@ import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import { AgentTeamChip } from "../components/teams/AgentTeamChip";
-import type { AgentDetail } from "../lib/types";
+import { AgentAvatar } from "../components/teams/AgentAvatar";
+import { AppearanceEditor } from "../components/teams/AppearanceEditor";
+import { isAdmin } from "../hooks/useAuth";
+import type { AgentDetail, AgentAppearance } from "../lib/types";
 
 type TabKey = "terminal" | "code" | "input" | "output" | "config" | "scheduler" | "context" | "secrets";
 
@@ -34,6 +37,14 @@ export function AgentDetailPage() {
   const [selectedSkill, setSelectedSkill] = useCachedState(`agent:${name}:skill`, "");
   const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
+  const [appearance, setAppearance] = useState<AgentAppearance>({ color: null, emoji: null });
+  const [editingAvatar, setEditingAvatar] = useState(false);
+  const admin = isAdmin();
+
+  useEffect(() => {
+    if (!name || !admin) return;
+    api.get<AgentAppearance>(`/teams/appearance/${name}`).then(setAppearance).catch(() => {});
+  }, [name, admin]);
 
   const loadOutputs = useCallback(() => {
     if (!name) return;
@@ -129,6 +140,14 @@ export function AgentDetailPage() {
   return (
     <div className={`flex flex-col gap-4 ${tab === "code" ? "h-full" : ""}`}>
       <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+        <button
+          onClick={() => admin && setEditingAvatar(true)}
+          disabled={!admin}
+          title={admin ? "Editar avatar" : undefined}
+          className={admin ? "cursor-pointer hover:opacity-80 transition-opacity" : "cursor-default"}
+        >
+          <AgentAvatar name={agent.name} appearance={appearance} size={32} />
+        </button>
         <h1 className="text-base md:text-lg font-semibold">{agent.name}</h1>
         <AgentTeamChip agentName={agent.name} />
         {agent.schedules.length > 0 && (
@@ -274,6 +293,10 @@ export function AgentDetailPage() {
           secretFiles={agent.secretFiles}
           onRefresh={loadAgent}
         />
+      )}
+
+      {editingAvatar && (
+        <AppearanceEditor agentName={agent.name} open onClose={() => setEditingAvatar(false)} onSaved={setAppearance} />
       )}
     </div>
   );

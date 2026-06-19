@@ -501,3 +501,4 @@ export interface TeamsOverview {
   loose: string[];
   appearances: Record<string, AgentAppearance>;
 }
+

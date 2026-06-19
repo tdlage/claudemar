@@ -12,11 +12,17 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { TrackerPage } from "./pages/TrackerPage";
 import { TeamsPage } from "./pages/TeamsPage";
 import { TeamDetailPage } from "./pages/TeamDetailPage";
+import { TeamOfficePage } from "./pages/TeamOfficePage";
 import { getMe } from "./hooks/useAuth";
 
 function KeyedTeamPage() {
   const { id } = useParams();
   return <TeamDetailPage key={id} />;
+}
+
+function KeyedTeamOfficePage() {
+  const { id } = useParams();
+  return <TeamOfficePage key={id} />;
 }
 
 function KeyedTrackerPage() {
@@ -84,6 +90,7 @@ export const router = createBrowserRouter([
       { path: "settings", element: <AdminGuard><SettingsPage /></AdminGuard> },
       { path: "teams", element: <AdminGuard><TeamsPage /></AdminGuard> },
       { path: "teams/:id", element: <AdminGuard><KeyedTeamPage /></AdminGuard> },
+      { path: "teams/:id/office", element: <AdminGuard><KeyedTeamOfficePage /></AdminGuard> },
       { path: "tracker", element: <TrackerPage /> },
       { path: "tracker/:projectId", element: <KeyedTrackerPage /> },
       { path: "tracker/:projectId/board", element: <KeyedTrackerPage /> },

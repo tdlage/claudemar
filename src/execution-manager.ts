@@ -9,7 +9,7 @@ import type { ThinkingLevel } from "./claude/options.js";
 import { formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
-import { teammatesOf } from "./agents/teams-manager.js";
+import { teammatesOf, squadMcpsForAgent, squadSkillsForAgent } from "./agents/teams-manager.js";
 import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
 import { config } from "./config.js";
 import { sessionNamesManager } from "./session-names-manager.js";
@@ -269,6 +269,8 @@ class ExecutionManager extends EventEmitter {
       isSubagentAllowed: opts.targetType === "agent"
         ? (name: string) => teammatesOf(opts.targetName).includes(name)
         : undefined,
+      extraMcpServers: opts.targetType === "agent" ? squadMcpsForAgent(opts.targetName) : undefined,
+      squadSkills: opts.targetType === "agent" ? squadSkillsForAgent(opts.targetName) : undefined,
       schedulerMode: opts.schedulerMode,
       permissionTimeoutMs: config.permissionTimeoutMs,
     });

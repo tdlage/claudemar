@@ -8,7 +8,7 @@ export type AgentLiveStatus = "running" | "waiting" | "idle";
 
 export function useTeams() {
   const [overview, setOverview] = useState<TeamsOverview | null>(null);
-  const { active, recent, pendingQuestions } = useExecutions();
+  const { active, recent, pendingQuestions, submitAnswer } = useExecutions();
 
   const reload = useCallback(() => {
     api.get<TeamsOverview>("/teams/overview").then(setOverview).catch(() => {});
@@ -33,5 +33,5 @@ export function useTeams() {
     [active, pendingQuestions],
   );
 
-  return { overview, reload, statusOf, recent };
+  return { overview, reload, statusOf, recent, active, pendingQuestions, submitAnswer };
 }

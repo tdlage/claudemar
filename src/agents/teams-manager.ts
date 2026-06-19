@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import type { RowDataPacket } from "mysql2/promise";
+import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { query, execute, toMySQLDatetime } from "../database.js";
 import { listAgents } from "./manager.js";
 
@@ -30,6 +31,13 @@ export interface AgentAppearance {
   emoji: string | null;
 }
 
+export interface SquadMcp {
+  id: string;
+  teamId: string;
+  name: string;
+  config: McpServerConfig;
+}
+
 type TeamRow = RowDataPacket & {
   id: string; name: string; description: string | null;
   color: string | null; emoji: string | null; created_at: Date; member_count: number;
@@ -39,12 +47,39 @@ type AppearanceRow = RowDataPacket & { agent_name: string; color: string | null;
 
 const membership = new Map<string, string>();
 let membershipLoaded = false;
+const mcpCache = new Map<string, SquadMcp[]>();
+const skillCache = new Map<string, string[]>();
 
 export async function initTeams(): Promise<void> {
   const rows = await query<MemberRow[]>("SELECT agent_name, team_id FROM team_members");
   membership.clear();
   for (const row of rows) membership.set(row.agent_name, row.team_id);
+
+  mcpCache.clear();
+  const mcpRows = await query<(RowDataPacket & { id: string; team_id: string; name: string; config: unknown })[]>(
+    "SELECT id, team_id, name, config FROM squad_mcps",
+  );
+  for (const r of mcpRows) {
+    const list = mcpCache.get(r.team_id) ?? [];
+    list.push({ id: r.id, teamId: r.team_id, name: r.name, config: parseConfig(r.config) });
+    mcpCache.set(r.team_id, list);
+  }
+
+  skillCache.clear();
+  const skillRows = await query<(RowDataPacket & { team_id: string; skill_name: string })[]>(
+    "SELECT team_id, skill_name FROM squad_skills",
+  );
+  for (const r of skillRows) {
+    const list = skillCache.get(r.team_id) ?? [];
+    list.push(r.skill_name);
+    skillCache.set(r.team_id, list);
+  }
+
   membershipLoaded = true;
+}
+
+function parseConfig(raw: unknown): McpServerConfig {
+  return (typeof raw === "string" ? JSON.parse(raw) : raw) as McpServerConfig;
 }
 
 function mapTeam(row: TeamRow): Team {
@@ -112,6 +147,8 @@ export async function deleteTeam(id: string): Promise<void> {
   for (const [agent, teamId] of membership) {
     if (teamId === id) membership.delete(agent);
   }
+  mcpCache.delete(id);
+  skillCache.delete(id);
   emitChanged();
 }
 
@@ -148,6 +185,11 @@ export async function removeAgentData(agentName: string): Promise<void> {
   await execute("DELETE FROM agent_appearance WHERE agent_name = ?", [agentName]);
 }
 
+export async function getAppearance(agentName: string): Promise<AgentAppearance> {
+  const rows = await query<AppearanceRow[]>("SELECT color, emoji FROM agent_appearance WHERE agent_name = ?", [agentName]);
+  return rows[0] ? { color: rows[0].color, emoji: rows[0].emoji } : { color: null, emoji: null };
+}
+
 export async function getAllAppearances(): Promise<Record<string, AgentAppearance>> {
   const rows = await query<AppearanceRow[]>("SELECT agent_name, color, emoji FROM agent_appearance");
   const result: Record<string, AgentAppearance> = {};
@@ -162,6 +204,63 @@ export async function setAppearance(agentName: string, appearance: AgentAppearan
     [agentName, appearance.color ?? null, appearance.emoji ?? null],
   );
   emitChanged();
+}
+
+
+export function listSquadMcps(teamId: string): SquadMcp[] {
+  return mcpCache.get(teamId) ?? [];
+}
+
+export async function addSquadMcp(teamId: string, name: string, config: McpServerConfig): Promise<SquadMcp> {
+  const id = randomUUID();
+  await execute(
+    "INSERT INTO squad_mcps (id, team_id, name, config, created_at) VALUES (?, ?, ?, ?, ?)",
+    [id, teamId, name, JSON.stringify(config), toMySQLDatetime(new Date().toISOString())],
+  );
+  const item: SquadMcp = { id, teamId, name, config };
+  mcpCache.set(teamId, [...(mcpCache.get(teamId) ?? []), item]);
+  emitChanged();
+  return item;
+}
+
+export async function removeSquadMcp(id: string): Promise<void> {
+  await execute("DELETE FROM squad_mcps WHERE id = ?", [id]);
+  for (const [teamId, list] of mcpCache) {
+    if (list.some((m) => m.id === id)) mcpCache.set(teamId, list.filter((m) => m.id !== id));
+  }
+  emitChanged();
+}
+
+export function listSquadSkills(teamId: string): string[] {
+  return skillCache.get(teamId) ?? [];
+}
+
+export async function setSquadSkills(teamId: string, skills: string[]): Promise<void> {
+  const unique = [...new Set(skills.filter((s) => typeof s === "string" && s.trim()))];
+  await execute("DELETE FROM squad_skills WHERE team_id = ?", [teamId]);
+  for (const skill of unique) {
+    await execute("INSERT INTO squad_skills (team_id, skill_name) VALUES (?, ?)", [teamId, skill]);
+  }
+  if (unique.length) skillCache.set(teamId, unique);
+  else skillCache.delete(teamId);
+  emitChanged();
+}
+
+export function squadMcpsForAgent(agentName: string): Record<string, McpServerConfig> | undefined {
+  const teamId = membership.get(agentName);
+  if (!teamId) return undefined;
+  const list = mcpCache.get(teamId);
+  if (!list || list.length === 0) return undefined;
+  const out: Record<string, McpServerConfig> = {};
+  for (const m of list) out[m.name] = m.config;
+  return out;
+}
+
+export function squadSkillsForAgent(agentName: string): string[] | undefined {
+  const teamId = membership.get(agentName);
+  if (!teamId) return undefined;
+  const list = skillCache.get(teamId);
+  return list && list.length > 0 ? list : undefined;
 }
 
 export function teammatesOf(agentName: string): string[] {

@@ -1,4 +1,4 @@
-import type { AgentDefinition, CanUseTool, Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentDefinition, CanUseTool, McpServerConfig, Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { createMemoryMcpServer, memoryEnabled, type MemoryTarget } from "../memory/session-memory.js";
 import { createSchedulerMcpServer } from "../agents/scheduler.js";
 
@@ -20,6 +20,8 @@ export interface BuildOptionsParams {
   systemAppend?: string;
   subagents?: Record<string, AgentDefinition>;
   schedulerMode?: boolean;
+  extraMcpServers?: Record<string, McpServerConfig>;
+  squadSkills?: string[];
   stderr?: (data: string) => void;
 }
 
@@ -90,6 +92,9 @@ export function buildOptions(params: BuildOptionsParams): Options {
   }
 
   const mcpServers: NonNullable<Options["mcpServers"]> = {};
+  if (params.extraMcpServers) {
+    for (const [name, cfg] of Object.entries(params.extraMcpServers)) mcpServers[name] = cfg;
+  }
   const memoryServer = createMemoryMcpServer(params.target);
   if (memoryServer) {
     mcpServers.memory = memoryServer;
@@ -99,6 +104,10 @@ export function buildOptions(params: BuildOptionsParams): Options {
   }
   if (Object.keys(mcpServers).length > 0) {
     options.mcpServers = mcpServers;
+  }
+
+  if (params.squadSkills && params.squadSkills.length > 0) {
+    options.skills = params.squadSkills;
   }
 
   if (params.subagents && Object.keys(params.subagents).length > 0) {
