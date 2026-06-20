@@ -3,7 +3,7 @@ import type { Request } from "express";
 import { Router } from "express";
 import { executionManager } from "../../execution-manager.js";
 import type { MessageBlock } from "../../claude/session.js";
-import type { ThinkingLevel } from "../../claude/options.js";
+import { EFFORTS, type Effort } from "../../claude/options.js";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { getAgentPaths } from "../../agents/manager.js";
 import { config } from "../../config.js";
@@ -39,7 +39,7 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", async (req, res) => {
-  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, thinking, agentName, forceQueue, skipSystemPrompt, schedulerMode } = req.body;
+  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, agentName, forceQueue, skipSystemPrompt, schedulerMode } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -107,6 +107,7 @@ executionsRouter.post("/", async (req, res) => {
 
   const effectiveTargetName = targetName || "orchestrator";
   const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
+  const resolvedEffort = typeof effort === "string" && EFFORTS.includes(effort as Effort) ? (effort as Effort) : undefined;
   const queuePayload = {
     targetType,
     targetName: effectiveTargetName,
@@ -118,6 +119,7 @@ executionsRouter.post("/", async (req, res) => {
     agentName,
     username,
     skipSystemPrompt: skipSystemPrompt || false,
+    effort: resolvedEffort,
   };
 
   const targetActive = executionManager.isTargetActive(targetType, effectiveTargetName);
@@ -136,14 +138,11 @@ executionsRouter.post("/", async (req, res) => {
   const validModes = ["default", "acceptEdits", "bypassPermissions", "plan"];
   const requestedMode = typeof permissionMode === "string" && validModes.includes(permissionMode) ? (permissionMode as PermissionMode) : undefined;
   const resolvedMode = requestedMode === "bypassPermissions" && req.ctx?.role !== "admin" ? undefined : requestedMode;
-  const validThinking = ["off", "think", "think_hard", "ultrathink"];
-  const resolvedThinking = typeof thinking === "string" && validThinking.includes(thinking) ? (thinking as ThinkingLevel) : undefined;
   const id = executionManager.startExecution({
     ...queuePayload,
     rawPrompt: prompt,
     blocks: execBlocks,
     permissionMode: resolvedMode,
-    thinking: resolvedThinking,
     schedulerMode: targetType === "agent" && Boolean(schedulerMode),
   });
 

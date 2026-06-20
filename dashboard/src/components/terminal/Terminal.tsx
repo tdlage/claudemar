@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  Send, Square, Brain, Sparkles, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
+  Send, Square, Brain, Gauge, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
 } from "lucide-react";
 import { getSocket } from "../../lib/socket";
 import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
@@ -12,6 +12,7 @@ import { fileToImageBlock, imageBlocksFromClipboard, type ImageBlock } from "../
 import { getSlashCache, setSlashCache } from "../../lib/slashCache";
 import { MdLinksBar } from "./MdLinksBar";
 import { PermissionPrompt, type PermissionRequest } from "./PermissionPrompt";
+import { Dropdown } from "../shared/Dropdown";
 
 export type PermissionMode = "default" | "auto" | "plan" | "acceptEdits" | "bypassPermissions";
 
@@ -24,6 +25,19 @@ const MODE_LABELS: Record<PermissionMode, string> = {
 };
 
 const MODE_ORDER: PermissionMode[] = ["default", "plan", "acceptEdits"];
+
+export type Effort = "low" | "medium" | "high" | "extra" | "max" | "ultracode";
+
+const EFFORT_LABELS: Record<Effort, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  extra: "Extra",
+  max: "Max",
+  ultracode: "Ultracode",
+};
+
+const EFFORT_LEVELS = Object.keys(EFFORT_LABELS) as Effort[];
 
 interface ThinkingBlock {
   id: number;
@@ -50,20 +64,20 @@ interface UsageState {
 export interface StartOpts {
   planMode: boolean;
   permissionMode: PermissionMode;
-  thinking: "off" | "ultrathink";
+  effort: Effort;
 }
 
 interface UserMessage {
   id: number;
   text: string;
   imageCount: number;
-  status: "queued" | "sent";
 }
 
 interface TerminalProps {
   executionId: string | null;
   base?: string;
   controls?: React.ReactNode;
+  inputControls?: React.ReactNode;
   startPlaceholder?: string;
   queueMode?: boolean;
   onStart?: (text: string, images: ImageBlock[], opts: StartOpts) => Promise<void> | void;
@@ -73,7 +87,7 @@ function startPermissionMode(mode: PermissionMode): PermissionMode {
   return mode === "plan" ? "default" : mode;
 }
 
-export function Terminal({ executionId, base, controls, startPlaceholder, queueMode, onStart }: TerminalProps) {
+export function Terminal({ executionId, base, controls, inputControls, startPlaceholder, queueMode, onStart }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const currentModel = useCurrentModel();
@@ -86,10 +100,8 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
   const [running, setRunning] = useState(false);
   const [messages, setMessages] = useState<UserMessage[]>([]);
 
-  const queueRef = useRef<{ msgId: number; text: string; images: ImageBlock[] }[]>([]);
   const onStartRef = useRef<TerminalProps["onStart"]>(onStart);
   const modeRef = useRef<PermissionMode>("default");
-  const ultrathinkRef = useRef(false);
 
   const [thinking, setThinking] = useState<ThinkingBlock[]>([]);
   const [thinkingCollapsed, setThinkingCollapsed] = useState(true);
@@ -98,7 +110,7 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
   const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [mode, setMode] = useState<PermissionMode>("default");
-  const [ultrathink, setUltrathink] = useState(false);
+  const [effort, setEffort] = useState<Effort>("high");
   const slashCacheKey = base ?? "default";
   const [slashCommands, setSlashCommands] = useState<string[]>(() => getSlashCache(slashCacheKey));
   const [slashIndex, setSlashIndex] = useState(0);
@@ -112,25 +124,12 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
   useEffect(() => {
     onStartRef.current = onStart;
     modeRef.current = mode;
-    ultrathinkRef.current = ultrathink;
   });
 
   const render = useCallback((text: string) => {
     setHtml(renderOutputHtml(text || "(sem output)"));
     const paths = extractMdPaths(text);
     if (paths.length > 0) setMdPaths(paths);
-  }, []);
-
-  const flushQueue = useCallback(() => {
-    const items = queueRef.current;
-    if (items.length === 0 || !onStartRef.current) return;
-    queueRef.current = [];
-    const text = items.map((i) => i.text).filter(Boolean).join("\n\n");
-    const images = items.flatMap((i) => i.images);
-    const ids = new Set(items.map((i) => i.msgId));
-    setMessages((prev) => prev.map((m) => (ids.has(m.id) ? { ...m, status: "sent" } : m)));
-    const m = modeRef.current;
-    void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), thinking: ultrathinkRef.current ? "ultrathink" : "off" });
   }, []);
 
   useEffect(() => {
@@ -165,7 +164,6 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
     prevExecIdRef.current = executionId;
     if (prevExecId && prevExecId !== executionId) {
       setMessages([]);
-      setUltrathink(false);
     }
 
     if (!executionId) {
@@ -256,15 +254,12 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
       if (!matches(data.id)) return;
       setRunning(false);
       setPermissions([]);
-      flushQueue();
     };
 
     const stopHandler = (data: { id: string }) => {
       if (!matches(data.id)) return;
       setRunning(false);
       setPermissions([]);
-      queueRef.current = [];
-      setMessages((prev) => prev.filter((m) => m.status !== "queued"));
     };
 
     socket.on("connect", resubscribe);
@@ -299,40 +294,37 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
       socket.off("execution:cancel", stopHandler);
       socket.emit("unsubscribe:execution", executionId);
     };
-  }, [executionId, render, flushQueue]);
+  }, [executionId, render]);
 
   const submit = useCallback(() => {
     const text = input.trim();
     const images = pendingImages;
     if (!text && images.length === 0) return;
 
-    const msgId = counterRef.current++;
-    const addMessage = (status: UserMessage["status"]) =>
-      setMessages((prev) => [...prev.slice(-29), { id: msgId, text, imageCount: images.length, status }]);
+    const injectIntoRunning = running && executionId !== null && !queueMode;
+    const willQueue = running && executionId !== null && queueMode;
 
-    if (running && executionId) {
-      if (queueMode) {
-        addMessage("queued");
-        queueRef.current.push({ msgId, text, images });
+    if (!willQueue) {
+      const msgId = counterRef.current++;
+      setMessages((prev) => [...prev.slice(-29), { id: msgId, text, imageCount: images.length }]);
+    }
+
+    if (injectIntoRunning) {
+      const socket = getSocket();
+      if (images.length > 0) {
+        socket.emit("execution:send", { execId: executionId, blocks: [...images, ...(text ? [{ type: "text" as const, text }] : [])] });
       } else {
-        addMessage("sent");
-        const socket = getSocket();
-        if (images.length > 0) {
-          socket.emit("execution:send", { execId: executionId, blocks: [...images, ...(text ? [{ type: "text" as const, text }] : [])] });
-        } else {
-          socket.emit("execution:send", { execId: executionId, text });
-        }
+        socket.emit("execution:send", { execId: executionId, text });
       }
     } else if (onStartRef.current) {
-      addMessage("sent");
       const m = modeRef.current;
-      void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), thinking: ultrathink ? "ultrathink" : "off" });
+      void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), effort });
       if (m === "plan") setMode("default");
     }
 
     setInput("");
     setPendingImages([]);
-  }, [input, pendingImages, running, executionId, queueMode, ultrathink]);
+  }, [input, pendingImages, running, executionId, queueMode, effort]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -344,11 +336,10 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
     if (executionId) getSocket().emit("execution:set-mode", { id: executionId, mode: next });
   }, [executionId]);
 
-  const handleToggleUltrathink = useCallback(() => {
-    const next = !ultrathink;
-    setUltrathink(next);
-    if (executionId) getSocket().emit("execution:set-thinking", { id: executionId, level: next ? "ultrathink" : "off" });
-  }, [executionId, ultrathink]);
+  const handleSetEffort = useCallback((next: Effort) => {
+    setEffort(next);
+    if (executionId) getSocket().emit("execution:set-effort", { id: executionId, effort: next });
+  }, [executionId]);
 
   const handlePermissionDecision = useCallback((reqId: string, decision: "allow" | "always" | "deny") => {
     if (!executionId) return;
@@ -536,15 +527,6 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
                     {m.text || (m.imageCount > 0 ? `(${m.imageCount} imagem${m.imageCount > 1 ? "s" : ""})` : "")}
                     {m.text && m.imageCount > 0 ? ` (+${m.imageCount} img)` : ""}
                   </span>
-                  <span
-                    className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                      m.status === "queued"
-                        ? "bg-warning/15 text-warning"
-                        : "bg-accent/15 text-accent"
-                    }`}
-                  >
-                    {m.status === "queued" ? "na fila" : "considerada"}
-                  </span>
                 </div>
               ))}
             </div>
@@ -567,6 +549,11 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+          {inputControls && (
+            <div className="flex items-center justify-end gap-2 flex-wrap">
+              {inputControls}
             </div>
           )}
           <div className="relative flex items-end gap-2">
@@ -616,16 +603,45 @@ export function Terminal({ executionId, base, controls, startPlaceholder, queueM
               className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 160 }}
             />
-            <button
-              type="button"
-              onClick={handleToggleUltrathink}
-              title={ultrathink ? "Ultrathink ativo" : "Ativar Ultrathink"}
-              className={`p-1.5 rounded-md transition-colors ${
-                ultrathink ? "bg-accent/20 text-accent border border-accent/40" : "text-text-muted hover:text-text-secondary border border-transparent"
+            <Dropdown
+              align="right"
+              direction="up"
+              menuClassName="w-44"
+              triggerTitle={`Esforço de raciocínio: ${EFFORT_LABELS[effort]}`}
+              triggerClassName={`inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium border transition-colors ${
+                effort === "high"
+                  ? "text-text-muted border-transparent hover:text-text-secondary"
+                  : "bg-accent/20 text-accent border-accent/40"
               }`}
+              triggerContent={
+                <>
+                  <Gauge size={14} />
+                  <span className="hidden sm:inline">{EFFORT_LABELS[effort]}</span>
+                </>
+              }
             >
-              <Sparkles size={14} />
-            </button>
+              {(close) => (
+                <>
+                  <div className="flex items-center justify-between px-3 py-1 text-[10px] uppercase tracking-wide text-text-muted">
+                    <span>Mais rápido</span>
+                    <span>Mais preciso</span>
+                  </div>
+                  {EFFORT_LEVELS.map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => { handleSetEffort(lvl); close(); }}
+                      className={`flex items-center justify-between gap-2 w-full text-left px-3 py-1.5 text-xs ${
+                        effort === lvl ? "bg-accent/15 text-accent" : "text-text-secondary hover:bg-surface-hover"
+                      }`}
+                    >
+                      {EFFORT_LABELS[lvl]}
+                      {lvl === "ultracode" && <Zap size={11} className="opacity-70" />}
+                    </button>
+                  ))}
+                </>
+              )}
+            </Dropdown>
             <label
               title="Anexar imagem"
               className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"

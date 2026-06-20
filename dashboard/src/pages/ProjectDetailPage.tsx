@@ -48,7 +48,7 @@ export function ProjectDetailPage() {
   }, [name]);
 
   const {
-    execId, setExecId, sessionData, loadSession,
+    execId, setExecId, isRunning, sessionData, loadSession,
     handleSessionChange, handleSessionRename, handleSessionDelete,
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
@@ -85,7 +85,7 @@ export function ProjectDetailPage() {
         resumeSessionId: sessionData.sessionId,
         planMode: opts.planMode,
         permissionMode: opts.permissionMode,
-        thinking: opts.thinking,
+        effort: opts.effort,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
       });
@@ -121,12 +121,6 @@ export function ProjectDetailPage() {
       <div className="flex items-center gap-2 md:gap-3 shrink-0 flex-wrap">
         <h1 className="text-base md:text-lg font-semibold">{project.name}</h1>
         <Badge variant="default">{project.repos.length} repos</Badge>
-        <SessionSelector
-          sessionData={sessionData}
-          onChange={handleSessionChange}
-          onRename={handleSessionRename}
-          onDelete={handleSessionDelete}
-        />
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
@@ -192,6 +186,18 @@ export function ProjectDetailPage() {
                       </select>
                     </div>
                   )}
+                </>
+              }
+              inputControls={
+                <>
+                  <SessionSelector
+                    sessionData={sessionData}
+                    onChange={handleSessionChange}
+                    onRename={handleSessionRename}
+                    onDelete={handleSessionDelete}
+                    disabled={!sequential && isRunning}
+                    disabledTitle="Com o Queue desligado, novas mensagens entram na execução atual — troque o Queue para mudar de sessão"
+                  />
                   <ToggleButton
                     active={sequential}
                     onToggle={() => setSequential(!sequential)}

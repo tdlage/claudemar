@@ -10,9 +10,11 @@ interface SessionSelectorProps {
   // TODO: backend fork route/event ausente. Quando existir (forkSession do SDK),
   // ligar onFork nas paginas para criar uma sessao bifurcada a partir da atual.
   onFork?: (sessionId: string) => Promise<void>;
+  disabled?: boolean;
+  disabledTitle?: string;
 }
 
-export function SessionSelector({ sessionData, onChange, onRename, onDelete, onFork }: SessionSelectorProps) {
+export function SessionSelector({ sessionData, onChange, onRename, onDelete, onFork, disabled, disabledTitle }: SessionSelectorProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
 
@@ -60,7 +62,9 @@ export function SessionSelector({ sessionData, onChange, onRename, onDelete, onF
       <select
         value={sessionData.sessionId ?? "__new"}
         onChange={(e) => onChange(e.target.value)}
-        className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+        disabled={disabled}
+        title={disabled ? disabledTitle : undefined}
+        className="text-xs font-mono bg-surface border border-border rounded-md px-2 py-1 text-text-primary focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <option value="__new">Nova sessão</option>
         {sessionData.history.map((sid) => (

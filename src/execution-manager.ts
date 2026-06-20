@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentDefinition, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentResult, AskQuestion } from "./providers/types.js";
 import { ClaudeSession, type MessageBlock, type PendingPermission, type PermissionDecision, type UsageInfo } from "./claude/session.js";
-import type { ThinkingLevel } from "./claude/options.js";
+import { isUltracode, type Effort } from "./claude/options.js";
 import { formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
@@ -62,7 +62,7 @@ export interface StartExecutionOpts {
   username?: string;
   skipSystemPrompt?: boolean;
   blocks?: MessageBlock[];
-  thinking?: ThinkingLevel;
+  effort?: Effort;
   autoApprove?: boolean;
   permissionMode?: PermissionMode;
   schedulerMode?: boolean;
@@ -263,7 +263,7 @@ class ExecutionManager extends EventEmitter {
       permissionMode: opts.permissionMode,
       bypassPermissions: bypass,
       resumeSessionId: resumeId ?? null,
-      thinking: opts.thinking,
+      effort: opts.effort,
       systemAppend: this.buildSystemSuffix(opts),
       subagents: this.buildSubagents(opts),
       isSubagentAllowed: opts.targetType === "agent"
@@ -334,8 +334,11 @@ class ExecutionManager extends EventEmitter {
     }
 
     const dispatch = async () => {
-      if (!isNew && opts.thinking) {
-        await session.setThinking(opts.thinking).catch(() => {});
+      // New sessions get effort from buildOptions (Options.effort), which also
+      // covers "max". Ultracode additionally needs its session flags applied,
+      // and resumed sessions need any effort change pushed to the live runner.
+      if (opts.effort && (!isNew || isUltracode(opts.effort))) {
+        await session.setEffort(opts.effort).catch(() => {});
       }
 
       session.sendUserMessage(opts.blocks ?? opts.prompt, opts.rawPrompt);
@@ -549,10 +552,10 @@ class ExecutionManager extends EventEmitter {
     return true;
   }
 
-  async setThinking(id: string, level: ThinkingLevel): Promise<boolean> {
+  async setEffort(id: string, effort: Effort): Promise<boolean> {
     const entry = this.active.get(id);
     if (!entry) return false;
-    await entry.session.setThinking(level);
+    await entry.session.setEffort(effort);
     return true;
   }
 

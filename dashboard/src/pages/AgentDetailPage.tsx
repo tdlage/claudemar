@@ -66,7 +66,7 @@ export function AgentDetailPage() {
   }, [name]);
 
   const {
-    execId, setExecId, sessionData, loadSession,
+    execId, setExecId, isRunning, sessionData, loadSession,
     handleSessionChange, handleSessionRename, handleSessionDelete,
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
@@ -107,7 +107,7 @@ export function AgentDetailPage() {
         resumeSessionId: sessionData.sessionId,
         planMode: opts.planMode,
         permissionMode: opts.permissionMode,
-        thinking: opts.thinking,
+        effort: opts.effort,
         forceQueue: sequential || undefined,
         skipSystemPrompt: !sendSystemPrompt || undefined,
         schedulerMode: schedulerMode || undefined,
@@ -153,12 +153,6 @@ export function AgentDetailPage() {
         {agent.schedules.length > 0 && (
           <Badge variant="info">{agent.schedules.length} schedules</Badge>
         )}
-        <SessionSelector
-          sessionData={sessionData}
-          onChange={handleSessionChange}
-          onRename={handleSessionRename}
-          onDelete={handleSessionDelete}
-        />
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
@@ -185,8 +179,16 @@ export function AgentDetailPage() {
               startPlaceholder={`Message ${name}...`}
               queueMode={sequential}
               onStart={handleStart}
-              controls={
+              inputControls={
                 <>
+                  <SessionSelector
+                    sessionData={sessionData}
+                    onChange={handleSessionChange}
+                    onRename={handleSessionRename}
+                    onDelete={handleSessionDelete}
+                    disabled={!sequential && isRunning}
+                    disabledTitle="Com o Queue desligado, novas mensagens entram na execução atual — troque o Queue para mudar de sessão"
+                  />
                   <ToggleButton
                     active={sequential}
                     onToggle={() => setSequential(!sequential)}
@@ -194,6 +196,10 @@ export function AgentDetailPage() {
                     label="Queue"
                     title={sequential ? "Sequential mode ON (commands queue in order)" : "Sequential mode OFF (parallel execution)"}
                   />
+                </>
+              }
+              controls={
+                <>
                   <ToggleButton
                     active={sendSystemPrompt}
                     onToggle={() => setSendSystemPrompt(!sendSystemPrompt)}

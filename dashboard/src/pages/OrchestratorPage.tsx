@@ -35,7 +35,7 @@ export function OrchestratorPage() {
   const [tab, setTab] = useCachedState<TabKey>("orchestrator:tab", "terminal");
 
   const {
-    execId, setExecId, sessionData, loadSession,
+    execId, setExecId, isRunning, sessionData, loadSession,
     handleSessionChange, handleSessionRename, handleSessionDelete,
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
@@ -90,7 +90,7 @@ export function OrchestratorPage() {
         resumeSessionId: sessionData.sessionId,
         planMode: opts.planMode,
         permissionMode: opts.permissionMode,
-        thinking: opts.thinking,
+        effort: opts.effort,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -180,12 +180,6 @@ export function OrchestratorPage() {
       <div className="flex items-center gap-3">
         <Crown size={20} className="text-amber-400" />
         <h1 className="text-lg font-semibold">Claudemar</h1>
-        <SessionSelector
-          sessionData={sessionData}
-          onChange={handleSessionChange}
-          onRename={handleSessionRename}
-          onDelete={handleSessionDelete}
-        />
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
@@ -210,6 +204,16 @@ export function OrchestratorPage() {
               base="orchestrator"
               startPlaceholder="Message orchestrator... (Shift+Enter quebra linha)"
               onStart={handleStart}
+              inputControls={
+                <SessionSelector
+                  sessionData={sessionData}
+                  onChange={handleSessionChange}
+                  onRename={handleSessionRename}
+                  onDelete={handleSessionDelete}
+                  disabled={isRunning}
+                  disabledTitle="Novas mensagens entram na execução atual enquanto ela roda — aguarde terminar para mudar de sessão"
+                />
+              }
             />
           </div>
 

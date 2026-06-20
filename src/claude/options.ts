@@ -2,7 +2,35 @@ import type { AgentDefinition, CanUseTool, McpServerConfig, Options, PermissionM
 import { createMemoryMcpServer, memoryEnabled, type MemoryTarget } from "../memory/session-memory.js";
 import { createSchedulerMcpServer } from "../agents/scheduler.js";
 
-export type ThinkingLevel = "off" | "think" | "think_hard" | "ultrathink";
+export type Effort = "low" | "medium" | "high" | "extra" | "max" | "ultracode";
+export type SdkEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+export type SdkFlagEffortLevel = "low" | "medium" | "high" | "xhigh";
+
+const EFFORT_SDK: Record<Effort, SdkEffortLevel> = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+  extra: "xhigh",
+  max: "max",
+  ultracode: "xhigh",
+};
+
+export const EFFORTS = Object.keys(EFFORT_SDK) as Effort[];
+
+export function effortToSdk(effort: Effort): SdkEffortLevel {
+  return EFFORT_SDK[effort];
+}
+
+// The live flag layer (applyFlagSettings) only accepts up to "xhigh"; "max" is
+// reachable solely at session start through Options.effort.
+export function effortToFlagLevel(effort: Effort): SdkFlagEffortLevel {
+  const level = EFFORT_SDK[effort];
+  return level === "max" ? "xhigh" : level;
+}
+
+export function isUltracode(effort: Effort | undefined): boolean {
+  return effort === "ultracode";
+}
 
 export interface BuildOptionsParams {
   cwd: string;
@@ -16,7 +44,7 @@ export interface BuildOptionsParams {
   bypassPermissions?: boolean;
   resumeSessionId?: string | null;
   forkSession?: boolean;
-  thinking?: ThinkingLevel;
+  effort?: Effort;
   systemAppend?: string;
   subagents?: Record<string, AgentDefinition>;
   schedulerMode?: boolean;
@@ -24,13 +52,6 @@ export interface BuildOptionsParams {
   squadSkills?: string[];
   stderr?: (data: string) => void;
 }
-
-export const THINKING_TOKENS: Record<ThinkingLevel, number | null> = {
-  off: null,
-  think: 4000,
-  think_hard: 10000,
-  ultrathink: 31999,
-};
 
 function buildSystemAppend(params: BuildOptionsParams): string {
   const parts: string[] = [];
@@ -57,8 +78,7 @@ export function buildOptions(params: BuildOptionsParams): Options {
   delete env.CLAUDECODE;
 
   const permissionMode = resolvePermissionMode(params);
-  const thinking = params.thinking ?? "off";
-  const maxThinkingTokens = THINKING_TOKENS[thinking];
+  const effort = params.effort ?? "high";
 
   const options: Options = {
     model: params.model ?? "opus",
@@ -71,15 +91,12 @@ export function buildOptions(params: BuildOptionsParams): Options {
     includePartialMessages: true,
     enableFileCheckpointing: true,
     systemPrompt: { type: "preset", preset: "claude_code", append: buildSystemAppend(params) },
+    effort: effortToSdk(effort),
     stderr: params.stderr,
   };
 
   if (permissionMode === "bypassPermissions") {
     options.allowDangerouslySkipPermissions = true;
-  }
-
-  if (maxThinkingTokens !== null) {
-    options.maxThinkingTokens = maxThinkingTokens;
   }
 
   if (params.agentName) {

@@ -2,7 +2,7 @@ import type { Server as SocketServer, Socket } from "socket.io";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { executionManager, type ExecutionInfo } from "../execution-manager.js";
 import type { MessageBlock, PermissionDecision } from "../claude/session.js";
-import type { ThinkingLevel } from "../claude/options.js";
+import type { Effort } from "../claude/options.js";
 import { commandQueue } from "../queue.js";
 import { teamEvents } from "../agents/teams-manager.js";
 import { runProcessManager } from "../run-process-manager.js";
@@ -115,9 +115,9 @@ export function setupWebSocket(io: SocketServer): void {
       executionManager.setPermissionMode(id, mode).catch(() => {});
     });
 
-    socket.on("execution:set-thinking", ({ id, level }: { id: string; level: ThinkingLevel }) => {
+    socket.on("execution:set-effort", ({ id, effort }: { id: string; effort: Effort }) => {
       if (!ownsExecution(id)) return;
-      executionManager.setThinking(id, level).catch(() => {});
+      executionManager.setEffort(id, effort).catch(() => {});
     });
 
     socket.on("execution:permission:decision", ({ id, reqId, decision }: { id: string; reqId: string; decision: PermissionDecision }) => {

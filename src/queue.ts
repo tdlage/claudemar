@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { query, execute, toMySQLDatetime } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type { ExecutionSource, ExecutionTargetType } from "./execution-manager.js";
+import type { Effort } from "./claude/options.js";
 
 export interface QueueItem {
   id: string;
@@ -19,6 +20,7 @@ export interface QueueItem {
   username?: string;
   useDocker?: boolean;
   skipSystemPrompt?: boolean;
+  effort?: Effort;
   enqueuedAt: string;
   telegramChatId?: number;
 }
@@ -38,6 +40,7 @@ interface QueueRow extends RowDataPacket {
   username: string | null;
   use_docker: number;
   skip_system_prompt: number;
+  effort: string | null;
   enqueued_at: string | Date;
   telegram_chat_id: number | null;
 }
@@ -59,6 +62,7 @@ function rowToItem(row: QueueRow): QueueItem {
     username: row.username ?? undefined,
     useDocker: row.use_docker === 1 ? true : undefined,
     skipSystemPrompt: row.skip_system_prompt === 1 ? true : undefined,
+    effort: (row.effort as Effort) ?? undefined,
     enqueuedAt,
     telegramChatId: row.telegram_chat_id ?? undefined,
   };
@@ -91,12 +95,12 @@ class CommandQueue extends EventEmitter {
     const enqueuedAt = new Date().toISOString();
 
     const result = await execute(
-      `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, agent_name, username, use_docker, skip_system_prompt, enqueued_at, telegram_chat_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, agent_name, username, use_docker, skip_system_prompt, effort, enqueued_at, telegram_chat_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, opts.targetType, opts.targetName, opts.prompt, opts.source, opts.cwd,
        opts.resumeSessionId ?? null, opts.model ?? null, opts.planMode ? 1 : 0,
        opts.agentName ?? null, opts.username ?? null, opts.useDocker ? 1 : 0,
-       opts.skipSystemPrompt ? 1 : 0,
+       opts.skipSystemPrompt ? 1 : 0, opts.effort ?? null,
        toMySQLDatetime(enqueuedAt), opts.telegramChatId ?? null],
     );
 

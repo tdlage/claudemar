@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { query, type Query, type SDKMessage, type SDKUserMessage, type PermissionMode, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentResult, AskQuestion, PermissionDenial } from "../providers/types.js";
 import { ingestTurn, type MemoryTarget } from "../memory/session-memory.js";
-import { buildOptions, THINKING_TOKENS, type BuildOptionsParams, type ThinkingLevel } from "./options.js";
+import { buildOptions, effortToFlagLevel, isUltracode, type BuildOptionsParams, type Effort } from "./options.js";
 
 export type PermissionDecision = "allow" | "always" | "deny";
 
@@ -385,9 +385,13 @@ export class ClaudeSession extends EventEmitter {
     } catch {}
   }
 
-  async setThinking(level: ThinkingLevel): Promise<void> {
+  async setEffort(effort: Effort): Promise<void> {
     try {
-      await this.runner?.setMaxThinkingTokens(THINKING_TOKENS[level]);
+      if (isUltracode(effort)) {
+        await this.runner?.applyFlagSettings({ enableWorkflows: true, ultracode: true, effortLevel: "xhigh" });
+      } else {
+        await this.runner?.applyFlagSettings({ ultracode: false, effortLevel: effortToFlagLevel(effort) });
+      }
     } catch {}
   }
 
