@@ -6,6 +6,7 @@ import {
   getAllAppearances, getAppearance, setAppearance, getTeamOfAgent,
   listSquadMcps, addSquadMcp, removeSquadMcp, listSquadSkills, setSquadSkills,
 } from "../../agents/teams-manager.js";
+import { dispatchToSquad } from "../../agents/squad-dispatch.js";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 
 const RESERVED_MCP_NAMES = new Set(["memory", "scheduler"]);
@@ -153,6 +154,21 @@ teamsRouter.delete("/:id/members/:agent", async (req, res) => {
   }
   await removeAgentFromTeam(agent);
   res.json({ ok: true });
+});
+
+teamsRouter.post("/:id/dispatch", async (req, res) => {
+  const { prompt } = req.body ?? {};
+  if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+    res.status(400).json({ error: "prompt required" });
+    return;
+  }
+  try {
+    const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
+    const result = await dispatchToSquad(req.params.id, prompt.trim(), username);
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Falha ao encaminhar" });
+  }
 });
 
 teamsRouter.get("/:id/mcps", async (req, res) => {

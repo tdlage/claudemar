@@ -276,6 +276,11 @@ export function setupWebSocket(io: SocketServer): void {
     io.to("executions").emit("team:updated", {});
   });
 
+  teamEvents.on("dispatch", (payload: { teamId: string; agent: string; execId: string }) => {
+    const info = executionManager.getExecution(payload.execId);
+    if (info) emitToExecutions("squad:dispatch", info, payload);
+  });
+
   commandQueue.on("queue:add", (item) => {
     io.to("executions").emit("queue:add", { item });
   });

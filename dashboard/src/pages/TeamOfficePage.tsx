@@ -1,11 +1,12 @@
 import { useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Settings } from "lucide-react";
+import { ArrowLeft, Settings, Send } from "lucide-react";
 import { isAdmin } from "../hooks/useAuth";
 import { useTeams } from "../hooks/useTeams";
 import { useAgentActivity } from "../hooks/useAgentActivity";
+import { useSocketEvent } from "../hooks/useSocket";
 import { api } from "../lib/api";
-import { SquadOffice, type ZoneClick } from "../components/teams/SquadOffice";
+import { SquadOffice, type ZoneClick, type DispatchAnim } from "../components/teams/SquadOffice";
 import { FileArchiveModal } from "../components/teams/FileArchiveModal";
 import { CpdMcpModal } from "../components/teams/CpdMcpModal";
 import { LibrarySkillsModal } from "../components/teams/LibrarySkillsModal";
@@ -21,6 +22,34 @@ export function TeamOfficePage() {
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [zoneInfo, setZoneInfo] = useState<ZoneClick | null>(null);
   const [answering, setAnswering] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [sending, setSending] = useState(false);
+  const [dispatchAnim, setDispatchAnim] = useState<DispatchAnim | null>(null);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+
+  useSocketEvent<{ teamId: string; agent: string }>("squad:dispatch", (d) => {
+    if (d.teamId !== id) return;
+    setDispatchAnim({ agent: d.agent, ts: Date.now() });
+  });
+
+  const sendToPresident = useCallback(async () => {
+    const text = prompt.trim();
+    if (!text || sending || !id) return;
+    setSending(true);
+    setDispatchError(null);
+    setDispatchAnim({ agent: "", ts: Date.now() });
+    try {
+      await api.post(`/teams/${id}/dispatch`, { prompt: text });
+      setPrompt("");
+    } catch (err) {
+      setDispatchError(err instanceof Error ? err.message : "Falha ao encaminhar");
+      setDispatchAnim({ agent: "", ts: Date.now(), cancel: true });
+    } finally {
+      setSending(false);
+    }
+  }, [prompt, sending, id]);
+
+  const routedAgent = dispatchAnim?.agent || null;
 
   const onAgentClick = useCallback((name: string) => navigate(`/agents/${name}`), [navigate]);
   const onWaitingClick = useCallback((name: string) => setAnswering(name), []);
@@ -71,10 +100,34 @@ export function TeamOfficePage() {
           activeNames={activeNames}
           pendingText={pendingText}
           admin={admin}
+          dispatch={dispatchAnim}
           onAgentClick={onAgentClick}
           onWaitingClick={onWaitingClick}
           onZoneClick={onZoneClick}
         />
+      </div>
+
+      <div className="shrink-0 flex flex-col gap-1">
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+          <span className="text-base leading-none">👔</span>
+          <input
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendToPresident(); } }}
+            placeholder="Fale com o presidente — ele encaminha ao agente mais adequado"
+            className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted outline-none"
+            disabled={members.length === 0}
+          />
+          {routedAgent && <span className="text-xs text-text-muted whitespace-nowrap">→ {routedAgent}</span>}
+          <button
+            onClick={sendToPresident}
+            disabled={sending || !prompt.trim() || members.length === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 transition-colors"
+          >
+            <Send size={13} /> {sending ? "Encaminhando..." : "Enviar"}
+          </button>
+        </div>
+        {dispatchError && <p className="text-xs text-danger px-1">{dispatchError}</p>}
       </div>
 
       <FileArchiveModal members={members} open={archiveOpen} onClose={() => setArchiveOpen(false)} />
