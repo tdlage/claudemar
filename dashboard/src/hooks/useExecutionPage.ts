@@ -23,7 +23,7 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
   const [historyLimit, setHistoryLimit] = useState(20);
   const [sessionFilter, setSessionFilter] = useState<string>("__all");
   const [searchQuery, setSearchQuery] = useState("");
-  const { active, recent, queue, pendingQuestions, submitAnswer } = useExecutions();
+  const { active, recent, queue, pendingQuestions, usageById, submitAnswer } = useExecutions();
   const loadedTargetRef = useRef("");
   const lastLimitRef = useRef(0);
   const lastSessionFilterRef = useRef("__all");
@@ -53,7 +53,8 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
       const sid = e.result?.sessionId ?? e.resumeSessionId;
       return sid === sessionFilter;
     });
-  const activity = [...filteredActiveBySession, ...newFromRealtime, ...dbHistory];
+  const activity = [...filteredActiveBySession, ...newFromRealtime, ...dbHistory]
+    .map((e) => (usageById[e.id] ? { ...e, liveUsage: usageById[e.id] } : e));
 
   const activeExec = execId ? active.find((e) => e.id === execId) : undefined;
   const isRunning = !!activeExec;

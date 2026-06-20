@@ -242,7 +242,8 @@ export function setupWebSocket(io: SocketServer): void {
   });
 
   executionManager.on("usage", (id, costUsd, tokens, contextPct) => {
-    io.to(`exec:${id}`).emit("execution:usage", { id, costUsd, tokens, contextPct });
+    const info = executionManager.getExecution(id);
+    if (info) emitToExecutions("execution:usage", info, { id, costUsd, tokens, contextPct });
   });
 
   executionManager.on("slash-commands", (id, commands) => {

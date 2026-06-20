@@ -187,6 +187,25 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
                   {formatDuration(exec.result.durationMs)} · {formatUsage(exec.result.costUsd, exec.result.totalTokens)}
                 </span>
               )}
+              {exec.liveUsage && (
+                <span className="flex items-center gap-1.5 text-xs whitespace-nowrap">
+                  {!exec.result && (
+                    <span className="text-text-muted">{formatUsage(exec.liveUsage.costUsd, exec.liveUsage.tokens)}</span>
+                  )}
+                  <span
+                    className="h-1.5 w-12 rounded-full bg-border overflow-hidden"
+                    title={`${exec.liveUsage.contextPct}% do limite de contexto do modelo`}
+                  >
+                    <span
+                      className={`block h-full rounded-full ${exec.liveUsage.contextPct >= 80 ? "bg-warning" : "bg-accent"}`}
+                      style={{ width: `${Math.min(100, Math.max(0, exec.liveUsage.contextPct))}%` }}
+                    />
+                  </span>
+                  <span className={exec.liveUsage.contextPct >= 80 ? "text-warning" : "text-text-muted"}>
+                    {exec.liveUsage.contextPct}% ctx
+                  </span>
+                </span>
+              )}
               <span className="text-xs text-text-muted text-right hidden sm:inline">
                 {exec.completedAt
                   ? formatDistanceToNow(new Date(exec.completedAt), { addSuffix: true })

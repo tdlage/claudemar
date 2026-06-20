@@ -55,11 +55,6 @@ interface CheckpointEntry {
   ts: number;
 }
 
-interface UsageState {
-  costUsd: number;
-  tokens: number;
-  contextPct: number;
-}
 
 export interface StartOpts {
   planMode: boolean;
@@ -108,7 +103,6 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const [tools, setTools] = useState<ToolEvent[]>([]);
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
-  const [usage, setUsage] = useState<UsageState | null>(null);
   const [mode, setMode] = useState<PermissionMode>("default");
   const [effort, setEffort] = useState<Effort>("high");
   const slashCacheKey = base ?? "default";
@@ -156,7 +150,6 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     setTools([]);
     setPermissions([]);
     setCheckpoints([]);
-    setUsage(null);
     setCompactNotice(null);
     autoScrollRef.current = true;
 
@@ -224,11 +217,6 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       setPermissions((prev) => [...prev.filter((p) => p.reqId !== data.reqId), { reqId: data.reqId, toolName: data.toolName, input: data.input }]);
     };
 
-    const usageHandler = (data: { id: string; costUsd: number; tokens: number; contextPct: number }) => {
-      if (!matches(data.id)) return;
-      setUsage({ costUsd: data.costUsd, tokens: data.tokens, contextPct: data.contextPct });
-    };
-
     const modeHandler = (data: { id: string; mode: PermissionMode }) => {
       if (!matches(data.id)) return;
       setMode(data.mode);
@@ -268,7 +256,6 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     socket.on("execution:thinking", thinkingHandler);
     socket.on("execution:tool", toolHandler);
     socket.on("execution:permission", permissionHandler);
-    socket.on("execution:usage", usageHandler);
     socket.on("execution:mode", modeHandler);
     socket.on("execution:slash-commands", slashHandler);
     socket.on("execution:compact", compactHandler);
@@ -284,7 +271,6 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       socket.off("execution:thinking", thinkingHandler);
       socket.off("execution:tool", toolHandler);
       socket.off("execution:permission", permissionHandler);
-      socket.off("execution:usage", usageHandler);
       socket.off("execution:mode", modeHandler);
       socket.off("execution:slash-commands", slashHandler);
       socket.off("execution:compact", compactHandler);
@@ -374,69 +360,6 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
 
   return (
     <div className="flex flex-col w-full h-full min-h-[300px] gap-2">
-      <div className="flex items-center gap-2 flex-wrap text-xs shrink-0">
-        {controls}
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
-          {currentModel.displayName}
-        </span>
-        {usage && (
-          <span
-            className="h-1.5 w-16 rounded-full bg-border overflow-hidden"
-            title={`${Math.round(usage.contextPct)}% do limite de contexto do modelo`}
-          >
-            <span
-              className={`block h-full rounded-full transition-all ${usage.contextPct >= 80 ? "bg-warning" : "bg-accent"}`}
-              style={{ width: `${Math.min(100, Math.max(0, usage.contextPct))}%` }}
-            />
-          </span>
-        )}
-        {usage && (
-          <>
-            <span className="text-text-muted">${usage.costUsd.toFixed(2)}</span>
-            <span className="text-text-muted">
-              {usage.tokens >= 1000 ? `${(usage.tokens / 1000).toFixed(1)}k tok` : `${usage.tokens} tok`}
-            </span>
-            <span className={usage.contextPct >= 80 ? "text-warning" : "text-text-muted"}>
-              {Math.round(usage.contextPct)}% ctx
-            </span>
-          </>
-        )}
-        <div className="flex-1" />
-        {isAdmin() && (
-          <>
-            <button
-              type="button"
-              onClick={() => handleSetMode(mode === "bypassPermissions" ? "default" : "bypassPermissions")}
-              title="Permissões automáticas: executa tudo sem pedir aprovação. Pode ligar/desligar durante o processamento (equivalente ao Shift+Tab do CLI)."
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
-                mode === "bypassPermissions"
-                  ? "bg-warning/20 text-warning border-warning/40"
-                  : "text-text-muted border-border hover:text-text-secondary"
-              }`}
-            >
-              <Zap size={12} /> Auto {mode === "bypassPermissions" ? "ON" : "OFF"}
-            </button>
-            <div className="w-px h-4 bg-border" />
-          </>
-        )}
-        <div className="flex items-center gap-1">
-          {MODE_ORDER.map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => handleSetMode(m)}
-              className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                mode === m
-                  ? "bg-accent/20 text-accent border border-accent/40"
-                  : "text-text-muted hover:text-text-secondary border border-transparent"
-              }`}
-            >
-              {MODE_LABELS[m]}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {compactNotice && (
         <div className="flex items-center gap-1.5 text-xs text-warning bg-warning/10 border border-warning/30 rounded-md px-2 py-1 shrink-0">
           <AlertTriangle size={12} />
@@ -516,6 +439,48 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
 
       {base && <MdLinksBar paths={mdPaths} base={base} />}
 
+      <div className="flex items-center gap-2 flex-wrap text-xs shrink-0">
+        {inputControls}
+        <div className="flex-1" />
+        {controls}
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
+          {currentModel.displayName}
+        </span>
+        {isAdmin() && (
+          <>
+            <div className="w-px h-4 bg-border" />
+            <button
+              type="button"
+              onClick={() => handleSetMode(mode === "bypassPermissions" ? "default" : "bypassPermissions")}
+              title="Permissões automáticas: executa tudo sem pedir aprovação. Pode ligar/desligar durante o processamento (equivalente ao Shift+Tab do CLI)."
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
+                mode === "bypassPermissions"
+                  ? "bg-warning/20 text-warning border-warning/40"
+                  : "text-text-muted border-border hover:text-text-secondary"
+              }`}
+            >
+              <Zap size={12} /> Auto {mode === "bypassPermissions" ? "ON" : "OFF"}
+            </button>
+          </>
+        )}
+        <div className="flex items-center gap-1">
+          {MODE_ORDER.map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => handleSetMode(m)}
+              className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                mode === m
+                  ? "bg-accent/20 text-accent border border-accent/40"
+                  : "text-text-muted hover:text-text-secondary border border-transparent"
+              }`}
+            >
+              {MODE_LABELS[m]}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {onStart && (
         <div className="shrink-0 space-y-1.5">
           {messages.length > 0 && (
@@ -549,11 +514,6 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
                   </button>
                 </div>
               ))}
-            </div>
-          )}
-          {inputControls && (
-            <div className="flex items-center justify-end gap-2 flex-wrap">
-              {inputControls}
             </div>
           )}
           <div className="relative flex items-end gap-2">

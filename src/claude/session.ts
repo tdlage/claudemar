@@ -276,18 +276,23 @@ export class ClaudeSession extends EventEmitter {
     }
   }
 
+  private async emitUsage(costUsd: number, tokens: number): Promise<void> {
+    let contextPct = 0;
+    try {
+      const ctx = await this.runner?.getContextUsage();
+      const max = ctx?.maxTokens || ctx?.rawMaxTokens || 0;
+      if (ctx && max > 0) {
+        contextPct = Math.min(100, Math.round((ctx.totalTokens / max) * 100));
+      }
+    } catch {}
+    this.emit("usage", { costUsd, tokens, contextPct } satisfies UsageInfo);
+  }
+
   private handleResult(message: Extract<SDKMessage, { type: "result" }>): void {
     const usage = message.usage as { input_tokens?: number; output_tokens?: number } | undefined;
     const totalTokens = (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
 
-    let contextPct = 0;
-    const modelUsage = Object.values(message.modelUsage ?? {})[0] as { contextWindow?: number; inputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number } | undefined;
-    if (modelUsage?.contextWindow) {
-      const used = (modelUsage.inputTokens ?? 0) + (modelUsage.cacheReadInputTokens ?? 0) + (modelUsage.cacheCreationInputTokens ?? 0);
-      contextPct = Math.min(100, Math.round((used / modelUsage.contextWindow) * 100));
-    }
-
-    this.emit("usage", { costUsd: message.total_cost_usd ?? 0, tokens: totalTokens, contextPct } satisfies UsageInfo);
+    void this.emitUsage(message.total_cost_usd ?? 0, totalTokens);
 
     const denials: PermissionDenial[] = [];
     for (const d of message.permission_denials ?? []) {

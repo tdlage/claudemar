@@ -38,6 +38,13 @@ export interface ExecutionInfo {
   pendingQuestion?: PendingQuestion | null;
   planMode?: boolean;
   resumeSessionId?: string | null;
+  liveUsage?: ExecutionUsage;
+}
+
+export interface ExecutionUsage {
+  costUsd: number;
+  tokens: number;
+  contextPct: number;
 }
 
 export interface AgentResult {

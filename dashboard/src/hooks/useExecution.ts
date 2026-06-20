@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { api } from "../lib/api";
 import { useSocketEvent } from "./useSocket";
 import { seedOutput, clearOutput } from "../lib/outputBuffer";
-import type { ExecutionInfo, PendingQuestion, QueueItem } from "../lib/types";
+import type { ExecutionInfo, ExecutionUsage, PendingQuestion, QueueItem } from "../lib/types";
 
 const MAX_RECENT = 200;
 
@@ -21,6 +21,7 @@ export function useExecutions() {
   const [recent, setRecent] = useState<ExecutionInfo[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestionEntry[]>([]);
+  const [usageById, setUsageById] = useState<Record<string, ExecutionUsage>>({});
 
   const refresh = useCallback(async () => {
     const data = await api.get<{ active: ExecutionInfo[]; recent: ExecutionInfo[] }>(
@@ -84,6 +85,13 @@ export function useExecutions() {
     setPendingQuestions((prev) => prev.filter((pq) => pq.execId !== id));
   });
 
+  useSocketEvent<{ id: string; costUsd: number; tokens: number; contextPct: number }>(
+    "execution:usage",
+    ({ id, costUsd, tokens, contextPct }) => {
+      setUsageById((prev) => ({ ...prev, [id]: { costUsd, tokens, contextPct } }));
+    },
+  );
+
   useSocketEvent<{ item: QueueItem }>("queue:add", ({ item }) => {
     setQueue((prev) => [...prev, item]);
   });
@@ -98,5 +106,5 @@ export function useExecutions() {
     return result.id;
   }, []);
 
-  return { active, recent, queue, pendingQuestions, submitAnswer, refresh };
+  return { active, recent, queue, pendingQuestions, usageById, submitAnswer, refresh };
 }
