@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { Menu, RefreshCw, Search } from "lucide-react";
 import { api } from "../../lib/api";
 import { SystemResources } from "./SystemResources";
+import { ProviderBadge } from "./ProviderBadge";
 import { ProcessIndicator } from "./ProcessIndicator";
 import { useSidebar } from "./Sidebar";
 import { isAdmin } from "../../hooks/useAuth";
@@ -49,6 +50,7 @@ export function Header() {
 
       <div className="flex items-center gap-2 md:gap-4 shrink-0">
         {admin && <span className="hidden sm:block"><SystemResources /></span>}
+        {admin && <span className="hidden sm:block"><ProviderBadge /></span>}
         {admin && (
           <button
             onClick={async () => {

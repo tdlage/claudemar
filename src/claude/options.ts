@@ -1,6 +1,8 @@
 import type { AgentDefinition, CanUseTool, McpServerConfig, Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { createMemoryMcpServer, memoryEnabled, type MemoryTarget } from "../memory/session-memory.js";
 import { createSchedulerMcpServer } from "../agents/scheduler.js";
+import { settingsManager } from "../settings-manager.js";
+import { applyProvider } from "../providers/llm.js";
 
 export type Effort = "low" | "medium" | "high" | "extra" | "max" | "ultracode";
 export type SdkEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
@@ -74,7 +76,8 @@ function resolvePermissionMode(params: BuildOptionsParams): PermissionMode {
 }
 
 export function buildOptions(params: BuildOptionsParams): Options {
-  const env = { ...process.env };
+  const settings = settingsManager.get();
+  const env = applyProvider(process.env, settings.llmProvider, settings.zaiModel, process.env.ZAI_API_KEY ?? "");
   delete env.CLAUDECODE;
 
   const permissionMode = resolvePermissionMode(params);

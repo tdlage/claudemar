@@ -201,6 +201,26 @@ systemRouter.get("/model", (_req, res) => {
   res.json({ id, displayName });
 });
 
+systemRouter.get("/provider", (_req, res) => {
+  const settings = settingsManager.get();
+  if (settings.llmProvider === "zai") {
+    res.json({
+      provider: "zai",
+      label: "z.ai",
+      model: settings.zaiModel || "auto",
+      configured: Boolean(process.env.ZAI_API_KEY),
+    });
+    return;
+  }
+  const resolved = executionManager.getResolvedModelId();
+  res.json({
+    provider: "anthropic",
+    label: "Anthropic",
+    model: resolved ? getModelDisplayName(resolved) : DEFAULT_OPUS_DISPLAY,
+    configured: true,
+  });
+});
+
 systemRouter.get("/changelog", (req, res) => {
   const limit = Math.max(1, Math.min(Number(req.query.limit) || 50, 200));
   execFile(

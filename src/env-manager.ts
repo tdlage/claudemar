@@ -13,6 +13,7 @@ export interface ManagedEnvKey {
 }
 
 export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
+  { key: "ZAI_API_KEY", label: "z.ai API Key", group: "Provedor de LLM", help: "Token da z.ai (GLM). Usado quando o provedor de LLM selecionado é z.ai.", required: false },
   { key: "VOYAGE_API_KEY", label: "Voyage API Key", group: "Memória de longo prazo", help: "Embeddings (voyage-4-large) e rerank (rerank-2.5). Necessária para a memória.", required: false },
   { key: "QDRANT_URL", label: "Qdrant URL", group: "Memória de longo prazo", help: "Endpoint do cluster Qdrant (ex.: https://xxxx.cloud.qdrant.io).", required: false },
   { key: "QDRANT_API_KEY", label: "Qdrant API Key", group: "Memória de longo prazo", help: "Chave de acesso do Qdrant Cloud.", required: false },

@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound, Cpu } from "lucide-react";
 import { api } from "../lib/api";
 import { OPEN_API_KEYS_EVENT } from "../components/layout/ApiKeysSetup";
-import type { RuntimeSettings, EmailProfileMasked } from "../lib/types";
+import type { RuntimeSettings, EmailProfileMasked, EnvKeyStatus, LlmProvider } from "../lib/types";
+
+const DEFAULT_ZAI_MODEL = "glm-5.2[1m]";
 
 interface ProfileFormState {
   awsAccessKeyId: string;
@@ -13,10 +15,16 @@ interface ProfileFormState {
 }
 
 export function SettingsPage() {
-  const [settings, setSettings] = useState<RuntimeSettings>({ sesFrom: "", adminEmail: "" });
+  const [settings, setSettings] = useState<RuntimeSettings>({ sesFrom: "", adminEmail: "", llmProvider: "anthropic", zaiModel: DEFAULT_ZAI_MODEL });
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const [llmDirty, setLlmDirty] = useState(false);
+  const [llmSaving, setLlmSaving] = useState(false);
+  const [llmMsg, setLlmMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [zaiToken, setZaiToken] = useState("");
+  const [zaiKeyPresent, setZaiKeyPresent] = useState(false);
 
   const [profiles, setProfiles] = useState<EmailProfileMasked[]>([]);
   const [editingProfile, setEditingProfile] = useState<string | null>(null);
@@ -36,8 +44,32 @@ export function SettingsPage() {
 
   useEffect(() => {
     api.get<RuntimeSettings>("/settings").then(setSettings).catch(() => {});
+    api.get<EnvKeyStatus[]>("/system/env")
+      .then((keys) => setZaiKeyPresent(Boolean(keys.find((k) => k.key === "ZAI_API_KEY")?.present)))
+      .catch(() => {});
     loadProfiles();
   }, [loadProfiles]);
+
+  const handleSaveLlm = async () => {
+    setLlmSaving(true);
+    setLlmMsg(null);
+    try {
+      if (zaiToken.trim()) {
+        await api.post("/system/env", { values: { ZAI_API_KEY: zaiToken.trim() } });
+        setZaiToken("");
+        setZaiKeyPresent(true);
+      }
+      const updated = await api.put<RuntimeSettings>("/settings", settings);
+      setSettings(updated);
+      setLlmDirty(false);
+      setLlmMsg({ type: "ok", text: "Salvo" });
+      setTimeout(() => setLlmMsg(null), 3000);
+    } catch (err) {
+      setLlmMsg({ type: "err", text: err instanceof Error ? err.message : "Falha ao salvar" });
+    } finally {
+      setLlmSaving(false);
+    }
+  };
 
   const handleSaveSettings = async () => {
     setSettingsSaving(true);
@@ -118,6 +150,8 @@ export function SettingsPage() {
     }
   };
 
+  const zaiNeedsToken = settings.llmProvider === "zai" && !zaiKeyPresent && !zaiToken.trim();
+
   const inputClass = "w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent";
   const inputMonoClass = `${inputClass} font-mono`;
   const btnAccent = "flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors";
@@ -130,6 +164,73 @@ export function SettingsPage() {
         <Settings size={20} className="text-text-muted" />
         <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
       </div>
+
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold text-text-primary border-b border-border pb-2 flex items-center gap-2">
+          <Cpu size={14} className="text-text-muted" /> Provedor de LLM
+        </h2>
+        <p className="text-sm text-text-muted">
+          Escolha o provedor do modelo usado nas execuções. Com <strong>z.ai</strong>, todas as novas execuções passam a usar o modelo GLM informado, via endpoint compatível com a Anthropic.
+        </p>
+        {settings.llmProvider === "zai" && (
+          <p className="text-xs text-text-muted">
+            Modelo vazio = padrão do servidor da z.ai (atualiza sozinho). Use <code>glm-5.2[1m]</code> para o GLM-5.2 com contexto de 1M (premium, multiplicador 3× em pico). O sufixo <code>[1m]</code> ativa automaticamente o <code>CLAUDE_CODE_AUTO_COMPACT_WINDOW</code>.
+          </p>
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-text-muted mb-1">Provedor</label>
+            <select
+              value={settings.llmProvider}
+              onChange={(e) => { setSettings({ ...settings, llmProvider: e.target.value as LlmProvider }); setLlmDirty(true); }}
+              className={inputClass}
+            >
+              <option value="anthropic">Anthropic (Claude)</option>
+              <option value="zai">z.ai (GLM)</option>
+            </select>
+          </div>
+          {settings.llmProvider === "zai" && (
+            <div>
+              <label className="block text-xs font-medium text-text-muted mb-1">Modelo GLM</label>
+              <input
+                type="text"
+                value={settings.zaiModel}
+                onChange={(e) => { setSettings({ ...settings, zaiModel: e.target.value }); setLlmDirty(true); }}
+                placeholder={DEFAULT_ZAI_MODEL}
+                className={inputMonoClass}
+              />
+            </div>
+          )}
+        </div>
+        {settings.llmProvider === "zai" && (
+          <div>
+            <label className="block text-xs font-medium text-text-muted mb-1">
+              z.ai API Key {zaiKeyPresent && <span className="text-success">(configurado)</span>}
+            </label>
+            <input
+              type="password"
+              autoComplete="off"
+              value={zaiToken}
+              onChange={(e) => { setZaiToken(e.target.value); setLlmDirty(true); }}
+              placeholder={zaiKeyPresent ? "•••••••• — deixe em branco para manter" : "Cole o token da z.ai"}
+              className={inputMonoClass}
+            />
+            <p className="text-xs text-text-muted mt-1">Gerado no painel da z.ai. Gravado no <code>.env</code> do servidor.</p>
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-3">
+          {zaiNeedsToken && (
+            <span className="text-xs text-warning">Informe a API Key da z.ai para ativar.</span>
+          )}
+          {llmMsg && (
+            <span className={`text-xs ${llmMsg.type === "ok" ? "text-success" : "text-danger"}`}>{llmMsg.text}</span>
+          )}
+          <button onClick={handleSaveLlm} disabled={llmSaving || !llmDirty || zaiNeedsToken} className={btnAccent}>
+            <Save size={12} />
+            {llmSaving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </section>
 
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-text-primary border-b border-border pb-2">Chaves de API</h2>

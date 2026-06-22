@@ -213,9 +213,22 @@ export type MeResponse =
   | { role: "admin" }
   | { role: "user"; id: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[] };
 
+export type LlmProvider = "anthropic" | "zai";
+
 export interface RuntimeSettings {
   sesFrom: string;
   adminEmail: string;
+  llmProvider: LlmProvider;
+  zaiModel: string;
+}
+
+export interface EnvKeyStatus {
+  key: string;
+  label: string;
+  group: string;
+  help: string;
+  required: boolean;
+  present: boolean;
 }
 
 export interface EmailProfileMasked {

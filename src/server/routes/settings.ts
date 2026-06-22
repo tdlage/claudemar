@@ -11,10 +11,12 @@ settingsRouter.get("/", (_req, res) => {
 });
 
 settingsRouter.put("/", (req, res) => {
-  const { sesFrom, adminEmail } = req.body;
+  const { sesFrom, adminEmail, llmProvider, zaiModel } = req.body;
   settingsManager.update({
     sesFrom: typeof sesFrom === "string" ? sesFrom : undefined,
     adminEmail: typeof adminEmail === "string" ? adminEmail : undefined,
+    llmProvider: llmProvider === "anthropic" || llmProvider === "zai" ? llmProvider : undefined,
+    zaiModel: typeof zaiModel === "string" ? zaiModel : undefined,
   });
   regenerateOrchestratorAgentsMd();
   res.json(settingsManager.get());
