@@ -11,6 +11,7 @@ import { FileArchiveModal } from "../components/teams/FileArchiveModal";
 import { CpdMcpModal } from "../components/teams/CpdMcpModal";
 import { LibrarySkillsModal } from "../components/teams/LibrarySkillsModal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
+import { Modal } from "../components/shared/Modal";
 import { agentColor } from "../lib/avatar";
 
 export function TeamOfficePage() {
@@ -22,7 +23,9 @@ export function TeamOfficePage() {
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [zoneInfo, setZoneInfo] = useState<ZoneClick | null>(null);
   const [answering, setAnswering] = useState<string | null>(null);
+  const [presidentOpen, setPresidentOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
+  const [selectedAgent, setSelectedAgent] = useState("");
   const [sending, setSending] = useState(false);
   const [dispatchAnim, setDispatchAnim] = useState<DispatchAnim | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
@@ -37,24 +40,24 @@ export function TeamOfficePage() {
     if (!text || sending || !id) return;
     setSending(true);
     setDispatchError(null);
-    setDispatchAnim({ agent: "", ts: Date.now() });
+    setDispatchAnim({ agent: selectedAgent, ts: Date.now() });
     try {
-      await api.post(`/teams/${id}/dispatch`, { prompt: text });
+      await api.post(`/teams/${id}/dispatch`, { prompt: text, agent: selectedAgent || undefined });
       setPrompt("");
+      setPresidentOpen(false);
     } catch (err) {
       setDispatchError(err instanceof Error ? err.message : "Falha ao encaminhar");
       setDispatchAnim({ agent: "", ts: Date.now(), cancel: true });
     } finally {
       setSending(false);
     }
-  }, [prompt, sending, id]);
-
-  const routedAgent = dispatchAnim?.agent || null;
+  }, [prompt, selectedAgent, sending, id]);
 
   const onAgentClick = useCallback((name: string) => navigate(`/agents/${name}`), [navigate]);
   const onWaitingClick = useCallback((name: string) => setAnswering(name), []);
   const onZoneClick = useCallback((zone: ZoneClick) => {
     if (zone === "archive") setArchiveOpen(true);
+    else if (zone === "presidencia") setPresidentOpen(true);
     else if (admin) setZoneInfo(zone);
   }, [admin]);
 
@@ -99,7 +102,6 @@ export function TeamOfficePage() {
           activities={activities}
           activeNames={activeNames}
           pendingText={pendingText}
-          admin={admin}
           dispatch={dispatchAnim}
           onAgentClick={onAgentClick}
           onWaitingClick={onWaitingClick}
@@ -107,28 +109,46 @@ export function TeamOfficePage() {
         />
       </div>
 
-      <div className="shrink-0 flex flex-col gap-1">
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
-          <span className="text-base leading-none">👔</span>
-          <input
+      <Modal open={presidentOpen} onClose={() => setPresidentOpen(false)} title="👔 Sala da Presidência">
+        <div className="space-y-3">
+          <p className="text-xs text-text-muted">
+            Descreva o que precisa. O presidente encaminha ao agente mais adequado — ou escolha um agente para enviar diretamente.
+          </p>
+          <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendToPresident(); } }}
-            placeholder="Fale com o presidente — ele encaminha ao agente mais adequado"
-            className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted outline-none"
-            disabled={members.length === 0}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendToPresident(); } }}
+            placeholder="Ex.: quanto estamos gastando na AWS este mês?"
+            rows={4}
+            autoFocus
+            className="w-full bg-surface border border-border rounded-md text-sm text-text-primary placeholder:text-text-muted px-3 py-2 outline-none focus:border-accent resize-none"
           />
-          {routedAgent && <span className="text-xs text-text-muted whitespace-nowrap">→ {routedAgent}</span>}
-          <button
-            onClick={sendToPresident}
-            disabled={sending || !prompt.trim() || members.length === 0}
-            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 transition-colors"
-          >
-            <Send size={13} /> {sending ? "Encaminhando..." : "Enviar"}
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-text-muted">Encaminhar para:</label>
+            <select
+              value={selectedAgent}
+              onChange={(e) => setSelectedAgent(e.target.value)}
+              disabled={members.length === 0}
+              className="flex-1 bg-surface border border-border rounded-md text-sm text-text-primary px-2 py-1.5 outline-none focus:border-accent"
+            >
+              <option value="">Presidente decide</option>
+              {members.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+          {dispatchError && <p className="text-xs text-danger">{dispatchError}</p>}
+          <div className="flex justify-end">
+            <button
+              onClick={sendToPresident}
+              disabled={sending || !prompt.trim() || members.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 transition-colors"
+            >
+              <Send size={13} /> {sending ? "Encaminhando..." : "Enviar ao presidente"}
+            </button>
+          </div>
         </div>
-        {dispatchError && <p className="text-xs text-danger px-1">{dispatchError}</p>}
-      </div>
+      </Modal>
 
       <FileArchiveModal members={members} open={archiveOpen} onClose={() => setArchiveOpen(false)} />
       <CpdMcpModal teamId={team.id} teamName={team.name} open={zoneInfo === "cpd"} onClose={() => setZoneInfo(null)} />

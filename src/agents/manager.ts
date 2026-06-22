@@ -142,3 +142,13 @@ export function extractAgentSummary(name: string): string | null {
   if (!existsSync(agentsMdPath)) return null;
   return summarizeAgentsMd(readFileSync(agentsMdPath, "utf-8"));
 }
+
+export function readAgentsMd(name: string): string | null {
+  const agentsMdPath = resolve(config.agentsPath, name, "AGENTS.md");
+  if (!existsSync(agentsMdPath)) return null;
+  try {
+    return readFileSync(agentsMdPath, "utf-8").trim() || null;
+  } catch {
+    return null;
+  }
+}

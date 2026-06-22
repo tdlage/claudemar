@@ -3,7 +3,7 @@ import { pixelPalette } from "../../lib/avatar";
 import type { TeamWithMembers, AgentAppearance } from "../../lib/types";
 import type { ActivityState, Activity } from "../../hooks/useAgentActivity";
 
-export type ZoneClick = "archive" | "cpd" | "library";
+export type ZoneClick = "archive" | "cpd" | "library" | "presidencia";
 export interface DispatchAnim { agent: string; ts: number; cancel?: boolean }
 
 interface SquadOfficeProps {
@@ -12,7 +12,6 @@ interface SquadOfficeProps {
   activities: Record<string, ActivityState>;
   activeNames: Set<string>;
   pendingText: (agentName: string) => string | null;
-  admin: boolean;
   dispatch: DispatchAnim | null;
   onAgentClick: (name: string) => void;
   onWaitingClick: (name: string) => void;
@@ -37,7 +36,7 @@ const ROOMS: Record<RoomKey, Room> = {
   work: { x: 1, y: 10, w: 38, h: 9, label: "", floor: "#222631", wall: "#161922" },
   library: { x: 1, y: 20, w: 14, h: 5, label: "Biblioteca", floor: "#23311f", wall: "#152012", clickable: "library" },
   meeting: { x: 16, y: 20, w: 23, h: 5, label: "Sala de Reunioes", floor: "#2f2238", wall: "#1d1424" },
-  presidencia: { x: 1, y: 26, w: 38, h: 5, label: "Presidencia", floor: "#2c2138", wall: "#1b1424" },
+  presidencia: { x: 1, y: 26, w: 38, h: 5, label: "Presidencia", floor: "#2c2138", wall: "#1b1424", clickable: "presidencia" },
 };
 
 function rectPx(r: Room) { return { rx: r.x * TILE, ry: r.y * TILE, rw: r.w * TILE, rh: r.h * TILE }; }
@@ -68,7 +67,7 @@ function roomSlot(r: Room, idx: number, total: number): { x: number; y: number }
   const col = idx % cols;
   const row = Math.floor(idx / cols);
   return {
-    x: (r.x + 1.5 + col * ((r.w - 3) / Math.max(1, cols))) * TILE,
+    x: (r.x + 1.5 + col * ((r.w - 3) / cols)) * TILE,
     y: (r.y + r.h - 2 - row * 1.5) * TILE,
   };
 }
@@ -90,10 +89,12 @@ interface Char {
 type DispatchPhase = "toCafe" | "ack" | "return";
 interface DispatchState { agent: string; phase: DispatchPhase; since: number }
 
-export function SquadOffice({ team, appearances, activities, activeNames, pendingText, admin, dispatch, onAgentClick, onWaitingClick, onZoneClick }: SquadOfficeProps) {
+export function SquadOffice({ team, appearances, activities, activeNames, pendingText, dispatch, onAgentClick, onWaitingClick, onZoneClick }: SquadOfficeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const staticRef = useRef<HTMLCanvasElement | null>(null);
+  const viewRef = useRef({ s: SCALE, ox: 0, oy: 0 });
 
   const activitiesRef = useRef(activities);
   const pendingRef = useRef(pendingText);
@@ -103,7 +104,6 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
   activeRef.current = activeNames;
 
   const charsRef = useRef<Char[]>([]);
-  const membersRef = useRef<string[]>([]);
   const dispatchRef = useRef<DispatchState | null>(null);
   const lastDispatchTs = useRef(0);
 
@@ -124,7 +124,6 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
 
   useEffect(() => {
     const members = team.members.map((m) => m.agentName);
-    membersRef.current = members;
     const prev = new Map(charsRef.current.map((c) => [c.name, c]));
     const makeChar = (name: string, hx: number, hy: number, idx: number, isPresident: boolean): Char => {
       const p = prev.get(name);
@@ -147,15 +146,32 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
     const president = makeChar(PRESIDENT_NAME, (pr.x + pr.w / 2) * TILE, (pr.y + pr.h - 1.5) * TILE, members.length, true);
     charsRef.current = [...memberChars, president];
 
-    const w = OW * TILE * SCALE, h = OH * TILE * SCALE;
-    const canvas = canvasRef.current;
-    if (canvas) { canvas.width = w; canvas.height = h; canvas.style.width = `${w}px`; canvas.style.height = `${h}px`; }
     const stat = document.createElement("canvas");
-    stat.width = w; stat.height = h;
+    stat.width = OW * TILE * SCALE; stat.height = OH * TILE * SCALE;
     const sctx = stat.getContext("2d");
     if (sctx) { sctx.setTransform(SCALE, 0, 0, SCALE, 0, 0); sctx.imageSmoothingEnabled = false; drawStatic(sctx, members.length); }
     staticRef.current = stat;
   }, [team, appearances]);
+
+  useEffect(() => {
+    const wrap = wrapRef.current, canvas = canvasRef.current;
+    if (!wrap || !canvas) return;
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const cw = wrap.clientWidth, ch = wrap.clientHeight;
+      if (cw === 0 || ch === 0) return;
+      canvas.width = Math.round(cw * dpr);
+      canvas.height = Math.round(ch * dpr);
+      const officeW = OW * TILE, officeH = OH * TILE;
+      const s = Math.min(canvas.width / officeW, canvas.height / officeH);
+      viewRef.current = { s, ox: (canvas.width - officeW * s) / 2, oy: (canvas.height - officeH * s) / 2 };
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(wrap);
+    window.addEventListener("resize", resize);
+    return () => { ro.disconnect(); window.removeEventListener("resize", resize); };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -214,9 +230,12 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
 
     const render = (t: number) => {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      if (staticRef.current) ctx.drawImage(staticRef.current, 0, 0);
-      ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
       ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = "#0b0b10";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const { s, ox, oy } = viewRef.current;
+      if (staticRef.current) ctx.drawImage(staticRef.current, 0, 0, staticRef.current.width, staticRef.current.height, ox, oy, OW * TILE * s, OH * TILE * s);
+      ctx.setTransform(s, 0, 0, s, ox, oy);
 
       const chars = charsRef.current;
       const workingNames = chars.filter((c) => !c.isPresident && effAct(c) === "working").map((c) => c.name);
@@ -259,13 +278,18 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
     if (!canvas) return;
     const toLogical = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      return { x: (e.clientX - rect.left) / SCALE, y: (e.clientY - rect.top) / SCALE };
+      const { s, ox, oy } = viewRef.current;
+      const bx = (e.clientX - rect.left) * (canvas.width / rect.width);
+      const by = (e.clientY - rect.top) * (canvas.height / rect.height);
+      return { x: (bx - ox) / s, y: (by - oy) / s };
     };
     const charAt = (lx: number, ly: number) => charsRef.current.find((c) => !c.isPresident && Math.abs(lx - c.x) <= 9 && ly >= c.y - 22 && ly <= c.y + 4);
     const zoneAt = (lx: number, ly: number): ZoneClick | null => {
       for (const key of Object.keys(ROOMS) as RoomKey[]) {
         const r = ROOMS[key];
-        if (r.clickable && lx >= r.x * TILE && lx <= (r.x + r.w) * TILE && ly >= r.y * TILE && ly <= (r.y + r.h) * TILE) return r.clickable;
+        if (!r.clickable) continue;
+        const { rx, ry, rw, rh } = rectPx(r);
+        if (lx >= rx && lx <= rx + rw && ly >= ry && ly <= ry + rh) return r.clickable;
       }
       return null;
     };
@@ -287,7 +311,7 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
       canvas.style.cursor = c || zone ? "pointer" : "default";
       const tip = tipRef.current;
       if (tip) {
-        const label = c ? c.name : zone === "cpd" ? "CPD — gerenciar MCPs" : zone === "library" ? "Biblioteca — gerenciar skills" : zone === "archive" ? "Arquivo — enviar/baixar arquivos" : "";
+        const label = c ? c.name : zone === "cpd" ? "CPD — gerenciar MCPs" : zone === "library" ? "Biblioteca — gerenciar skills" : zone === "archive" ? "Arquivo — enviar/baixar arquivos" : zone === "presidencia" ? "Presidência — enviar mensagem ao presidente" : "";
         if (label) { tip.textContent = label; tip.style.display = "block"; tip.style.left = `${e.clientX + 12}px`; tip.style.top = `${e.clientY + 12}px`; }
         else tip.style.display = "none";
       }
@@ -295,11 +319,11 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
     canvas.addEventListener("click", onClick as (e: Event) => void);
     canvas.addEventListener("pointermove", onMove);
     return () => { canvas.removeEventListener("click", onClick as (e: Event) => void); canvas.removeEventListener("pointermove", onMove); };
-  }, [onAgentClick, onWaitingClick, onZoneClick, admin]);
+  }, [onAgentClick, onWaitingClick, onZoneClick]);
 
   return (
-    <div className="relative w-full h-full overflow-auto rounded-lg border border-border bg-[#0b0b10]">
-      <canvas ref={canvasRef} className="pixel-art block m-auto" style={{ imageRendering: "pixelated" }} />
+    <div ref={wrapRef} className="relative w-full h-full overflow-hidden rounded-lg border border-border bg-[#0b0b10]">
+      <canvas ref={canvasRef} className="pixel-art block w-full h-full" style={{ imageRendering: "pixelated" }} />
       <div ref={tipRef} className="fixed z-50 hidden pointer-events-none rounded bg-black/85 px-1.5 py-0.5 text-[11px] text-white" />
     </div>
   );
@@ -438,11 +462,12 @@ function drawChar(ctx: CanvasRenderingContext2D, c: Char, t: number) {
   fill(ctx, x - 5, y - 14, 3, 9, shade(p.shirt, 14));
   fill(ctx, x + 3, y - 14, 2, 9, shade(p.shirt, -16));
   // arms
-  const armY = y - 13 + (c.walking ? step : 0);
+  const armStep = c.walking ? step : 0;
+  const armY = y - 13 + armStep;
   fill(ctx, x - 7, armY, 2, 7, p.shirt);
-  fill(ctx, x + 5, y - 13 - (c.walking ? step : 0), 2, 7, p.shirt);
+  fill(ctx, x + 5, y - 13 - armStep, 2, 7, p.shirt);
   fill(ctx, x - 7, armY + 7, 2, 1, p.skin);
-  fill(ctx, x + 5, y - 6 - (c.walking ? step : 0), 2, 1, p.skin);
+  fill(ctx, x + 5, y - 6 - armStep, 2, 1, p.skin);
   // head
   fill(ctx, x - 5, y - 23, 10, 9, p.skin);
   fill(ctx, x - 5, y - 24, 10, 4, p.hair);

@@ -157,14 +157,15 @@ teamsRouter.delete("/:id/members/:agent", async (req, res) => {
 });
 
 teamsRouter.post("/:id/dispatch", async (req, res) => {
-  const { prompt } = req.body ?? {};
+  const { prompt, agent } = req.body ?? {};
   if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
     res.status(400).json({ error: "prompt required" });
     return;
   }
+  const preferredAgent = typeof agent === "string" && agent.trim() ? agent.trim() : undefined;
   try {
     const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
-    const result = await dispatchToSquad(req.params.id, prompt.trim(), username);
+    const result = await dispatchToSquad(req.params.id, prompt.trim(), username, preferredAgent);
     res.status(201).json(result);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Falha ao encaminhar" });
