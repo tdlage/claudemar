@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { useSocketEvent } from "./useSocket";
 
-export type Activity = "working" | "mcp" | "skill" | "idle" | "waiting";
+export type Activity = "working" | "mcp" | "skill" | "file" | "idle" | "waiting";
 
 export interface ActivityState {
   activity: Activity;
   rev: number;
 }
 
-const VALID: Activity[] = ["working", "mcp", "skill", "idle", "waiting"];
+const VALID: Activity[] = ["working", "mcp", "skill", "file", "idle", "waiting"];
 
 export function useAgentActivity(): Record<string, ActivityState> {
   const [activities, setActivities] = useState<Record<string, ActivityState>>({});

@@ -184,9 +184,11 @@ export function setupWebSocket(io: SocketServer): void {
     return executionManager.isTargetActive(info.targetType, info.targetName) ? "working" : "idle";
   };
 
+  const FILE_TOOLS = new Set(["Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Update"]);
   const classifyTool = (name: string): string => {
     if (name.startsWith("mcp__")) return "mcp";
     if (name === "Skill") return "skill";
+    if (FILE_TOOLS.has(name)) return "file";
     return "working";
   };
 
@@ -230,11 +232,36 @@ export function setupWebSocket(io: SocketServer): void {
   executionManager.on("tool", (id, name, input, kind) => {
     io.to(`exec:${id}`).emit("execution:tool", { id, name, input, kind });
     const info = executionManager.getExecution(id);
-    if (info) emitActivity(id, info, classifyTool(name));
+    if (!info) return;
+    emitActivity(id, info, classifyTool(name));
+    if ((name === "Agent" || name === "Task") && info.targetType === "agent") {
+      const to = typeof input?.subagent_type === "string" ? input.subagent_type : null;
+      if (to && to !== info.targetName) {
+        emitToExecutions("agent:handoff", info, { from: info.targetName, to });
+      }
+    }
   });
 
   executionManager.on("permission", (id, reqId, toolName, input) => {
     io.to(`exec:${id}`).emit("execution:permission", { id, reqId, toolName, input });
+    const info = executionManager.getExecution(id);
+    if (info && info.targetType === "agent") {
+      emitToExecutions("agent:permission", info, { id, targetName: info.targetName, reqId, toolName, input });
+    }
+  });
+
+  executionManager.on("permission-resolved", (id, reqId) => {
+    const info = executionManager.getExecution(id);
+    if (info && info.targetType === "agent") {
+      emitToExecutions("agent:permission:resolved", info, { id, targetName: info.targetName, reqId });
+    }
+  });
+
+  executionManager.on("subagent-done", (id, to) => {
+    const info = executionManager.getExecution(id);
+    if (info && info.targetType === "agent") {
+      emitToExecutions("agent:handoff:done", info, { from: info.targetName, to });
+    }
   });
 
   executionManager.on("mode", (id, mode) => {

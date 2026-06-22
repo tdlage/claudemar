@@ -4,7 +4,8 @@ import type { TeamWithMembers, AgentAppearance } from "../../lib/types";
 import type { ActivityState, Activity } from "../../hooks/useAgentActivity";
 
 export type ZoneClick = "archive" | "cpd" | "library" | "presidencia";
-export interface DispatchAnim { agent: string; ts: number; cancel?: boolean }
+export type HandoffKind = "dispatch" | "subagent";
+export interface HandoffAnim { from: string; to: string; ts: number; cancel?: boolean; kind?: HandoffKind }
 
 interface SquadOfficeProps {
   team: TeamWithMembers;
@@ -12,9 +13,13 @@ interface SquadOfficeProps {
   activities: Record<string, ActivityState>;
   activeNames: Set<string>;
   pendingText: (agentName: string) => string | null;
-  dispatch: DispatchAnim | null;
+  permissionText: (agentName: string) => string | null;
+  screenState: (agentName: string) => { running: boolean; blink: boolean } | null;
+  handoffs: HandoffAnim[];
   onAgentClick: (name: string) => void;
   onWaitingClick: (name: string) => void;
+  onPermissionClick: (name: string) => void;
+  onScreenClick: (name: string) => void;
   onZoneClick: (zone: ZoneClick) => void;
 }
 
@@ -22,7 +27,7 @@ const TILE = 16;
 const SCALE = 2;
 const OW = 40;
 const OH = 32;
-const PRESIDENT_NAME = "Presidente";
+export const PRESIDENT_NAME = "Presidente";
 const SPEED = 1.0;
 const PRESIDENT_SPEED = 1.9;
 
@@ -30,13 +35,13 @@ type RoomKey = "cpd" | "cafe" | "archive" | "work" | "library" | "meeting" | "pr
 interface Room { x: number; y: number; w: number; h: number; label: string; floor: string; wall: string; clickable?: ZoneClick }
 
 const ROOMS: Record<RoomKey, Room> = {
-  cpd: { x: 1, y: 1, w: 12, h: 8, label: "CPD", floor: "#16233a", wall: "#0e1830", clickable: "cpd" },
-  cafe: { x: 14, y: 1, w: 11, h: 8, label: "Cafeteria", floor: "#3a2a1e", wall: "#26190f" },
-  archive: { x: 26, y: 1, w: 13, h: 8, label: "Arquivo", floor: "#33291b", wall: "#211a0f", clickable: "archive" },
-  work: { x: 1, y: 10, w: 38, h: 9, label: "", floor: "#222631", wall: "#161922" },
-  library: { x: 1, y: 20, w: 14, h: 5, label: "Biblioteca", floor: "#23311f", wall: "#152012", clickable: "library" },
-  meeting: { x: 16, y: 20, w: 23, h: 5, label: "Sala de Reunioes", floor: "#2f2238", wall: "#1d1424" },
-  presidencia: { x: 1, y: 26, w: 38, h: 5, label: "Presidencia", floor: "#2c2138", wall: "#1b1424", clickable: "presidencia" },
+  cpd: { x: 0, y: 0, w: 13, h: 9, label: "CPD", floor: "#16233a", wall: "#0e1830", clickable: "cpd" },
+  cafe: { x: 13, y: 0, w: 13, h: 9, label: "Cafeteria", floor: "#3a2a1e", wall: "#26190f" },
+  archive: { x: 26, y: 0, w: 14, h: 9, label: "Arquivo", floor: "#33291b", wall: "#211a0f", clickable: "archive" },
+  work: { x: 0, y: 9, w: 40, h: 13, label: "", floor: "#222631", wall: "#161922" },
+  library: { x: 0, y: 22, w: 16, h: 5, label: "Biblioteca", floor: "#23311f", wall: "#152012", clickable: "library" },
+  meeting: { x: 16, y: 22, w: 24, h: 5, label: "Sala de Reunioes", floor: "#2f2238", wall: "#1d1424" },
+  presidencia: { x: 0, y: 27, w: 40, h: 5, label: "Presidencia", floor: "#2c2138", wall: "#1b1424", clickable: "presidencia" },
 };
 
 function rectPx(r: Room) { return { rx: r.x * TILE, ry: r.y * TILE, rw: r.w * TILE, rh: r.h * TILE }; }
@@ -81,15 +86,17 @@ interface Char {
   walking: boolean;
   phase: number;
   lastRev: number;
-  trip: { zone: "cpd" | "library"; until: number; arrived: boolean } | null;
+  trip: { zone: "cpd" | "library" | "archive"; until: number; arrived: boolean } | null;
   isPresident: boolean;
   wx: number; wy: number; wuntil: number;
 }
 
-type DispatchPhase = "toCafe" | "ack" | "return";
-interface DispatchState { agent: string; phase: DispatchPhase; since: number }
+type HandoffPhase = "toCafe" | "ack" | "meeting" | "return";
+interface HandoffState { to: string; phase: HandoffPhase; since: number; kind: HandoffKind; meetingUntil: number }
 
-export function SquadOffice({ team, appearances, activities, activeNames, pendingText, dispatch, onAgentClick, onWaitingClick, onZoneClick }: SquadOfficeProps) {
+const MEETING_MS = 30000;
+
+export function SquadOffice({ team, appearances, activities, activeNames, pendingText, permissionText, screenState, handoffs, onAgentClick, onWaitingClick, onPermissionClick, onScreenClick, onZoneClick }: SquadOfficeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
@@ -98,29 +105,36 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
 
   const activitiesRef = useRef(activities);
   const pendingRef = useRef(pendingText);
+  const permissionRef = useRef(permissionText);
+  const screenRef = useRef(screenState);
   const activeRef = useRef(activeNames);
   activitiesRef.current = activities;
   pendingRef.current = pendingText;
+  permissionRef.current = permissionText;
+  screenRef.current = screenState;
   activeRef.current = activeNames;
 
   const charsRef = useRef<Char[]>([]);
-  const dispatchRef = useRef<DispatchState | null>(null);
-  const lastDispatchTs = useRef(0);
+  const handoffsRef = useRef<Map<string, HandoffState>>(new Map());
+  const lastHandoffTs = useRef(0);
 
   useEffect(() => {
-    if (!dispatch || dispatch.ts === lastDispatchTs.current) return;
-    lastDispatchTs.current = dispatch.ts;
-    const active = dispatchRef.current;
-    if (dispatch.cancel) {
-      if (active && active.phase !== "return") active.phase = "return";
-      return;
+    const map = handoffsRef.current;
+    for (const h of handoffs) {
+      if (h.ts <= lastHandoffTs.current) continue;
+      lastHandoffTs.current = h.ts;
+      const active = map.get(h.from);
+      if (h.cancel) {
+        if (active && active.phase !== "return") active.phase = "return";
+        continue;
+      }
+      if (active && active.phase !== "return") {
+        if (h.to) active.to = h.to;
+      } else {
+        map.set(h.from, { to: h.to, phase: "toCafe", since: 0, kind: h.kind ?? "dispatch", meetingUntil: 0 });
+      }
     }
-    if (active && active.phase !== "return") {
-      if (dispatch.agent) active.agent = dispatch.agent;
-    } else {
-      dispatchRef.current = { agent: dispatch.agent, phase: "toCafe", since: 0 };
-    }
-  }, [dispatch]);
+  }, [handoffs]);
 
   useEffect(() => {
     const members = team.members.map((m) => m.agentName);
@@ -189,29 +203,43 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
     };
     const effAct = (c: Char): Activity => {
       const a = rawAct(c.name);
-      return (a === "mcp" || a === "skill") && !c.trip ? "working" : a;
+      return (a === "mcp" || a === "skill" || a === "file") && !c.trip ? "working" : a;
     };
-    const presidentTarget = (c: Char, t: number): { x: number; y: number } => {
-      const d = dispatchRef.current;
-      if (d) {
+    const meetingSlot = (name: string, mates: string[]) =>
+      roomSlot(ROOMS.meeting, Math.max(0, mates.indexOf(name)), Math.max(1, mates.length));
+    const targetFor = (c: Char, t: number, mates: string[]): { x: number; y: number } => {
+      const h = handoffsRef.current.get(c.name);
+      if (h && h.phase !== "return") {
         const cafe = roomSlot(ROOMS.cafe, 0, 1);
-        if (d.phase === "return") {
-          if (Math.hypot(c.homeX - c.x, c.homeY - c.y) < 6) dispatchRef.current = null;
+        if (h.phase === "toCafe") {
+          if (h.to && Math.hypot(cafe.x - c.x, cafe.y - c.y) < 6) { h.phase = "ack"; h.since = t; }
+          return cafe;
+        }
+        if (h.phase === "ack") {
+          if (t - h.since <= 2200) return cafe;
+          if (h.kind === "subagent") { h.phase = "meeting"; h.meetingUntil = t + MEETING_MS; }
+          else h.phase = "return";
+        }
+        if (h.phase === "meeting") {
+          if (t <= h.meetingUntil) return meetingSlot(c.name, mates);
+          h.phase = "return";
+        }
+      }
+      if (h && h.phase === "return") {
+        if (c.isPresident) {
+          if (Math.hypot(c.homeX - c.x, c.homeY - c.y) < 6) handoffsRef.current.delete(c.name);
           return { x: c.homeX, y: c.homeY };
         }
-        if (d.phase === "toCafe" && d.agent && Math.hypot(cafe.x - c.x, cafe.y - c.y) < 6) { d.phase = "ack"; d.since = t; }
-        if (d.phase === "ack" && t - d.since > 2200) d.phase = "return";
-        return cafe;
+        handoffsRef.current.delete(c.name);
       }
-      return wanderTarget(c, ROOMS.presidencia, t);
-    };
-    const targetFor = (c: Char, t: number, workingNames: string[]): { x: number; y: number } => {
-      if (c.isPresident) return presidentTarget(c, t);
+      if (mates.includes(c.name)) return meetingSlot(c.name, mates);
+      if (c.isPresident) return wanderTarget(c, ROOMS.presidencia, t);
       const st = activitiesRef.current[c.name];
       if (st && st.rev !== c.lastRev) {
         c.lastRev = st.rev;
         if (st.activity === "mcp") c.trip = { zone: "cpd", until: 0, arrived: false };
         else if (st.activity === "skill") c.trip = { zone: "library", until: 0, arrived: false };
+        else if (st.activity === "file") c.trip = { zone: "archive", until: 0, arrived: false };
       }
       if (c.trip) {
         const slot = roomSlot(ROOMS[c.trip.zone], 0, 1);
@@ -224,7 +252,6 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
       }
       const act = effAct(c);
       if (act === "idle") return wanderTarget(c, ROOMS.cafe, t);
-      if (act === "working" && workingNames.length >= 2) return roomSlot(ROOMS.meeting, Math.max(0, workingNames.indexOf(c.name)), workingNames.length);
       return { x: c.homeX, y: c.homeY };
     };
 
@@ -238,13 +265,18 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
       ctx.setTransform(s, 0, 0, s, ox, oy);
 
       const chars = charsRef.current;
-      const workingNames = chars.filter((c) => !c.isPresident && effAct(c) === "working").map((c) => c.name);
+      const mates: string[] = [];
+      for (const [from, h] of handoffsRef.current) {
+        if (h.phase === "meeting") { mates.push(from, h.to); }
+      }
+
+      chars.filter((c) => !c.isPresident).forEach((c, idx) => drawScreen(ctx, idx, screenRef.current(c.name), t));
 
       for (const c of chars) {
-        const tgt = targetFor(c, t, workingNames);
+        const tgt = targetFor(c, t, mates);
         const dx = tgt.x - c.x, dy = tgt.y - c.y;
         const dist = Math.hypot(dx, dy);
-        const speed = c.isPresident && dispatchRef.current ? PRESIDENT_SPEED : SPEED;
+        const speed = c.isPresident && handoffsRef.current.has(c.name) ? PRESIDENT_SPEED : SPEED;
         if (dist > 1.5) {
           const step = Math.min(speed, dist);
           c.x += (dx / dist) * step; c.y += (dy / dist) * step; c.walking = true;
@@ -255,16 +287,19 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
 
       for (const c of chars) {
         if (c.isPresident) continue;
+        const perm = permissionRef.current(c.name);
+        if (perm) { drawBubble(ctx, c, perm, t, "#ef4444"); continue; }
         const txt = pendingRef.current(c.name);
         if (txt || rawAct(c.name) === "waiting") drawBubble(ctx, c, txt ?? "Preciso confirmar algo", t);
       }
-      const d = dispatchRef.current;
-      if (d) {
-        const pres = chars.find((c) => c.isPresident);
-        if (pres && (d.phase === "toCafe" || d.phase === "ack")) drawMiniBubble(ctx, pres, "!", t, "#facc15");
-        if (d.phase === "ack") {
-          const agentChar = chars.find((c) => c.name === d.agent);
-          if (agentChar) drawMiniBubble(ctx, agentChar, "\u{1F44D}", t, "#22c55e");
+      for (const [from, h] of handoffsRef.current) {
+        if (h.phase === "toCafe" || h.phase === "ack") {
+          const fromChar = chars.find((c) => c.name === from);
+          if (fromChar) drawMiniBubble(ctx, fromChar, "!", t, "#facc15");
+        }
+        if (h.phase === "ack") {
+          const toChar = chars.find((c) => c.name === h.to);
+          if (toChar) drawMiniBubble(ctx, toChar, "\u{1F44D}", t, "#22c55e");
         }
       }
       raf = requestAnimationFrame(render);
@@ -284,6 +319,14 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
       return { x: (bx - ox) / s, y: (by - oy) / s };
     };
     const charAt = (lx: number, ly: number) => charsRef.current.find((c) => !c.isPresident && Math.abs(lx - c.x) <= 9 && ly >= c.y - 22 && ly <= c.y + 4);
+    const screenAt = (lx: number, ly: number): string | null => {
+      const members = charsRef.current.filter((c) => !c.isPresident);
+      for (let idx = 0; idx < members.length; idx++) {
+        const { bx, by, bw, bh } = deskScreenRect(idx);
+        if (lx >= bx && lx <= bx + bw && ly >= by && ly <= by + bh && screenRef.current(members[idx].name)) return members[idx].name;
+      }
+      return null;
+    };
     const zoneAt = (lx: number, ly: number): ZoneClick | null => {
       for (const key of Object.keys(ROOMS) as RoomKey[]) {
         const r = ROOMS[key];
@@ -297,21 +340,26 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
       const { x, y } = toLogical(e);
       const c = charAt(x, y);
       if (c) {
-        if (pendingRef.current(c.name) || activitiesRef.current[c.name]?.activity === "waiting") onWaitingClick(c.name);
+        if (permissionRef.current(c.name)) onPermissionClick(c.name);
+        else if (pendingRef.current(c.name) || activitiesRef.current[c.name]?.activity === "waiting") onWaitingClick(c.name);
         else onAgentClick(c.name);
         return;
       }
+      const screen = screenAt(x, y);
+      if (screen) { onScreenClick(screen); return; }
       const zone = zoneAt(x, y);
       if (zone) onZoneClick(zone);
     };
     const onMove = (e: PointerEvent) => {
       const { x, y } = toLogical(e);
       const c = charAt(x, y);
-      const zone = zoneAt(x, y);
-      canvas.style.cursor = c || zone ? "pointer" : "default";
+      const screen = c ? null : screenAt(x, y);
+      const zone = c || screen ? null : zoneAt(x, y);
+      canvas.style.cursor = c || screen || zone ? "pointer" : "default";
       const tip = tipRef.current;
       if (tip) {
-        const label = c ? c.name : zone === "cpd" ? "CPD — gerenciar MCPs" : zone === "library" ? "Biblioteca — gerenciar skills" : zone === "archive" ? "Arquivo — enviar/baixar arquivos" : zone === "presidencia" ? "Presidência — enviar mensagem ao presidente" : "";
+        const screenLabel = screen ? (screenRef.current(screen)?.running ? `${screen} — ver execução em andamento` : `${screen} — ver relatório`) : "";
+        const label = c ? c.name : screenLabel || (zone === "cpd" ? "CPD — gerenciar MCPs" : zone === "library" ? "Biblioteca — gerenciar skills" : zone === "archive" ? "Arquivo — enviar/baixar arquivos" : zone === "presidencia" ? "Presidência — enviar mensagem ao presidente" : "");
         if (label) { tip.textContent = label; tip.style.display = "block"; tip.style.left = `${e.clientX + 12}px`; tip.style.top = `${e.clientY + 12}px`; }
         else tip.style.display = "none";
       }
@@ -319,7 +367,7 @@ export function SquadOffice({ team, appearances, activities, activeNames, pendin
     canvas.addEventListener("click", onClick as (e: Event) => void);
     canvas.addEventListener("pointermove", onMove);
     return () => { canvas.removeEventListener("click", onClick as (e: Event) => void); canvas.removeEventListener("pointermove", onMove); };
-  }, [onAgentClick, onWaitingClick, onZoneClick]);
+  }, [onAgentClick, onWaitingClick, onPermissionClick, onScreenClick, onZoneClick]);
 
   return (
     <div ref={wrapRef} className="relative w-full h-full overflow-hidden rounded-lg border border-border bg-[#0b0b10]">
@@ -347,7 +395,7 @@ function drawStatic(ctx: CanvasRenderingContext2D, memberCount: number) {
     fill(ctx, rx, ry, 3, rh, r.wall);
     fill(ctx, rx + rw - 3, ry, 3, rh, r.wall);
     fill(ctx, rx, ry + rh - 3, rw, 3, r.wall);
-    if (r.label) { ctx.fillStyle = "#e8e8ef"; ctx.font = "7px monospace"; ctx.textBaseline = "top"; ctx.fillText(r.label, rx + 5, ry - 0.5); }
+    if (r.label) { ctx.fillStyle = "#e8e8ef"; ctx.font = "7px monospace"; ctx.textBaseline = "top"; ctx.fillText(r.label, rx + 5, ry + 1); }
   }
   drawCpd(ctx);
   drawCafe(ctx);
@@ -380,14 +428,46 @@ function shade(hex: string, amt: number): string {
 
 function drawDesk(ctx: CanvasRenderingContext2D, d: { tx: number; ty: number }) {
   const x = d.tx * TILE, y = d.ty * TILE;
-  fill(ctx, x + 10, y, 14, 9, "#2a2f3a");
-  fill(ctx, x + 11, y + 1, 12, 6, "#0e1626");
-  fill(ctx, x + 13, y + 2, 6, 1, "#3f5d8a");
-  fill(ctx, x + 13, y + 4, 4, 1, "#2b3a55");
-  fill(ctx, x + 16, y + 9, 2, 1, "#2a2f3a");
   fill(ctx, x + 2, y + 10, 28, 4, "#8b5e34");
   fill(ctx, x + 2, y + 14, 28, 3, "#6e4a28");
   fill(ctx, x + 7, y + 11, 9, 2, "#cfd3da");
+}
+
+function deskScreenRect(idx: number): { bx: number; by: number; bw: number; bh: number } {
+  const d = deskTile(idx);
+  const x = d.tx * TILE, y = d.ty * TILE;
+  return { bx: x + 5, by: y - 14, bw: 22, bh: 24 };
+}
+
+function drawScreen(ctx: CanvasRenderingContext2D, idx: number, st: { running: boolean; blink: boolean } | null, t: number) {
+  const { bx, by, bw, bh } = deskScreenRect(idx);
+  const cx = bx + bw / 2;
+  fill(ctx, cx - 1, by + bh, 2, 4, "#15181f");
+  fill(ctx, cx - 4, by + bh + 4, 8, 1, "#15181f");
+  fill(ctx, bx, by, bw, bh, "#15181f");
+  fill(ctx, bx + 1, by + 1, bw - 2, bh - 2, "#0b0e14");
+  const sx = bx + 2, sy = by + 2, sw = bw - 4, sh = bh - 4;
+  if (st?.blink) {
+    const flash = Math.floor(t / 350) % 2 === 0;
+    fill(ctx, sx, sy, sw, sh, flash ? "#14361f" : "#0b1410");
+    const ck = flash ? "#34d399" : "#1f7a52";
+    const mx = sx + sw / 2 - 3, my = sy + sh / 2;
+    fill(ctx, mx, my, 2, 2, ck);
+    fill(ctx, mx + 2, my + 2, 2, 2, ck);
+    fill(ctx, mx + 4, my - 2, 2, 2, ck);
+    fill(ctx, mx + 6, my - 4, 2, 2, ck);
+  } else if (st?.running) {
+    fill(ctx, sx, sy, sw, sh, "#0e1626");
+    for (let i = 0; i < 5; i++) {
+      const ly = sy + 2 + i * 3;
+      const lw = ((Math.floor(t / 220) + i) % 2 ? sw - 6 : sw - 11);
+      fill(ctx, sx + 2, ly, Math.max(4, lw), 1, i % 2 ? "#3f5d8a" : "#2b3a55");
+    }
+    if (Math.floor(t / 400) % 2) fill(ctx, sx + 2, sy + 2 + 5 * 3, 3, 1, "#36d399");
+  } else {
+    fill(ctx, sx, sy, sw, sh, "#0c1018");
+    fill(ctx, sx + 2, sy + sh - 3, sw - 4, 1, "#141a24");
+  }
 }
 
 function drawCpd(ctx: CanvasRenderingContext2D) {
@@ -519,7 +599,7 @@ function drawMiniBubble(ctx: CanvasRenderingContext2D, c: Char, glyph: string, t
   ctx.textBaseline = "alphabetic";
 }
 
-function drawBubble(ctx: CanvasRenderingContext2D, c: Char, text: string, t: number) {
+function drawBubble(ctx: CanvasRenderingContext2D, c: Char, text: string, t: number, accent = "#facc15") {
   const short = text.length > 22 ? text.slice(0, 22) + "…" : text;
   const w = Math.max(28, short.length * 4 + 8);
   const x = Math.round(c.x) - w / 2;
@@ -528,7 +608,7 @@ function drawBubble(ctx: CanvasRenderingContext2D, c: Char, text: string, t: num
   fill(ctx, x - 1, y + 1, 1, 9, "#ffffff");
   fill(ctx, x + w, y + 1, 1, 9, "#ffffff");
   fill(ctx, Math.round(c.x) - 2, y + 12, 4, 2, "#ffffff");
-  ctx.fillStyle = "#facc15"; ctx.fillRect(x + 2, y + 2, 2, 8);
+  ctx.fillStyle = accent; ctx.fillRect(x + 2, y + 2, 2, 8);
   ctx.fillStyle = "#111"; ctx.font = "7px monospace"; ctx.textBaseline = "top";
   ctx.fillText(short, x + 6, y + 2);
 }

@@ -105,6 +105,7 @@ export class ClaudeSession extends EventEmitter {
   private sessionId = "";
   private model = "";
   private assistantBuffer = "";
+  private agentToolCalls = new Map<string, string>();
   private pendingUserText: string | null = null;
   private result: AgentResult | null = null;
   private settled = false;
@@ -159,6 +160,7 @@ export class ClaudeSession extends EventEmitter {
       const settle = (result: PermissionResult) => {
         if (timer) clearTimeout(timer);
         this.permissionResolvers.delete(reqId);
+        this.emit("permissionResolved", reqId);
         resolve(result);
       };
       this.permissionResolvers.set(reqId, { settle, toolName, input });
@@ -237,8 +239,29 @@ export class ClaudeSession extends EventEmitter {
       case "result":
         this.handleResult(message);
         break;
+      case "user":
+        this.observeSubagentResults(message);
+        break;
       default:
         break;
+    }
+  }
+
+  private observeSubagentResults(message: Extract<SDKMessage, { type: "user" }>): void {
+    if (this.agentToolCalls.size === 0) return;
+    try {
+      const content = (message.message as { content?: unknown[] }).content;
+      if (!Array.isArray(content)) return;
+      for (const raw of content) {
+        const block = raw as { type?: string; tool_use_id?: string };
+        if (block.type === "tool_result" && block.tool_use_id && this.agentToolCalls.has(block.tool_use_id)) {
+          const to = this.agentToolCalls.get(block.tool_use_id)!;
+          this.agentToolCalls.delete(block.tool_use_id);
+          this.emit("subagentDone", to);
+        }
+      }
+    } catch {
+      // observação não-crítica: nunca afeta a execução real
     }
   }
 
@@ -272,6 +295,10 @@ export class ClaudeSession extends EventEmitter {
         this.emit("thinking", block.thinking);
       } else if (block.type === "tool_use" && block.name) {
         this.emit("toolUse", block.name, block.input ?? {});
+        if ((block.name === "Agent" || block.name === "Task") && block.id) {
+          const to = block.input?.subagent_type;
+          if (typeof to === "string" && to) this.agentToolCalls.set(block.id, to);
+        }
       }
     }
   }
@@ -334,6 +361,7 @@ export class ClaudeSession extends EventEmitter {
     this.result = result;
     this.settled = true;
     this.assistantBuffer = "";
+    this.agentToolCalls.clear();
     this.emit("result", result);
   }
 
@@ -447,6 +475,7 @@ export class ClaudeSession extends EventEmitter {
       settle({ behavior: "deny", message: "Sessão encerrada." });
     }
     this.permissionResolvers.clear();
+    this.agentToolCalls.clear();
     this.queue.end();
     this.abortController.abort();
   }

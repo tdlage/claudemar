@@ -383,6 +383,8 @@ class ExecutionManager extends EventEmitter {
       }
     };
     const onPermission = (p: PendingPermission) => this.emit("permission", info.id, p.reqId, p.toolName, p.input);
+    const onPermissionResolved = (reqId: string) => this.emit("permission-resolved", info.id, reqId);
+    const onSubagentDone = (to: string) => this.emit("subagent-done", info.id, to);
     const onUsage = (u: UsageInfo) => this.emit("usage", info.id, u.costUsd, u.tokens, u.contextPct);
     const onCompact = (trigger: string) => this.emit("compact", info.id, trigger);
     const onCheckpoint = (uuid: string) => this.emit("checkpoint", info.id, uuid);
@@ -395,6 +397,8 @@ class ExecutionManager extends EventEmitter {
     session.on("toolUse", onToolUse);
     session.on("sessionId", onSessionId);
     session.on("permission", onPermission);
+    session.on("permissionResolved", onPermissionResolved);
+    session.on("subagentDone", onSubagentDone);
     session.on("usage", onUsage);
     session.on("compact", onCompact);
     session.on("checkpoint", onCheckpoint);
@@ -408,6 +412,8 @@ class ExecutionManager extends EventEmitter {
       session.off("toolUse", onToolUse);
       session.off("sessionId", onSessionId);
       session.off("permission", onPermission);
+      session.off("permissionResolved", onPermissionResolved);
+      session.off("subagentDone", onSubagentDone);
       session.off("usage", onUsage);
       session.off("compact", onCompact);
       session.off("checkpoint", onCheckpoint);
