@@ -104,6 +104,9 @@ systemRouter.post("/env", requireAdmin, (req, res) => {
     return;
   }
   const updated = updateEnv(values as Record<string, string>);
+  if (updated.includes("ZAI_API_KEY")) {
+    executionManager.invalidateLlmSessions();
+  }
   res.json({ updated, restartRequired: updated.length > 0 });
 });
 

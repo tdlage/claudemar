@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { settingsManager } from "../../settings-manager.js";
 import { emailSettingsManager } from "../../email-settings-manager.js";
+import { executionManager } from "../../execution-manager.js";
 import { regenerateOrchestratorAgentsMd } from "../../orchestrator-init.js";
 import { generateSendEmailScript } from "../../email-init.js";
 
@@ -12,14 +13,19 @@ settingsRouter.get("/", (_req, res) => {
 
 settingsRouter.put("/", (req, res) => {
   const { sesFrom, adminEmail, llmProvider, zaiModel } = req.body;
+  const before = settingsManager.get();
   settingsManager.update({
     sesFrom: typeof sesFrom === "string" ? sesFrom : undefined,
     adminEmail: typeof adminEmail === "string" ? adminEmail : undefined,
     llmProvider: llmProvider === "anthropic" || llmProvider === "zai" ? llmProvider : undefined,
     zaiModel: typeof zaiModel === "string" ? zaiModel : undefined,
   });
+  const after = settingsManager.get();
+  if (after.llmProvider !== before.llmProvider || after.zaiModel !== before.zaiModel) {
+    executionManager.invalidateLlmSessions();
+  }
   regenerateOrchestratorAgentsMd();
-  res.json(settingsManager.get());
+  res.json(after);
 });
 
 settingsRouter.get("/email/profiles", (_req, res) => {

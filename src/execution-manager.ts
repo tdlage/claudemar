@@ -118,6 +118,8 @@ class ExecutionManager extends EventEmitter {
   private recent: ExecutionInfo[] = [];
   private pendingQuestions = new Map<string, { info: ExecutionInfo; opts: StartExecutionOpts }>();
   private sessions = new Map<string, ClaudeSession>();
+  private sessionGen = new Map<string, number>();
+  private llmConfigGen = 0;
 
   private lastSessionMap = new Map<string, string>();
   private lastSessionModelMap = new Map<string, string>();
@@ -246,7 +248,8 @@ class ExecutionManager extends EventEmitter {
       const agentChanged = (opts.agentName ?? "") !== (existing.agentName ?? "");
       const schedulerChanged = Boolean(opts.schedulerMode) !== existing.schedulerMode;
       const resumeChanged = Boolean(resumeId) && resumeId !== existing.getSessionId();
-      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged) {
+      const llmChanged = this.sessionGen.get(sessionKey) !== this.llmConfigGen;
+      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged) {
         return { session: existing, isNew: false };
       }
       existing.end();
@@ -275,6 +278,7 @@ class ExecutionManager extends EventEmitter {
       permissionTimeoutMs: config.permissionTimeoutMs,
     });
     this.sessions.set(sessionKey, session);
+    this.sessionGen.set(sessionKey, this.llmConfigGen);
     return { session, isNew: true };
   }
 
@@ -284,6 +288,10 @@ class ExecutionManager extends EventEmitter {
       session.end();
       this.sessions.delete(sessionKey);
     }
+  }
+
+  invalidateLlmSessions(): void {
+    this.llmConfigGen++;
   }
 
   startExecution(opts: StartExecutionOpts): string {
