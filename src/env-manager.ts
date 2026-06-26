@@ -12,12 +12,17 @@ export interface ManagedEnvKey {
   required: boolean;
 }
 
+const GATEWAY_GROUP = "Gateway de LLM (Bifrost)";
+
 export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
-  { key: "ZAI_API_KEY", label: "z.ai API Key", group: "Provedor de LLM", help: "Token da z.ai (GLM). Usado quando o provedor de LLM selecionado é z.ai.", required: false },
+  { key: "OPENAI_API_KEY", label: "OpenAI API Key", group: GATEWAY_GROUP, help: "Usada pelo gateway para os modelos OpenAI (perfil openai) e pelo Whisper na transcrição de voz.", required: false },
+  { key: "ZAI_API_KEY", label: "z.ai API Key", group: GATEWAY_GROUP, help: "Token da z.ai (GLM). Consumido pelo gateway no perfil z.ai.", required: false },
+  { key: "SAKANA_API_KEY", label: "Sakana API Key", group: GATEWAY_GROUP, help: "Token da Sakana AI (Fugu). Consumido pelo gateway no perfil sakana.", required: false },
+  { key: "BIFROST_ANTHROPIC_API_KEY", label: "Anthropic API Key (gateway)", group: GATEWAY_GROUP, help: "Chave da Anthropic usada pelo gateway no perfil anthropic. Mantida separada de ANTHROPIC_API_KEY para não substituir a subscription do Claude.", required: false },
+  { key: "BIFROST_VIRTUAL_KEY", label: "Bifrost Virtual Key", group: GATEWAY_GROUP, help: "Opcional. Virtual key enviada ao gateway (Authorization: Bearer) quando a governança do Bifrost está habilitada.", required: false },
   { key: "VOYAGE_API_KEY", label: "Voyage API Key", group: "Memória de longo prazo", help: "Embeddings (voyage-4-large) e rerank (rerank-2.5). Necessária para a memória.", required: false },
   { key: "QDRANT_URL", label: "Qdrant URL", group: "Memória de longo prazo", help: "Endpoint do cluster Qdrant (ex.: https://xxxx.cloud.qdrant.io).", required: false },
   { key: "QDRANT_API_KEY", label: "Qdrant API Key", group: "Memória de longo prazo", help: "Chave de acesso do Qdrant Cloud.", required: false },
-  { key: "OPENAI_API_KEY", label: "OpenAI API Key", group: "Transcrição de voz", help: "Usada pelo Whisper para transcrever mensagens de voz.", required: false },
 ];
 
 export interface EnvKeyStatus extends ManagedEnvKey {

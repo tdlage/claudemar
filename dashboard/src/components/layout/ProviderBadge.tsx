@@ -3,7 +3,7 @@ import { Bot } from "lucide-react";
 import { api } from "../../lib/api";
 
 interface ProviderInfo {
-  provider: "anthropic" | "zai";
+  provider: string;
   label: string;
   model: string;
   configured: boolean;
@@ -29,7 +29,7 @@ export function ProviderBadge() {
 
   if (!info) return null;
 
-  const needsKey = info.provider === "zai" && !info.configured;
+  const needsKey = !info.configured;
   const color = needsKey ? "text-red-400" : "text-text-muted";
   const title = `Provedor LLM: ${info.label} · ${info.model}${needsKey ? " (sem API key)" : ""}`;
 

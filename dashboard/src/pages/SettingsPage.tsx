@@ -2,9 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound, Cpu } from "lucide-react";
 import { api } from "../lib/api";
 import { OPEN_API_KEYS_EVENT } from "../components/layout/ApiKeysSetup";
-import type { RuntimeSettings, EmailProfileMasked, EnvKeyStatus, LlmProvider } from "../lib/types";
-
-const DEFAULT_ZAI_MODEL = "glm-5.2[1m]";
+import type { RuntimeSettings, EmailProfileMasked, LlmProfile } from "../lib/types";
 
 interface ProfileFormState {
   awsAccessKeyId: string;
@@ -15,7 +13,7 @@ interface ProfileFormState {
 }
 
 export function SettingsPage() {
-  const [settings, setSettings] = useState<RuntimeSettings>({ sesFrom: "", adminEmail: "", llmProvider: "anthropic", zaiModel: DEFAULT_ZAI_MODEL });
+  const [settings, setSettings] = useState<RuntimeSettings>({ sesFrom: "", adminEmail: "", llmProfiles: [], activeProfileId: "" });
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -23,8 +21,7 @@ export function SettingsPage() {
   const [llmDirty, setLlmDirty] = useState(false);
   const [llmSaving, setLlmSaving] = useState(false);
   const [llmMsg, setLlmMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-  const [zaiToken, setZaiToken] = useState("");
-  const [zaiKeyPresent, setZaiKeyPresent] = useState(false);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
 
   const [profiles, setProfiles] = useState<EmailProfileMasked[]>([]);
   const [editingProfile, setEditingProfile] = useState<string | null>(null);
@@ -44,9 +41,6 @@ export function SettingsPage() {
 
   useEffect(() => {
     api.get<RuntimeSettings>("/settings").then(setSettings).catch(() => {});
-    api.get<EnvKeyStatus[]>("/system/env")
-      .then((keys) => setZaiKeyPresent(Boolean(keys.find((k) => k.key === "ZAI_API_KEY")?.present)))
-      .catch(() => {});
     loadProfiles();
   }, [loadProfiles]);
 
@@ -54,13 +48,9 @@ export function SettingsPage() {
     setLlmSaving(true);
     setLlmMsg(null);
     try {
-      if (zaiToken.trim()) {
-        await api.post("/system/env", { values: { ZAI_API_KEY: zaiToken.trim() } });
-        setZaiToken("");
-        setZaiKeyPresent(true);
-      }
       const updated = await api.put<RuntimeSettings>("/settings", settings);
       setSettings(updated);
+      setEditingProfileId(null);
       setLlmDirty(false);
       setLlmMsg({ type: "ok", text: "Salvo" });
       setTimeout(() => setLlmMsg(null), 3000);
@@ -69,6 +59,45 @@ export function SettingsPage() {
     } finally {
       setLlmSaving(false);
     }
+  };
+
+  const newProfileId = () => `p-${Date.now().toString(36)}${Math.floor(Math.random() * 46656).toString(36)}`;
+
+  const patchProfile = (id: string, patch: Partial<LlmProfile>) => {
+    setSettings((s) => ({ ...s, llmProfiles: s.llmProfiles.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
+    setLlmDirty(true);
+  };
+
+  const addProfile = () => {
+    const profile: LlmProfile = {
+      id: newProfileId(),
+      label: "Novo provedor",
+      baseUrl: "http://localhost:8080/anthropic",
+      tokenEnv: "BIFROST_VIRTUAL_KEY",
+      opusModel: "",
+      sonnetModel: "",
+      haikuModel: "",
+      timeoutMs: "3000000",
+      autoCompactWindow: "",
+    };
+    setSettings((s) => ({ ...s, llmProfiles: [...s.llmProfiles, profile] }));
+    setEditingProfileId(profile.id);
+    setLlmDirty(true);
+  };
+
+  const removeProfile = (id: string) => {
+    setSettings((s) => {
+      const llmProfiles = s.llmProfiles.filter((p) => p.id !== id);
+      const activeProfileId = s.activeProfileId === id ? (llmProfiles[0]?.id ?? "") : s.activeProfileId;
+      return { ...s, llmProfiles, activeProfileId };
+    });
+    if (editingProfileId === id) setEditingProfileId(null);
+    setLlmDirty(true);
+  };
+
+  const setActiveProfile = (id: string) => {
+    setSettings((s) => ({ ...s, activeProfileId: id }));
+    setLlmDirty(true);
   };
 
   const handleSaveSettings = async () => {
@@ -150,8 +179,6 @@ export function SettingsPage() {
     }
   };
 
-  const zaiNeedsToken = settings.llmProvider === "zai" && !zaiKeyPresent && !zaiToken.trim();
-
   const inputClass = "w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent";
   const inputMonoClass = `${inputClass} font-mono`;
   const btnAccent = "flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors";
@@ -167,68 +194,118 @@ export function SettingsPage() {
 
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-text-primary border-b border-border pb-2 flex items-center gap-2">
-          <Cpu size={14} className="text-text-muted" /> Provedor de LLM
+          <Cpu size={14} className="text-text-muted" /> Provedores de LLM
         </h2>
         <p className="text-sm text-text-muted">
-          Escolha o provedor do modelo usado nas execuções. Com <strong>z.ai</strong>, todas as novas execuções passam a usar o modelo GLM informado, via endpoint compatível com a Anthropic.
+          Cada perfil parametriza o proxy usado nas execuções: endpoint do gateway, token e os modelos por alias (<code>opus</code>/<code>sonnet</code>/<code>haiku</code>, no formato <code>provider/modelo</code>). O perfil <strong>ativo</strong> vale para todas as novas execuções. As chaves dos provedores (OpenAI, z.ai, Sakana, Anthropic) ficam em <strong>Chaves de API</strong> e são consumidas pelo gateway. Deixe a Base URL vazia para usar o Anthropic nativo (subscription).
         </p>
-        {settings.llmProvider === "zai" && (
-          <p className="text-xs text-text-muted">
-            Modelo vazio = padrão do servidor da z.ai (atualiza sozinho). Use <code>glm-5.2[1m]</code> para o GLM-5.2 com contexto de 1M (premium, multiplicador 3× em pico). O sufixo <code>[1m]</code> ativa automaticamente o <code>CLAUDE_CODE_AUTO_COMPACT_WINDOW</code>.
-          </p>
-        )}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-text-muted mb-1">Provedor</label>
-            <select
-              value={settings.llmProvider}
-              onChange={(e) => { setSettings({ ...settings, llmProvider: e.target.value as LlmProvider }); setLlmDirty(true); }}
-              className={inputClass}
-            >
-              <option value="anthropic">Anthropic (Claude)</option>
-              <option value="zai">z.ai (GLM)</option>
-            </select>
-          </div>
-          {settings.llmProvider === "zai" && (
-            <div>
-              <label className="block text-xs font-medium text-text-muted mb-1">Modelo GLM</label>
-              <input
-                type="text"
-                value={settings.zaiModel}
-                onChange={(e) => { setSettings({ ...settings, zaiModel: e.target.value }); setLlmDirty(true); }}
-                placeholder={DEFAULT_ZAI_MODEL}
-                className={inputMonoClass}
-              />
-            </div>
-          )}
+
+        <div className="space-y-2">
+          {settings.llmProfiles.map((p) => {
+            const isActive = p.id === settings.activeProfileId;
+            const isEditing = editingProfileId === p.id;
+            return (
+              <div key={p.id} className="bg-surface border border-border rounded-lg overflow-hidden">
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setActiveProfile(p.id)}
+                    title={isActive ? "Perfil ativo" : "Tornar ativo"}
+                    className="shrink-0"
+                  >
+                    <span className={`flex h-4 w-4 items-center justify-center rounded-full border ${isActive ? "border-accent" : "border-border"}`}>
+                      {isActive && <span className="h-2 w-2 rounded-full bg-accent" />}
+                    </span>
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-text-primary truncate">{p.label || p.id}</span>
+                      {isActive && <span className="text-xs text-success">ativo</span>}
+                    </div>
+                    <div className="text-xs text-text-muted font-mono truncate">
+                      {p.opusModel || "—"}{p.baseUrl ? "" : " · nativo"}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setEditingProfileId(isEditing ? null : p.id)}
+                      className={`${iconBtn} hover:text-accent`}
+                      title="Editar"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={() => removeProfile(p.id)}
+                      disabled={settings.llmProfiles.length <= 1}
+                      className={`${iconBtn} hover:text-danger disabled:opacity-40 disabled:pointer-events-none`}
+                      title="Remover"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+
+                {isEditing && (
+                  <div className="border-t border-border px-4 py-4 space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-text-muted mb-1">Nome</label>
+                        <input type="text" value={p.label} onChange={(e) => patchProfile(p.id, { label: e.target.value })} className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-text-muted mb-1">Token (env var)</label>
+                        <input type="text" value={p.tokenEnv} onChange={(e) => patchProfile(p.id, { tokenEnv: e.target.value })} placeholder="BIFROST_VIRTUAL_KEY" className={inputMonoClass} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-text-muted mb-1">Base URL (gateway)</label>
+                      <input type="text" value={p.baseUrl} onChange={(e) => patchProfile(p.id, { baseUrl: e.target.value })} placeholder="http://localhost:8080/anthropic — vazio = Anthropic nativo" className={inputMonoClass} />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-text-muted mb-1">Modelo opus</label>
+                        <input type="text" value={p.opusModel} onChange={(e) => patchProfile(p.id, { opusModel: e.target.value })} placeholder="openai/gpt-5.5" className={inputMonoClass} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-text-muted mb-1">Modelo sonnet</label>
+                        <input type="text" value={p.sonnetModel} onChange={(e) => patchProfile(p.id, { sonnetModel: e.target.value })} placeholder="openai/gpt-5.4-mini" className={inputMonoClass} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-text-muted mb-1">Modelo haiku</label>
+                        <input type="text" value={p.haikuModel} onChange={(e) => patchProfile(p.id, { haikuModel: e.target.value })} placeholder="openai/gpt-5.4-nano" className={inputMonoClass} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-text-muted mb-1">Timeout (ms)</label>
+                        <input type="text" value={p.timeoutMs} onChange={(e) => patchProfile(p.id, { timeoutMs: e.target.value })} placeholder="3000000" className={inputMonoClass} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-text-muted mb-1">Auto-compact window</label>
+                        <input type="text" value={p.autoCompactWindow} onChange={(e) => patchProfile(p.id, { autoCompactWindow: e.target.value })} placeholder="vazio = janela do modelo" className={inputMonoClass} />
+                      </div>
+                    </div>
+                    <p className="text-xs text-text-muted font-mono">id: {p.id}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-        {settings.llmProvider === "zai" && (
-          <div>
-            <label className="block text-xs font-medium text-text-muted mb-1">
-              z.ai API Key {zaiKeyPresent && <span className="text-success">(configurado)</span>}
-            </label>
-            <input
-              type="password"
-              autoComplete="off"
-              value={zaiToken}
-              onChange={(e) => { setZaiToken(e.target.value); setLlmDirty(true); }}
-              placeholder={zaiKeyPresent ? "•••••••• — deixe em branco para manter" : "Cole o token da z.ai"}
-              className={inputMonoClass}
-            />
-            <p className="text-xs text-text-muted mt-1">Gerado no painel da z.ai. Gravado no <code>.env</code> do servidor.</p>
-          </div>
-        )}
-        <div className="flex items-center justify-end gap-3">
-          {zaiNeedsToken && (
-            <span className="text-xs text-warning">Informe a API Key da z.ai para ativar.</span>
-          )}
-          {llmMsg && (
-            <span className={`text-xs ${llmMsg.type === "ok" ? "text-success" : "text-danger"}`}>{llmMsg.text}</span>
-          )}
-          <button onClick={handleSaveLlm} disabled={llmSaving || !llmDirty || zaiNeedsToken} className={btnAccent}>
-            <Save size={12} />
-            {llmSaving ? "Saving..." : "Save"}
+
+        <div className="flex items-center justify-between gap-3">
+          <button onClick={addProfile} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border text-text-secondary hover:bg-surface-hover transition-colors">
+            <Plus size={14} /> Adicionar provedor
           </button>
+          <div className="flex items-center gap-3">
+            {llmMsg && (
+              <span className={`text-xs ${llmMsg.type === "ok" ? "text-success" : "text-danger"}`}>{llmMsg.text}</span>
+            )}
+            <button onClick={handleSaveLlm} disabled={llmSaving || !llmDirty} className={btnAccent}>
+              <Save size={12} />
+              {llmSaving ? "Saving..." : "Save"}
+            </button>
+          </div>
         </div>
       </section>
 

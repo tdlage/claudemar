@@ -2,7 +2,7 @@ import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { config } from "../config.js";
 import { executionManager } from "../execution-manager.js";
 import { settingsManager } from "../settings-manager.js";
-import { applyProvider } from "../providers/llm.js";
+import { applyProfile } from "../providers/llm.js";
 import { getAgentPaths, extractAgentSummary, readAgentsMd } from "./manager.js";
 import { listTeamMembers, getTeam, teamEvents } from "./teams-manager.js";
 
@@ -61,8 +61,7 @@ async function classify(prompt: string, names: string[]): Promise<string | null>
     "Responda SOMENTE com o nome exato (atributo nome) de um dos agentes acima, sem nenhuma outra palavra, pontuação ou explicação.";
 
   const abortController = new AbortController();
-  const settings = settingsManager.get();
-  const env = applyProvider(process.env, settings.llmProvider, settings.zaiModel, process.env.ZAI_API_KEY ?? "");
+  const env = applyProfile(process.env, settingsManager.getActiveProfile());
   const options: Options = {
     model: "opus",
     cwd: config.orchestratorPath,

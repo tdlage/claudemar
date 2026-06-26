@@ -204,23 +204,23 @@ systemRouter.get("/model", (_req, res) => {
   res.json({ id, displayName });
 });
 
+const GATEWAY_PROVIDER_KEY: Record<string, string> = {
+  openai: "OPENAI_API_KEY",
+  zai: "ZAI_API_KEY",
+  sakana: "SAKANA_API_KEY",
+  anthropic: "BIFROST_ANTHROPIC_API_KEY",
+};
+
 systemRouter.get("/provider", (_req, res) => {
-  const settings = settingsManager.get();
-  if (settings.llmProvider === "zai") {
-    res.json({
-      provider: "zai",
-      label: "z.ai",
-      model: settings.zaiModel || "auto",
-      configured: Boolean(process.env.ZAI_API_KEY),
-    });
-    return;
-  }
-  const resolved = executionManager.getResolvedModelId();
+  const profile = settingsManager.getActiveProfile();
+  const prefix = profile.opusModel.split("/")[0];
+  const keyName = profile.baseUrl ? GATEWAY_PROVIDER_KEY[prefix] : "";
+  const configured = !profile.baseUrl || !keyName || Boolean(process.env[keyName]);
   res.json({
-    provider: "anthropic",
-    label: "Anthropic",
-    model: resolved ? getModelDisplayName(resolved) : DEFAULT_OPUS_DISPLAY,
-    configured: true,
+    provider: profile.id,
+    label: profile.label,
+    model: profile.opusModel || "auto",
+    configured,
   });
 });
 

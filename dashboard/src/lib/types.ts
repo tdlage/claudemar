@@ -213,13 +213,23 @@ export type MeResponse =
   | { role: "admin" }
   | { role: "user"; id: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[] };
 
-export type LlmProvider = "anthropic" | "zai";
+export interface LlmProfile {
+  id: string;
+  label: string;
+  baseUrl: string;
+  tokenEnv: string;
+  opusModel: string;
+  sonnetModel: string;
+  haikuModel: string;
+  timeoutMs: string;
+  autoCompactWindow: string;
+}
 
 export interface RuntimeSettings {
   sesFrom: string;
   adminEmail: string;
-  llmProvider: LlmProvider;
-  zaiModel: string;
+  llmProfiles: LlmProfile[];
+  activeProfileId: string;
 }
 
 export interface EnvKeyStatus {

@@ -2,7 +2,7 @@ import type { AgentDefinition, CanUseTool, McpServerConfig, Options, PermissionM
 import { createMemoryMcpServer, memoryEnabled, type MemoryTarget } from "../memory/session-memory.js";
 import { createSchedulerMcpServer } from "../agents/scheduler.js";
 import { settingsManager } from "../settings-manager.js";
-import { applyProvider } from "../providers/llm.js";
+import { applyProfile } from "../providers/llm.js";
 
 export type Effort = "low" | "medium" | "high" | "extra" | "max" | "ultracode";
 export type SdkEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
@@ -76,8 +76,7 @@ function resolvePermissionMode(params: BuildOptionsParams): PermissionMode {
 }
 
 export function buildOptions(params: BuildOptionsParams): Options {
-  const settings = settingsManager.get();
-  const env = applyProvider(process.env, settings.llmProvider, settings.zaiModel, process.env.ZAI_API_KEY ?? "");
+  const env = applyProfile(process.env, settingsManager.getActiveProfile());
   delete env.CLAUDECODE;
 
   const permissionMode = resolvePermissionMode(params);

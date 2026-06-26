@@ -1,17 +1,40 @@
 import { resolve } from "node:path";
 import { config } from "./config.js";
 import { JsonPersister } from "./json-persister.js";
-import { DEFAULT_ZAI_MODEL, LLM_PROVIDERS, type LlmProvider } from "./providers/llm.js";
+import {
+  DEFAULT_ACTIVE_PROFILE_ID,
+  defaultLlmProfiles,
+  sanitizeProfile,
+  type LlmProfile,
+} from "./providers/llm.js";
 
 export interface RuntimeSettings {
   sesFrom: string;
   adminEmail: string;
-  llmProvider: LlmProvider;
-  zaiModel: string;
+  llmProfiles: LlmProfile[];
+  activeProfileId: string;
 }
 
 function defaults(): RuntimeSettings {
-  return { sesFrom: config.sesFrom, adminEmail: config.adminEmail, llmProvider: "anthropic", zaiModel: DEFAULT_ZAI_MODEL };
+  return {
+    sesFrom: config.sesFrom,
+    adminEmail: config.adminEmail,
+    llmProfiles: defaultLlmProfiles(),
+    activeProfileId: DEFAULT_ACTIVE_PROFILE_ID,
+  };
+}
+
+function sanitizeProfiles(raw: unknown): LlmProfile[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const profiles: LlmProfile[] = [];
+  raw.forEach((entry, idx) => {
+    const profile = sanitizeProfile(entry, `profile-${idx + 1}`);
+    if (!profile || seen.has(profile.id)) return;
+    seen.add(profile.id);
+    profiles.push(profile);
+  });
+  return profiles;
 }
 
 class SettingsManager {
@@ -27,8 +50,26 @@ class SettingsManager {
     if (!raw) return;
     if (typeof raw.sesFrom === "string") this.data.sesFrom = raw.sesFrom;
     if (typeof raw.adminEmail === "string") this.data.adminEmail = raw.adminEmail;
-    if (raw.llmProvider === "anthropic" || raw.llmProvider === "zai") this.data.llmProvider = raw.llmProvider;
-    if (typeof raw.zaiModel === "string") this.data.zaiModel = raw.zaiModel;
+
+    if (Array.isArray(raw.llmProfiles)) {
+      const profiles = sanitizeProfiles(raw.llmProfiles);
+      if (profiles.length > 0) this.data.llmProfiles = profiles;
+      const active = typeof raw.activeProfileId === "string" ? raw.activeProfileId : "";
+      this.data.activeProfileId = this.resolveActiveId(active);
+      return;
+    }
+
+    // Migração do formato antigo ({ llmProvider: "anthropic" | "zai", zaiModel }): mantém
+    // os perfis padrão e apenas seleciona o equivalente.
+    if (raw.llmProvider === "anthropic" || raw.llmProvider === "zai") {
+      this.data.activeProfileId = this.resolveActiveId(raw.llmProvider);
+    }
+  }
+
+  private resolveActiveId(candidate: string): string {
+    if (candidate && this.data.llmProfiles.some((p) => p.id === candidate)) return candidate;
+    if (this.data.llmProfiles.some((p) => p.id === DEFAULT_ACTIVE_PROFILE_ID)) return DEFAULT_ACTIVE_PROFILE_ID;
+    return this.data.llmProfiles[0]?.id ?? DEFAULT_ACTIVE_PROFILE_ID;
   }
 
   reload(): void {
@@ -37,14 +78,35 @@ class SettingsManager {
   }
 
   get(): RuntimeSettings {
-    return { ...this.data };
+    return {
+      sesFrom: this.data.sesFrom,
+      adminEmail: this.data.adminEmail,
+      llmProfiles: this.data.llmProfiles.map((p) => ({ ...p })),
+      activeProfileId: this.data.activeProfileId,
+    };
+  }
+
+  getActiveProfile(): LlmProfile {
+    return (
+      this.data.llmProfiles.find((p) => p.id === this.data.activeProfileId) ??
+      this.data.llmProfiles[0] ??
+      defaultLlmProfiles()[0]
+    );
   }
 
   update(patch: Partial<RuntimeSettings>): void {
     if (patch.sesFrom !== undefined) this.data.sesFrom = patch.sesFrom;
     if (patch.adminEmail !== undefined) this.data.adminEmail = patch.adminEmail;
-    if (patch.llmProvider !== undefined && LLM_PROVIDERS.includes(patch.llmProvider)) this.data.llmProvider = patch.llmProvider;
-    if (patch.zaiModel !== undefined) this.data.zaiModel = patch.zaiModel.trim();
+    if (patch.llmProfiles !== undefined) {
+      const profiles = sanitizeProfiles(patch.llmProfiles);
+      if (profiles.length > 0) {
+        this.data.llmProfiles = profiles;
+        this.data.activeProfileId = this.resolveActiveId(this.data.activeProfileId);
+      }
+    }
+    if (patch.activeProfileId !== undefined) {
+      this.data.activeProfileId = this.resolveActiveId(patch.activeProfileId);
+    }
     this.persister.scheduleWrite(() => this.data);
   }
 

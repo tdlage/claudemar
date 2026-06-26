@@ -1,4 +1,21 @@
 services:
+  bifrost:
+    image: maximhq/bifrost
+    container_name: claudemar-bifrost
+    restart: unless-stopped
+    # Gateway de LLM: expõe um endpoint Anthropic-compatible (/anthropic) e roteia para o
+    # provedor escolhido pelo nome do modelo (provider/modelo). As chaves dos upstreams
+    # (OPENAI_API_KEY, ZAI_API_KEY, SAKANA_API_KEY, BIFROST_ANTHROPIC_API_KEY) vêm do .env.
+    # NOTA: o header `anthropic-beta` que o Claude Code envia é bloqueado por padrão.
+    # Libere-o uma única vez na UI do Bifrost (http://localhost:8080) em
+    # Settings -> Client Settings -> AllowList, adicionando `anthropic-beta`.
+    env_file: .env
+    volumes:
+      - ./docker/bifrost/config.json:/app/data/config.json:ro
+      - bifrost_data:/app/data
+    ports:
+      - "8080:8080"
+
   claudemar:
     build: .
     container_name: claudemar
@@ -15,9 +32,12 @@ services:
       - DASHBOARD_PORT=3000
       - CLAUDEMAR_DATA=/app
       - MYSQL_HOST=mysql
+      - GATEWAY_URL=http://bifrost:8080/anthropic
     depends_on:
       mysql:
         condition: service_healthy
+      bifrost:
+        condition: service_started
 
   mysql:
     image: mysql:8.0
@@ -41,3 +61,4 @@ services:
 
 volumes:
   mysql_data:
+  bifrost_data:

@@ -53,6 +53,7 @@ export const config = Object.freeze({
   projectsPath: resolve(basePath, "projects"),
   agentsPath: resolve(basePath, "agents"),
   openaiApiKey: process.env.OPENAI_API_KEY || "",
+  gatewayUrl: stringEnv("GATEWAY_URL", "http://localhost:8080/anthropic"),
   dashboardPort: numericEnv("DASHBOARD_PORT", 3000),
   dashboardToken: process.env.DASHBOARD_TOKEN || "",
   tokenRotationHours: numericEnv("TOKEN_ROTATION_HOURS", 24),

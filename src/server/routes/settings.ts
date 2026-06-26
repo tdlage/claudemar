@@ -12,16 +12,19 @@ settingsRouter.get("/", (_req, res) => {
 });
 
 settingsRouter.put("/", (req, res) => {
-  const { sesFrom, adminEmail, llmProvider, zaiModel } = req.body;
+  const { sesFrom, adminEmail, llmProfiles, activeProfileId } = req.body;
   const before = settingsManager.get();
   settingsManager.update({
     sesFrom: typeof sesFrom === "string" ? sesFrom : undefined,
     adminEmail: typeof adminEmail === "string" ? adminEmail : undefined,
-    llmProvider: llmProvider === "anthropic" || llmProvider === "zai" ? llmProvider : undefined,
-    zaiModel: typeof zaiModel === "string" ? zaiModel : undefined,
+    llmProfiles: Array.isArray(llmProfiles) ? llmProfiles : undefined,
+    activeProfileId: typeof activeProfileId === "string" ? activeProfileId : undefined,
   });
   const after = settingsManager.get();
-  if (after.llmProvider !== before.llmProvider || after.zaiModel !== before.zaiModel) {
+  const llmChanged =
+    before.activeProfileId !== after.activeProfileId ||
+    JSON.stringify(before.llmProfiles) !== JSON.stringify(after.llmProfiles);
+  if (llmChanged) {
     executionManager.invalidateLlmSessions();
   }
   regenerateOrchestratorAgentsMd();

@@ -185,6 +185,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       if (data.running === false) {
         setRunning(false);
         setPermissions([]);
+        setMessages([]);
       }
     };
 
@@ -242,12 +243,14 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       if (!matches(data.id)) return;
       setRunning(false);
       setPermissions([]);
+      setMessages([]);
     };
 
     const stopHandler = (data: { id: string }) => {
       if (!matches(data.id)) return;
       setRunning(false);
       setPermissions([]);
+      setMessages([]);
     };
 
     socket.on("connect", resubscribe);
@@ -488,7 +491,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
               {messages.slice(-6).map((m) => (
                 <div key={m.id} className="flex items-start gap-1.5 text-xs">
                   <span className="text-text-muted shrink-0">›</span>
-                  <span className="flex-1 text-text-secondary whitespace-pre-wrap break-words min-w-0">
+                  <span className="flex-1 text-text-secondary whitespace-pre-wrap break-words min-w-0 max-h-20 overflow-y-auto">
                     {m.text || (m.imageCount > 0 ? `(${m.imageCount} imagem${m.imageCount > 1 ? "s" : ""})` : "")}
                     {m.text && m.imageCount > 0 ? ` (+${m.imageCount} img)` : ""}
                   </span>
