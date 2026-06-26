@@ -21,6 +21,7 @@ import { runDataMigrations } from "./data-migration.js";
 import { initTrackerExecutionBridge } from "./tracker-execution-bridge.js";
 import { initTeams } from "./agents/teams-manager.js";
 import { ensureMemoryReady } from "./memory/session-memory.js";
+import { gatewayManager } from "./providers/gateway.js";
 import { closePool } from "./database.js";
 
 function migrateClaudeMdToAgentsMd(): void {
@@ -66,6 +67,9 @@ await initTrackerExecutionBridge();
 await secretsManager.syncAllToFiles();
 await ensureMemoryReady().catch((err) => {
   console.error("[memory] Initialization failed:", err instanceof Error ? err.message : String(err));
+});
+await gatewayManager.start().catch((err) => {
+  console.error("[gateway] Initialization failed:", err instanceof Error ? err.message : String(err));
 });
 async function drainQueue(_id: string, info: ExecutionInfo) {
   try {

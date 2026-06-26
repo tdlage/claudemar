@@ -14,6 +14,7 @@ import { settingsManager } from "../../settings-manager.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { usersManager } from "../../users-manager.js";
 import { getModelDisplayName, DEFAULT_OPUS_DISPLAY } from "../../models-discovery.js";
+import { gatewayManager } from "../../providers/gateway.js";
 
 const INSTALL_DIR = config.installDir;
 
@@ -222,6 +223,22 @@ systemRouter.get("/provider", (_req, res) => {
     model: profile.opusModel || "auto",
     configured,
   });
+});
+
+systemRouter.get("/gateway", async (_req, res) => {
+  try {
+    res.json(await gatewayManager.refresh());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to read gateway status" });
+  }
+});
+
+systemRouter.post("/gateway/restart", async (_req, res) => {
+  try {
+    res.json(await gatewayManager.restart());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to restart gateway" });
+  }
 });
 
 systemRouter.get("/changelog", (req, res) => {

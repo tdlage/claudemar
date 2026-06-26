@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound, Cpu } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound, Cpu, Server, RefreshCw } from "lucide-react";
 import { api } from "../lib/api";
 import { OPEN_API_KEYS_EVENT } from "../components/layout/ApiKeysSetup";
-import type { RuntimeSettings, EmailProfileMasked, LlmProfile } from "../lib/types";
+import type { RuntimeSettings, EmailProfileMasked, LlmProfile, GatewayStatus } from "../lib/types";
 
 interface ProfileFormState {
   awsAccessKeyId: string;
@@ -22,6 +22,9 @@ export function SettingsPage() {
   const [llmSaving, setLlmSaving] = useState(false);
   const [llmMsg, setLlmMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+
+  const [gateway, setGateway] = useState<GatewayStatus | null>(null);
+  const [gatewayBusy, setGatewayBusy] = useState(false);
 
   const [profiles, setProfiles] = useState<EmailProfileMasked[]>([]);
   const [editingProfile, setEditingProfile] = useState<string | null>(null);
@@ -43,6 +46,27 @@ export function SettingsPage() {
     api.get<RuntimeSettings>("/settings").then(setSettings).catch(() => {});
     loadProfiles();
   }, [loadProfiles]);
+
+  const loadGateway = useCallback(() => {
+    api.get<GatewayStatus>("/system/gateway").then(setGateway).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadGateway();
+    const id = setInterval(loadGateway, 15000);
+    return () => clearInterval(id);
+  }, [loadGateway]);
+
+  const restartGateway = async () => {
+    setGatewayBusy(true);
+    try {
+      setGateway(await api.post<GatewayStatus>("/system/gateway/restart"));
+    } catch {
+      loadGateway();
+    } finally {
+      setGatewayBusy(false);
+    }
+  };
 
   const handleSaveLlm = async () => {
     setLlmSaving(true);
@@ -199,6 +223,33 @@ export function SettingsPage() {
         <p className="text-sm text-text-muted">
           Cada perfil parametriza o proxy usado nas execuções: endpoint do gateway, token e os modelos por alias (<code>opus</code>/<code>sonnet</code>/<code>haiku</code>, no formato <code>provider/modelo</code>). O perfil <strong>ativo</strong> vale para todas as novas execuções. As chaves dos provedores (OpenAI, z.ai, Sakana, Anthropic) ficam em <strong>Chaves de API</strong> e são consumidas pelo gateway. Deixe a Base URL vazia para usar o Anthropic nativo (subscription).
         </p>
+
+        <div className="bg-surface border border-border rounded-lg px-4 py-3 flex items-center gap-3">
+          <Server size={16} className="shrink-0 text-text-muted" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-text-primary">Gateway Bifrost</span>
+              <span className="flex items-center gap-1.5 text-xs">
+                <span className={`h-2 w-2 rounded-full ${gateway?.reachable ? "bg-success" : gateway?.containerRunning ? "bg-yellow-500" : "bg-danger"}`} />
+                <span className={gateway?.reachable ? "text-success" : "text-text-muted"}>
+                  {!gateway ? "—" : gateway.reachable ? "Online" : gateway.containerRunning ? "Iniciando…" : "Offline"}
+                </span>
+              </span>
+            </div>
+            <div className="text-xs text-text-muted font-mono truncate">{gateway?.url || "—"}</div>
+            {gateway?.lastError && !gateway.reachable && (
+              <div className="text-xs text-danger truncate" title={gateway.lastError}>{gateway.lastError}</div>
+            )}
+          </div>
+          <button
+            onClick={restartGateway}
+            disabled={gatewayBusy}
+            className={`${iconBtn} hover:text-accent disabled:opacity-40 disabled:pointer-events-none`}
+            title="Reiniciar gateway"
+          >
+            <RefreshCw size={14} className={gatewayBusy ? "animate-spin" : ""} />
+          </button>
+        </div>
 
         <div className="space-y-2">
           {settings.llmProfiles.map((p) => {

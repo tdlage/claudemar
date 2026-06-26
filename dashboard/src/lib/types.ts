@@ -232,6 +232,15 @@ export interface RuntimeSettings {
   activeProfileId: string;
 }
 
+export interface GatewayStatus {
+  enabled: boolean;
+  containerRunning: boolean;
+  reachable: boolean;
+  url: string;
+  lastError: string;
+  lastCheckedAt: string;
+}
+
 export interface EnvKeyStatus {
   key: string;
   label: string;
