@@ -760,19 +760,21 @@ class PipelineManager extends EventEmitter {
 
   // ── Usage (custo/tokens/contexto agregados por card) ──
 
-  async getCardUsageMap(cardIds: string[]): Promise<Map<string, CardUsage>> {
-    const map = new Map<string, CardUsage>();
-    if (cardIds.length === 0) return map;
+  // ORDER BY started_at, id garante ordem determinística: aggregateCardUsage escolhe o contextPct
+  // da run de maior startedAt e o id desempata runs iniciadas no mesmo segundo (started_at é DATETIME).
+  private async fetchUsageRows(cardIds: string[]): Promise<Map<string, (UsageRunInput & { runId: string })[]>> {
+    const byCard = new Map<string, (UsageRunInput & { runId: string })[]>();
+    if (cardIds.length === 0) return byCard;
     const placeholders = cardIds.map(() => "?").join(",");
     const rows = await query<RowDataPacket[]>(
-      `SELECT card_id, status, cost_usd, total_tokens, context_pct, UNIX_TIMESTAMP(started_at) AS started
-       FROM pipeline_stage_runs WHERE card_id IN (${placeholders})`,
+      `SELECT id, card_id, status, cost_usd, total_tokens, context_pct, UNIX_TIMESTAMP(started_at) AS started
+       FROM pipeline_stage_runs WHERE card_id IN (${placeholders}) ORDER BY started_at, id`,
       cardIds,
     );
-    const byCard = new Map<string, UsageRunInput[]>();
     for (const r of rows) {
       const list = byCard.get(r.card_id) ?? [];
       list.push({
+        runId: r.id,
         status: r.status,
         costUsd: Number(r.cost_usd ?? 0),
         totalTokens: Number(r.total_tokens ?? 0),
@@ -781,6 +783,12 @@ class PipelineManager extends EventEmitter {
       });
       byCard.set(r.card_id, list);
     }
+    return byCard;
+  }
+
+  async getCardUsageMap(cardIds: string[]): Promise<Map<string, CardUsage>> {
+    const byCard = await this.fetchUsageRows(cardIds);
+    const map = new Map<string, CardUsage>();
     for (const id of cardIds) map.set(id, aggregateCardUsage(byCard.get(id) ?? []));
     return map;
   }
@@ -790,18 +798,14 @@ class PipelineManager extends EventEmitter {
     return map.get(cardId) ?? EMPTY_CARD_USAGE;
   }
 
-  // Live: a run ativa ainda tem 0 persistido; soma as demais runs + os valores ao vivo desta run.
-  // contextPct vem direto da sessão em execução (não é somável).
+  // Live: a run ativa ainda tem usage 0 persistido. Substitui esse registro pelos valores ao vivo e
+  // reusa aggregateCardUsage — fonte única da regra de agregação (custo/tokens somam, contexto não).
   async emitRunUsage(cardId: string, runId: string, live: RunUsage): Promise<void> {
-    const rows = await query<RowDataPacket[]>(
-      "SELECT COALESCE(SUM(cost_usd), 0) AS c, COALESCE(SUM(total_tokens), 0) AS t FROM pipeline_stage_runs WHERE card_id = ? AND id <> ?",
-      [cardId, runId],
+    const rows = (await this.fetchUsageRows([cardId])).get(cardId) ?? [];
+    const inputs: UsageRunInput[] = rows.map((r) =>
+      r.runId === runId ? { ...r, status: "running", ...live } : r,
     );
-    const card: CardUsage = {
-      totalCostUsd: Number(rows[0]?.c ?? 0) + live.costUsd,
-      totalTokens: Number(rows[0]?.t ?? 0) + live.totalTokens,
-      contextPct: live.contextPct,
-    };
+    const card = aggregateCardUsage(inputs);
     const event: RunUsageEvent = { cardId, runId, run: live, card };
     this.emit("run:usage", event);
   }

@@ -29,6 +29,11 @@ interface LiveUsage {
   contextPct: number;
 }
 
+interface LiveUsageEntry {
+  value: LiveUsage;
+  lastEmit: number;
+}
+
 const REPORT_TOOL: Partial<Record<PipelineStage, string>> = {
   intake: "mcp__pipeline__propose_items",
   requirement: "mcp__pipeline__report_requirement",
@@ -45,8 +50,7 @@ class PipelineRunner {
   private inFlight = new Set<string>();
   private pending = new Map<string, PipelineStage>();
   private execMap = new Map<string, RunMapping>();
-  private liveUsage = new Map<string, LiveUsage>();
-  private lastUsageEmit = new Map<string, number>();
+  private liveUsage = new Map<string, LiveUsageEntry>();
   private started = false;
 
   init(): void {
@@ -74,12 +78,15 @@ class PipelineRunner {
     executionManager.on("usage", (execId: string, costUsd: number, tokens: number, contextPct: number) => {
       const mapping = this.execMap.get(execId);
       if (!mapping) return;
-      const live: LiveUsage = { costUsd, totalTokens: tokens, contextPct };
-      this.liveUsage.set(execId, live);
+      const value: LiveUsage = { costUsd, totalTokens: tokens, contextPct };
+      const lastEmit = this.liveUsage.get(execId)?.lastEmit ?? 0;
       const now = Date.now();
-      if (now - (this.lastUsageEmit.get(execId) ?? 0) < USAGE_EMIT_INTERVAL_MS) return;
-      this.lastUsageEmit.set(execId, now);
-      pipelineManager.emitRunUsage(mapping.cardId, mapping.runId, live).catch((err) => console.error("[pipeline-runner] emitRunUsage failed:", err));
+      if (now - lastEmit < USAGE_EMIT_INTERVAL_MS) {
+        this.liveUsage.set(execId, { value, lastEmit });
+        return;
+      }
+      this.liveUsage.set(execId, { value, lastEmit: now });
+      pipelineManager.emitRunUsage(mapping.cardId, mapping.runId, value).catch((err) => console.error("[pipeline-runner] emitRunUsage failed:", err));
     });
 
     pipelineEventManager.on("pr:feedback", (e: PrFeedbackEvent) => {
@@ -266,7 +273,7 @@ class PipelineRunner {
 
       const status = this.deriveRunStatus(mapping.stage, artifacts, isError);
       const output = (info.output || "").slice(0, MAX_RUN_OUTPUT);
-      const live = this.liveUsage.get(info.id);
+      const live = this.liveUsage.get(info.id)?.value;
       const costUsd = info.result?.costUsd ?? live?.costUsd ?? 0;
       const totalTokens = info.result?.totalTokens ?? live?.totalTokens ?? 0;
       const contextPct = live?.contextPct ?? 0;
@@ -280,7 +287,6 @@ class PipelineRunner {
       await pipelineManager.onStageResult(mapping.cardId, mapping.runId);
     } finally {
       this.liveUsage.delete(info.id);
-      this.lastUsageEmit.delete(info.id);
       this.releaseSlot(mapping.cardId);
     }
   }
