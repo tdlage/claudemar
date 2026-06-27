@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { Router } from "express";
 import { config } from "../../config.js";
 import { ciEventManager, type CIWorkflowRunEvent } from "../../ci-events.js";
+import { pipelineEventManager } from "../../pipeline-events.js";
 
 export const webhooksRouter = Router();
 
@@ -72,6 +73,53 @@ webhooksRouter.post("/github", (req: Request, res: Response) => {
 
     ciEventManager.emitWorkflowRun(event);
     console.log(`[webhook] workflow_run ${action}: ${repoFullName} — ${event.name} #${event.runNumber} (${event.conclusion || event.status})`);
+  }
+
+  if (eventType === "pull_request_review" && payload.action === "submitted") {
+    const review = payload.review as Record<string, unknown> | undefined;
+    const pr = payload.pull_request as Record<string, unknown> | undefined;
+    const repository = payload.repository as Record<string, unknown> | undefined;
+    const reviewer = review?.user as Record<string, unknown> | undefined;
+    if (review && pr && repository && typeof pr.number === "number" && reviewer?.type !== "Bot" && String(review.state).toLowerCase() === "changes_requested") {
+      pipelineEventManager.emitPrFeedback({
+        repoFullName: repository.full_name as string,
+        prNumber: pr.number,
+        prUrl: pr.html_url as string,
+        body: (review.body as string) || "(mudanças solicitadas no review)",
+        author: (reviewer?.login as string) ?? "",
+      });
+    }
+  }
+
+  if (eventType === "issue_comment" && payload.action === "created") {
+    const issue = payload.issue as Record<string, unknown> | undefined;
+    const comment = payload.comment as Record<string, unknown> | undefined;
+    const repository = payload.repository as Record<string, unknown> | undefined;
+    const commenter = comment?.user as Record<string, unknown> | undefined;
+    // Comentário simples só retroalimenta se contiver a palavra-chave configurada (vazia = desligado),
+    // para evitar que um "LGTM"/"obrigado" reinicie todo o pipeline. Reviews "changes_requested" sempre retroalimentam.
+    const reworkKw = config.pipelineReworkKeyword;
+    const triggered = reworkKw.length > 0 && typeof comment?.body === "string" && comment.body.includes(reworkKw);
+    if (triggered && issue?.pull_request && comment && repository && typeof issue.number === "number" && commenter?.type !== "Bot") {
+      const prRef = issue.pull_request as Record<string, string>;
+      pipelineEventManager.emitPrFeedback({
+        repoFullName: repository.full_name as string,
+        prNumber: issue.number,
+        prUrl: prRef.html_url || (issue.html_url as string),
+        body: (comment.body as string) || "",
+        author: (commenter?.login as string) ?? "",
+      });
+    }
+  }
+
+  if (eventType === "pull_request" && (payload.action === "closed" || payload.action === "reopened")) {
+    const pr = payload.pull_request as Record<string, unknown> | undefined;
+    const repository = payload.repository as Record<string, unknown> | undefined;
+    if (pr && repository && typeof pr.number === "number") {
+      const base = { repoFullName: repository.full_name as string, prNumber: pr.number, prUrl: pr.html_url as string };
+      if (payload.action === "reopened") pipelineEventManager.emitPrReopened(base);
+      else pipelineEventManager.emitPrClosed({ ...base, merged: pr.merged === true });
+    }
   }
 
   res.json({ received: true });

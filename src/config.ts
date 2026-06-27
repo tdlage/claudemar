@@ -78,6 +78,11 @@ export const config = Object.freeze({
   mysqlPassword: process.env.MYSQL_PASSWORD || "",
   mysqlDatabase: process.env.MYSQL_DATABASE || "claudemar",
   githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET || "",
+  maxParallelPipelineRuns: numericEnv("MAX_PARALLEL_PIPELINE_RUNS", 3),
+  pipelineStageTimeoutMs: numericEnv("PIPELINE_STAGE_TIMEOUT_MS", 30 * 60 * 1000),
+  maxPipelineRetries: numericEnv("MAX_PIPELINE_RETRIES", 3),
+  pipelineBotLogin: stringEnv("PIPELINE_BOT_LOGIN", ""),
+  pipelineReworkKeyword: stringEnv("PIPELINE_REWORK_KEYWORD", ""),
 });
 
 if (Number.isNaN(config.allowedChatId)) {
@@ -89,3 +94,4 @@ mkdirSync(config.dataPath, { recursive: true });
 mkdirSync(config.orchestratorPath, { recursive: true });
 mkdirSync(config.projectsPath, { recursive: true });
 mkdirSync(config.agentsPath, { recursive: true });
+mkdirSync(resolve(config.dataPath, "pipeline-worktrees"), { recursive: true });

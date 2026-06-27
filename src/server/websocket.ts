@@ -10,6 +10,7 @@ import { resolveContext, type RequestContext } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
 import { trackerManager } from "../tracker-manager.js";
+import { pipelineManager } from "../pipeline-manager.js";
 import { ciEventManager } from "../ci-events.js";
 
 const RATE_LIMIT_WINDOW_MS = 1000;
@@ -148,6 +149,15 @@ export function setupWebSocket(io: SocketServer): void {
 
     socket.on("unsubscribe:tracker", () => {
       socket.leave("tracker");
+    });
+
+    socket.on("subscribe:pipeline", () => {
+      if (getCtx()?.role !== "admin") return;
+      socket.join("pipeline");
+    });
+
+    socket.on("unsubscribe:pipeline", () => {
+      socket.leave("pipeline");
     });
   });
 
@@ -347,6 +357,18 @@ export function setupWebSocket(io: SocketServer): void {
   for (const event of trackerEvents) {
     trackerManager.on(event, (data) => {
       io.to("tracker").emit(`tracker:${event}`, data);
+    });
+  }
+
+  const pipelineEvents = [
+    "pipeline:update",
+    "card:create", "card:update", "card:delete",
+    "run:create", "run:update",
+    "plugin:create", "plugin:update", "plugin:delete",
+  ];
+  for (const event of pipelineEvents) {
+    pipelineManager.on(event, (data) => {
+      io.to("pipeline").emit(`pipeline:${event}`, data);
     });
   }
 

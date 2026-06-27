@@ -12,6 +12,7 @@ import { ToggleButton } from "../components/shared/ToggleButton";
 import { FilesBrowser } from "../components/project/FilesBrowser";
 import { RepositoriesTab } from "../components/project/RepositoriesTab";
 import { CITab } from "../components/project/CITab";
+import { PipelineBoard } from "../components/pipeline/PipelineBoard";
 import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
@@ -19,7 +20,7 @@ import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin } from "../hooks/useAuth";
 import type { ProjectDetail } from "../lib/types";
 
-type TabKey = "terminal" | "repositories" | "files" | "input" | "ci";
+type TabKey = "terminal" | "repositories" | "files" | "input" | "ci" | "pipeline";
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -113,6 +114,7 @@ export function ProjectDetailPage() {
       { key: "repositories" as const, label: "Repositories", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) },
       { key: "files" as const, label: "Code" },
       ...(hasGithubRepos ? [{ key: "ci" as const, label: "CI" }] : []),
+      ...(project.repos.length > 0 ? [{ key: "pipeline" as const, label: "Pipeline" }] : []),
     ] : []),
   ];
 
@@ -250,6 +252,10 @@ export function ProjectDetailPage() {
 
       {tab === "ci" && (
         <CITab projectName={project.name} repos={project.repos} initialRepo={ciInitialRepo} />
+      )}
+
+      {tab === "pipeline" && (
+        <PipelineBoard projectName={project.name} />
       )}
     </div>
   );

@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import type { AgentDefinition, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentDefinition, McpServerConfig, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentResult, AskQuestion } from "./providers/types.js";
 import { ClaudeSession, type MessageBlock, type PendingPermission, type PermissionDecision, type UsageInfo } from "./claude/session.js";
 import { isUltracode, type Effort } from "./claude/options.js";
@@ -16,7 +16,7 @@ import { sessionNamesManager } from "./session-names-manager.js";
 import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
-export type ExecutionSource = "telegram" | "web" | "schedule";
+export type ExecutionSource = "telegram" | "web" | "schedule" | "pipeline";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
 export type ExecutionStatus = "running" | "completed" | "error" | "cancelled";
 
@@ -66,6 +66,8 @@ export interface StartExecutionOpts {
   autoApprove?: boolean;
   permissionMode?: PermissionMode;
   schedulerMode?: boolean;
+  skills?: string[];
+  extraMcpServers?: Record<string, McpServerConfig>;
 }
 
 const MAX_RECENT = 100;
@@ -249,7 +251,10 @@ class ExecutionManager extends EventEmitter {
       const schedulerChanged = Boolean(opts.schedulerMode) !== existing.schedulerMode;
       const resumeChanged = Boolean(resumeId) && resumeId !== existing.getSessionId();
       const llmChanged = this.sessionGen.get(sessionKey) !== this.llmConfigGen;
-      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged) {
+      // Per-call MCP servers/skills (ex.: pipeline) só se aplicam na criação da sessão; se um caller
+      // não-agent traz extraMcpServers, recria para não herdar o MCP/skill da etapa anterior.
+      const mcpChanged = opts.targetType !== "agent" && opts.extraMcpServers !== undefined;
+      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !mcpChanged) {
         return { session: existing, isNew: false };
       }
       existing.end();
@@ -272,8 +277,8 @@ class ExecutionManager extends EventEmitter {
       isSubagentAllowed: opts.targetType === "agent"
         ? (name: string) => teammatesOf(opts.targetName).includes(name)
         : undefined,
-      extraMcpServers: opts.targetType === "agent" ? squadMcpsForAgent(opts.targetName) : undefined,
-      squadSkills: opts.targetType === "agent" ? squadSkillsForAgent(opts.targetName) : undefined,
+      extraMcpServers: opts.targetType === "agent" ? squadMcpsForAgent(opts.targetName) : opts.extraMcpServers,
+      squadSkills: opts.targetType === "agent" ? squadSkillsForAgent(opts.targetName) : opts.skills,
       schedulerMode: opts.schedulerMode,
       permissionTimeoutMs: config.permissionTimeoutMs,
     });

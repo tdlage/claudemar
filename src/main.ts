@@ -17,8 +17,10 @@ import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 import { secretsManager } from "./secrets-manager.js";
 import { runTrackerMigrations } from "./tracker-migration.js";
+import { runPipelineMigrations } from "./pipeline-migration.js";
 import { runDataMigrations } from "./data-migration.js";
 import { initTrackerExecutionBridge } from "./tracker-execution-bridge.js";
+import { initPipelineRunner } from "./pipeline-runner.js";
 import { initTeams } from "./agents/teams-manager.js";
 import { ensureMemoryReady } from "./memory/session-memory.js";
 import { gatewayManager } from "./providers/gateway.js";
@@ -52,6 +54,9 @@ cleanupLegacyMailboxes();
 await runTrackerMigrations().catch((err) => {
   console.error("[tracker] Migration failed (MySQL may not be configured):", err.message);
 });
+await runPipelineMigrations().catch((err) => {
+  console.error("[pipeline] Migration failed (MySQL may not be configured):", err.message);
+});
 await runDataMigrations().catch((err) => {
   console.error("[data-migration] Migration failed:", err.message);
 });
@@ -64,6 +69,9 @@ await commandQueue.initialize();
 await runProcessManager.initialize();
 await executionManager.loadRecent();
 await initTrackerExecutionBridge();
+await initPipelineRunner().catch((err) => {
+  console.error("[pipeline] Runner init failed:", err instanceof Error ? err.message : String(err));
+});
 await secretsManager.syncAllToFiles();
 await ensureMemoryReady().catch((err) => {
   console.error("[memory] Initialization failed:", err instanceof Error ? err.message : String(err));

@@ -541,3 +541,114 @@ export interface TeamsOverview {
   appearances: Record<string, AgentAppearance>;
 }
 
+// ── Pipeline ──
+
+export type PipelineStage =
+  | "intake" | "requirement" | "plan" | "implementation" | "code_review" | "e2e" | "pull_request" | "monitor";
+
+export type PipelineCardStatus = "idle" | "running" | "awaiting_gate" | "failed" | "done";
+export type PipelineRunStatus = "running" | "passed" | "failed" | "error" | "cancelled";
+export type PipelineRepoStatus = "pending" | "worktree" | "pushed" | "pr_open" | "merged" | "closed";
+export type IntakePluginType = "manual" | "github_issues" | "usage_pattern" | "agent";
+
+export interface PipelineStageArtifacts {
+  requirement?: string;
+  plan?: { markdown: string; repos: string[] };
+  tests?: { passed: boolean; total: number; failed: number; logs?: string };
+  review?: { totalFindings: number; fixed: number; clean: boolean; testsPass: boolean; summary?: string };
+  e2e?: { passed: boolean; screenshots: string[]; logs?: string };
+  prs?: { repo: string; url: string; number: number }[];
+  items?: { title: string; input: string }[];
+}
+
+export interface Pipeline {
+  id: string;
+  projectName: string;
+  defaultBaseBranch: string;
+  nextCardNumber: number;
+  defaultAuto: boolean;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface PipelineStageConfig {
+  id: string;
+  pipelineId: string;
+  stage: PipelineStage;
+  promptTemplate: string;
+  skill: string | null;
+  agentName: string | null;
+  timeoutMs: number;
+}
+
+export interface PipelineIntakePlugin {
+  id: string;
+  pipelineId: string;
+  type: IntakePluginType;
+  name: string;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  cron: string | null;
+  scheduleId: string | null;
+  createdAt: string;
+}
+
+export interface PipelineCardRepo {
+  id: string;
+  cardId: string;
+  repoName: string;
+  baseBranch: string;
+  branch: string | null;
+  worktreePath: string | null;
+  prUrl: string | null;
+  prNumber: number | null;
+  repoStatus: PipelineRepoStatus;
+}
+
+export interface PipelineCard {
+  id: string;
+  pipelineId: string;
+  seqNumber: number;
+  title: string;
+  stage: PipelineStage;
+  status: PipelineCardStatus;
+  auto: boolean;
+  originType: IntakePluginType;
+  originRef: string | null;
+  intakeInput: string;
+  requirementText: string;
+  planMarkdown: string;
+  sessionId: string | null;
+  implementationRetries: number;
+  codeReviewRetries: number;
+  e2eRetries: number;
+  position: number;
+  lastFeedback: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  repos: PipelineCardRepo[];
+}
+
+export interface PipelineStageRun {
+  id: string;
+  cardId: string;
+  stage: PipelineStage;
+  attempt: number;
+  execId: string | null;
+  sessionId: string | null;
+  status: PipelineRunStatus;
+  promptSent: string;
+  output: string;
+  artifacts: PipelineStageArtifacts;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface PipelineBundle {
+  pipeline: Pipeline | null;
+  stageConfigs: PipelineStageConfig[];
+  plugins: PipelineIntakePlugin[];
+  repos: string[];
+}
+
