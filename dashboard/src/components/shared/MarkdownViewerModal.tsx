@@ -1,18 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
-import { Table } from "@tiptap/extension-table";
-import { TableRow } from "@tiptap/extension-table-row";
-import { TableHeader } from "@tiptap/extension-table-header";
-import { TableCell } from "@tiptap/extension-table-cell";
-import { Markdown } from "tiptap-markdown";
-import { common, createLowlight } from "lowlight";
 import { X, Loader2 } from "lucide-react";
 import { api } from "../../lib/api";
-
-const lowlight = createLowlight(common);
+import { MarkdownViewer } from "./MarkdownViewer";
 
 interface MarkdownViewerModalProps {
   open: boolean;
@@ -25,25 +14,6 @@ export function MarkdownViewerModal({ open, onClose, filePath, base }: MarkdownV
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({ codeBlock: false }),
-      CodeBlockLowlight.configure({ lowlight }),
-      Link.configure({ openOnClick: true }),
-      Table.configure({ resizable: false }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      Markdown.configure({ html: false }),
-    ],
-    editable: false,
-    editorProps: {
-      attributes: {
-        class: "prose-editor outline-none px-4 py-3 text-sm",
-      },
-    },
-  });
 
   const load = useCallback(async () => {
     if (!open || !filePath) return;
@@ -72,12 +42,6 @@ export function MarkdownViewerModal({ open, onClose, filePath, base }: MarkdownV
   }, [load]);
 
   useEffect(() => {
-    if (editor && content !== null) {
-      editor.commands.setContent(content);
-    }
-  }, [editor, content]);
-
-  useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -98,17 +62,15 @@ export function MarkdownViewerModal({ open, onClose, filePath, base }: MarkdownV
             <X size={16} />
           </button>
         </div>
-        <div className="flex-1 overflow-auto markdown-editor">
+        <div className="flex-1 overflow-auto">
           {loading && (
             <div className="flex items-center justify-center py-12 text-text-muted">
               <Loader2 size={20} className="animate-spin" />
             </div>
           )}
-          {error && (
-            <div className="p-4 text-sm text-danger">{error}</div>
-          )}
-          {!loading && !error && editor && (
-            <EditorContent editor={editor} />
+          {error && <div className="p-4 text-sm text-danger">{error}</div>}
+          {!loading && !error && content !== null && (
+            <MarkdownViewer content={content} className="px-4 py-3" />
           )}
         </div>
       </div>

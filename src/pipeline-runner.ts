@@ -174,6 +174,7 @@ class PipelineRunner {
       targetName: pipeline.projectName,
       prompt,
       cwd,
+      // Pipeline roda sem supervisão: auto mode sempre ligado para nunca travar em prompt de permissão.
       autoApprove: true,
       username: `pipeline:${cardId}`,
       resumeSessionId: card.sessionId ?? null,
