@@ -628,6 +628,9 @@ export interface PipelineCard {
   createdAt: string;
   updatedAt: string;
   repos: PipelineCardRepo[];
+  totalCostUsd: number;
+  totalTokens: number;
+  contextPct: number;
 }
 
 export interface PipelineStageRun {
@@ -641,8 +644,18 @@ export interface PipelineStageRun {
   promptSent: string;
   output: string;
   artifacts: PipelineStageArtifacts;
+  costUsd: number;
+  totalTokens: number;
+  contextPct: number;
   startedAt: string;
   finishedAt: string | null;
+}
+
+export interface PipelineRunUsageEvent {
+  cardId: string;
+  runId: string;
+  run: { costUsd: number; totalTokens: number; contextPct: number };
+  card: { totalCostUsd: number; totalTokens: number; contextPct: number };
 }
 
 export interface PipelineBundle {

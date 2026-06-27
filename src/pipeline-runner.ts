@@ -15,11 +15,23 @@ import type { PipelineStage } from "./pipeline-migration.js";
 const UPLOADS_DIR = resolve(config.dataPath, "tracker-uploads");
 const EVIDENCE_SUBDIR = ".pipeline-evidence";
 const MAX_RUN_OUTPUT = 200_000;
+const USAGE_EMIT_INTERVAL_MS = 1000;
 
 interface RunMapping {
   runId: string;
   cardId: string;
   stage: PipelineStage;
+}
+
+interface LiveUsage {
+  costUsd: number;
+  totalTokens: number;
+  contextPct: number;
+}
+
+interface LiveUsageEntry {
+  value: LiveUsage;
+  lastEmit: number;
 }
 
 const REPORT_TOOL: Partial<Record<PipelineStage, string>> = {
@@ -38,6 +50,7 @@ class PipelineRunner {
   private inFlight = new Set<string>();
   private pending = new Map<string, PipelineStage>();
   private execMap = new Map<string, RunMapping>();
+  private liveUsage = new Map<string, LiveUsageEntry>();
   private started = false;
 
   init(): void {
@@ -60,6 +73,20 @@ class PipelineRunner {
       if (!mapping) return;
       this.execMap.delete(execId);
       this.handleStageDone(mapping, info, true).catch((err) => console.error("[pipeline-runner] error handler failed:", err));
+    });
+
+    executionManager.on("usage", (execId: string, costUsd: number, tokens: number, contextPct: number) => {
+      const mapping = this.execMap.get(execId);
+      if (!mapping) return;
+      const value: LiveUsage = { costUsd, totalTokens: tokens, contextPct };
+      const lastEmit = this.liveUsage.get(execId)?.lastEmit ?? 0;
+      const now = Date.now();
+      if (now - lastEmit < USAGE_EMIT_INTERVAL_MS) {
+        this.liveUsage.set(execId, { value, lastEmit });
+        return;
+      }
+      this.liveUsage.set(execId, { value, lastEmit: now });
+      pipelineManager.emitRunUsage(mapping.cardId, mapping.runId, value).catch((err) => console.error("[pipeline-runner] emitRunUsage failed:", err));
     });
 
     pipelineEventManager.on("pr:feedback", (e: PrFeedbackEvent) => {
@@ -247,7 +274,11 @@ class PipelineRunner {
 
       const status = this.deriveRunStatus(mapping.stage, artifacts, isError);
       const output = (info.output || "").slice(0, MAX_RUN_OUTPUT);
-      await pipelineManager.updateRun(mapping.runId, { sessionId, output, status, finished: true });
+      const live = this.liveUsage.get(info.id)?.value;
+      const costUsd = info.result?.costUsd ?? live?.costUsd ?? 0;
+      const totalTokens = info.result?.totalTokens ?? live?.totalTokens ?? 0;
+      const contextPct = live?.contextPct ?? 0;
+      await pipelineManager.updateRun(mapping.runId, { sessionId, output, status, finished: true, costUsd, totalTokens, contextPct });
 
       executionManager.clearSessionId(info.targetType, info.targetName, info.username ?? `pipeline:${mapping.cardId}`);
 
@@ -256,6 +287,7 @@ class PipelineRunner {
       // nunca rode mais de uma etapa do mesmo card ao mesmo tempo.
       await pipelineManager.onStageResult(mapping.cardId, mapping.runId);
     } finally {
+      this.liveUsage.delete(info.id);
       this.releaseSlot(mapping.cardId);
     }
   }
