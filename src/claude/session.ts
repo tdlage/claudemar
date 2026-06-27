@@ -4,6 +4,7 @@ import { query, type Query, type SDKMessage, type SDKUserMessage, type Permissio
 import type { AgentResult, AskQuestion, PermissionDenial } from "../providers/types.js";
 import { ingestTurn, type MemoryTarget } from "../memory/session-memory.js";
 import { buildOptions, effortToFlagLevel, isUltracode, type BuildOptionsParams, type Effort } from "./options.js";
+import { decideImmediatePermission } from "./permission.js";
 
 export type PermissionDecision = "allow" | "always" | "deny";
 
@@ -87,8 +88,6 @@ function blocksToText(blocksOrText: string | MessageBlock[]): string {
   return blocksOrText.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
 }
 
-const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Update"]);
-
 export class ClaudeSession extends EventEmitter {
   readonly target: MemoryTarget;
   readonly planMode: boolean;
@@ -134,25 +133,13 @@ export class ClaudeSession extends EventEmitter {
     void this.consume(this.runner);
   }
 
-  private autoApproves(toolName: string): boolean {
-    if (this.bypass || this.currentPermissionMode === "bypassPermissions") return true;
-    if (this.currentPermissionMode === "acceptEdits") return EDIT_TOOLS.has(toolName);
-    return false;
-  }
-
   private handlePermission(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
-    if (toolName === "AskUserQuestion") {
-      return Promise.resolve({ behavior: "deny", message: "Pergunta encaminhada ao usuário." });
-    }
-    if ((toolName === "Agent" || toolName === "Task") && this.isSubagentAllowed) {
-      const target = typeof input.subagent_type === "string" ? input.subagent_type : undefined;
-      if (target && !this.isSubagentAllowed(target)) {
-        return Promise.resolve({ behavior: "deny", message: `O agente "${target}" não está no seu time e não pode ser acionado.` });
-      }
-    }
-    if (this.autoApproves(toolName)) {
-      return Promise.resolve({ behavior: "allow", updatedInput: input });
-    }
+    const immediate = decideImmediatePermission(toolName, input, {
+      bypass: this.bypass,
+      currentPermissionMode: this.currentPermissionMode,
+      isSubagentAllowed: this.isSubagentAllowed,
+    });
+    if (immediate) return Promise.resolve(immediate);
 
     const reqId = `${Date.now()}-${randomUUID()}`;
     return new Promise<PermissionResult>((resolve) => {
@@ -269,7 +256,7 @@ export class ClaudeSession extends EventEmitter {
     if (message.subtype === "init") {
       this.sessionId = message.session_id;
       this.model = message.model;
-      this.currentPermissionMode = message.permissionMode;
+      this.currentPermissionMode = this.bypass ? "bypassPermissions" : message.permissionMode;
       this.emit("sessionId", message.session_id, message.model);
       this.emit("slashCommands", message.slash_commands ?? []);
       this.emit("mcpStatus", message.mcp_servers ?? []);
