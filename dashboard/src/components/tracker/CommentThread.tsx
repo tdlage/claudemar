@@ -71,7 +71,7 @@ export function CommentThread({ targetType, targetId }: Props) {
                 <Trash2 size={12} />
               </button>
             </div>
-            <MarkdownViewer content={c.content} className="text-text-secondary" />
+            <MarkdownViewer content={c.content} />
             {c.attachments.length > 0 && (
               <div className="flex gap-2 flex-wrap mt-2">
                 {c.attachments.map((att) => (

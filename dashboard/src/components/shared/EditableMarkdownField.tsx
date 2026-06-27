@@ -27,10 +27,10 @@ export function EditableMarkdownField({
   }, [value]);
 
   const finishEditing = useCallback(async () => {
-    setEditing(false);
     if (draft !== value) {
       await onSave(draft);
     }
+    setEditing(false);
   }, [draft, value, onSave]);
 
   if (editing) {
