@@ -178,6 +178,11 @@ pipelineRouter.post("/cards/:id/retry", async (req, res) => {
   res.json({ ok: true });
 });
 
+pipelineRouter.post("/cards/:id/merge", async (req, res) => {
+  const result = await pipelineManager.mergeCardPrs(req.params.id as string);
+  res.json(result);
+});
+
 pipelineRouter.get("/cards/:id/runs", async (req, res) => {
   const card = await pipelineManager.getCard(req.params.id as string);
   if (!card) { res.status(404).json({ error: "Card not found" }); return; }
