@@ -7,6 +7,7 @@ import { query, execute, getPool } from "./database.js";
 import { config } from "./config.js";
 import { safeProjectPath } from "./session.js";
 import { discoverRepos, resolveRepoPath } from "./repositories.js";
+import { executeSpawn } from "./executor.js";
 import {
   cardRepoWorktreePath,
   cardWorktreeRoot,
@@ -878,6 +879,10 @@ class PipelineManager extends EventEmitter {
     );
     await this.emitCard(card.id);
     if (autoRun) this.emit("stage:request", { cardId: card.id, stage: next });
+    else if (card.auto && next === "monitor") {
+      // Card automático: ao chegar no monitor, tenta mergear os próprios PRs e concluir sozinho.
+      this.mergeCardPrs(card.id).catch((err) => console.error("[pipeline] auto-merge failed:", err));
+    }
   }
 
   private async retryOrFail(card: PipelineCard, field: RetryField, stage: PipelineStage, current: number, feedback: string): Promise<void> {
@@ -1008,6 +1013,49 @@ class PipelineManager extends EventEmitter {
     if (!found || found.card.status === "done") return;
     await execute("UPDATE pipeline_card_repos SET repo_status = 'pr_open' WHERE id = ?", [found.repo.id]);
     await this.emitCard(found.card.id);
+  }
+
+  // Mergeia os PRs abertos do card via `gh pr merge` (operação determinística, sem agente).
+  // Sucesso em todos → card concluído + worktrees limpas. Falha (conflito/checks) → registra o
+  // erro em last_feedback e mantém o card no gate do monitor para atenção humana.
+  async mergeCardPrs(cardId: string): Promise<{ merged: string[]; failed: { repo: string; error: string }[] }> {
+    const card = await this.getCard(cardId);
+    if (!card) return { merged: [], failed: [] };
+    const pipeline = await this.getPipeline(card.pipelineId);
+    const projectPath = pipeline ? safeProjectPath(pipeline.projectName) : null;
+
+    const merged: string[] = [];
+    const failed: { repo: string; error: string }[] = [];
+
+    for (const repo of card.repos) {
+      if (!repo.prNumber || repo.repoStatus === "merged" || repo.repoStatus === "closed") continue;
+      const repoPath = projectPath ? resolveRepoPath(projectPath, repo.repoName) : null;
+      if (!repoPath) { failed.push({ repo: repo.repoName, error: "repositório não resolvido" }); continue; }
+      const res = await executeSpawn("gh", ["pr", "merge", String(repo.prNumber), "--merge"], repoPath, 120000)
+        .catch((e) => ({ output: e instanceof Error ? e.message : String(e), exitCode: 1 }));
+      if (res.exitCode === 0) {
+        await execute("UPDATE pipeline_card_repos SET repo_status = 'merged' WHERE id = ?", [repo.id]);
+        merged.push(repo.repoName);
+      } else {
+        failed.push({ repo: repo.repoName, error: res.output.slice(0, 400) });
+      }
+    }
+    await this.emitCard(cardId);
+
+    const repos = await this.getCardRepos(cardId);
+    const allSettled = repos.every((r) => r.repoStatus === "merged" || r.repoStatus === "closed");
+    if (failed.length === 0 && allSettled && repos.some((r) => r.repoStatus === "merged")) {
+      const result = await execute("UPDATE pipeline_cards SET status = 'done' WHERE id = ? AND status <> 'done'", [cardId]);
+      if (result.affectedRows > 0) {
+        await this.emitCard(cardId);
+        await this.removeCardWorktrees(card);
+      }
+    } else if (failed.length > 0) {
+      const fb = `Falha ao mergear PR(s) — provável conflito com a base ou checks pendentes. Faça rebase/resolva (Devolver) ou tente novamente:\n${failed.map((f) => `- ${f.repo}: ${f.error}`).join("\n")}`;
+      await execute("UPDATE pipeline_cards SET last_feedback = ? WHERE id = ?", [fb, cardId]);
+      await this.emitCard(cardId);
+    }
+    return { merged, failed };
   }
 }
 
