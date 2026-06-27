@@ -1,15 +1,5 @@
 import { useEffect, useCallback, useRef } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
-import Placeholder from "@tiptap/extension-placeholder";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
-import { Table } from "@tiptap/extension-table";
-import { TableRow } from "@tiptap/extension-table-row";
-import { TableHeader } from "@tiptap/extension-table-header";
-import { TableCell } from "@tiptap/extension-table-cell";
-import { Markdown } from "tiptap-markdown";
-import { common, createLowlight } from "lowlight";
 import {
   Bold,
   Italic,
@@ -27,8 +17,7 @@ import {
   Undo,
   Redo,
 } from "lucide-react";
-
-const lowlight = createLowlight(common);
+import { markdownExtensions, getEditorMarkdown } from "./markdownTiptap";
 
 interface MarkdownEditorProps {
   value: string;
@@ -149,26 +138,11 @@ export function MarkdownEditor({ value, onChange, placeholder, onSave }: Markdow
   const suppressUpdate = useRef(false);
 
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({ codeBlock: false }),
-      CodeBlockLowlight.configure({ lowlight }),
-      Link.configure({ openOnClick: false }),
-      Table.configure({ resizable: false }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      Placeholder.configure({ placeholder: placeholder ?? "Write markdown..." }),
-      Markdown.configure({
-        html: false,
-        transformCopiedText: true,
-        transformPastedText: true,
-      }),
-    ],
+    extensions: markdownExtensions({ placeholder: placeholder ?? "Write markdown...", editable: true }),
     content: value,
     onUpdate: ({ editor: ed }) => {
       if (suppressUpdate.current) return;
-      const storage = (ed.storage as unknown as Record<string, { getMarkdown: () => string }>);
-      onChange(storage.markdown.getMarkdown());
+      onChange(getEditorMarkdown(ed));
     },
     editorProps: {
       handleKeyDown: (_view, event) => {
@@ -187,8 +161,7 @@ export function MarkdownEditor({ value, onChange, placeholder, onSave }: Markdow
 
   useEffect(() => {
     if (!editor) return;
-    const storage = (editor.storage as unknown as Record<string, { getMarkdown: () => string }>);
-    const currentMd = storage.markdown.getMarkdown();
+    const currentMd = getEditorMarkdown(editor);
     if (currentMd !== value) {
       suppressUpdate.current = true;
       editor.commands.setContent(value);
