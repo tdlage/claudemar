@@ -76,7 +76,7 @@ export function PipelineCardItem({ card, projectName, onClick }: Props) {
           aria-label={inlineAction.label}
           title={inlineAction.label}
           onClick={(e) => runAction(e, inlineAction.run)}
-          className="w-full inline-flex items-center justify-center gap-1 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium px-2.5 py-1 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+          className="w-full inline-flex items-center justify-center gap-1 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium px-2.5 py-1 transition-colors disabled:opacity-50 disabled:cursor-default"
         >
           {busy ? <Loader2 size={12} className="animate-spin" /> : <inlineAction.Icon size={12} />}
           {inlineAction.label}
