@@ -5,6 +5,7 @@ import { useToast } from "../shared/Toast";
 import { useComments } from "../../hooks/useTracker";
 import { MediaUpload, type MediaFile } from "./MediaUpload";
 import { AttachmentPreview } from "./AttachmentPreview";
+import { MarkdownViewer } from "../shared/MarkdownViewer";
 
 interface Props {
   targetType: "item";
@@ -70,7 +71,7 @@ export function CommentThread({ targetType, targetId }: Props) {
                 <Trash2 size={12} />
               </button>
             </div>
-            <p className="text-sm text-text-secondary whitespace-pre-wrap">{c.content}</p>
+            <MarkdownViewer content={c.content} className="text-text-secondary" />
             {c.attachments.length > 0 && (
               <div className="flex gap-2 flex-wrap mt-2">
                 {c.attachments.map((att) => (

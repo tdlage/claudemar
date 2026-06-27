@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Pencil, Clock, Send, FileText, Bug, Layers, Trash2 } from "lucide-react";
 import { Tabs } from "../shared/Tabs";
-import { MarkdownEditor } from "../shared/MarkdownEditor";
+import { EditableMarkdownField } from "../shared/EditableMarkdownField";
 import { useItems, useTrackerProjects, useProjectMembers, useItemPlan, useItemCommits } from "../../hooks/useTracker";
 import { canEditTrackerProject, isAdmin } from "../../hooks/useAuth";
 import { api } from "../../lib/api";
@@ -77,57 +77,19 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
   const [itemTitle, setItemTitle] = useState("");
   const [editingAppetite, setEditingAppetite] = useState(false);
   const [appetiteValue, setAppetiteValue] = useState(7);
-  const [description, setDescription] = useState("");
-  const [inScope, setInScope] = useState("");
-  const [outOfScope, setOutOfScope] = useState("");
-  const descriptionSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const descriptionInitRef = useRef(false);
 
   const item = items.find((i) => i.id === itemId);
 
-  useEffect(() => {
-    if (item) {
-      setInScope(item.inScope);
-      setOutOfScope(item.outOfScope);
-    }
-  }, [item?.inScope, item?.outOfScope]);
-
-  useEffect(() => {
-    if (item && !descriptionInitRef.current) {
-      setDescription(item.description);
-      descriptionInitRef.current = true;
-    }
-  }, [item]);
-
-  useEffect(() => {
-    if (item && item.description !== description && descriptionInitRef.current) {
-      setDescription(item.description);
-    }
-  }, [item?.description]);
-
-  const handleDescriptionChange = useCallback((md: string) => {
-    setDescription(md);
-    if (descriptionSaveRef.current) clearTimeout(descriptionSaveRef.current);
-    descriptionSaveRef.current = setTimeout(async () => {
+  const saveField = useCallback(
+    async (field: "description" | "inScope" | "outOfScope", value: string) => {
       try {
-        await api.put(`/tracker/items/${itemId}`, { description: md });
+        await api.put(`/tracker/items/${itemId}`, { [field]: value });
       } catch {
-        addToast("error", "Failed to save description");
+        addToast("error", "Failed to save");
       }
-    }, 1000);
-  }, [itemId, addToast]);
-
-  const handleSaveDescription = useCallback(async () => {
-    if (descriptionSaveRef.current) {
-      clearTimeout(descriptionSaveRef.current);
-      descriptionSaveRef.current = null;
-    }
-    try {
-      await api.put(`/tracker/items/${itemId}`, { description });
-    } catch {
-      addToast("error", "Failed to save description");
-    }
-  }, [itemId, description, addToast]);
+    },
+    [itemId, addToast],
+  );
 
   const handleTypeChange = async (newType: ItemType) => {
     try {
@@ -173,22 +135,6 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
       setEditingAppetite(false);
     } catch {
       addToast("error", "Failed to update appetite");
-    }
-  };
-
-  const handleSaveInScope = async () => {
-    try {
-      await api.put(`/tracker/items/${itemId}`, { inScope });
-    } catch {
-      addToast("error", "Failed to save");
-    }
-  };
-
-  const handleSaveOutOfScope = async () => {
-    try {
-      await api.put(`/tracker/items/${itemId}`, { outOfScope });
-    } catch {
-      addToast("error", "Failed to save");
     }
   };
 
@@ -400,33 +346,32 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-text-muted mb-1 uppercase tracking-wider">Descrição</label>
-            <MarkdownEditor
-              value={description}
-              onChange={handleDescriptionChange}
-              onSave={handleSaveDescription}
+            <EditableMarkdownField
+              value={item?.description ?? ""}
+              onSave={(md) => saveField("description", md)}
+              editable={canEdit}
               placeholder="Descrição do item..."
+              emptyLabel="Sem descrição."
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-text-muted mb-1 uppercase tracking-wider">In Scope</label>
-            <textarea
-              value={inScope}
-              onChange={(e) => setInScope(e.target.value)}
-              onBlur={handleSaveInScope}
-              rows={4}
-              className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-y"
+            <EditableMarkdownField
+              value={item?.inScope ?? ""}
+              onSave={(md) => saveField("inScope", md)}
+              editable={canEdit}
               placeholder="O que faz parte do escopo deste item..."
+              emptyLabel="Escopo não definido."
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-text-muted mb-1 uppercase tracking-wider">Out of Scope</label>
-            <textarea
-              value={outOfScope}
-              onChange={(e) => setOutOfScope(e.target.value)}
-              onBlur={handleSaveOutOfScope}
-              rows={4}
-              className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-y"
+            <EditableMarkdownField
+              value={item?.outOfScope ?? ""}
+              onSave={(md) => saveField("outOfScope", md)}
+              editable={canEdit}
               placeholder="O que NÃO faz parte do escopo deste item..."
+              emptyLabel="Fora de escopo não definido."
             />
           </div>
         </div>
