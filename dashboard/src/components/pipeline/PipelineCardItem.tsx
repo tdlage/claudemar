@@ -1,5 +1,8 @@
-import { Loader2, GitBranch, GitPullRequest, Zap } from "lucide-react";
+import { useState } from "react";
+import { Loader2, GitBranch, GitPullRequest, Zap, CheckCircle2, Play } from "lucide-react";
 import type { PipelineCard } from "../../lib/types";
+import { api } from "../../lib/api";
+import { useToast } from "../shared/Toast";
 import { Badge } from "../shared/Badge";
 import { CARD_STATUS_CONFIG } from "./constants";
 
@@ -12,6 +15,27 @@ interface Props {
 export function PipelineCardItem({ card, projectName, onClick }: Props) {
   const status = CARD_STATUS_CONFIG[card.status];
   const prCount = card.repos.filter((r) => r.prUrl).length;
+  const { addToast } = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const runAction = async (e: React.MouseEvent, fn: () => Promise<unknown>) => {
+    e.stopPropagation();
+    setBusy(true);
+    try {
+      await fn();
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Falha na ação");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const inlineAction =
+    card.status === "awaiting_gate"
+      ? { label: card.stage === "monitor" ? "Concluir" : "Aprovar", Icon: CheckCircle2, run: () => api.post(`/pipeline/cards/${card.id}/advance`) }
+      : card.status === "idle"
+      ? { label: "Iniciar", Icon: Play, run: () => api.post(`/pipeline/cards/${card.id}/retry`) }
+      : null;
 
   return (
     <div
@@ -44,6 +68,20 @@ export function PipelineCardItem({ card, projectName, onClick }: Props) {
           <span title="Retentativas">↻ {card.implementationRetries + card.codeReviewRetries + card.e2eRetries}</span>
         )}
       </div>
+
+      {inlineAction && (
+        <button
+          type="button"
+          disabled={busy}
+          aria-label={inlineAction.label}
+          title={inlineAction.label}
+          onClick={(e) => runAction(e, inlineAction.run)}
+          className="w-full inline-flex items-center justify-center gap-1 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium px-2.5 py-1 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+        >
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <inlineAction.Icon size={12} />}
+          {inlineAction.label}
+        </button>
+      )}
     </div>
   );
 }
