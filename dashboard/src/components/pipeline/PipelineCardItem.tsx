@@ -1,6 +1,7 @@
 import { Loader2, GitBranch, GitPullRequest, Zap } from "lucide-react";
 import type { PipelineCard } from "../../lib/types";
 import { Badge } from "../shared/Badge";
+import { UsageIndicator } from "./UsageIndicator";
 import { CARD_STATUS_CONFIG } from "./constants";
 
 interface Props {
@@ -43,6 +44,7 @@ export function PipelineCardItem({ card, projectName, onClick }: Props) {
         {(card.implementationRetries + card.codeReviewRetries + card.e2eRetries) > 0 && (
           <span title="Retentativas">↻ {card.implementationRetries + card.codeReviewRetries + card.e2eRetries}</span>
         )}
+        <UsageIndicator costUsd={card.totalCostUsd} totalTokens={card.totalTokens} contextPct={card.contextPct} className="ml-auto" />
       </div>
     </div>
   );
