@@ -76,6 +76,9 @@ body {
   outline: none;
 }
 
+.markdown-editor .tiptap > :first-child { margin-top: 0; }
+.markdown-editor .tiptap > :last-child { margin-bottom: 0; }
+
 .markdown-editor .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
