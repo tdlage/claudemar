@@ -1,3 +1,4 @@
+import type { RowDataPacket } from "mysql2/promise";
 import { getPool } from "./database.js";
 
 export type PipelineStage =
@@ -196,10 +197,31 @@ const MIGRATIONS: string[] = [
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
+const STAGE_RUN_USAGE_COLUMNS: { name: string; ddl: string }[] = [
+  { name: "cost_usd", ddl: "DECIMAL(10,4) NOT NULL DEFAULT 0" },
+  { name: "total_tokens", ddl: "BIGINT NOT NULL DEFAULT 0" },
+  { name: "context_pct", ddl: "DECIMAL(5,2) NOT NULL DEFAULT 0" },
+];
+
+// MySQL não suporta ADD COLUMN IF NOT EXISTS de forma portável: checa information_schema antes.
+async function ensureStageRunUsageColumns(): Promise<void> {
+  const pool = getPool();
+  for (const col of STAGE_RUN_USAGE_COLUMNS) {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      "SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pipeline_stage_runs' AND COLUMN_NAME = ?",
+      [col.name],
+    );
+    if (Number(rows[0]?.cnt ?? 0) === 0) {
+      await pool.execute(`ALTER TABLE pipeline_stage_runs ADD COLUMN ${col.name} ${col.ddl}`);
+    }
+  }
+}
+
 export async function runPipelineMigrations(): Promise<void> {
   const pool = getPool();
   for (const sql of MIGRATIONS) {
     await pool.execute(sql);
   }
+  await ensureStageRunUsageColumns();
   console.log("[pipeline] Database migrations completed");
 }

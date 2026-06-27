@@ -6,6 +6,7 @@ import type { AgentDefinition, McpServerConfig, PermissionMode } from "@anthropi
 import type { AgentResult, AskQuestion } from "./providers/types.js";
 import { ClaudeSession, type MessageBlock, type PendingPermission, type PermissionDecision, type UsageInfo } from "./claude/session.js";
 import { isUltracode, type Effort } from "./claude/options.js";
+import { resolveBypass } from "./claude/permission.js";
 import { formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
@@ -261,8 +262,7 @@ class ExecutionManager extends EventEmitter {
       this.sessions.delete(sessionKey);
     }
 
-    const interactive = opts.source === "web" && !opts.autoApprove;
-    const bypass = opts.autoApprove || opts.permissionMode === "bypassPermissions" || (!opts.planMode && !interactive);
+    const bypass = resolveBypass(opts);
     const session = new ClaudeSession({
       cwd: opts.cwd,
       target: { targetType: opts.targetType, targetName: opts.targetName },

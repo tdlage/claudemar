@@ -7,6 +7,7 @@ import type {
   PipelineBundle,
   PipelineCard,
   PipelineIntakePlugin,
+  PipelineRunUsageEvent,
   PipelineStageRun,
 } from "../lib/types";
 
@@ -93,13 +94,16 @@ export function usePipelineCards(pipelineId: string | undefined) {
   useSocketEvent<{ id: string }>("pipeline:card:delete", ({ id }) => {
     setData((prev) => prev?.filter((c) => c.id !== id) ?? null);
   });
+  useSocketEvent<PipelineRunUsageEvent>("pipeline:run:usage", ({ cardId, card }) => {
+    setData((prev) => prev?.map((c) => (c.id === cardId ? { ...c, ...card } : c)) ?? null);
+  });
 
   return { cards: data ?? [], loading, error, refresh };
 }
 
 export function useCardRuns(cardId: string | undefined) {
   const path = cardId ? `/pipeline/cards/${cardId}/runs` : null;
-  const { data, loading, refresh } = usePipelineData<PipelineStageRun[]>(path, [cardId]);
+  const { data, setData, loading, refresh } = usePipelineData<PipelineStageRun[]>(path, [cardId]);
 
   usePipelineSocket();
 
@@ -109,6 +113,11 @@ export function useCardRuns(cardId: string | undefined) {
   });
   useSocketEvent<PipelineStageRun>("pipeline:run:update", (run) => {
     if (run.cardId === cardId) refresh();
+  });
+  // Live: atualiza custo/contexto da run ativa in-place (sem refetch, que reassina screenshots).
+  useSocketEvent<PipelineRunUsageEvent>("pipeline:run:usage", ({ cardId: cid, runId, run }) => {
+    if (cid !== cardId) return;
+    setData((prev) => prev?.map((r) => (r.id === runId ? { ...r, ...run } : r)) ?? null);
   });
 
   return { runs: data ?? [], loading, refresh };

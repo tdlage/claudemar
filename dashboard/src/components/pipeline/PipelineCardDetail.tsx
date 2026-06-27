@@ -7,6 +7,7 @@ import { Modal } from "../shared/Modal";
 import { Button } from "../shared/Button";
 import { Badge } from "../shared/Badge";
 import { useCardRuns } from "../../hooks/usePipeline";
+import { UsageIndicator } from "./UsageIndicator";
 import { CARD_STATUS_CONFIG, RUN_STATUS_CONFIG, STAGE_LABEL } from "./constants";
 
 function LiveOutput({ execId }: { execId: string }) {
@@ -236,7 +237,10 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
         </section>
 
         <section>
-          <h4 className="text-xs font-semibold text-text-secondary mb-1">Etapas</h4>
+          <div className="flex items-center gap-2 mb-1">
+            <h4 className="text-xs font-semibold text-text-secondary">Etapas</h4>
+            <UsageIndicator costUsd={card.totalCostUsd} totalTokens={card.totalTokens} contextPct={card.contextPct} className="ml-auto text-[11px] text-text-muted" />
+          </div>
           {runs.length === 0 && <p className="text-xs text-text-muted">Nenhuma execução ainda.</p>}
           <div className="space-y-2">
             {runs.map((run) => {
@@ -246,7 +250,8 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="text-xs font-medium">{STAGE_LABEL[run.stage]}</span>
                     {run.attempt > 1 && <span className="text-[10px] text-text-muted">tentativa {run.attempt}</span>}
-                    <span className="ml-auto inline-flex items-center gap-1">
+                    <UsageIndicator costUsd={run.costUsd} totalTokens={run.totalTokens} contextPct={run.contextPct} className="ml-auto text-[10px] text-text-muted" />
+                    <span className="inline-flex items-center gap-1">
                       {run.status === "running"
                         ? <Loader2 size={12} className="animate-spin text-blue-400" />
                         : run.status === "passed" ? <CheckCircle2 size={12} className="text-success" /> : <XCircle size={12} className="text-danger" />}

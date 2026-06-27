@@ -363,7 +363,7 @@ export function setupWebSocket(io: SocketServer): void {
   const pipelineEvents = [
     "pipeline:update",
     "card:create", "card:update", "card:delete",
-    "run:create", "run:update",
+    "run:create", "run:update", "run:usage",
     "plugin:create", "plugin:update", "plugin:delete",
   ];
   for (const event of pipelineEvents) {

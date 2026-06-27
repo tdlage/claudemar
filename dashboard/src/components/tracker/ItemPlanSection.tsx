@@ -3,6 +3,7 @@ import { Play, MessageSquare, Loader2, CheckCircle, AlertCircle, ExternalLink } 
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { ReviewPlanModal } from "./ReviewPlanModal";
+import { MarkdownViewer } from "../shared/MarkdownViewer";
 import type { TrackerItemPlan } from "../../lib/types";
 
 interface Props {
@@ -107,9 +108,9 @@ export function ItemPlanSection({ plan, itemId }: Props) {
           <div className="px-3 py-1.5 border-b border-border text-xs text-text-muted font-medium">
             Plan Output
           </div>
-          <pre className="px-4 py-3 text-sm text-text-primary whitespace-pre-wrap break-words max-h-[600px] overflow-y-auto font-mono leading-relaxed">
-            {plan.planMarkdown}
-          </pre>
+          <div className="max-h-[600px] overflow-y-auto">
+            <MarkdownViewer content={plan.planMarkdown} className="px-4 py-3" />
+          </div>
         </div>
       )}
 

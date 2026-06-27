@@ -21,6 +21,7 @@ import {
   type IntakePluginType,
   type PipelineStage,
 } from "./pipeline-migration.js";
+import { aggregateCardUsage, EMPTY_CARD_USAGE, type CardUsage, type UsageRunInput } from "./pipeline-usage.js";
 import { installPipelineCron, removePipelineCron } from "./pipeline-cron.js";
 
 export type CardStatus = "idle" | "running" | "awaiting_gate" | "failed" | "done";
@@ -104,6 +105,22 @@ export interface PipelineCard {
   createdAt: string;
   updatedAt: string;
   repos: PipelineCardRepo[];
+  totalCostUsd: number;
+  totalTokens: number;
+  contextPct: number;
+}
+
+export interface RunUsage {
+  costUsd: number;
+  totalTokens: number;
+  contextPct: number;
+}
+
+export interface RunUsageEvent {
+  cardId: string;
+  runId: string;
+  run: RunUsage;
+  card: CardUsage;
 }
 
 export interface PipelineStageRun {
@@ -117,6 +134,9 @@ export interface PipelineStageRun {
   promptSent: string;
   output: string;
   artifacts: StageArtifacts;
+  costUsd: number;
+  totalTokens: number;
+  contextPct: number;
   startedAt: string;
   finishedAt: string | null;
 }
@@ -200,6 +220,9 @@ interface StageRunRow extends RowDataPacket {
   prompt_sent: string | null;
   output: string | null;
   artifacts: string | null;
+  cost_usd: string | number | null;
+  total_tokens: string | number | null;
+  context_pct: string | number | null;
   started_at: string;
   finished_at: string | null;
 }
@@ -269,7 +292,7 @@ function mapCardRepo(r: CardRepoRow): PipelineCardRepo {
   };
 }
 
-function mapCard(r: CardRow, repos: PipelineCardRepo[]): PipelineCard {
+function mapCard(r: CardRow, repos: PipelineCardRepo[], usage: CardUsage = EMPTY_CARD_USAGE): PipelineCard {
   return {
     id: r.id,
     pipelineId: r.pipeline_id,
@@ -293,6 +316,9 @@ function mapCard(r: CardRow, repos: PipelineCardRepo[]): PipelineCard {
     createdAt: iso(r.created_at),
     updatedAt: iso(r.updated_at),
     repos,
+    totalCostUsd: usage.totalCostUsd,
+    totalTokens: usage.totalTokens,
+    contextPct: usage.contextPct,
   };
 }
 
@@ -308,6 +334,9 @@ function mapStageRun(r: StageRunRow): PipelineStageRun {
     promptSent: r.prompt_sent || "",
     output: r.output || "",
     artifacts: parseJson<StageArtifacts>(r.artifacts, {}),
+    costUsd: Number(r.cost_usd ?? 0),
+    totalTokens: Number(r.total_tokens ?? 0),
+    contextPct: Number(r.context_pct ?? 0),
     startedAt: iso(r.started_at),
     finishedAt: r.finished_at ? iso(r.finished_at) : null,
   };
@@ -482,8 +511,9 @@ class PipelineManager extends EventEmitter {
   // ── Cards ──
 
   private async attachRepos(rows: CardRow[]): Promise<PipelineCard[]> {
-    const reposMap = await this.getReposForCards(rows.map((r) => r.id));
-    return rows.map((r) => mapCard(r, reposMap.get(r.id) || []));
+    const ids = rows.map((r) => r.id);
+    const [reposMap, usageMap] = await Promise.all([this.getReposForCards(ids), this.getCardUsageMap(ids)]);
+    return rows.map((r) => mapCard(r, reposMap.get(r.id) || [], usageMap.get(r.id)));
   }
 
   async getCardsByPipeline(pipelineId: string): Promise<PipelineCard[]> {
@@ -494,8 +524,8 @@ class PipelineManager extends EventEmitter {
   async getCard(id: string): Promise<PipelineCard | null> {
     const rows = await query<CardRow[]>("SELECT * FROM pipeline_cards WHERE id = ?", [id]);
     if (!rows[0]) return null;
-    const repos = await this.getCardRepos(id);
-    return mapCard(rows[0], repos);
+    const [repos, usage] = await Promise.all([this.getCardRepos(id), this.getCardUsage(id)]);
+    return mapCard(rows[0], repos, usage);
   }
 
   async createCard(data: {
@@ -695,13 +725,16 @@ class PipelineManager extends EventEmitter {
     return run;
   }
 
-  async updateRun(id: string, data: Partial<{ execId: string; sessionId: string | null; status: RunStatus; output: string; finished: boolean }>): Promise<PipelineStageRun | null> {
+  async updateRun(id: string, data: Partial<{ execId: string; sessionId: string | null; status: RunStatus; output: string; finished: boolean; costUsd: number; totalTokens: number; contextPct: number }>): Promise<PipelineStageRun | null> {
     const sets: string[] = [];
     const params: (string | number | null)[] = [];
     if (data.execId !== undefined) { sets.push("exec_id = ?"); params.push(data.execId); }
     if (data.sessionId !== undefined) { sets.push("session_id = ?"); params.push(data.sessionId); }
     if (data.status !== undefined) { sets.push("status = ?"); params.push(data.status); }
     if (data.output !== undefined) { sets.push("output = ?"); params.push(data.output); }
+    if (data.costUsd !== undefined) { sets.push("cost_usd = ?"); params.push(data.costUsd); }
+    if (data.totalTokens !== undefined) { sets.push("total_tokens = ?"); params.push(data.totalTokens); }
+    if (data.contextPct !== undefined) { sets.push("context_pct = ?"); params.push(data.contextPct); }
     if (data.finished) { sets.push("finished_at = CURRENT_TIMESTAMP"); }
     if (sets.length === 0) return this.getRun(id);
     params.push(id);
@@ -723,6 +756,58 @@ class PipelineManager extends EventEmitter {
   async getCountForCardStage(cardId: string, stage: PipelineStage): Promise<number> {
     const rows = await query<RowDataPacket[]>("SELECT COUNT(*) AS cnt FROM pipeline_stage_runs WHERE card_id = ? AND stage = ?", [cardId, stage]);
     return Number(rows[0]?.cnt ?? 0);
+  }
+
+  // ── Usage (custo/tokens/contexto agregados por card) ──
+
+  // ORDER BY started_at, id garante ordem determinística: aggregateCardUsage escolhe o contextPct
+  // da run de maior startedAt e o id desempata runs iniciadas no mesmo segundo (started_at é DATETIME).
+  private async fetchUsageRows(cardIds: string[]): Promise<Map<string, (UsageRunInput & { runId: string })[]>> {
+    const byCard = new Map<string, (UsageRunInput & { runId: string })[]>();
+    if (cardIds.length === 0) return byCard;
+    const placeholders = cardIds.map(() => "?").join(",");
+    const rows = await query<RowDataPacket[]>(
+      `SELECT id, card_id, status, cost_usd, total_tokens, context_pct, UNIX_TIMESTAMP(started_at) AS started
+       FROM pipeline_stage_runs WHERE card_id IN (${placeholders}) ORDER BY started_at, id`,
+      cardIds,
+    );
+    for (const r of rows) {
+      const list = byCard.get(r.card_id) ?? [];
+      list.push({
+        runId: r.id,
+        status: r.status,
+        costUsd: Number(r.cost_usd ?? 0),
+        totalTokens: Number(r.total_tokens ?? 0),
+        contextPct: Number(r.context_pct ?? 0),
+        startedAt: Number(r.started ?? 0),
+      });
+      byCard.set(r.card_id, list);
+    }
+    return byCard;
+  }
+
+  async getCardUsageMap(cardIds: string[]): Promise<Map<string, CardUsage>> {
+    const byCard = await this.fetchUsageRows(cardIds);
+    const map = new Map<string, CardUsage>();
+    for (const id of cardIds) map.set(id, aggregateCardUsage(byCard.get(id) ?? []));
+    return map;
+  }
+
+  async getCardUsage(cardId: string): Promise<CardUsage> {
+    const map = await this.getCardUsageMap([cardId]);
+    return map.get(cardId) ?? EMPTY_CARD_USAGE;
+  }
+
+  // Live: a run ativa ainda tem usage 0 persistido. Substitui esse registro pelos valores ao vivo e
+  // reusa aggregateCardUsage — fonte única da regra de agregação (custo/tokens somam, contexto não).
+  async emitRunUsage(cardId: string, runId: string, live: RunUsage): Promise<void> {
+    const rows = (await this.fetchUsageRows([cardId])).get(cardId) ?? [];
+    const inputs: UsageRunInput[] = rows.map((r) =>
+      r.runId === runId ? { ...r, status: "running", ...live } : r,
+    );
+    const card = aggregateCardUsage(inputs);
+    const event: RunUsageEvent = { cardId, runId, run: live, card };
+    this.emit("run:usage", event);
   }
 
   // ── State machine ──
