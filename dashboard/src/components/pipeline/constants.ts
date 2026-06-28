@@ -10,6 +10,8 @@ export const PIPELINE_STAGES: { key: PipelineStage; label: string; color: string
   { key: "monitor", label: "Monitor", color: "#14b8a6" },
 ];
 
+export const SKIPPABLE_STAGES: PipelineStage[] = ["requirement", "plan", "code_review", "e2e", "pull_request"];
+
 export const STAGE_LABEL: Record<PipelineStage, string> = {
   intake: "Intake",
   requirement: "Requisito",

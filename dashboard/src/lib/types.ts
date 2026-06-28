@@ -624,6 +624,7 @@ export interface PipelineCard {
   e2eRetries: number;
   position: number;
   lastFeedback: string | null;
+  skippedStages: PipelineStage[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;

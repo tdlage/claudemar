@@ -25,6 +25,48 @@ export const PIPELINE_STAGES: { key: PipelineStage; label: string; color: string
 
 export const STAGE_ORDER: PipelineStage[] = PIPELINE_STAGES.map((s) => s.key);
 
+// Etapas que o usuário pode pular por card. 'implementation' nunca é pulável; 'intake'/'monitor'
+// não são etapas executáveis de trabalho.
+export const SKIPPABLE_STAGES: PipelineStage[] = ["requirement", "plan", "code_review", "e2e", "pull_request"];
+
+const SKIPPABLE_SET = new Set<PipelineStage>(SKIPPABLE_STAGES);
+
+export function isSkippable(stage: PipelineStage): boolean {
+  return SKIPPABLE_SET.has(stage);
+}
+
+// Leitura tolerante (ex.: JSON vindo do banco): filtra para etapas puláveis válidas, deduplica e
+// preserva a ordem canônica de STAGE_ORDER. Nunca lança.
+export function sanitizeSkippedStages(input: unknown): PipelineStage[] {
+  if (!Array.isArray(input)) return [];
+  const set = new Set<PipelineStage>();
+  for (const v of input) {
+    if (typeof v === "string" && SKIPPABLE_SET.has(v as PipelineStage)) set.add(v as PipelineStage);
+  }
+  return SKIPPABLE_STAGES.filter((s) => set.has(s));
+}
+
+// Validação estrita (ex.: payload de API): rejeita qualquer etapa não pulável
+// ('implementation'/'intake'/'monitor') ou valor inválido. Deduplica e ordena por STAGE_ORDER.
+export function validateSkippedStages(input: unknown): PipelineStage[] {
+  if (!Array.isArray(input)) throw new Error("skippedStages deve ser um array");
+  const set = new Set<PipelineStage>();
+  for (const v of input) {
+    if (typeof v !== "string") throw new Error(`Etapa inválida: ${String(v)}`);
+    if (!SKIPPABLE_SET.has(v as PipelineStage)) throw new Error(`Etapa não pode ser pulada: ${v}`);
+    set.add(v as PipelineStage);
+  }
+  return SKIPPABLE_STAGES.filter((s) => set.has(s));
+}
+
+// Primeiro índice >= fromIdx em STAGE_ORDER cuja etapa não está em `skipped` (-1 se não houver).
+export function firstActiveStageIndex(fromIdx: number, skipped: ReadonlySet<PipelineStage>): number {
+  for (let i = Math.max(0, fromIdx); i < STAGE_ORDER.length; i++) {
+    if (!skipped.has(STAGE_ORDER[i])) return i;
+  }
+  return -1;
+}
+
 const STAGE_ENUM = "ENUM('intake','requirement','plan','implementation','code_review','e2e','pull_request','monitor')";
 const INTAKE_TYPE_ENUM = "ENUM('manual','github_issues','usage_pattern','agent')";
 
@@ -203,16 +245,20 @@ const STAGE_RUN_USAGE_COLUMNS: { name: string; ddl: string }[] = [
   { name: "context_pct", ddl: "DECIMAL(5,2) NOT NULL DEFAULT 0" },
 ];
 
+const PIPELINE_CARD_COLUMNS: { name: string; ddl: string }[] = [
+  { name: "skipped_stages", ddl: "JSON DEFAULT NULL" },
+];
+
 // MySQL não suporta ADD COLUMN IF NOT EXISTS de forma portável: checa information_schema antes.
-async function ensureStageRunUsageColumns(): Promise<void> {
+async function ensureColumns(table: string, columns: { name: string; ddl: string }[]): Promise<void> {
   const pool = getPool();
-  for (const col of STAGE_RUN_USAGE_COLUMNS) {
+  for (const col of columns) {
     const [rows] = await pool.execute<RowDataPacket[]>(
-      "SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pipeline_stage_runs' AND COLUMN_NAME = ?",
-      [col.name],
+      "SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+      [table, col.name],
     );
     if (Number(rows[0]?.cnt ?? 0) === 0) {
-      await pool.execute(`ALTER TABLE pipeline_stage_runs ADD COLUMN ${col.name} ${col.ddl}`);
+      await pool.execute(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.ddl}`);
     }
   }
 }
@@ -222,6 +268,7 @@ export async function runPipelineMigrations(): Promise<void> {
   for (const sql of MIGRATIONS) {
     await pool.execute(sql);
   }
-  await ensureStageRunUsageColumns();
+  await ensureColumns("pipeline_stage_runs", STAGE_RUN_USAGE_COLUMNS);
+  await ensureColumns("pipeline_cards", PIPELINE_CARD_COLUMNS);
   console.log("[pipeline] Database migrations completed");
 }
