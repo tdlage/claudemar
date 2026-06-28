@@ -934,13 +934,12 @@ class PipelineManager extends EventEmitter {
     return updated;
   }
 
-  // Card automático ao chegar no monitor: tenta mergear os próprios PRs e concluir sozinho. Se
-  // pull_request foi pulado (não há PRs para mergear/monitorar), conclui o card diretamente.
+  // Card automático ao chegar no monitor: se há PR aberto, para no gate (o merge é sempre manual);
+  // se pull_request foi pulado (sem PRs para mergear), conclui o card diretamente.
   private async settleAutoMonitor(card: PipelineCard): Promise<void> {
-    if (card.repos.some((r) => r.prNumber)) {
-      this.mergeCardPrs(card.id).catch((err) => console.error("[pipeline] auto-merge failed:", err));
-      return;
-    }
+    // Há PR aberto: o merge na branch principal é SEMPRE manual (humano clica "Mergear PRs"),
+    // mesmo em cards automáticos. O card fica no gate do monitor (já em awaiting_gate).
+    if (card.repos.some((r) => r.prNumber)) return;
     const result = await execute("UPDATE pipeline_cards SET status = 'done' WHERE id = ? AND status <> 'done'", [card.id]);
     if (result.affectedRows > 0) {
       await this.emitCard(card.id);
