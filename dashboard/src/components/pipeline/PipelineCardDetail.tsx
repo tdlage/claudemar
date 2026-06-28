@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Loader2, CheckCircle2, XCircle, GitPullRequest, GitMerge, ExternalLink } from "lucide-react";
-import type { PipelineCard, PipelineStageRun } from "../../lib/types";
+import type { PipelineCard, PipelineStage, PipelineStageRun } from "../../lib/types";
 import { api } from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { Modal } from "../shared/Modal";
@@ -8,7 +8,11 @@ import { Button } from "../shared/Button";
 import { Badge } from "../shared/Badge";
 import { useCardRuns } from "../../hooks/usePipeline";
 import { UsageIndicator } from "./UsageIndicator";
-import { CARD_STATUS_CONFIG, RUN_STATUS_CONFIG, STAGE_LABEL } from "./constants";
+import { CARD_STATUS_CONFIG, PIPELINE_STAGES, RUN_STATUS_CONFIG, SKIPPABLE_STAGES, STAGE_LABEL } from "./constants";
+
+const STAGE_INDEX: Record<PipelineStage, number> = Object.fromEntries(
+  PIPELINE_STAGES.map((s, i) => [s.key, i]),
+) as Record<PipelineStage, number>;
 
 function LiveOutput({ execId }: { execId: string }) {
   const [output, setOutput] = useState("");
@@ -118,6 +122,14 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
     }
   };
 
+  const toggleSkip = (stage: PipelineStage) => {
+    const next = new Set(card.skippedStages);
+    if (next.has(stage)) next.delete(stage);
+    else next.add(stage);
+    const skippedStages = SKIPPABLE_STAGES.filter((s) => next.has(s));
+    return api.patch(`/pipeline/cards/${card.id}/skip`, { skippedStages });
+  };
+
   return (
     <Modal open onClose={onClose} title={`${projectName}#${card.seqNumber} · ${card.title}`} size="xl">
       <div className="space-y-4">
@@ -209,6 +221,37 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
             <pre className="text-xs whitespace-pre-wrap text-text-secondary bg-bg rounded p-2 border border-border">{card.intakeInput}</pre>
           </section>
         )}
+
+        <section>
+          <h4 className="text-xs font-semibold text-text-secondary mb-1.5">Etapas a executar</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {PIPELINE_STAGES.filter((s) => s.key !== "monitor").map((s) => {
+              const isImpl = s.key === "implementation";
+              const willRun = isImpl || !card.skippedStages.includes(s.key);
+              const passed = STAGE_INDEX[s.key] < STAGE_INDEX[card.stage];
+              const disabled = busy || isImpl || passed || card.status === "running";
+              return (
+                <label
+                  key={s.key}
+                  title={isImpl ? "A implementação é obrigatória" : passed ? "Etapa já ultrapassada" : undefined}
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border ${
+                    willRun ? "bg-accent/15 border-accent/40 text-accent" : "bg-bg border-border text-text-muted line-through"
+                  } ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={willRun}
+                    disabled={disabled}
+                    onChange={() => act(() => toggleSkip(s.key))}
+                  />
+                  {s.label}
+                  {isImpl && <span className="text-[10px] text-text-muted">obrigatória</span>}
+                </label>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-text-muted mt-1">Desmarque etapas para pulá-las em itens simples. A implementação não pode ser pulada.</p>
+        </section>
 
         <section>
           <div className="flex items-center gap-2 mb-1">
