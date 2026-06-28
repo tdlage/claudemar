@@ -14,10 +14,10 @@ interface Props {
   projectName: string;
 }
 
-function NewCardModal({ pipelineId, repos, onClose, onCreated }: { pipelineId: string; repos: string[]; onClose: () => void; onCreated: () => void }) {
+export function NewCardModal({ pipelineId, repos, onClose, onCreated }: { pipelineId: string; repos: string[]; onClose: () => void; onCreated: () => void }) {
   const [title, setTitle] = useState("");
   const [input, setInput] = useState("");
-  const [selected, setSelected] = useState<string[]>(repos);
+  const [selected, setSelected] = useState<string[]>([]);
   const [auto, setAuto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +25,7 @@ function NewCardModal({ pipelineId, repos, onClose, onCreated }: { pipelineId: s
   const toggleRepo = (r: string) => setSelected((prev) => prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]);
 
   const create = async () => {
-    if (!title.trim() || selected.length === 0) return;
+    if (!title.trim()) return;
     setBusy(true); setError(null);
     try {
       await api.post(`/pipeline/${pipelineId}/cards`, { title, intakeInput: input, repos: selected, auto });
@@ -56,6 +56,7 @@ function NewCardModal({ pipelineId, repos, onClose, onCreated }: { pipelineId: s
               </button>
             ))}
           </div>
+          <p className="text-[10px] text-text-muted mt-1">Deixe vazio para a ferramenta decidir os repositórios.</p>
         </div>
         <label className="inline-flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
           <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
@@ -64,7 +65,7 @@ function NewCardModal({ pipelineId, repos, onClose, onCreated }: { pipelineId: s
         {error && <p className="text-xs text-danger">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button size="sm" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button size="sm" variant="primary" disabled={busy || !title.trim() || selected.length === 0} onClick={create}>Criar card</Button>
+          <Button size="sm" variant="primary" disabled={busy || !title.trim()} onClick={create}>Criar card</Button>
         </div>
       </div>
     </Modal>
