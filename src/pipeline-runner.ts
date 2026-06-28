@@ -9,6 +9,7 @@ import { signUploadUrl } from "./upload-signer.js";
 import { config } from "./config.js";
 import { query, execute } from "./database.js";
 import { createPipelineMcpServer } from "./pipeline-mcp.js";
+import { buildPlanReposInstruction } from "./pipeline-prompt.js";
 import { pipelineEventManager, type PrFeedbackEvent, type PrMergedEvent, type PrReopenedEvent } from "./pipeline-events.js";
 import type { PipelineStage } from "./pipeline-migration.js";
 
@@ -199,6 +200,10 @@ class PipelineRunner {
     if (worktrees.length > 0) {
       const lines = worktrees.map((r) => `- ${r.repoName}: ${r.worktreePath} (branch ${r.branch}, base ${r.baseBranch})`);
       parts.push(`## Worktrees (edite/teste o código aqui)\n${lines.join("\n")}`);
+    }
+
+    if (stage === "plan") {
+      parts.push(buildPlanReposInstruction(card.repos.map((r) => r.repoName)));
     }
 
     if (stage === "e2e") {
