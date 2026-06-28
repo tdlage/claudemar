@@ -153,6 +153,16 @@ pipelineRouter.patch("/cards/:id/auto", async (req, res) => {
   res.json(card);
 });
 
+pipelineRouter.patch("/cards/:id/skip", async (req, res) => {
+  try {
+    const card = await pipelineManager.setSkippedStages(req.params.id as string, req.body.skippedStages);
+    if (!card) { res.status(404).json({ error: "Card not found" }); return; }
+    res.json(card);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Etapas inválidas" });
+  }
+});
+
 pipelineRouter.post("/cards/:id/advance", async (req, res) => {
   const ok = await pipelineManager.approveGate(req.params.id as string);
   if (!ok) { res.status(409).json({ error: "Card não está aguardando aprovação" }); return; }

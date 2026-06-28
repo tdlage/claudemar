@@ -19,6 +19,10 @@ import {
 import {
   DEFAULT_STAGE_CONFIGS,
   STAGE_ORDER,
+  SKIPPABLE_STAGES,
+  firstActiveStageIndex,
+  sanitizeSkippedStages,
+  validateSkippedStages,
   type IntakePluginType,
   type PipelineStage,
 } from "./pipeline-migration.js";
@@ -102,6 +106,7 @@ export interface PipelineCard {
   e2eRetries: number;
   position: number;
   lastFeedback: string | null;
+  skippedStages: PipelineStage[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -205,6 +210,7 @@ interface CardRow extends RowDataPacket {
   e2e_retries: number;
   position: number;
   last_feedback: string | null;
+  skipped_stages: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -313,6 +319,7 @@ function mapCard(r: CardRow, repos: PipelineCardRepo[], usage: CardUsage = EMPTY
     e2eRetries: r.e2e_retries,
     position: r.position,
     lastFeedback: r.last_feedback,
+    skippedStages: sanitizeSkippedStages(parseJson<unknown>(r.skipped_stages, [])),
     createdBy: r.created_by,
     createdAt: iso(r.created_at),
     updatedAt: iso(r.updated_at),
@@ -612,6 +619,59 @@ class PipelineManager extends EventEmitter {
     return card;
   }
 
+  async setSkippedStages(id: string, input: unknown): Promise<PipelineCard | null> {
+    const card = await this.getCard(id);
+    if (!card) return null;
+    if (card.status === "running") throw new Error("Não é possível alterar etapas de um card em execução");
+
+    const requested = new Set(validateSkippedStages(input));
+    const previous = new Set(card.skippedStages);
+    const curIdx = STAGE_ORDER.indexOf(card.stage);
+    // Guarda de histórico: etapas já ultrapassadas não podem ter o skip alterado.
+    for (const stage of SKIPPABLE_STAGES) {
+      if (STAGE_ORDER.indexOf(stage) < curIdx && requested.has(stage) !== previous.has(stage)) {
+        throw new Error(`A etapa "${stage}" já foi ultrapassada e não pode ser alterada`);
+      }
+    }
+
+    const finalStages = SKIPPABLE_STAGES.filter((s) => requested.has(s));
+    await execute("UPDATE pipeline_cards SET skipped_stages = ? WHERE id = ?", [JSON.stringify(finalStages), id]);
+
+    const updated = await this.getCard(id);
+    if (!updated) return null;
+    // Se a etapa atual passou a ser pulada (e o card não está em execução), reposiciona para a próxima ativa.
+    if ((updated.status === "idle" || updated.status === "awaiting_gate") && requested.has(updated.stage)) {
+      return this.normalizeSkippedStage(updated);
+    }
+    this.emit("card:update", updated);
+    return updated;
+  }
+
+  // Move um card cuja etapa atual ficou pulada para a primeira etapa ativa (sem executá-la aqui).
+  private async normalizeSkippedStage(card: PipelineCard): Promise<PipelineCard | null> {
+    const skipped = new Set(card.skippedStages);
+    const targetIdx = firstActiveStageIndex(STAGE_ORDER.indexOf(card.stage), skipped);
+    if (targetIdx === -1) {
+      await this.setCardStatus(card.id, "done");
+      return this.getCard(card.id);
+    }
+    const target = STAGE_ORDER[targetIdx];
+    if (target === card.stage) {
+      this.emit("card:update", card);
+      return card;
+    }
+    // monitor é passivo; cards automáticos retomam a execução na nova etapa, manuais preservam o gate.
+    const newStatus: CardStatus = target === "monitor" ? "awaiting_gate" : card.auto ? "idle" : card.status;
+    await execute("UPDATE pipeline_cards SET stage = ?, status = ? WHERE id = ?", [target, newStatus, card.id]);
+    const updated = await this.emitCard(card.id);
+    if (card.auto && target !== "monitor" && newStatus === "idle") {
+      this.emit("stage:request", { cardId: card.id, stage: target });
+    } else if (card.auto && target === "monitor") {
+      this.mergeCardPrs(card.id).catch((err) => console.error("[pipeline] auto-merge failed:", err));
+    }
+    return updated;
+  }
+
   async deleteCard(id: string): Promise<boolean> {
     const card = await this.getCard(id);
     if (!card) return false;
@@ -865,7 +925,9 @@ class PipelineManager extends EventEmitter {
   }
 
   private async advanceCard(card: PipelineCard): Promise<void> {
-    const next = STAGE_ORDER[STAGE_ORDER.indexOf(card.stage) + 1];
+    const skipped = new Set(card.skippedStages);
+    const nextIdx = firstActiveStageIndex(STAGE_ORDER.indexOf(card.stage) + 1, skipped);
+    const next = nextIdx === -1 ? undefined : STAGE_ORDER[nextIdx];
     if (!next) {
       await this.setCardStatus(card.id, "done");
       return;
