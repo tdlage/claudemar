@@ -624,7 +624,8 @@ class PipelineManager extends EventEmitter {
     if (!card) return null;
     if (card.status === "running") throw new Error("Não é possível alterar etapas de um card em execução");
 
-    const requested = new Set(validateSkippedStages(input));
+    const finalStages = validateSkippedStages(input);
+    const requested = new Set(finalStages);
     const previous = new Set(card.skippedStages);
     const curIdx = STAGE_ORDER.indexOf(card.stage);
     // Guarda de histórico: etapas já ultrapassadas não podem ter o skip alterado.
@@ -634,42 +635,25 @@ class PipelineManager extends EventEmitter {
       }
     }
 
-    const finalStages = SKIPPABLE_STAGES.filter((s) => requested.has(s));
     await execute("UPDATE pipeline_cards SET skipped_stages = ? WHERE id = ?", [JSON.stringify(finalStages), id]);
-
-    const updated = await this.getCard(id);
-    if (!updated) return null;
-    // Se a etapa atual passou a ser pulada (e o card não está em execução), reposiciona para a próxima ativa.
-    if ((updated.status === "idle" || updated.status === "awaiting_gate") && requested.has(updated.stage)) {
+    const updated: PipelineCard = { ...card, skippedStages: finalStages };
+    // Se a etapa atual passou a ser pulada (e o card não está concluído), reposiciona para a próxima ativa.
+    if (updated.status !== "done" && requested.has(updated.stage)) {
       return this.normalizeSkippedStage(updated);
     }
-    this.emit("card:update", updated);
-    return updated;
+    return this.emitCard(id);
   }
 
-  // Move um card cuja etapa atual ficou pulada para a primeira etapa ativa (sem executá-la aqui).
+  // Move um card cuja etapa atual ficou pulada para a primeira etapa ativa (sem executá-la aqui),
+  // preservando o status de repouso (awaiting_gate continua no gate; idle/failed viram idle).
   private async normalizeSkippedStage(card: PipelineCard): Promise<PipelineCard | null> {
-    const skipped = new Set(card.skippedStages);
-    const targetIdx = firstActiveStageIndex(STAGE_ORDER.indexOf(card.stage), skipped);
+    const targetIdx = firstActiveStageIndex(STAGE_ORDER.indexOf(card.stage), new Set(card.skippedStages));
     if (targetIdx === -1) {
       await this.setCardStatus(card.id, "done");
       return this.getCard(card.id);
     }
-    const target = STAGE_ORDER[targetIdx];
-    if (target === card.stage) {
-      this.emit("card:update", card);
-      return card;
-    }
-    // monitor é passivo; cards automáticos retomam a execução na nova etapa, manuais preservam o gate.
-    const newStatus: CardStatus = target === "monitor" ? "awaiting_gate" : card.auto ? "idle" : card.status;
-    await execute("UPDATE pipeline_cards SET stage = ?, status = ? WHERE id = ?", [target, newStatus, card.id]);
-    const updated = await this.emitCard(card.id);
-    if (card.auto && target !== "monitor" && newStatus === "idle") {
-      this.emit("stage:request", { cardId: card.id, stage: target });
-    } else if (card.auto && target === "monitor") {
-      this.mergeCardPrs(card.id).catch((err) => console.error("[pipeline] auto-merge failed:", err));
-    }
-    return updated;
+    const manualStatus: CardStatus = card.status === "awaiting_gate" ? "awaiting_gate" : "idle";
+    return this.moveToStage(card, STAGE_ORDER[targetIdx], manualStatus);
   }
 
   async deleteCard(id: string): Promise<boolean> {
@@ -925,25 +909,42 @@ class PipelineManager extends EventEmitter {
   }
 
   private async advanceCard(card: PipelineCard): Promise<void> {
-    const skipped = new Set(card.skippedStages);
-    const nextIdx = firstActiveStageIndex(STAGE_ORDER.indexOf(card.stage) + 1, skipped);
-    const next = nextIdx === -1 ? undefined : STAGE_ORDER[nextIdx];
-    if (!next) {
+    const nextIdx = firstActiveStageIndex(STAGE_ORDER.indexOf(card.stage) + 1, new Set(card.skippedStages));
+    if (nextIdx === -1) {
       await this.setCardStatus(card.id, "done");
       return;
     }
-    // monitor é passivo nesta fase (o acompanhamento de PR é dirigido por webhook depois):
-    // mesmo cards automáticos param no gate ao chegar em monitor.
-    const autoRun = card.auto && next !== "monitor";
+    await this.moveToStage(card, STAGE_ORDER[nextIdx], "awaiting_gate");
+  }
+
+  // Entrada numa etapa: grava stage/status, limpa o feedback anterior, emite a atualização e
+  // dispara a execução (autos) ou a liquidação do gate de monitor. monitor é passivo (o
+  // acompanhamento de PR é dirigido por webhook), então mesmo autos param no gate ao chegar nele.
+  // `manualStatus` define o status de repouso de cards não-automáticos.
+  private async moveToStage(card: PipelineCard, target: PipelineStage, manualStatus: CardStatus): Promise<PipelineCard | null> {
+    const autoRun = card.auto && target !== "monitor";
+    const status: CardStatus = autoRun ? "idle" : card.auto ? "awaiting_gate" : manualStatus;
     await execute(
       "UPDATE pipeline_cards SET stage = ?, last_feedback = NULL, status = ? WHERE id = ?",
-      [next, autoRun ? "idle" : "awaiting_gate", card.id],
+      [target, status, card.id],
     );
-    await this.emitCard(card.id);
-    if (autoRun) this.emit("stage:request", { cardId: card.id, stage: next });
-    else if (card.auto && next === "monitor") {
-      // Card automático: ao chegar no monitor, tenta mergear os próprios PRs e concluir sozinho.
+    const updated = await this.emitCard(card.id);
+    if (autoRun) this.emit("stage:request", { cardId: card.id, stage: target });
+    else if (card.auto && target === "monitor") await this.settleAutoMonitor(card);
+    return updated;
+  }
+
+  // Card automático ao chegar no monitor: tenta mergear os próprios PRs e concluir sozinho. Se
+  // pull_request foi pulado (não há PRs para mergear/monitorar), conclui o card diretamente.
+  private async settleAutoMonitor(card: PipelineCard): Promise<void> {
+    if (card.repos.some((r) => r.prNumber)) {
       this.mergeCardPrs(card.id).catch((err) => console.error("[pipeline] auto-merge failed:", err));
+      return;
+    }
+    const result = await execute("UPDATE pipeline_cards SET status = 'done' WHERE id = ? AND status <> 'done'", [card.id]);
+    if (result.affectedRows > 0) {
+      await this.emitCard(card.id);
+      await this.removeCardWorktrees(card);
     }
   }
 
