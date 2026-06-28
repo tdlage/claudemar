@@ -36,13 +36,29 @@ describe("RunArtifacts — markdown formatado (claudemar#6)", () => {
     expect(container.querySelector("pre")).toBeNull();
   });
 
-  it("renderiza o plano como markdown e mantém a linha 'Repos:' (critério 2)", async () => {
+  it("renderiza o plano como markdown e destaca os repositórios afetados acima do markdown (claudemar#7 critérios 1,2)", async () => {
     const { container, getByText } = render(
       <RunArtifacts run={makeRun({ plan: { markdown: "# Plano\n\ntexto", repos: ["claudemar", "infra"] } })} />,
     );
     await waitFor(() => expect(container.querySelector(".tiptap")).toBeTruthy());
     expect(container.querySelector("h1")?.textContent).toContain("Plano");
-    expect(getByText("Repos: claudemar, infra")).toBeInTheDocument();
+
+    const header = getByText("Repositórios afetados (identificados no plano)");
+    expect(header).toBeInTheDocument();
+    expect(getByText("claudemar")).toBeInTheDocument();
+    expect(getByText("infra")).toBeInTheDocument();
+
+    const markdown = container.querySelector(".tiptap")!;
+    expect(header.compareDocumentPosition(markdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("mostra estado vazio quando o plano não identifica repositórios (claudemar#7 critério 3)", async () => {
+    const { container, getByText } = render(
+      <RunArtifacts run={makeRun({ plan: { markdown: "# Plano", repos: [] } })} />,
+    );
+    await waitFor(() => expect(container.querySelector(".tiptap")).toBeTruthy());
+    expect(getByText("Repositórios afetados (identificados no plano)")).toBeInTheDocument();
+    expect(getByText("Nenhum repositório identificado")).toBeInTheDocument();
   });
 
   it("renderiza o resumo do review como markdown e mantém o cabeçalho de status (critério 3)", async () => {

@@ -51,11 +51,22 @@ export function RunArtifacts({ run }: { run: PipelineStageRun }) {
         </div>
       )}
       {a.plan && (
-        <div className="space-y-1">
+        <div className="space-y-2">
+          <div className="rounded p-2 border border-accent/30 bg-accent/5">
+            <p className="text-[11px] font-semibold text-text-secondary mb-1.5">Repositórios afetados (identificados no plano)</p>
+            {a.plan.repos.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {a.plan.repos.map((repo) => (
+                  <Badge key={repo} variant="accent">{repo}</Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-text-muted">Nenhum repositório identificado</p>
+            )}
+          </div>
           <div className="bg-bg rounded p-2 border border-border max-h-96 overflow-auto">
             <MarkdownViewer content={a.plan.markdown} />
           </div>
-          {a.plan.repos.length > 0 && <p className="text-[11px] text-text-muted">Repos: {a.plan.repos.join(", ")}</p>}
         </div>
       )}
       {a.tests && (
@@ -266,7 +277,7 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
 
         <section>
           <div className="flex items-center gap-2 mb-1">
-            <h4 className="text-xs font-semibold text-text-secondary">Repositórios</h4>
+            <h4 className="text-xs font-semibold text-text-secondary">Repositórios-alvo selecionados</h4>
             {canEditRepos && !editRepos && (
               <button className="text-[11px] text-accent hover:underline" onClick={() => { setRepoSel(card.repos.map((r) => r.repoName)); setEditRepos(true); }}>editar</button>
             )}
