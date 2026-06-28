@@ -6,6 +6,7 @@ import { getSocket } from "../../lib/socket";
 import { Modal } from "../shared/Modal";
 import { Button } from "../shared/Button";
 import { Badge } from "../shared/Badge";
+import { MarkdownViewer } from "../shared/MarkdownViewer";
 import { useCardRuns } from "../../hooks/usePipeline";
 import { UsageIndicator } from "./UsageIndicator";
 import { CARD_STATUS_CONFIG, RUN_STATUS_CONFIG, STAGE_LABEL } from "./constants";
@@ -36,14 +37,20 @@ interface Props {
   onClose: () => void;
 }
 
-function RunArtifacts({ run }: { run: PipelineStageRun }) {
+export function RunArtifacts({ run }: { run: PipelineStageRun }) {
   const a = run.artifacts;
   return (
     <div className="space-y-2">
-      {a.requirement && <pre className="text-xs whitespace-pre-wrap text-text-secondary bg-bg rounded p-2 border border-border">{a.requirement}</pre>}
+      {a.requirement && (
+        <div className="bg-bg rounded p-2 border border-border max-h-96 overflow-auto">
+          <MarkdownViewer content={a.requirement} />
+        </div>
+      )}
       {a.plan && (
         <div className="space-y-1">
-          <pre className="text-xs whitespace-pre-wrap text-text-secondary bg-bg rounded p-2 border border-border">{a.plan.markdown}</pre>
+          <div className="bg-bg rounded p-2 border border-border max-h-96 overflow-auto">
+            <MarkdownViewer content={a.plan.markdown} />
+          </div>
           {a.plan.repos.length > 0 && <p className="text-[11px] text-text-muted">Repos: {a.plan.repos.join(", ")}</p>}
         </div>
       )}
@@ -60,7 +67,11 @@ function RunArtifacts({ run }: { run: PipelineStageRun }) {
           <span className={a.review.clean && a.review.testsPass ? "text-success" : "text-warning"}>
             Code review: {a.review.fixed}/{a.review.totalFindings} corrigidos · clean={String(a.review.clean)} · testes={String(a.review.testsPass)}
           </span>
-          {a.review.summary && <pre className="mt-1 whitespace-pre-wrap text-text-muted bg-bg rounded p-2 border border-border max-h-48 overflow-auto">{a.review.summary}</pre>}
+          {a.review.summary && (
+            <div className="mt-1 bg-bg rounded p-2 border border-border max-h-96 overflow-auto">
+              <MarkdownViewer content={a.review.summary} />
+            </div>
+          )}
         </div>
       )}
       {a.e2e && (
