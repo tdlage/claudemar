@@ -26,6 +26,10 @@ export interface UsageInfo {
   contextPct: number;
 }
 
+// Janela de contexto padrão (modelos Claude atuais) usada como fallback quando o runner não
+// expõe o máximo do modelo (ex.: via gateway) — sobrescrevível por CONTEXT_WINDOW_TOKENS.
+const DEFAULT_CONTEXT_WINDOW = Number(process.env.CONTEXT_WINDOW_TOKENS) || 200000;
+
 export interface ClaudeSessionInit extends Omit<BuildOptionsParams, "canUseTool" | "abortController"> {
   permissionTimeoutMs?: number;
   isSubagentAllowed?: (subagentType: string) => boolean;
@@ -290,23 +294,28 @@ export class ClaudeSession extends EventEmitter {
     }
   }
 
-  private async emitUsage(costUsd: number, tokens: number): Promise<void> {
+  private async emitUsage(costUsd: number, tokens: number, contextTokens = 0): Promise<void> {
     let contextPct = 0;
     try {
       const ctx = await this.runner?.getContextUsage();
-      const max = ctx?.maxTokens || ctx?.rawMaxTokens || 0;
-      if (ctx && max > 0) {
-        contextPct = Math.min(100, Math.round((ctx.totalTokens / max) * 100));
+      const max = ctx?.maxTokens || ctx?.rawMaxTokens || DEFAULT_CONTEXT_WINDOW;
+      const used = ctx?.totalTokens || contextTokens;
+      if (max > 0 && used > 0) {
+        contextPct = Math.min(100, Math.round((used / max) * 100));
       }
-    } catch {}
+    } catch {
+      if (contextTokens > 0) contextPct = Math.min(100, Math.round((contextTokens / DEFAULT_CONTEXT_WINDOW) * 100));
+    }
     this.emit("usage", { costUsd, tokens, contextPct } satisfies UsageInfo);
   }
 
   private handleResult(message: Extract<SDKMessage, { type: "result" }>): void {
-    const usage = message.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+    const usage = message.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
     const totalTokens = (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
+    // Tokens "em contexto" no fim do turno ≈ tamanho do contexto usado (entrada + cache).
+    const contextTokens = (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0) + (usage?.cache_creation_input_tokens ?? 0);
 
-    void this.emitUsage(message.total_cost_usd ?? 0, totalTokens);
+    void this.emitUsage(message.total_cost_usd ?? 0, totalTokens, contextTokens);
 
     const denials: PermissionDenial[] = [];
     for (const d of message.permission_denials ?? []) {
