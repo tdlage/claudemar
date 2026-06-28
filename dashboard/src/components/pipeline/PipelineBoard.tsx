@@ -56,7 +56,7 @@ export function NewCardModal({ pipelineId, repos, onClose, onCreated }: { pipeli
               </button>
             ))}
           </div>
-          <p className="text-[10px] text-text-muted mt-1">Deixe vazio para a ferramenta decidir os repositórios.</p>
+          <p className="text-[10px] text-text-muted mt-1">Deixe vazio para incluir todos os repositórios do projeto.</p>
         </div>
         <label className="inline-flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
           <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />

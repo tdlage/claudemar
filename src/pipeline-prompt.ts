@@ -1,6 +1,6 @@
-export function buildPlanReposInstruction(selectedRepoNames: string[]): string {
-  const restriction = selectedRepoNames.length > 0
-    ? `O usuário pré-selecionou estes repositórios-alvo: ${selectedRepoNames.join(", ")}. Restrinja os repositórios reportados a esse conjunto; se algum repo fora dele for realmente necessário, justifique explicitamente no markdown do plano.`
-    : `O usuário não pré-selecionou repositórios — identifique você os repositórios afetados.`;
-  return `## Repositórios afetados\nAo chamar report_plan, informe em \`repos\` SOMENTE os repositórios que serão de fato alterados por este plano (não liste repositórios apenas inspecionados). ${restriction}`;
+export function buildPlanReposInstruction(targetRepoNames: string[]): string {
+  const guidance = targetRepoNames.length > 0
+    ? `Os repositórios-alvo atuais do card são: ${targetRepoNames.join(", ")}. Priorize-os; se o plano precisar afetar um repositório fora dessa lista, justifique explicitamente no markdown do plano.`
+    : `O card ainda não tem repositórios-alvo definidos — identifique você os repositórios afetados.`;
+  return `## Repositórios afetados\nAo chamar report_plan, informe em \`repos\` SOMENTE os repositórios que serão de fato alterados por este plano (não liste repositórios apenas inspecionados). ${guidance}`;
 }

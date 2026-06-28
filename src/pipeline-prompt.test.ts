@@ -9,14 +9,14 @@ test("instrui a reportar somente os repositórios afetados (claudemar#7 critéri
   assert.match(out, /SOMENTE os repositórios que serão de fato alterados/);
 });
 
-test("sem pré-seleção, pede que o agente identifique os repositórios (claudemar#7 critério 4)", () => {
+test("sem repositórios-alvo, pede que o agente identifique os repositórios (claudemar#7 critério 4)", () => {
   const out = buildPlanReposInstruction([]);
-  assert.match(out, /não pré-selecionou repositórios/);
+  assert.match(out, /ainda não tem repositórios-alvo definidos/);
 });
 
-test("com pré-seleção, apresenta a lista como restrição/auxílio (claudemar#7 critério 5)", () => {
+test("com repositórios-alvo, apresenta a lista como restrição/auxílio (claudemar#7 critério 5)", () => {
   const out = buildPlanReposInstruction(["claudemar", "infra"]);
-  assert.match(out, /pré-selecionou estes repositórios-alvo: claudemar, infra/);
-  assert.match(out, /Restrinja os repositórios reportados a esse conjunto/);
+  assert.match(out, /repositórios-alvo atuais do card são: claudemar, infra/);
+  assert.match(out, /Priorize-os/);
   assert.match(out, /justifique explicitamente/);
 });

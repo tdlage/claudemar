@@ -12,7 +12,7 @@ const postMock = api.post as unknown as ReturnType<typeof vi.fn>;
 describe("NewCardModal — seleção de repositórios (claudemar#7 critérios 6,7,9)", () => {
   beforeEach(() => postMock.mockClear());
 
-  it("habilita 'Criar card' com seleção vazia e envia repos: [] (deixar a ferramenta decidir)", async () => {
+  it("habilita 'Criar card' com seleção vazia e envia repos: [] (backend inclui todos via fallback)", async () => {
     const onCreated = vi.fn();
     const { getByText, getByPlaceholderText } = render(
       <NewCardModal pipelineId="pipe-1" repos={["claudemar", "infra"]} onClose={() => {}} onCreated={onCreated} />,
