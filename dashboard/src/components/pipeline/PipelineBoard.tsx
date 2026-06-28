@@ -138,6 +138,8 @@ export function PipelineBoard({ projectName }: Props) {
       <div className="flex gap-3 overflow-x-auto pb-2">
         {PIPELINE_STAGES.map((stage) => {
           const stageCards = cards.filter((c) => c.stage === stage.key);
+          // No monitor, os mais recentes primeiro (ordem inversa).
+          if (stage.key === "monitor") stageCards.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
           return (
             <div key={stage.key} className="shrink-0 w-64 bg-bg/40 rounded-lg border border-border" style={{ borderTopColor: stage.color, borderTopWidth: 2 }}>
               <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
