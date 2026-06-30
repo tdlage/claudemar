@@ -203,6 +203,7 @@ export function OrchestratorPage() {
               executionId={execId}
               base="orchestrator"
               startPlaceholder="Message orchestrator... (Shift+Enter quebra linha)"
+              isLive={isRunning}
               onStart={handleStart}
               inputControls={
                 <SessionSelector
