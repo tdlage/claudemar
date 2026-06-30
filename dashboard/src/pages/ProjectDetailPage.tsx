@@ -148,6 +148,7 @@ export function ProjectDetailPage() {
               base={`project:${name}`}
               startPlaceholder={`Message ${name}...`}
               queueMode={sequential}
+              isLive={isRunning}
               onStart={handleStart}
               controls={
                 <>

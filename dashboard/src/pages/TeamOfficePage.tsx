@@ -231,6 +231,7 @@ export function TeamOfficePage() {
               key={screenSt.execId}
               executionId={screenSt.execId}
               base={`agent:${screenAgent}`}
+              isLive={screenSt.running}
               onStart={screenSt.running ? handleScreenStart : undefined}
             />
           </div>

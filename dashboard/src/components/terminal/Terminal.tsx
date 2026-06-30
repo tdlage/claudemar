@@ -6,6 +6,7 @@ import { getSocket } from "../../lib/socket";
 import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
 import { extractMdPaths, renderOutputHtml } from "../../lib/ansi";
 import { useCurrentModel } from "../../hooks/useCurrentModel";
+import { useCachedState } from "../../hooks/useCachedState";
 import { isAdmin } from "../../hooks/useAuth";
 import { formatToolDetail } from "../../lib/toolDetail";
 import { fileToImageBlock, imageBlocksFromClipboard, type ImageBlock } from "../../lib/imageBlock";
@@ -75,6 +76,7 @@ interface TerminalProps {
   inputControls?: React.ReactNode;
   startPlaceholder?: string;
   queueMode?: boolean;
+  isLive?: boolean;
   onStart?: (text: string, images: ImageBlock[], opts: StartOpts) => Promise<void> | void;
 }
 
@@ -82,18 +84,21 @@ function startPermissionMode(mode: PermissionMode): PermissionMode {
   return mode === "plan" ? "default" : mode;
 }
 
-export function Terminal({ executionId, base, controls, inputControls, startPlaceholder, queueMode, onStart }: TerminalProps) {
+export function Terminal({ executionId, base, controls, inputControls, startPlaceholder, queueMode, isLive, onStart }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const currentModel = useCurrentModel();
+  const cacheKey = base ?? "default";
 
   const [html, setHtml] = useState("");
   const [mdPaths, setMdPaths] = useState<string[]>([]);
 
-  const [input, setInput] = useState("");
-  const [pendingImages, setPendingImages] = useState<ImageBlock[]>([]);
+  const [input, setInput] = useCachedState<string>(`term:${cacheKey}:draft`, "");
+  const [pendingImages, setPendingImages] = useCachedState<ImageBlock[]>(`term:${cacheKey}:images`, []);
   const [running, setRunning] = useState(false);
   const [messages, setMessages] = useState<UserMessage[]>([]);
+
+  const live = isLive ?? running;
 
   const onStartRef = useRef<TerminalProps["onStart"]>(onStart);
   const modeRef = useRef<PermissionMode>("default");
@@ -104,7 +109,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
   const [mode, setMode] = useState<PermissionMode>("default");
-  const [effort, setEffort] = useState<Effort>("high");
+  const [effort, setEffort] = useCachedState<Effort>(`term:${cacheKey}:effort`, "high");
   const slashCacheKey = base ?? "default";
   const [slashCommands, setSlashCommands] = useState<string[]>(() => getSlashCache(slashCacheKey));
   const [slashIndex, setSlashIndex] = useState(0);
@@ -290,8 +295,8 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     const images = pendingImages;
     if (!text && images.length === 0) return;
 
-    const injectIntoRunning = running && executionId !== null && !queueMode;
-    const willQueue = running && executionId !== null && queueMode;
+    const injectIntoRunning = live && executionId !== null && !queueMode;
+    const willQueue = live && executionId !== null && queueMode;
 
     if (!willQueue) {
       const msgId = counterRef.current++;
@@ -313,7 +318,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
 
     setInput("");
     setPendingImages([]);
-  }, [input, pendingImages, running, executionId, queueMode, effort]);
+  }, [input, pendingImages, live, executionId, queueMode, effort]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -561,7 +566,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
                 }
               }}
               onPaste={handlePaste}
-              placeholder={running ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, / para comandos, cole imagens)")}
+              placeholder={live ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, / para comandos, cole imagens)")}
               rows={1}
               className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 160 }}
@@ -632,7 +637,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
             >
               <Send size={14} />
             </button>
-            {running && (
+            {live && (
               <button
                 type="button"
                 onClick={handleInterrupt}

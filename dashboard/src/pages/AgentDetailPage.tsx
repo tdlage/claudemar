@@ -178,6 +178,7 @@ export function AgentDetailPage() {
               base={`agent:${name}`}
               startPlaceholder={`Message ${name}...`}
               queueMode={sequential}
+              isLive={isRunning}
               onStart={handleStart}
               inputControls={
                 <>
