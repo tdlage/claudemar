@@ -233,14 +233,15 @@ export async function rerunWorkflow(
 export async function getPullRequestBody(repoPath: string, prNumber: number): Promise<string> {
   const { output, exitCode } = await executeSpawn(
     "gh",
-    ["pr", "view", String(prNumber), "--json", "body", "-q", ".body"],
+    ["pr", "view", String(prNumber), "--json", "body"],
     repoPath,
     30000,
   );
   if (exitCode !== 0) {
     throw new Error(`Failed to read PR body: ${output}`);
   }
-  return output.replace(/\n$/, "");
+  const parsed = JSON.parse(output) as { body?: string | null };
+  return parsed.body ?? "";
 }
 
 export async function updatePullRequestBody(repoPath: string, prNumber: number, body: string): Promise<void> {
