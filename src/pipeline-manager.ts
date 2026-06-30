@@ -759,6 +759,15 @@ class PipelineManager extends EventEmitter {
     return rows[0] ? mapStageRun(rows[0]) : null;
   }
 
+  async getCardE2eScreenshots(cardId: string): Promise<string[]> {
+    const runs = await this.getRunsByCard(cardId);
+    for (let i = runs.length - 1; i >= 0; i--) {
+      const shots = runs[i].stage === "e2e" ? runs[i].artifacts.e2e?.screenshots : undefined;
+      if (shots && shots.length > 0) return shots;
+    }
+    return [];
+  }
+
   async createRun(data: { cardId: string; stage: PipelineStage; attempt: number; promptSent: string }): Promise<PipelineStageRun> {
     const id = randomUUID();
     await execute(

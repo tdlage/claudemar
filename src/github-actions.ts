@@ -230,6 +230,31 @@ export async function rerunWorkflow(
   }
 }
 
+export async function getPullRequestBody(repoPath: string, prNumber: number): Promise<string> {
+  const { output, exitCode } = await executeSpawn(
+    "gh",
+    ["pr", "view", String(prNumber), "--json", "body", "-q", ".body"],
+    repoPath,
+    30000,
+  );
+  if (exitCode !== 0) {
+    throw new Error(`Failed to read PR body: ${output}`);
+  }
+  return output.replace(/\n$/, "");
+}
+
+export async function updatePullRequestBody(repoPath: string, prNumber: number, body: string): Promise<void> {
+  const { output, exitCode } = await executeSpawn(
+    "gh",
+    ["pr", "edit", String(prNumber), "--body", body],
+    repoPath,
+    30000,
+  );
+  if (exitCode !== 0) {
+    throw new Error(`Failed to update PR body: ${output}`);
+  }
+}
+
 export async function cancelWorkflowRun(
   repoPath: string,
   remoteUrl: string,
