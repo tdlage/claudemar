@@ -13,6 +13,9 @@ import { buildAgentDefinitions } from "./agents/subagents.js";
 import { teammatesOf, squadMcpsForAgent, squadSkillsForAgent } from "./agents/teams-manager.js";
 import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
 import { config } from "./config.js";
+import { settingsManager } from "./settings-manager.js";
+import { projectSettingsManager } from "./project-settings.js";
+import { resolveExecutionModel } from "./models-discovery.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
@@ -244,7 +247,17 @@ class ExecutionManager extends EventEmitter {
     return undefined;
   }
 
+  private resolveModel(opts: StartExecutionOpts): string {
+    return resolveExecutionModel({
+      explicitModel: opts.model,
+      targetType: opts.targetType,
+      activeProviderId: settingsManager.getActiveProfile().id,
+      projectModel: projectSettingsManager.getModel(opts.targetName),
+    });
+  }
+
   private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined): { session: ClaudeSession; isNew: boolean } {
+    const model = this.resolveModel(opts);
     const existing = this.sessions.get(sessionKey);
     if (existing) {
       const planChanged = Boolean(opts.planMode) !== existing.planMode;
@@ -252,10 +265,11 @@ class ExecutionManager extends EventEmitter {
       const schedulerChanged = Boolean(opts.schedulerMode) !== existing.schedulerMode;
       const resumeChanged = Boolean(resumeId) && resumeId !== existing.getSessionId();
       const llmChanged = this.sessionGen.get(sessionKey) !== this.llmConfigGen;
+      const modelChanged = model !== existing.getRequestedModel();
       // Per-call MCP servers/skills (ex.: pipeline) só se aplicam na criação da sessão; se um caller
       // não-agent traz extraMcpServers, recria para não herdar o MCP/skill da etapa anterior.
       const mcpChanged = opts.targetType !== "agent" && opts.extraMcpServers !== undefined;
-      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !mcpChanged) {
+      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged) {
         return { session: existing, isNew: false };
       }
       existing.end();
@@ -265,6 +279,7 @@ class ExecutionManager extends EventEmitter {
     const bypass = resolveBypass(opts);
     const session = new ClaudeSession({
       cwd: opts.cwd,
+      model,
       target: { targetType: opts.targetType, targetName: opts.targetName },
       agentName: opts.agentName,
       planMode: opts.planMode,
@@ -307,7 +322,7 @@ class ExecutionManager extends EventEmitter {
       targetType: opts.targetType,
       targetName: opts.targetName,
       agentName: opts.agentName,
-      model: opts.model ?? DEFAULT_MODEL,
+      model: this.resolveModel(opts),
       username: opts.username,
       prompt: opts.prompt,
       cwd: opts.cwd,
