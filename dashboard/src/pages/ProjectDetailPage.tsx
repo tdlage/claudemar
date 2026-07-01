@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Bot, ListOrdered, Zap } from "lucide-react";
+import { Bot, ListOrdered, Zap, Cpu } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal, type StartOpts } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
@@ -19,6 +19,7 @@ import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin } from "../hooks/useAuth";
 import type { ProjectDetail } from "../lib/types";
+import { PROJECT_SELECTABLE_MODELS, DEFAULT_PROJECT_MODEL } from "../lib/types";
 
 type TabKey = "terminal" | "repositories" | "files" | "input" | "ci" | "pipeline";
 
@@ -33,6 +34,8 @@ export function ProjectDetailPage() {
   const [selectedSkill, setSelectedSkill] = useCachedState(`project:${name}:skill`, "");
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
   const [ciInitialRepo, setCiInitialRepo] = useState<string | undefined>();
+  const [providerId, setProviderId] = useState<string | null>(null);
+  const [projectModel, setProjectModel] = useState<string>(DEFAULT_PROJECT_MODEL);
   const admin = isAdmin();
 
   const loadProject = useCallback(() => {
@@ -40,6 +43,7 @@ export function ProjectDetailPage() {
     api.get<ProjectDetail>(`/projects/${name}`).then((data) => {
       setProject(data);
       setInputFiles(data.inputFiles ?? []);
+      setProjectModel(data.model ?? DEFAULT_PROJECT_MODEL);
     }).catch(() => {});
   }, [name]);
 
@@ -66,7 +70,20 @@ export function ProjectDetailPage() {
     loadProject();
     api.get<string[]>(`/projects/${name}/claude-agents`).then(setAgents).catch(() => {});
     api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
+    api.get<{ provider: string }>("/system/provider").then((data) => setProviderId(data.provider)).catch(() => {});
   }, [loadProject, name]);
+
+  const handleModelChange = async (model: string) => {
+    if (!name) return;
+    const previous = projectModel;
+    setProjectModel(model);
+    try {
+      await api.put(`/projects/${name}/model`, { model });
+    } catch (err) {
+      setProjectModel(previous);
+      addToast("error", err instanceof Error ? err.message : "Failed to update model");
+    }
+  };
 
   useEffect(() => {
     loadSession();
@@ -152,6 +169,25 @@ export function ProjectDetailPage() {
               onStart={handleStart}
               controls={
                 <>
+                  {providerId === "anthropic" && (
+                    <div className="flex items-center gap-1">
+                      <Cpu size={13} className={projectModel !== DEFAULT_PROJECT_MODEL ? "text-accent" : "text-text-muted"} />
+                      <select
+                        value={projectModel}
+                        onChange={(e) => handleModelChange(e.target.value)}
+                        title="Modelo Claude usado nas execuções deste projeto"
+                        className={`text-xs bg-transparent border rounded-md px-1 py-1 focus:outline-none focus:border-accent ${
+                          projectModel !== DEFAULT_PROJECT_MODEL
+                            ? "border-accent/40 text-accent"
+                            : "border-border text-text-muted"
+                        }`}
+                      >
+                        {PROJECT_SELECTABLE_MODELS.map((m) => (
+                          <option key={m.model} value={m.model}>{m.displayName}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div className="flex items-center gap-1">
                     <Bot size={13} className={selectedAgent ? "text-accent" : "text-text-muted"} />
                     <select
