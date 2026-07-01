@@ -15,6 +15,7 @@ import { sessionNamesManager } from "./session-names-manager.js";
 import { ensureAllAgentGitRepos, cleanupLegacyMailboxes } from "./agents/manager.js";
 import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
+import { projectSettingsManager } from "./project-settings.js";
 import { secretsManager } from "./secrets-manager.js";
 import { runTrackerMigrations } from "./tracker-migration.js";
 import { runPipelineMigrations } from "./pipeline-migration.js";
@@ -112,6 +113,7 @@ function shutdown() {
   console.log("Shutting down...");
   runProcessManager.flush();
   settingsManager.flush();
+  projectSettingsManager.flush();
   tokenManager.stop();
   closePool().catch(() => {});
   bot.stop();
