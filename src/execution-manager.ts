@@ -15,7 +15,7 @@ import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
 import { config } from "./config.js";
 import { settingsManager } from "./settings-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
-import { resolveExecutionModel } from "./models-discovery.js";
+import { resolveExecutionModel, DEFAULT_PROJECT_MODEL } from "./models-discovery.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
@@ -79,7 +79,7 @@ const MAX_STREAM_OUTPUT = 1024 * 1024;
 const MAX_SESSION_HISTORY = 10;
 const MAX_PERSISTED_OUTPUT = 50_000;
 const MAX_MEMORY_OUTPUT = 200_000;
-const DEFAULT_MODEL = "opus";
+const DEFAULT_MODEL = DEFAULT_PROJECT_MODEL;
 
 function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<HistoryEntry, "costUsd" | "totalTokens" | "durationMs">>): HistoryEntry {
   const durationMs = overrides?.durationMs
@@ -256,8 +256,7 @@ class ExecutionManager extends EventEmitter {
     });
   }
 
-  private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined): { session: ClaudeSession; isNew: boolean } {
-    const model = this.resolveModel(opts);
+  private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined, model: string): { session: ClaudeSession; isNew: boolean } {
     const existing = this.sessions.get(sessionKey);
     if (existing) {
       const planChanged = Boolean(opts.planMode) !== existing.planMode;
@@ -316,13 +315,14 @@ class ExecutionManager extends EventEmitter {
 
   startExecution(opts: StartExecutionOpts): string {
     const id = randomUUID();
+    const model = this.resolveModel(opts);
     const info: ExecutionInfo = {
       id,
       source: opts.source,
       targetType: opts.targetType,
       targetName: opts.targetName,
       agentName: opts.agentName,
-      model: this.resolveModel(opts),
+      model,
       username: opts.username,
       prompt: opts.prompt,
       cwd: opts.cwd,
@@ -346,7 +346,7 @@ class ExecutionManager extends EventEmitter {
     info.resumeSessionId = resumeId ?? null;
 
     const sessionKey = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
-    const { session, isNew } = this.getOrCreateSession(opts, sessionKey, resumeId);
+    const { session, isNew } = this.getOrCreateSession(opts, sessionKey, resumeId, model);
 
     const entry: ActiveEntry = { info, session, opts, sessionKey };
     this.active.set(id, entry);

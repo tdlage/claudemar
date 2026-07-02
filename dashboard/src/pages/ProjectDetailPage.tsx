@@ -18,8 +18,7 @@ import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin } from "../hooks/useAuth";
-import type { ProjectDetail } from "../lib/types";
-import { PROJECT_SELECTABLE_MODELS, DEFAULT_PROJECT_MODEL } from "../lib/types";
+import { PROJECT_SELECTABLE_MODELS, DEFAULT_PROJECT_MODEL, type ProjectDetail } from "../lib/types";
 
 type TabKey = "terminal" | "repositories" | "files" | "input" | "ci" | "pipeline";
 
