@@ -5,6 +5,7 @@ import type { AgentResult, AskQuestion, PermissionDenial } from "../providers/ty
 import { ingestTurn, type MemoryTarget } from "../memory/session-memory.js";
 import { buildOptions, effortToFlagLevel, isUltracode, type BuildOptionsParams, type Effort } from "./options.js";
 import { decideImmediatePermission } from "./permission.js";
+import { DEFAULT_PROJECT_MODEL } from "../models-discovery.js";
 
 export type PermissionDecision = "allow" | "always" | "deny";
 
@@ -107,6 +108,7 @@ export class ClaudeSession extends EventEmitter {
   private isSubagentAllowed: ((subagentType: string) => boolean) | null;
   private sessionId = "";
   private model = "";
+  private readonly requestedModel: string;
   private assistantBuffer = "";
   private agentToolCalls = new Map<string, string>();
   private pendingUserText: string | null = null;
@@ -125,6 +127,7 @@ export class ClaudeSession extends EventEmitter {
     this.bypass = Boolean(init.bypassPermissions);
     this.currentPermissionMode = init.planMode ? "plan" : init.permissionMode ?? (this.bypass ? "bypassPermissions" : "default");
     this.isSubagentAllowed = init.isSubagentAllowed ?? null;
+    this.requestedModel = init.model ?? DEFAULT_PROJECT_MODEL;
 
     const options = buildOptions({
       ...init,
@@ -436,6 +439,10 @@ export class ClaudeSession extends EventEmitter {
 
   getModel(): string {
     return this.model;
+  }
+
+  getRequestedModel(): string {
+    return this.requestedModel;
   }
 
   getLastResult(): AgentResult | null {

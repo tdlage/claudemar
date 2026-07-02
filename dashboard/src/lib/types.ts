@@ -121,7 +121,15 @@ export interface ProjectDetail {
   name: string;
   repos: RepoInfo[];
   inputFiles: { name: string; size: number; mtime: string }[];
+  model?: string;
 }
+
+export const PROJECT_SELECTABLE_MODELS: { model: string; displayName: string }[] = [
+  { model: "opus", displayName: "Opus 4.8" },
+  { model: "claude-fable-5", displayName: "Fable 5" },
+];
+
+export const DEFAULT_PROJECT_MODEL = "opus";
 
 export interface RepoInfo {
   name: string;

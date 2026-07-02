@@ -13,6 +13,9 @@ import { buildAgentDefinitions } from "./agents/subagents.js";
 import { teammatesOf, squadMcpsForAgent, squadSkillsForAgent } from "./agents/teams-manager.js";
 import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
 import { config } from "./config.js";
+import { settingsManager } from "./settings-manager.js";
+import { projectSettingsManager } from "./project-settings.js";
+import { resolveExecutionModel, DEFAULT_PROJECT_MODEL } from "./models-discovery.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
@@ -76,7 +79,7 @@ const MAX_STREAM_OUTPUT = 1024 * 1024;
 const MAX_SESSION_HISTORY = 10;
 const MAX_PERSISTED_OUTPUT = 50_000;
 const MAX_MEMORY_OUTPUT = 200_000;
-const DEFAULT_MODEL = "opus";
+const DEFAULT_MODEL = DEFAULT_PROJECT_MODEL;
 
 function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<HistoryEntry, "costUsd" | "totalTokens" | "durationMs">>): HistoryEntry {
   const durationMs = overrides?.durationMs
@@ -244,7 +247,16 @@ class ExecutionManager extends EventEmitter {
     return undefined;
   }
 
-  private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined): { session: ClaudeSession; isNew: boolean } {
+  private resolveModel(opts: StartExecutionOpts): string {
+    return resolveExecutionModel({
+      explicitModel: opts.model,
+      targetType: opts.targetType,
+      activeProviderId: settingsManager.getActiveProfile().id,
+      projectModel: projectSettingsManager.getModel(opts.targetName),
+    });
+  }
+
+  private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined, model: string): { session: ClaudeSession; isNew: boolean } {
     const existing = this.sessions.get(sessionKey);
     if (existing) {
       const planChanged = Boolean(opts.planMode) !== existing.planMode;
@@ -252,10 +264,11 @@ class ExecutionManager extends EventEmitter {
       const schedulerChanged = Boolean(opts.schedulerMode) !== existing.schedulerMode;
       const resumeChanged = Boolean(resumeId) && resumeId !== existing.getSessionId();
       const llmChanged = this.sessionGen.get(sessionKey) !== this.llmConfigGen;
+      const modelChanged = model !== existing.getRequestedModel();
       // Per-call MCP servers/skills (ex.: pipeline) só se aplicam na criação da sessão; se um caller
       // não-agent traz extraMcpServers, recria para não herdar o MCP/skill da etapa anterior.
       const mcpChanged = opts.targetType !== "agent" && opts.extraMcpServers !== undefined;
-      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !mcpChanged) {
+      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged) {
         return { session: existing, isNew: false };
       }
       existing.end();
@@ -265,6 +278,7 @@ class ExecutionManager extends EventEmitter {
     const bypass = resolveBypass(opts);
     const session = new ClaudeSession({
       cwd: opts.cwd,
+      model,
       target: { targetType: opts.targetType, targetName: opts.targetName },
       agentName: opts.agentName,
       planMode: opts.planMode,
@@ -301,13 +315,14 @@ class ExecutionManager extends EventEmitter {
 
   startExecution(opts: StartExecutionOpts): string {
     const id = randomUUID();
+    const model = this.resolveModel(opts);
     const info: ExecutionInfo = {
       id,
       source: opts.source,
       targetType: opts.targetType,
       targetName: opts.targetName,
       agentName: opts.agentName,
-      model: opts.model ?? DEFAULT_MODEL,
+      model,
       username: opts.username,
       prompt: opts.prompt,
       cwd: opts.cwd,
@@ -331,7 +346,7 @@ class ExecutionManager extends EventEmitter {
     info.resumeSessionId = resumeId ?? null;
 
     const sessionKey = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
-    const { session, isNew } = this.getOrCreateSession(opts, sessionKey, resumeId);
+    const { session, isNew } = this.getOrCreateSession(opts, sessionKey, resumeId, model);
 
     const entry: ActiveEntry = { info, session, opts, sessionKey };
     this.active.set(id, entry);

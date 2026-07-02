@@ -34,6 +34,8 @@ import {
   rerunWorkflow,
 } from "../../github-actions.js";
 import { executionManager } from "../../execution-manager.js";
+import { projectSettingsManager } from "../../project-settings.js";
+import { isSelectableProjectModel } from "../../models-discovery.js";
 
 export const projectsRouter = Router();
 
@@ -163,9 +165,28 @@ projectsRouter.get("/:name", asyncHandler(async (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
 
+  const projectName = String(req.params.name);
   const repos = await discoverRepos(projectPath);
   const inputFiles = listFiles(inputDir(projectPath));
-  res.json({ name: req.params.name, repos, inputFiles });
+  res.json({ name: projectName, repos, inputFiles, model: projectSettingsManager.getModel(projectName) });
+}));
+
+projectsRouter.put("/:name/model", asyncHandler(async (req, res) => {
+  if (req.ctx?.role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const projectPath = resolveProject(req, res);
+  if (!projectPath) return;
+
+  const { model } = req.body;
+  if (!isSelectableProjectModel(model)) {
+    res.status(400).json({ error: "Invalid model" });
+    return;
+  }
+
+  projectSettingsManager.setModel(String(req.params.name), model);
+  res.json({ model });
 }));
 
 projectsRouter.post("/", asyncHandler(async (req, res) => {
