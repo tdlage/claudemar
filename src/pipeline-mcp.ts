@@ -2,6 +2,10 @@ import { z } from "zod";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { pipelineManager } from "./pipeline-manager.js";
 import type { PipelineStage } from "./pipeline-migration.js";
+import { config } from "./config.js";
+import { cardRepoWorktreePath } from "./pipeline-worktree.js";
+import { getPullRequestBody, updatePullRequestBody } from "./github-actions.js";
+import { buildEvidenceImageUrls, buildE2eEvidenceSection, upsertEvidenceSection } from "./pipeline-pr-evidence.js";
 
 export interface PipelineMcpContext {
   runId: string;
@@ -19,6 +23,18 @@ function fail(err: unknown) {
     content: [{ type: "text" as const, text: `Falha: ${err instanceof Error ? err.message : String(err)}` }],
     isError: true,
   };
+}
+
+async function embedE2eEvidenceInPr(cardId: string, repoName: string, prNumber: number): Promise<void> {
+  const screenshots = await pipelineManager.getCardE2eScreenshots(cardId);
+  const images = buildEvidenceImageUrls(screenshots, config.publicBaseUrl);
+  const section = buildE2eEvidenceSection(images);
+  if (!section) return;
+  const repoPath = cardRepoWorktreePath(cardId, repoName);
+  const currentBody = await getPullRequestBody(repoPath, prNumber);
+  const newBody = upsertEvidenceSection(currentBody, section);
+  if (newBody === currentBody) return;
+  await updatePullRequestBody(repoPath, prNumber, newBody);
 }
 
 export function createPipelineMcpServer(ctx: PipelineMcpContext): ReturnType<typeof createSdkMcpServer> {
@@ -132,6 +148,11 @@ export function createPipelineMcpServer(ctx: PipelineMcpContext): ReturnType<typ
         const run = await pipelineManager.getRun(ctx.runId);
         const prs = [...(run?.artifacts.prs ?? []).filter((p) => p.repo !== args.repo), { repo: args.repo, url: args.url, number: args.number }];
         await pipelineManager.mergeRunArtifacts(ctx.runId, { prs });
+        try {
+          await embedE2eEvidenceInPr(cardId, args.repo, args.number);
+        } catch (err) {
+          console.error(`[pipeline-mcp] failed to embed E2E evidence in PR ${args.repo}#${args.number}:`, err);
+        }
         return ok(`PR registrado para ${args.repo}: ${args.url}`);
       } catch (err) { return fail(err); }
     },

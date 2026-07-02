@@ -2,11 +2,16 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 const secret = process.env.UPLOAD_SIGN_SECRET || randomBytes(32).toString("hex");
 const DEFAULT_TTL_SECONDS = 3600;
+export const PR_EVIDENCE_TTL_SECONDS = 10 * 365 * 24 * 3600;
 
 export function signUploadUrl(filename: string, ttlSeconds = DEFAULT_TTL_SECONDS): string {
   const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
   const sig = createHmac("sha256", secret).update(`${filename}:${exp}`).digest("base64url");
   return `/files/tracker/${encodeURIComponent(filename)}?exp=${exp}&sig=${sig}`;
+}
+
+export function absoluteSignedUrl(filename: string, baseUrl: string, ttlSeconds = DEFAULT_TTL_SECONDS): string {
+  return `${baseUrl.replace(/\/+$/, "")}${signUploadUrl(filename, ttlSeconds)}`;
 }
 
 export function verifyUploadSignature(filename: string, exp: string, sig: string): boolean {
