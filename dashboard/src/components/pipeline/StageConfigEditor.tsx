@@ -32,7 +32,7 @@ export function StageConfigEditor({ pipelineId, stageConfigs, onClose, onSaved }
     setPromptTemplate(cfg?.promptTemplate ?? "");
     setSkill(cfg?.skill ?? "");
     setAgentName(cfg?.agentName ?? "");
-    setTimeoutMin(cfg && cfg.timeoutMs > 0 ? String(Math.round(cfg.timeoutMs / 60000)) : "");
+    setTimeoutMin(cfg && cfg.timeoutMs != null ? String(Math.round(cfg.timeoutMs / 60000)) : "");
   }, [stage, stageConfigs]);
 
   const save = async () => {
@@ -43,7 +43,7 @@ export function StageConfigEditor({ pipelineId, stageConfigs, onClose, onSaved }
         promptTemplate,
         skill: skill || null,
         agentName: agentName || null,
-        timeoutMs: timeoutMin.trim() ? Math.max(0, Number(timeoutMin) * 60000) : 0,
+        timeoutMs: timeoutMin.trim() ? Math.max(0, Number(timeoutMin)) * 60000 : null,
       });
       onSaved();
     } catch (err) {
@@ -80,7 +80,7 @@ export function StageConfigEditor({ pipelineId, stageConfigs, onClose, onSaved }
         </div>
 
         <div>
-          <label className="text-xs text-text-secondary">Timeout (minutos, vazio = padrão)</label>
+          <label className="text-xs text-text-secondary">Timeout (minutos — vazio = padrão global, 0 = sem limite)</label>
           <input type="number" min="0" value={timeoutMin} onChange={(e) => setTimeoutMin(e.target.value)} placeholder={`padrão`} className="w-full bg-bg border border-border rounded p-2 text-sm focus:outline-none focus:border-accent" />
         </div>
 

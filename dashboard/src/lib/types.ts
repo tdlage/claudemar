@@ -586,7 +586,7 @@ export interface PipelineStageConfig {
   promptTemplate: string;
   skill: string | null;
   agentName: string | null;
-  timeoutMs: number;
+  timeoutMs: number | null;
 }
 
 export interface PipelineIntakePlugin {
