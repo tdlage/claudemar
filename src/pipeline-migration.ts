@@ -159,7 +159,7 @@ const MIGRATIONS: string[] = [
     prompt_template LONGTEXT NOT NULL,
     skill VARCHAR(255) DEFAULT NULL,
     agent_name VARCHAR(255) DEFAULT NULL,
-    timeout_ms INT NOT NULL DEFAULT 0,
+    timeout_ms INT NULL DEFAULT NULL,
     FOREIGN KEY (pipeline_id) REFERENCES pipeline_pipelines(id) ON DELETE CASCADE,
     UNIQUE KEY uk_pipeline_stage (pipeline_id, stage)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
@@ -263,6 +263,21 @@ async function ensureColumns(table: string, columns: { name: string; ddl: string
   }
 }
 
+// timeout_ms nasceu NOT NULL DEFAULT 0, onde 0 significava "usar global". A semântica nova é
+// NULL = usar global, 0 = desligado, >0 = explícito. Torna a coluna nullable ANTES de converter
+// os 0 legados em NULL (o UPDATE para NULL falharia numa coluna ainda NOT NULL em strict mode).
+// Guardado por IS_NULLABLE para rodar uma única vez e nunca reconverter 0-desligados futuros.
+async function ensureStageTimeoutNullable(): Promise<void> {
+  const pool = getPool();
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    "SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pipeline_stage_configs' AND COLUMN_NAME = 'timeout_ms'",
+  );
+  if (rows[0]?.IS_NULLABLE === "NO") {
+    await pool.execute("ALTER TABLE pipeline_stage_configs MODIFY COLUMN timeout_ms INT NULL DEFAULT NULL");
+    await pool.execute("UPDATE pipeline_stage_configs SET timeout_ms = NULL WHERE timeout_ms = 0");
+  }
+}
+
 export async function runPipelineMigrations(): Promise<void> {
   const pool = getPool();
   for (const sql of MIGRATIONS) {
@@ -270,5 +285,6 @@ export async function runPipelineMigrations(): Promise<void> {
   }
   await ensureColumns("pipeline_stage_runs", STAGE_RUN_USAGE_COLUMNS);
   await ensureColumns("pipeline_cards", PIPELINE_CARD_COLUMNS);
+  await ensureStageTimeoutNullable();
   console.log("[pipeline] Database migrations completed");
 }

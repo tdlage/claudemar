@@ -7,6 +7,7 @@ import { createPipelineMcpServer } from "./pipeline-mcp.js";
 import { safeProjectPath } from "./session.js";
 import { query, getPool } from "./database.js";
 import { config } from "./config.js";
+import { resolveTimeoutMs } from "./pipeline-timeout.js";
 import type { IntakePluginType } from "./pipeline-migration.js";
 
 type IntakeExecutor = (plugin: PipelineIntakePlugin, pipeline: Pipeline) => Promise<number>;
@@ -15,6 +16,7 @@ interface AgentIntakeConfig {
   prompt?: string;
   skill?: string;
   source?: string;
+  timeoutMs?: number;
 }
 
 async function countCards(pipelineId: string): Promise<number> {
@@ -99,7 +101,7 @@ const runAgentIntake: IntakeExecutor = async (plugin, pipeline) => {
       username: `pipeline-intake:${plugin.id}:${runId}`,
       skills: cfg.skill ? [cfg.skill] : undefined,
       extraMcpServers: { pipeline: mcp },
-      timeoutMs: config.pipelineStageTimeoutMs,
+      timeoutMs: resolveTimeoutMs(cfg.timeoutMs, config.pipelineStageTimeoutMs),
     });
 
     try {

@@ -60,7 +60,7 @@ export interface PipelineStageConfig {
   promptTemplate: string;
   skill: string | null;
   agentName: string | null;
-  timeoutMs: number;
+  timeoutMs: number | null;
 }
 
 export interface PipelineIntakePlugin {
@@ -164,7 +164,7 @@ interface StageConfigRow extends RowDataPacket {
   prompt_template: string;
   skill: string | null;
   agent_name: string | null;
-  timeout_ms: number;
+  timeout_ms: number | null;
 }
 
 interface IntakePluginRow extends RowDataPacket {
@@ -407,7 +407,7 @@ class PipelineManager extends EventEmitter {
     return rows[0] ? mapStageConfig(rows[0]) : null;
   }
 
-  async updateStageConfig(pipelineId: string, stage: PipelineStage, data: Partial<{ promptTemplate: string; skill: string | null; agentName: string | null; timeoutMs: number }>): Promise<PipelineStageConfig | null> {
+  async updateStageConfig(pipelineId: string, stage: PipelineStage, data: Partial<{ promptTemplate: string; skill: string | null; agentName: string | null; timeoutMs: number | null }>): Promise<PipelineStageConfig | null> {
     const sets: string[] = [];
     const params: (string | number | null)[] = [];
     if (data.promptTemplate !== undefined) { sets.push("prompt_template = ?"); params.push(data.promptTemplate); }
