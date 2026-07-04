@@ -10,6 +10,7 @@ import { config } from "./config.js";
 import { query, execute } from "./database.js";
 import { createPipelineMcpServer } from "./pipeline-mcp.js";
 import { buildPlanReposInstruction } from "./pipeline-prompt.js";
+import { resolveTimeoutMs } from "./pipeline-timeout.js";
 import { pipelineEventManager, type PrFeedbackEvent, type PrMergedEvent, type PrReopenedEvent } from "./pipeline-events.js";
 import type { PipelineStage } from "./pipeline-migration.js";
 
@@ -182,7 +183,7 @@ class PipelineRunner {
       skills: cfg.skill ? [cfg.skill] : undefined,
       agentName: cfg.agentName ?? undefined,
       extraMcpServers: { pipeline: mcp },
-      timeoutMs: cfg.timeoutMs || config.pipelineStageTimeoutMs,
+      timeoutMs: resolveTimeoutMs(cfg.timeoutMs, config.pipelineStageTimeoutMs),
     });
 
     await pipelineManager.updateRun(run.id, { execId });

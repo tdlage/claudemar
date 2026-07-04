@@ -80,7 +80,7 @@ export const config = Object.freeze({
   mysqlDatabase: process.env.MYSQL_DATABASE || "claudemar",
   githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET || "",
   maxParallelPipelineRuns: numericEnv("MAX_PARALLEL_PIPELINE_RUNS", 3),
-  pipelineStageTimeoutMs: numericEnv("PIPELINE_STAGE_TIMEOUT_MS", 30 * 60 * 1000),
+  pipelineStageTimeoutMs: numericEnv("PIPELINE_STAGE_TIMEOUT_MS", 120 * 60 * 1000),
   maxPipelineRetries: numericEnv("MAX_PIPELINE_RETRIES", 3),
   pipelineBotLogin: stringEnv("PIPELINE_BOT_LOGIN", ""),
   pipelineReworkKeyword: stringEnv("PIPELINE_REWORK_KEYWORD", ""),
