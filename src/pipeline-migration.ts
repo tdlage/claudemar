@@ -264,16 +264,17 @@ async function ensureColumns(table: string, columns: { name: string; ddl: string
 }
 
 // timeout_ms nasceu NOT NULL DEFAULT 0, onde 0 significava "usar global". A semântica nova é
-// NULL = usar global, 0 = desligado, >0 = explícito. Converte os 0 legados em NULL e torna a
-// coluna nullable — uma única vez, guardado por IS_NULLABLE para nunca reconverter 0-desligados.
+// NULL = usar global, 0 = desligado, >0 = explícito. Torna a coluna nullable ANTES de converter
+// os 0 legados em NULL (o UPDATE para NULL falharia numa coluna ainda NOT NULL em strict mode).
+// Guardado por IS_NULLABLE para rodar uma única vez e nunca reconverter 0-desligados futuros.
 async function ensureStageTimeoutNullable(): Promise<void> {
   const pool = getPool();
   const [rows] = await pool.execute<RowDataPacket[]>(
     "SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pipeline_stage_configs' AND COLUMN_NAME = 'timeout_ms'",
   );
   if (rows[0]?.IS_NULLABLE === "NO") {
-    await pool.execute("UPDATE pipeline_stage_configs SET timeout_ms = NULL WHERE timeout_ms = 0");
     await pool.execute("ALTER TABLE pipeline_stage_configs MODIFY COLUMN timeout_ms INT NULL DEFAULT NULL");
+    await pool.execute("UPDATE pipeline_stage_configs SET timeout_ms = NULL WHERE timeout_ms = 0");
   }
 }
 

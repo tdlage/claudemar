@@ -101,7 +101,7 @@ const runAgentIntake: IntakeExecutor = async (plugin, pipeline) => {
       username: `pipeline-intake:${plugin.id}:${runId}`,
       skills: cfg.skill ? [cfg.skill] : undefined,
       extraMcpServers: { pipeline: mcp },
-      timeoutMs: resolveTimeoutMs(cfg.timeoutMs ?? null, config.pipelineStageTimeoutMs),
+      timeoutMs: resolveTimeoutMs(cfg.timeoutMs, config.pipelineStageTimeoutMs),
     });
 
     try {

@@ -19,3 +19,15 @@ test("0 (desligado) permanece 0 e não colapsa no default", () => {
 test("valor explícito >0 é respeitado independente do global", () => {
   assert.equal(resolveTimeoutMs(60000, GLOBAL), 60000);
 });
+
+test("valor negativo cai no global (nunca desliga silenciosamente)", () => {
+  assert.equal(resolveTimeoutMs(-1, GLOBAL), GLOBAL);
+});
+
+test("NaN cai no global", () => {
+  assert.equal(resolveTimeoutMs(Number.NaN, GLOBAL), GLOBAL);
+});
+
+test("tipo inválido (string vinda de JSON) cai no global", () => {
+  assert.equal(resolveTimeoutMs("0" as unknown as number, GLOBAL), GLOBAL);
+});

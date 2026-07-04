@@ -74,6 +74,11 @@ pipelineRouter.put("/:pipelineId", async (req, res) => {
 pipelineRouter.put("/:pipelineId/stages/:stage", async (req, res) => {
   const stage = req.params.stage as string;
   if (!STAGE_KEYS.has(stage)) { res.status(400).json({ error: "Invalid stage" }); return; }
+  const { timeoutMs } = req.body;
+  if (timeoutMs !== undefined && timeoutMs !== null && !(typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs >= 0)) {
+    res.status(400).json({ error: "timeoutMs deve ser null (padrão global), 0 (sem limite) ou um número >= 0 em ms" });
+    return;
+  }
   const cfg = await pipelineManager.updateStageConfig(req.params.pipelineId as string, stage as PipelineStage, {
     promptTemplate: req.body.promptTemplate,
     skill: req.body.skill,
