@@ -105,6 +105,7 @@ export function ProjectDetailPage() {
         effort: opts.effort,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
+        model: providerId === "anthropic" ? projectModel : undefined,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -165,6 +166,7 @@ export function ProjectDetailPage() {
               startPlaceholder={`Message ${name}...`}
               queueMode={sequential}
               isLive={isRunning}
+              showModelBadge={providerId !== "anthropic"}
               onStart={handleStart}
               controls={
                 <>

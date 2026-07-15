@@ -77,6 +77,7 @@ interface TerminalProps {
   startPlaceholder?: string;
   queueMode?: boolean;
   isLive?: boolean;
+  showModelBadge?: boolean;
   onStart?: (text: string, images: ImageBlock[], opts: StartOpts) => Promise<void> | void;
 }
 
@@ -84,7 +85,7 @@ function startPermissionMode(mode: PermissionMode): PermissionMode {
   return mode === "plan" ? "default" : mode;
 }
 
-export function Terminal({ executionId, base, controls, inputControls, startPlaceholder, queueMode, isLive, onStart }: TerminalProps) {
+export function Terminal({ executionId, base, controls, inputControls, startPlaceholder, queueMode, isLive, showModelBadge = true, onStart }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const currentModel = useCurrentModel();
@@ -451,9 +452,11 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
         {inputControls}
         <div className="flex-1" />
         {controls}
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
-          {currentModel.displayName}
-        </span>
+        {showModelBadge && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
+            {currentModel.displayName}
+          </span>
+        )}
         {isAdmin() && (
           <>
             <div className="w-px h-4 bg-border" />

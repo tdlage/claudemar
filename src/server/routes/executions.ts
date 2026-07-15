@@ -13,6 +13,7 @@ import { resolveRepoPath } from "../../repositories.js";
 import { safeProjectPath } from "../../session.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { loadHistory, loadSessionRefs } from "../../history.js";
+import { isSelectableProjectModel } from "../../models-discovery.js";
 
 export const executionsRouter = Router();
 
@@ -39,7 +40,7 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", async (req, res) => {
-  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, agentName, forceQueue, skipSystemPrompt, schedulerMode } = req.body;
+  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, agentName, forceQueue, skipSystemPrompt, schedulerMode, model } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -120,6 +121,7 @@ executionsRouter.post("/", async (req, res) => {
     username,
     skipSystemPrompt: skipSystemPrompt || false,
     effort: resolvedEffort,
+    model: isSelectableProjectModel(model) ? model : undefined,
   };
 
   const targetActive = executionManager.isTargetActive(targetType, effectiveTargetName);
