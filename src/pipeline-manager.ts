@@ -866,18 +866,26 @@ class PipelineManager extends EventEmitter {
 
   // ── State machine ──
 
-  async approveGate(cardId: string): Promise<boolean> {
+  async approveGate(cardId: string): Promise<{ ok: boolean; error?: string }> {
     const card = await this.getCard(cardId);
-    if (!card || card.status !== "awaiting_gate") return false;
+    if (!card || card.status !== "awaiting_gate") return { ok: false };
     if (card.stage === "monitor") {
+      // "Concluir" na última etapa mergeia os PRs abertos e então conclui. O merge na branch
+      // principal é SEMPRE manual: só acontece por este clique humano (nunca em cards automáticos).
+      const hasOpenPr = card.repos.some((r) => r.prNumber && r.repoStatus !== "merged" && r.repoStatus !== "closed");
+      if (hasOpenPr) {
+        const { failed } = await this.mergeCardPrs(cardId);
+        if (failed.length > 0) return { ok: false, error: `Falha ao mergear PR(s): ${failed.map((f) => f.repo).join(", ")}. Veja o feedback do card.` };
+        return { ok: true };
+      }
       await this.setCardStatus(cardId, "done");
       await this.removeCardWorktrees(card);
-      return true;
+      return { ok: true };
     }
     await execute("UPDATE pipeline_cards SET status = 'idle' WHERE id = ?", [cardId]);
     await this.emitCard(cardId);
     this.emit("stage:request", { cardId, stage: card.stage });
-    return true;
+    return { ok: true };
   }
 
   async retry(cardId: string): Promise<boolean> {
