@@ -132,6 +132,10 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
   const gated = card.status === "awaiting_gate" || card.status === "failed";
   const activeRun = runs.find((r) => r.status === "running" && r.execId);
 
+  const monitorHasOpenPr = card.stage === "monitor" && card.repos.some((r) => r.prUrl && r.repoStatus !== "merged" && r.repoStatus !== "closed");
+  const concludeLabel = card.stage !== "monitor" ? "Aprovar etapa" : monitorHasOpenPr ? "Mergear PR e concluir" : "Concluir";
+  const ConcludeIcon = monitorHasOpenPr ? GitMerge : CheckCircle2;
+
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);
@@ -181,17 +185,9 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
 
         {gated && (
           <div className="flex items-center gap-2 flex-wrap">
-            {card.status === "awaiting_gate" && card.stage === "monitor" && card.repos.some((r) => r.prUrl && r.repoStatus !== "merged" && r.repoStatus !== "closed") && (
-              <Button size="sm" variant="primary" disabled={busy} onClick={() => act(async () => {
-                const r = await api.post<{ merged: string[]; failed: { repo: string; error: string }[] }>(`/pipeline/cards/${card.id}/merge`);
-                if (r.failed.length > 0) throw new Error(`Falha ao mergear ${r.failed.map((f) => f.repo).join(", ")} — veja o feedback do card.`);
-              })}>
-                <GitMerge size={14} className="mr-1" /> Mergear PRs e concluir
-              </Button>
-            )}
             {card.status === "awaiting_gate" && (
-              <Button size="sm" variant={card.stage === "monitor" ? "secondary" : "primary"} disabled={busy} onClick={() => act(() => api.post(`/pipeline/cards/${card.id}/advance`))}>
-                <CheckCircle2 size={14} className="mr-1" /> {card.stage === "monitor" ? "Concluir (já mergeado)" : "Aprovar etapa"}
+              <Button size="sm" variant="primary" disabled={busy} onClick={() => act(() => api.post(`/pipeline/cards/${card.id}/advance`))}>
+                <ConcludeIcon size={14} className="mr-1" /> {concludeLabel}
               </Button>
             )}
             {card.stage !== "monitor" && (

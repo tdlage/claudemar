@@ -169,8 +169,8 @@ pipelineRouter.patch("/cards/:id/skip", async (req, res) => {
 });
 
 pipelineRouter.post("/cards/:id/advance", async (req, res) => {
-  const ok = await pipelineManager.approveGate(req.params.id as string);
-  if (!ok) { res.status(409).json({ error: "Card não está aguardando aprovação" }); return; }
+  const result = await pipelineManager.approveGate(req.params.id as string);
+  if (!result.ok) { res.status(409).json({ error: result.error ?? "Card não está aguardando aprovação" }); return; }
   res.json({ ok: true });
 });
 
@@ -191,11 +191,6 @@ pipelineRouter.post("/cards/:id/retry", async (req, res) => {
   const ok = await pipelineManager.retry(req.params.id as string);
   if (!ok) { res.status(409).json({ error: "Card em execução ou inexistente" }); return; }
   res.json({ ok: true });
-});
-
-pipelineRouter.post("/cards/:id/merge", async (req, res) => {
-  const result = await pipelineManager.mergeCardPrs(req.params.id as string);
-  res.json(result);
 });
 
 pipelineRouter.get("/cards/:id/runs", async (req, res) => {
