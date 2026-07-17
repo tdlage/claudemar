@@ -3,6 +3,7 @@ import { createReadStream, existsSync, readFileSync, readdirSync, statSync, writ
 import { resolve, sep, relative, extname, basename } from "node:path";
 import type { Request, Response } from "express";
 import { Router } from "express";
+import archiver from "archiver";
 import { config } from "../../config.js";
 import { getAgentPaths, isValidAgentName } from "../../agents/manager.js";
 import { safeProjectPath } from "../../session.js";
@@ -154,7 +155,18 @@ filesRouter.get("/download", (req, res) => {
 
   const stat = statSync(resolved);
   if (stat.isDirectory()) {
-    res.status(400).json({ error: "Cannot download a directory" });
+    const folderName = basename(resolved) || "download";
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(folderName)}.zip"`);
+    res.setHeader("Content-Type", "application/zip");
+    const archive = archiver("zip", { zlib: { level: 6 } });
+    archive.on("error", (err) => {
+      if (!res.headersSent) res.status(500).json({ error: "Failed to zip directory" });
+      res.destroy(err);
+    });
+    res.on("close", () => archive.destroy());
+    archive.pipe(res);
+    archive.directory(resolved, folderName);
+    void archive.finalize();
     return;
   }
 
