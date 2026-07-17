@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ChevronRight, Eye, EyeOff, File, Folder, Save, SaveAll } from "lucide-react";
+import { ChevronRight, Download, Eye, EyeOff, File, Folder, Save, SaveAll } from "lucide-react";
 import { api } from "../../lib/api";
 import { getCached, setCached } from "../../lib/stateCache";
 import { useToast } from "../shared/Toast";
@@ -132,7 +132,7 @@ export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps)
     setExpandedDirs(next);
   };
 
-  const downloadFile = async (path: string) => {
+  const triggerDownload = async (path: string, filename: string) => {
     try {
       const token = localStorage.getItem("dashboard_token") || "";
       const res = await fetch(`/api/files/download?base=${base}&path=${encodeURIComponent(path)}`, {
@@ -143,15 +143,18 @@ export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps)
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = path.split("/").pop() || "file";
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      addToast("error", "Failed to download file");
+      addToast("error", "Falha no download");
     }
   };
+
+  const downloadFile = (path: string) => triggerDownload(path, path.split("/").pop() || "file");
+  const downloadFolder = (path: string) => triggerDownload(path, `${path.split("/").pop() || "folder"}.zip`);
 
   const openFile = useCallback(async (path: string, line?: number) => {
     if (openFiles.has(path)) {
@@ -302,29 +305,42 @@ export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps)
       })
       .map((entry) => (
         <div key={entry.path}>
-          <button
-            onClick={() => entry.type === "directory" ? toggleDir(entry.path) : openFile(entry.path)}
-            className={`flex items-center gap-1.5 w-full px-2 py-1 text-sm hover:bg-surface-hover rounded text-left ${
-              activeTab === entry.path ? "bg-accent/10 text-accent" : "text-text-secondary"
+          <div
+            className={`group flex items-center rounded ${
+              activeTab === entry.path ? "bg-accent/10" : "hover:bg-surface-hover"
             }`}
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
           >
-            {entry.type === "directory" ? (
-              <>
-                <ChevronRight
-                  size={12}
-                  className={`transition-transform ${expandedDirs.has(entry.path) ? "rotate-90" : ""}`}
-                />
-                <Folder size={14} />
-              </>
-            ) : (
-              <>
-                <span className="w-3" />
-                <File size={14} />
-              </>
-            )}
-            <span className="truncate">{entry.name}</span>
-          </button>
+            <button
+              onClick={() => entry.type === "directory" ? toggleDir(entry.path) : openFile(entry.path)}
+              className={`flex items-center gap-1.5 flex-1 min-w-0 px-2 py-1 text-sm text-left ${
+                activeTab === entry.path ? "text-accent" : "text-text-secondary"
+              }`}
+              style={{ paddingLeft: `${depth * 16 + 8}px` }}
+            >
+              {entry.type === "directory" ? (
+                <>
+                  <ChevronRight
+                    size={12}
+                    className={`transition-transform ${expandedDirs.has(entry.path) ? "rotate-90" : ""}`}
+                  />
+                  <Folder size={14} />
+                </>
+              ) : (
+                <>
+                  <span className="w-3" />
+                  <File size={14} />
+                </>
+              )}
+              <span className="truncate">{entry.name}</span>
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); entry.type === "directory" ? downloadFolder(entry.path) : downloadFile(entry.path); }}
+              title={entry.type === "directory" ? "Baixar pasta (.zip)" : "Baixar arquivo"}
+              className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 mr-1 rounded text-text-muted hover:text-accent hover:bg-accent/10 transition-opacity shrink-0"
+            >
+              <Download size={12} />
+            </button>
+          </div>
           {entry.type === "directory" && expandedDirs.has(entry.path) && dirContents[entry.path] && (
             renderEntries(dirContents[entry.path], depth + 1)
           )}
