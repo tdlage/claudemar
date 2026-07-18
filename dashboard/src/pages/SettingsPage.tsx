@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound, Cpu, Server, RefreshCw } from "lucide-react";
 import { api } from "../lib/api";
 import { OPEN_API_KEYS_EVENT } from "../components/layout/ApiKeysSetup";
+import { ClaudeAccountSection } from "../components/layout/ClaudeAccountSection";
 import type { RuntimeSettings, EmailProfileMasked, LlmProfile, GatewayStatus } from "../lib/types";
 
 interface ProfileFormState {
@@ -215,6 +216,8 @@ export function SettingsPage() {
         <Settings size={20} className="text-text-muted" />
         <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
       </div>
+
+      <ClaudeAccountSection />
 
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-text-primary border-b border-border pb-2 flex items-center gap-2">

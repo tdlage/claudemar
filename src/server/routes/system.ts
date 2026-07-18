@@ -15,6 +15,8 @@ import { sessionNamesManager } from "../../session-names-manager.js";
 import { usersManager } from "../../users-manager.js";
 import { getModelDisplayName, DEFAULT_OPUS_DISPLAY } from "../../models-discovery.js";
 import { gatewayManager } from "../../providers/gateway.js";
+import { startClaudeLogin, completeClaudeLogin, getClaudeAuthStatus } from "../../claude/oauth-login.js";
+import { getLastAuthError, clearLastAuthError } from "../../claude/claude-auth-state.js";
 
 const INSTALL_DIR = config.installDir;
 
@@ -195,6 +197,30 @@ systemRouter.get("/token-usage", async (req, res) => {
     res.json(data);
   } catch (err) {
     res.json({ error: err instanceof Error ? err.message : "Failed to fetch usage" });
+  }
+});
+
+systemRouter.get("/claude-auth", (_req, res) => {
+  res.json({ ...getClaudeAuthStatus(), authError: getLastAuthError() });
+});
+
+systemRouter.post("/claude-login/start", (_req, res) => {
+  try {
+    res.json(startClaudeLogin());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Falha ao iniciar login" });
+  }
+});
+
+systemRouter.post("/claude-login/complete", async (req, res) => {
+  const code = typeof req.body?.code === "string" ? req.body.code : "";
+  try {
+    const result = await completeClaudeLogin(code);
+    clearLastAuthError();
+    tokenUsageCache = null;
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Falha ao concluir login" });
   }
 });
 

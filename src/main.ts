@@ -22,6 +22,7 @@ import { runPipelineMigrations } from "./pipeline-migration.js";
 import { runDataMigrations } from "./data-migration.js";
 import { initTrackerExecutionBridge } from "./tracker-execution-bridge.js";
 import { initPipelineRunner } from "./pipeline-runner.js";
+import { initClaudeAuthWatch } from "./claude/claude-auth-state.js";
 import { initTeams } from "./agents/teams-manager.js";
 import { ensureMemoryReady } from "./memory/session-memory.js";
 import { gatewayManager } from "./providers/gateway.js";
@@ -70,6 +71,7 @@ await commandQueue.initialize();
 await runProcessManager.initialize();
 await executionManager.loadRecent();
 await initTrackerExecutionBridge();
+initClaudeAuthWatch();
 await initPipelineRunner().catch((err) => {
   console.error("[pipeline] Runner init failed:", err instanceof Error ? err.message : String(err));
 });
