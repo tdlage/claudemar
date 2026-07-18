@@ -391,8 +391,8 @@ projectsRouter.post("/:name/input", (req, res) => {
     res.status(400).json({ error: "Empty file" });
     return;
   }
-  if (data.length > 5 * 1024 * 1024) {
-    res.status(413).json({ error: "File too large (max 5MB)" });
+  if (data.length > 10 * 1024 * 1024) {
+    res.status(413).json({ error: "File too large (max 10MB)" });
     return;
   }
 

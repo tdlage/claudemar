@@ -19,7 +19,7 @@ interface InputBrowserProps {
   onRefresh: () => void;
 }
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 export function InputBrowser({ apiBasePath, base, files, onRefresh }: InputBrowserProps) {
   const { addToast } = useToast();
@@ -32,7 +32,7 @@ export function InputBrowser({ apiBasePath, base, files, onRefresh }: InputBrows
     if (!file) return;
 
     if (file.size > MAX_FILE_SIZE) {
-      addToast("error", "File too large (max 5MB)");
+      addToast("error", "File too large (max 10MB)");
       return;
     }
 
