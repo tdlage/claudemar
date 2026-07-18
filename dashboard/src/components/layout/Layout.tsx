@@ -3,6 +3,7 @@ import { Sidebar, SidebarProvider, useSidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { CommandPalette } from "../CommandPalette";
 import { ApiKeysSetup } from "./ApiKeysSetup";
+import { ClaudeAuthBanner } from "./ClaudeAuthBanner";
 
 function LayoutInner() {
   const { collapsed, isMobile } = useSidebar();
@@ -15,6 +16,7 @@ function LayoutInner() {
           isMobile ? "ml-0" : collapsed ? "ml-14" : "ml-56"
         }`}
       >
+        <ClaudeAuthBanner />
         <Header />
         <main className="flex-1 min-h-0 p-3 md:p-6 overflow-auto">
           <Outlet />
