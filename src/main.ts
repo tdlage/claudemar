@@ -125,5 +125,16 @@ function shutdown() {
   setTimeout(() => process.exit(0), 5000);
 }
 
+// Guards globais: uma única execução com erro (ex.: rejeição assíncrona no SDK ao retomar uma
+// sessão) NUNCA deve derrubar o processo inteiro e matar todas as execuções em andamento. Loga o
+// erro (com stack) e mantém o serviço vivo, em vez de deixar o systemd reiniciar tudo.
+process.on("unhandledRejection", (reason) => {
+  console.error("[fatal] Unhandled promise rejection — serviço mantido vivo:", reason instanceof Error ? (reason.stack ?? reason.message) : reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[fatal] Uncaught exception — serviço mantido vivo:", err instanceof Error ? (err.stack ?? err.message) : err);
+});
+
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
