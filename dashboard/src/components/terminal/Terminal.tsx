@@ -109,7 +109,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const [tools, setTools] = useState<ToolEvent[]>([]);
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
-  const [mode, setMode] = useState<PermissionMode>("default");
+  const [mode, setMode] = useState<PermissionMode>(() => isAdmin() ? "bypassPermissions" : "default");
   const [effort, setEffort] = useCachedState<Effort>(`term:${cacheKey}:effort`, "high");
   const slashCacheKey = base ?? "default";
   const [slashCommands, setSlashCommands] = useState<string[]>(() => getSlashCache(slashCacheKey));
