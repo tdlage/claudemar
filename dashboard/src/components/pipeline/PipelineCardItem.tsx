@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Loader2, GitBranch, GitPullRequest, Zap, CheckCircle2, Play } from "lucide-react";
 import type { PipelineCard } from "../../lib/types";
+import { PROJECT_SELECTABLE_MODELS } from "../../lib/types";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { Badge } from "../shared/Badge";
@@ -51,6 +52,11 @@ export function PipelineCardItem({ card, projectName, onClick }: Props) {
           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-accent/10 text-accent" title="Modo automático">
             <Zap size={10} />
             Auto
+          </span>
+        )}
+        {card.model && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-border text-text-secondary" title="Modelo do card">
+            {PROJECT_SELECTABLE_MODELS.find((m) => m.model === card.model)?.displayName ?? card.model}
           </span>
         )}
         <div className="ml-auto shrink-0">

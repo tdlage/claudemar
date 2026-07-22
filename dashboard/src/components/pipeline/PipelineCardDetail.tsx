@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Loader2, CheckCircle2, XCircle, GitPullRequest, GitMerge, ExternalLink } from "lucide-react";
 import type { PipelineCard, PipelineStage, PipelineStageRun } from "../../lib/types";
+import { PROJECT_SELECTABLE_MODELS } from "../../lib/types";
 import { api } from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { Modal } from "../shared/Modal";
@@ -125,7 +126,12 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
   const [feedback, setFeedback] = useState("");
   const [editRepos, setEditRepos] = useState(false);
   const [repoSel, setRepoSel] = useState<string[]>([]);
+  const [modelSelectable, setModelSelectable] = useState(false);
   const canEditRepos = (card.stage === "requirement" || card.stage === "plan") && card.status !== "running";
+
+  useEffect(() => {
+    api.get<{ provider: string }>("/system/provider").then((d) => setModelSelectable(d.provider === "anthropic")).catch(() => {});
+  }, []);
 
   const status = CARD_STATUS_CONFIG[card.status];
   const showStart = card.status === "idle";
@@ -162,7 +168,21 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
         <div className="flex items-center gap-2 flex-wrap">
           <Badge variant={status.variant}>{status.label}</Badge>
           <span className="text-xs text-text-muted">Etapa: {STAGE_LABEL[card.stage]}</span>
-          <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+          {modelSelectable && (
+            <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-text-secondary">
+              Modelo
+              <select
+                value={card.model ?? ""}
+                disabled={busy || card.status === "running"}
+                onChange={(e) => act(() => api.patch(`/pipeline/cards/${card.id}/model`, { model: e.target.value || null }))}
+                className="bg-bg border border-border rounded px-1.5 py-1 focus:outline-none focus:border-accent"
+              >
+                <option value="">Modelo do projeto</option>
+                {PROJECT_SELECTABLE_MODELS.map((m) => <option key={m.model} value={m.model}>{m.displayName}</option>)}
+              </select>
+            </label>
+          )}
+          <label className={`${modelSelectable ? "" : "ml-auto "}inline-flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer`}>
             <input
               type="checkbox"
               checked={card.auto}

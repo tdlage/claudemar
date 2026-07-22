@@ -7,6 +7,7 @@ import { pipelineManager, type PipelineCard, type RunStatus, type StageArtifacts
 import { cardWorktreeRoot, PIPELINE_WORKTREES_ROOT } from "./pipeline-worktree.js";
 import { signUploadUrl } from "./upload-signer.js";
 import { config } from "./config.js";
+import { settingsManager } from "./settings-manager.js";
 import { query, execute } from "./database.js";
 import { createPipelineMcpServer } from "./pipeline-mcp.js";
 import { buildPlanReposInstruction } from "./pipeline-prompt.js";
@@ -170,6 +171,10 @@ class PipelineRunner {
 
     const mcp = createPipelineMcpServer({ runId: run.id, cardId, pipelineId: pipeline.id, stage });
 
+    // Modelo por card: só se aplica ao provider nativo "anthropic" (mesmo gating do modelo por
+    // projeto); em gateway o override é ignorado e o modelo é resolvido pelo perfil ativo.
+    const model = card.model && settingsManager.getActiveProfile().id === "anthropic" ? card.model : undefined;
+
     const execId = executionManager.startExecution({
       source: "pipeline",
       targetType: "project",
@@ -182,6 +187,7 @@ class PipelineRunner {
       resumeSessionId: card.sessionId ?? null,
       skills: cfg.skill ? [cfg.skill] : undefined,
       agentName: cfg.agentName ?? undefined,
+      model,
       extraMcpServers: { pipeline: mcp },
       timeoutMs: resolveTimeoutMs(cfg.timeoutMs, config.pipelineStageTimeoutMs),
     });

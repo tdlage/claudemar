@@ -8,6 +8,7 @@ import { config } from "./config.js";
 import { safeProjectPath } from "./session.js";
 import { discoverRepos, resolveRepoPath } from "./repositories.js";
 import { executeSpawn } from "./executor.js";
+import { isSelectableProjectModel } from "./models-discovery.js";
 import {
   cardRepoWorktreePath,
   cardWorktreeRoot,
@@ -107,6 +108,7 @@ export interface PipelineCard {
   position: number;
   lastFeedback: string | null;
   skippedStages: PipelineStage[];
+  model: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -211,6 +213,7 @@ interface CardRow extends RowDataPacket {
   position: number;
   last_feedback: string | null;
   skipped_stages: string | null;
+  model: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -320,6 +323,7 @@ function mapCard(r: CardRow, repos: PipelineCardRepo[], usage: CardUsage = EMPTY
     position: r.position,
     lastFeedback: r.last_feedback,
     skippedStages: sanitizeSkippedStages(parseJson<unknown>(r.skipped_stages, [])),
+    model: r.model ?? null,
     createdBy: r.created_by,
     createdAt: iso(r.created_at),
     updatedAt: iso(r.updated_at),
@@ -545,6 +549,7 @@ class PipelineManager extends EventEmitter {
     auto?: boolean;
     repos?: string[];
     baseBranch?: string;
+    model?: string | null;
     createdBy: string;
   }): Promise<PipelineCard> {
     const pipeline = await this.getPipeline(data.pipelineId);
@@ -576,10 +581,12 @@ class PipelineManager extends EventEmitter {
       conn.release();
     }
 
+    const model = data.model && isSelectableProjectModel(data.model) ? data.model : null;
+
     await execute(
-      `INSERT INTO pipeline_cards (id, pipeline_id, seq_number, title, stage, status, auto, origin_type, origin_ref, intake_input, position, created_by)
-       VALUES (?, ?, ?, ?, 'requirement', 'idle', ?, ?, ?, ?, ?, ?)`,
-      [id, data.pipelineId, seqNumber, data.title, data.auto ? 1 : 0, data.originType || "manual", data.originRef || null, data.intakeInput || "", position, data.createdBy],
+      `INSERT INTO pipeline_cards (id, pipeline_id, seq_number, title, stage, status, auto, origin_type, origin_ref, intake_input, position, model, created_by)
+       VALUES (?, ?, ?, ?, 'requirement', 'idle', ?, ?, ?, ?, ?, ?, ?)`,
+      [id, data.pipelineId, seqNumber, data.title, data.auto ? 1 : 0, data.originType || "manual", data.originRef || null, data.intakeInput || "", position, model, data.createdBy],
     );
 
     for (const repoName of repoNames) {
@@ -605,6 +612,12 @@ class PipelineManager extends EventEmitter {
     if (sets.length === 0) return this.getCard(id);
     params.push(id);
     await execute(`UPDATE pipeline_cards SET ${sets.join(", ")} WHERE id = ?`, params);
+    return this.emitCard(id);
+  }
+
+  async setCardModel(id: string, model: string | null): Promise<PipelineCard | null> {
+    const value = model && isSelectableProjectModel(model) ? model : null;
+    await execute("UPDATE pipeline_cards SET model = ? WHERE id = ?", [value, id]);
     return this.emitCard(id);
   }
 

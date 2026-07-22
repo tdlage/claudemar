@@ -247,6 +247,7 @@ const STAGE_RUN_USAGE_COLUMNS: { name: string; ddl: string }[] = [
 
 const PIPELINE_CARD_COLUMNS: { name: string; ddl: string }[] = [
   { name: "skipped_stages", ddl: "JSON DEFAULT NULL" },
+  { name: "model", ddl: "VARCHAR(64) DEFAULT NULL" },
 ];
 
 // MySQL não suporta ADD COLUMN IF NOT EXISTS de forma portável: checa information_schema antes.

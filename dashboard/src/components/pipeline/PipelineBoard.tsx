@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Settings, Workflow } from "lucide-react";
 import { api } from "../../lib/api";
+import { PROJECT_SELECTABLE_MODELS } from "../../lib/types";
 import { usePipeline, usePipelineCards } from "../../hooks/usePipeline";
 import { Button } from "../shared/Button";
 import { Modal } from "../shared/Modal";
@@ -19,8 +20,14 @@ export function NewCardModal({ pipelineId, repos, onClose, onCreated }: { pipeli
   const [input, setInput] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [auto, setAuto] = useState(false);
+  const [model, setModel] = useState("");
+  const [modelSelectable, setModelSelectable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ provider: string }>("/system/provider").then((d) => setModelSelectable(d.provider === "anthropic")).catch(() => {});
+  }, []);
 
   const toggleRepo = (r: string) => setSelected((prev) => prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]);
 
@@ -28,7 +35,7 @@ export function NewCardModal({ pipelineId, repos, onClose, onCreated }: { pipeli
     if (!title.trim()) return;
     setBusy(true); setError(null);
     try {
-      await api.post(`/pipeline/${pipelineId}/cards`, { title, intakeInput: input, repos: selected, auto });
+      await api.post(`/pipeline/${pipelineId}/cards`, { title, intakeInput: input, repos: selected, auto, model: model || undefined });
       onCreated();
       onClose();
     } catch (err) {
@@ -58,6 +65,15 @@ export function NewCardModal({ pipelineId, repos, onClose, onCreated }: { pipeli
           </div>
           <p className="text-[10px] text-text-muted mt-1">Deixe vazio para incluir todos os repositórios do projeto.</p>
         </div>
+        {modelSelectable && (
+          <div>
+            <label className="text-xs text-text-secondary">Modelo</label>
+            <select value={model} onChange={(e) => setModel(e.target.value)} className="w-full bg-bg border border-border rounded p-2 text-sm mt-1 focus:outline-none focus:border-accent">
+              <option value="">Modelo do projeto (padrão)</option>
+              {PROJECT_SELECTABLE_MODELS.map((m) => <option key={m.model} value={m.model}>{m.displayName}</option>)}
+            </select>
+          </div>
+        )}
         <label className="inline-flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
           <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
           Automático (passa por todas as etapas sem aprovação manual)

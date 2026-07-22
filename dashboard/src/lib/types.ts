@@ -633,6 +633,7 @@ export interface PipelineCard {
   position: number;
   lastFeedback: string | null;
   skippedStages: PipelineStage[];
+  model: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

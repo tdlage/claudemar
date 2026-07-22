@@ -97,7 +97,7 @@ pipelineRouter.get("/:pipelineId/cards", async (req, res) => {
 });
 
 pipelineRouter.post("/:pipelineId/cards", async (req, res) => {
-  const { title, intakeInput, auto, repos, baseBranch } = req.body;
+  const { title, intakeInput, auto, repos, baseBranch, model } = req.body;
   if (!title || typeof title !== "string") { res.status(400).json({ error: "title required" }); return; }
   try {
     const card = await pipelineManager.createCard({
@@ -107,6 +107,7 @@ pipelineRouter.post("/:pipelineId/cards", async (req, res) => {
       auto: auto === true,
       repos: Array.isArray(repos) ? repos.filter((r: unknown): r is string => typeof r === "string") : undefined,
       baseBranch: typeof baseBranch === "string" ? baseBranch : undefined,
+      model: typeof model === "string" ? model : null,
       originType: "manual",
       createdBy: authorId(req),
     });
@@ -154,6 +155,13 @@ pipelineRouter.put("/cards/:id/repos", async (req, res) => {
 
 pipelineRouter.patch("/cards/:id/auto", async (req, res) => {
   const card = await pipelineManager.setAuto(req.params.id as string, req.body.auto === true);
+  if (!card) { res.status(404).json({ error: "Card not found" }); return; }
+  res.json(card);
+});
+
+pipelineRouter.patch("/cards/:id/model", async (req, res) => {
+  const model = typeof req.body.model === "string" && req.body.model ? req.body.model : null;
+  const card = await pipelineManager.setCardModel(req.params.id as string, model);
   if (!card) { res.status(404).json({ error: "Card not found" }); return; }
   res.json(card);
 });
