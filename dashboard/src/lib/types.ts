@@ -231,6 +231,7 @@ export interface LlmProfile {
   haikuModel: string;
   timeoutMs: string;
   autoCompactWindow: string;
+  extraEnv: string;
 }
 
 export interface RuntimeSettings {

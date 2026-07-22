@@ -5,6 +5,7 @@ import {
   DEFAULT_ACTIVE_PROFILE_ID,
   defaultLlmProfiles,
   sanitizeProfile,
+  seedMissingDefaultProfiles,
   type LlmProfile,
 } from "./providers/llm.js";
 
@@ -24,6 +25,10 @@ function defaults(): RuntimeSettings {
   };
 }
 
+function defaultSeededIds(): string[] {
+  return defaultLlmProfiles().map((p) => p.id);
+}
+
 function sanitizeProfiles(raw: unknown): LlmProfile[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
@@ -39,6 +44,7 @@ function sanitizeProfiles(raw: unknown): LlmProfile[] {
 
 class SettingsManager {
   private data: RuntimeSettings = defaults();
+  private seededProfileIds: string[] = defaultSeededIds();
   private persister = new JsonPersister(resolve(config.dataPath, "settings.json"), "settings");
 
   constructor() {
@@ -53,7 +59,15 @@ class SettingsManager {
 
     if (Array.isArray(raw.llmProfiles)) {
       const profiles = sanitizeProfiles(raw.llmProfiles);
-      if (profiles.length > 0) this.data.llmProfiles = profiles;
+      if (profiles.length > 0) {
+        const persistedSeededIds = Array.isArray(raw.seededProfileIds)
+          ? raw.seededProfileIds.filter((id): id is string => typeof id === "string")
+          : [];
+        const seeded = seedMissingDefaultProfiles(profiles, persistedSeededIds);
+        this.data.llmProfiles = seeded.profiles;
+        this.seededProfileIds = seeded.seededIds;
+        if (seeded.changed) this.persister.scheduleWrite(() => this.serialize());
+      }
       const active = typeof raw.activeProfileId === "string" ? raw.activeProfileId : "";
       this.data.activeProfileId = this.resolveActiveId(active);
       return;
@@ -72,8 +86,13 @@ class SettingsManager {
     return this.data.llmProfiles[0]?.id ?? DEFAULT_ACTIVE_PROFILE_ID;
   }
 
+  private serialize(): RuntimeSettings & { seededProfileIds: string[] } {
+    return { ...this.data, seededProfileIds: this.seededProfileIds };
+  }
+
   reload(): void {
     this.data = defaults();
+    this.seededProfileIds = defaultSeededIds();
     this.applyFromDisk();
   }
 
@@ -107,11 +126,11 @@ class SettingsManager {
     if (patch.activeProfileId !== undefined) {
       this.data.activeProfileId = this.resolveActiveId(patch.activeProfileId);
     }
-    this.persister.scheduleWrite(() => this.data);
+    this.persister.scheduleWrite(() => this.serialize());
   }
 
   flush(): void {
-    this.persister.flushSync(this.data);
+    this.persister.flushSync(this.serialize());
   }
 }
 
