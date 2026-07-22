@@ -60,6 +60,18 @@ test("applyProfile com perfil anthropic nativo não altera o ambiente (criterio 
   assert.deepEqual(env, base);
 });
 
+test("applyProfile aplica extraEnv também em perfil nativo sem baseUrl", () => {
+  const profile = defaultLlmProfiles().find((p) => p.id === "anthropic");
+  assert.ok(profile);
+  const env = applyProfile(
+    { ANTHROPIC_API_KEY: "subscription-key" },
+    { ...profile, extraEnv: "CLAUDE_CODE_EFFORT_LEVEL=max" },
+  );
+  assert.equal(env.CLAUDE_CODE_EFFORT_LEVEL, "max");
+  assert.equal(env.ANTHROPIC_API_KEY, "subscription-key");
+  assert.equal(env.ANTHROPIC_BASE_URL, undefined);
+});
+
 test("parseExtraEnv ignora vazios, comentários e chaves inválidas", () => {
   const entries = parseExtraEnv(
     "\n# comentário\nFOO=bar\n  SPACED = a=b=c \n=semchave\nINVALIDA CHAVE=x\n1NUM=x\nVAZIA=\n",

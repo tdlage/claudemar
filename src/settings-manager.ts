@@ -25,6 +25,10 @@ function defaults(): RuntimeSettings {
   };
 }
 
+function defaultSeededIds(): string[] {
+  return defaultLlmProfiles().map((p) => p.id);
+}
+
 function sanitizeProfiles(raw: unknown): LlmProfile[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
@@ -40,7 +44,7 @@ function sanitizeProfiles(raw: unknown): LlmProfile[] {
 
 class SettingsManager {
   private data: RuntimeSettings = defaults();
-  private seededProfileIds: string[] = defaultLlmProfiles().map((p) => p.id);
+  private seededProfileIds: string[] = defaultSeededIds();
   private persister = new JsonPersister(resolve(config.dataPath, "settings.json"), "settings");
 
   constructor() {
@@ -88,7 +92,7 @@ class SettingsManager {
 
   reload(): void {
     this.data = defaults();
-    this.seededProfileIds = defaultLlmProfiles().map((p) => p.id);
+    this.seededProfileIds = defaultSeededIds();
     this.applyFromDisk();
   }
 

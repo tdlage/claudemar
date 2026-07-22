@@ -162,28 +162,30 @@ export function seedMissingDefaultProfiles(profiles: LlmProfile[], seededIds: st
 
 // Aplica o perfil sobre uma cópia do ambiente do processo. Sem baseUrl mantém o
 // comportamento nativo (subscription do Claude). Com baseUrl, aponta o Agent SDK para o
-// gateway e fixa os modelos por alias (opus/sonnet/haiku → provider/model).
+// gateway e fixa os modelos por alias (opus/sonnet/haiku → provider/model). O extraEnv
+// vale para qualquer perfil e é aplicado por último, podendo sobrescrever as demais vars.
 export function applyProfile(baseEnv: NodeJS.ProcessEnv, profile: LlmProfile): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...baseEnv };
   const baseUrl = profile.baseUrl.trim();
-  if (!baseUrl) return env;
 
-  env.ANTHROPIC_BASE_URL = baseUrl;
-  const token = profile.tokenEnv ? (process.env[profile.tokenEnv] ?? "").trim() : "";
-  env.ANTHROPIC_AUTH_TOKEN = token || GATEWAY_PLACEHOLDER_TOKEN;
-  delete env.ANTHROPIC_API_KEY;
+  if (baseUrl) {
+    env.ANTHROPIC_BASE_URL = baseUrl;
+    const token = profile.tokenEnv ? (process.env[profile.tokenEnv] ?? "").trim() : "";
+    env.ANTHROPIC_AUTH_TOKEN = token || GATEWAY_PLACEHOLDER_TOKEN;
+    delete env.ANTHROPIC_API_KEY;
 
-  if (profile.timeoutMs.trim()) env.API_TIMEOUT_MS = profile.timeoutMs.trim();
+    if (profile.timeoutMs.trim()) env.API_TIMEOUT_MS = profile.timeoutMs.trim();
 
-  const opus = profile.opusModel.trim();
-  const sonnet = profile.sonnetModel.trim();
-  const haiku = profile.haikuModel.trim();
-  if (opus) env.ANTHROPIC_DEFAULT_OPUS_MODEL = opus;
-  if (sonnet) env.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet;
-  if (haiku) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku;
+    const opus = profile.opusModel.trim();
+    const sonnet = profile.sonnetModel.trim();
+    const haiku = profile.haikuModel.trim();
+    if (opus) env.ANTHROPIC_DEFAULT_OPUS_MODEL = opus;
+    if (sonnet) env.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet;
+    if (haiku) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku;
 
-  const window = profile.autoCompactWindow.trim();
-  if (window) env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = window;
+    const window = profile.autoCompactWindow.trim();
+    if (window) env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = window;
+  }
 
   for (const [key, value] of parseExtraEnv(profile.extraEnv)) env[key] = value;
 
