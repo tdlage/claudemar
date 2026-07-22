@@ -104,6 +104,7 @@ export function SettingsPage() {
       haikuModel: "",
       timeoutMs: "3000000",
       autoCompactWindow: "",
+      extraEnv: "",
     };
     setSettings((s) => ({ ...s, llmProfiles: [...s.llmProfiles, profile] }));
     setEditingProfileId(profile.id);
@@ -338,6 +339,10 @@ export function SettingsPage() {
                         <label className="block text-xs font-medium text-text-muted mb-1">Auto-compact window</label>
                         <input type="text" value={p.autoCompactWindow} onChange={(e) => patchProfile(p.id, { autoCompactWindow: e.target.value })} placeholder="vazio = janela do modelo" className={inputMonoClass} />
                       </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-text-muted mb-1">Env extra (KEY=VALUE por linha)</label>
+                      <textarea value={p.extraEnv} onChange={(e) => patchProfile(p.id, { extraEnv: e.target.value })} placeholder={"CLAUDE_CODE_SUBAGENT_MODEL=kimi-k3[1m]\nENABLE_TOOL_SEARCH=false"} rows={3} className={`${inputMonoClass} resize-y`} />
                     </div>
                     <p className="text-xs text-text-muted font-mono">id: {p.id}</p>
                   </div>

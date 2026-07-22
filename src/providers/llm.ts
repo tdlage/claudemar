@@ -15,10 +15,14 @@ export interface LlmProfile {
   haikuModel: string;
   timeoutMs: string;
   autoCompactWindow: string;
+  extraEnv: string;
 }
 
-const GATEWAY_TOKEN_ENV = "BIFROST_VIRTUAL_KEY";
+export const GATEWAY_TOKEN_ENV = "BIFROST_VIRTUAL_KEY";
 const GATEWAY_TIMEOUT_MS = "3000000";
+
+const KIMI_BASE_URL = "https://api.moonshot.ai/anthropic";
+const KIMI_MODEL = "kimi-k3[1m]";
 
 // Token enviado ao gateway quando nenhuma virtual key está configurada. O Bifrost sem
 // governança ignora a credencial do cliente e usa as chaves dos upstreams; o placeholder
@@ -38,6 +42,19 @@ export function defaultLlmProfiles(): LlmProfile[] {
       haikuModel: "",
       timeoutMs: GATEWAY_TIMEOUT_MS,
       autoCompactWindow: "",
+      extraEnv: "",
+    },
+    {
+      id: "kimi",
+      label: "Kimi (K3)",
+      baseUrl: KIMI_BASE_URL,
+      tokenEnv: "KIMI_API_KEY",
+      opusModel: KIMI_MODEL,
+      sonnetModel: KIMI_MODEL,
+      haikuModel: KIMI_MODEL,
+      timeoutMs: GATEWAY_TIMEOUT_MS,
+      autoCompactWindow: "1048576",
+      extraEnv: `CLAUDE_CODE_SUBAGENT_MODEL=${KIMI_MODEL}\nENABLE_TOOL_SEARCH=false`,
     },
     {
       id: "zai",
@@ -49,6 +66,7 @@ export function defaultLlmProfiles(): LlmProfile[] {
       haikuModel: "zai/glm-4.7-flash",
       timeoutMs: GATEWAY_TIMEOUT_MS,
       autoCompactWindow: "1000000",
+      extraEnv: "",
     },
     {
       id: "openai",
@@ -60,6 +78,7 @@ export function defaultLlmProfiles(): LlmProfile[] {
       haikuModel: "openai/gpt-5.4-nano",
       timeoutMs: GATEWAY_TIMEOUT_MS,
       autoCompactWindow: "",
+      extraEnv: "",
     },
     {
       id: "sakana",
@@ -71,6 +90,7 @@ export function defaultLlmProfiles(): LlmProfile[] {
       haikuModel: "sakana/fugu",
       timeoutMs: GATEWAY_TIMEOUT_MS,
       autoCompactWindow: "",
+      extraEnv: "",
     },
   ];
 }
@@ -94,7 +114,50 @@ export function sanitizeProfile(raw: unknown, fallbackId: string): LlmProfile | 
     haikuModel: str(r.haikuModel),
     timeoutMs: str(r.timeoutMs),
     autoCompactWindow: str(r.autoCompactWindow),
+    extraEnv: str(r.extraEnv),
   };
+}
+
+const EXTRA_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function parseExtraEnv(extraEnv: string): Array<[string, string]> {
+  const entries: Array<[string, string]> = [];
+  for (const rawLine of extraEnv.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    if (!EXTRA_ENV_KEY_PATTERN.test(key)) continue;
+    entries.push([key, line.slice(eq + 1).trim()]);
+  }
+  return entries;
+}
+
+export interface SeedResult {
+  profiles: LlmProfile[];
+  seededIds: string[];
+  changed: boolean;
+}
+
+// Acrescenta uma única vez os perfis padrão que ainda não foram semeados nesta
+// instalação: seededIds registra os defaults já apresentados ao usuário, então um
+// perfil padrão apagado por ele não é ressuscitado em cargas futuras.
+export function seedMissingDefaultProfiles(profiles: LlmProfile[], seededIds: string[]): SeedResult {
+  const merged = profiles.map((p) => ({ ...p }));
+  const presentIds = new Set(merged.map((p) => p.id));
+  const seeded = new Set(seededIds);
+  let changed = false;
+  for (const profile of defaultLlmProfiles()) {
+    if (seeded.has(profile.id)) continue;
+    if (!presentIds.has(profile.id)) {
+      merged.push(profile);
+      presentIds.add(profile.id);
+    }
+    seeded.add(profile.id);
+    changed = true;
+  }
+  return { profiles: merged, seededIds: [...seeded], changed };
 }
 
 // Aplica o perfil sobre uma cópia do ambiente do processo. Sem baseUrl mantém o
@@ -121,6 +184,8 @@ export function applyProfile(baseEnv: NodeJS.ProcessEnv, profile: LlmProfile): N
 
   const window = profile.autoCompactWindow.trim();
   if (window) env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = window;
+
+  for (const [key, value] of parseExtraEnv(profile.extraEnv)) env[key] = value;
 
   return env;
 }

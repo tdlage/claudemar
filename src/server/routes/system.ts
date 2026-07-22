@@ -15,6 +15,7 @@ import { sessionNamesManager } from "../../session-names-manager.js";
 import { usersManager } from "../../users-manager.js";
 import { getModelDisplayName, DEFAULT_OPUS_DISPLAY } from "../../models-discovery.js";
 import { gatewayManager } from "../../providers/gateway.js";
+import { GATEWAY_TOKEN_ENV } from "../../providers/llm.js";
 import { startClaudeLogin, completeClaudeLogin, getClaudeAuthStatus } from "../../claude/oauth-login.js";
 import { getLastAuthError, clearLastAuthError } from "../../claude/claude-auth-state.js";
 
@@ -240,9 +241,12 @@ const GATEWAY_PROVIDER_KEY: Record<string, string> = {
 
 systemRouter.get("/provider", (_req, res) => {
   const profile = settingsManager.getActiveProfile();
+  const direct = Boolean(profile.baseUrl) && Boolean(profile.tokenEnv) && profile.tokenEnv !== GATEWAY_TOKEN_ENV;
   const prefix = profile.opusModel.split("/")[0];
   const keyName = profile.baseUrl ? GATEWAY_PROVIDER_KEY[prefix] : "";
-  const configured = !profile.baseUrl || !keyName || Boolean(process.env[keyName]);
+  const configured = direct
+    ? Boolean(process.env[profile.tokenEnv])
+    : !profile.baseUrl || !keyName || Boolean(process.env[keyName]);
   res.json({
     provider: profile.id,
     label: profile.label,
