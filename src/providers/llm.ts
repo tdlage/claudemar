@@ -21,8 +21,13 @@ export interface LlmProfile {
 export const GATEWAY_TOKEN_ENV = "BIFROST_VIRTUAL_KEY";
 const GATEWAY_TIMEOUT_MS = "3000000";
 
-const KIMI_BASE_URL = "https://api.moonshot.ai/anthropic";
-const KIMI_MODEL = "kimi-k3[1m]";
+const KIMI_BASE_URL = "https://api.kimi.com/coding";
+const KIMI_MODEL = "k3[1m]";
+
+// Endpoint usado pela primeira versão do perfil kimi. Instalações que já semearam esse
+// perfil têm o valor antigo persistido em settings.json; a chave do Kimi Code (gerada em
+// kimi.com/code) não autentica na Moonshot, então migramos o default intocado.
+const KIMI_LEGACY_BASE_URL = "https://api.moonshot.ai/anthropic";
 
 // Token enviado ao gateway quando nenhuma virtual key está configurada. O Bifrost sem
 // governança ignora a credencial do cliente e usa as chaves dos upstreams; o placeholder
@@ -132,6 +137,23 @@ export function parseExtraEnv(extraEnv: string): Array<[string, string]> {
     entries.push([key, line.slice(eq + 1).trim()]);
   }
   return entries;
+}
+
+// Corrige perfis default cujos valores mudaram após já terem sido semeados. Só reescreve o
+// perfil kimi quando ele ainda está no endpoint legado da Moonshot (default intocado),
+// preservando qualquer customização feita pelo usuário.
+export function migrateLegacyProfiles(profiles: LlmProfile[]): { profiles: LlmProfile[]; changed: boolean } {
+  const kimiDefault = defaultLlmProfiles().find((p) => p.id === "kimi");
+  if (!kimiDefault) return { profiles, changed: false };
+  let changed = false;
+  const migrated = profiles.map((p) => {
+    if (p.id === "kimi" && p.baseUrl.trim() === KIMI_LEGACY_BASE_URL) {
+      changed = true;
+      return { ...kimiDefault, label: p.label || kimiDefault.label };
+    }
+    return p;
+  });
+  return { profiles: migrated, changed };
 }
 
 export interface SeedResult {
