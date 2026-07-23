@@ -342,7 +342,7 @@ export function SettingsPage() {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-text-muted mb-1">Env extra (KEY=VALUE por linha)</label>
-                      <textarea value={p.extraEnv} onChange={(e) => patchProfile(p.id, { extraEnv: e.target.value })} placeholder={"CLAUDE_CODE_SUBAGENT_MODEL=kimi-k3[1m]\nENABLE_TOOL_SEARCH=false"} rows={3} className={`${inputMonoClass} resize-y`} />
+                      <textarea value={p.extraEnv} onChange={(e) => patchProfile(p.id, { extraEnv: e.target.value })} placeholder={"CLAUDE_CODE_SUBAGENT_MODEL=k3[1m]\nENABLE_TOOL_SEARCH=false"} rows={3} className={`${inputMonoClass} resize-y`} />
                     </div>
                     <p className="text-xs text-text-muted font-mono">id: {p.id}</p>
                   </div>

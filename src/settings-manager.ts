@@ -4,6 +4,7 @@ import { JsonPersister } from "./json-persister.js";
 import {
   DEFAULT_ACTIVE_PROFILE_ID,
   defaultLlmProfiles,
+  migrateLegacyProfiles,
   sanitizeProfile,
   seedMissingDefaultProfiles,
   type LlmProfile,
@@ -58,15 +59,16 @@ class SettingsManager {
     if (typeof raw.adminEmail === "string") this.data.adminEmail = raw.adminEmail;
 
     if (Array.isArray(raw.llmProfiles)) {
-      const profiles = sanitizeProfiles(raw.llmProfiles);
-      if (profiles.length > 0) {
+      const sanitized = sanitizeProfiles(raw.llmProfiles);
+      if (sanitized.length > 0) {
+        const migration = migrateLegacyProfiles(sanitized);
         const persistedSeededIds = Array.isArray(raw.seededProfileIds)
           ? raw.seededProfileIds.filter((id): id is string => typeof id === "string")
           : [];
-        const seeded = seedMissingDefaultProfiles(profiles, persistedSeededIds);
+        const seeded = seedMissingDefaultProfiles(migration.profiles, persistedSeededIds);
         this.data.llmProfiles = seeded.profiles;
         this.seededProfileIds = seeded.seededIds;
-        if (seeded.changed) this.persister.scheduleWrite(() => this.serialize());
+        if (seeded.changed || migration.changed) this.persister.scheduleWrite(() => this.serialize());
       }
       const active = typeof raw.activeProfileId === "string" ? raw.activeProfileId : "";
       this.data.activeProfileId = this.resolveActiveId(active);
