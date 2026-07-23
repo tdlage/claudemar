@@ -126,6 +126,7 @@ class ExecutionManager extends EventEmitter {
   private sessions = new Map<string, ClaudeSession>();
   private sessionGen = new Map<string, number>();
   private llmConfigGen = 0;
+  private draining = false;
 
   private lastSessionMap = new Map<string, string>();
   private lastSessionModelMap = new Map<string, string>();
@@ -313,7 +314,14 @@ class ExecutionManager extends EventEmitter {
     this.llmConfigGen++;
   }
 
+  beginDrain(): void {
+    this.draining = true;
+  }
+
   startExecution(opts: StartExecutionOpts): string {
+    if (this.draining) {
+      throw new Error("Serviço encerrando para reiniciar — nenhuma execução nova é aceita. Tente novamente em instantes.");
+    }
     const id = randomUUID();
     const model = this.resolveModel(opts);
     const info: ExecutionInfo = {

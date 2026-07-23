@@ -82,7 +82,10 @@ await ensureMemoryReady().catch((err) => {
 await gatewayManager.start().catch((err) => {
   console.error("[gateway] Initialization failed:", err instanceof Error ? err.message : String(err));
 });
+let shuttingDown = false;
+
 async function drainQueue(_id: string, info: ExecutionInfo) {
+  if (shuttingDown) return;
   try {
     const key = commandQueue.targetKey(info.targetType, info.targetName);
     if (executionManager.isTargetActive(info.targetType, info.targetName)) return;
@@ -111,14 +114,25 @@ bot.start().catch((err) => {
   console.error("Dashboard is still running. Fix TELEGRAM_BOT_TOKEN in .env and restart.");
 });
 
-function shutdown() {
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log("Shutting down...");
+  executionManager.beginDrain();
+  bot.stop();
+  tokenManager.stop();
+
+  // Nunca encerrar com prompts em execução: o systemd (KillMode=mixed) só sinaliza o
+  // processo principal, então as sessões SDK continuam vivas enquanto aguardamos aqui.
+  while (executionManager.getActiveExecutions().length > 0) {
+    console.log(`[shutdown] ${executionManager.getActiveExecutions().length} execução(ões) ativa(s) — aguardando concluir...`);
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+
   runProcessManager.flush();
   settingsManager.flush();
   projectSettingsManager.flush();
-  tokenManager.stop();
   closePool().catch(() => {});
-  bot.stop();
   httpServer.close(() => {
     process.exit(0);
   });

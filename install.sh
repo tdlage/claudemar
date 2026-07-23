@@ -789,6 +789,9 @@ WorkingDirectory=${INSTALL_DIR}
 ExecStart=${node_bin} ${INSTALL_DIR}/dist/main.js
 Restart=on-failure
 RestartSec=10
+OOMPolicy=continue
+KillMode=mixed
+TimeoutStopSec=3600
 EnvironmentFile=${INSTALL_DIR}/.env
 Environment=PATH=${path_entries}
 Environment=HOME=${HOME}
