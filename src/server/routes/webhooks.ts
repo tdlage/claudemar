@@ -96,10 +96,9 @@ webhooksRouter.post("/github", (req: Request, res: Response) => {
     const comment = payload.comment as Record<string, unknown> | undefined;
     const repository = payload.repository as Record<string, unknown> | undefined;
     const commenter = comment?.user as Record<string, unknown> | undefined;
-    // Comentário simples só retroalimenta se contiver a palavra-chave configurada (vazia = desligado),
-    // para evitar que um "LGTM"/"obrigado" reinicie todo o pipeline. Reviews "changes_requested" sempre retroalimentam.
-    const reworkKw = config.pipelineReworkKeyword;
-    const triggered = reworkKw.length > 0 && typeof comment?.body === "string" && comment.body.includes(reworkKw);
+    // Comentário simples só retroalimenta se mencionar @claudemar, para evitar que
+    // um "LGTM"/"obrigado" reinicie todo o pipeline. Reviews "changes_requested" sempre retroalimentam.
+    const triggered = typeof comment?.body === "string" && comment.body.toLowerCase().includes("@claudemar");
     if (triggered && issue?.pull_request && comment && repository && typeof issue.number === "number" && commenter?.type !== "Bot") {
       const prRef = issue.pull_request as Record<string, string>;
       pipelineEventManager.emitPrFeedback({
