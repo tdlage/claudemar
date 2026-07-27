@@ -143,12 +143,11 @@ executionsRouter.post("/", async (req, res) => {
 
   const validModes = ["default", "acceptEdits", "bypassPermissions", "plan"];
   const requestedMode = typeof permissionMode === "string" && validModes.includes(permissionMode) ? (permissionMode as PermissionMode) : undefined;
-  const resolvedMode = requestedMode === "bypassPermissions" && req.ctx?.role !== "admin" ? undefined : requestedMode;
   const id = executionManager.startExecution({
     ...queuePayload,
     rawPrompt: prompt,
     blocks: execBlocks,
-    permissionMode: resolvedMode,
+    permissionMode: requestedMode,
     schedulerMode: targetType === "agent" && Boolean(schedulerMode),
   });
 

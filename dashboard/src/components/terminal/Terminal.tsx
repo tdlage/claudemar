@@ -7,7 +7,6 @@ import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
 import { extractMdPaths, renderOutputHtml } from "../../lib/ansi";
 import { useCurrentModel } from "../../hooks/useCurrentModel";
 import { useCachedState } from "../../hooks/useCachedState";
-import { isAdmin } from "../../hooks/useAuth";
 import { formatToolDetail } from "../../lib/toolDetail";
 import { fileToImageBlock, imageBlocksFromClipboard, type ImageBlock } from "../../lib/imageBlock";
 import { getSlashCache, setSlashCache } from "../../lib/slashCache";
@@ -109,7 +108,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const [tools, setTools] = useState<ToolEvent[]>([]);
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
-  const [mode, setMode] = useState<PermissionMode>(() => isAdmin() ? "bypassPermissions" : "default");
+  const [mode, setMode] = useState<PermissionMode>("bypassPermissions");
   const [effort, setEffort] = useCachedState<Effort>(`term:${cacheKey}:effort`, "high");
   const slashCacheKey = base ?? "default";
   const [slashCommands, setSlashCommands] = useState<string[]>(() => getSlashCache(slashCacheKey));
@@ -457,23 +456,19 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
             {currentModel.displayName}
           </span>
         )}
-        {isAdmin() && (
-          <>
-            <div className="w-px h-4 bg-border" />
-            <button
-              type="button"
-              onClick={() => handleSetMode(mode === "bypassPermissions" ? "default" : "bypassPermissions")}
-              title="Permissões automáticas: executa tudo sem pedir aprovação. Pode ligar/desligar durante o processamento (equivalente ao Shift+Tab do CLI)."
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
-                mode === "bypassPermissions"
-                  ? "bg-warning/20 text-warning border-warning/40"
-                  : "text-text-muted border-border hover:text-text-secondary"
-              }`}
-            >
-              <Zap size={12} /> Auto {mode === "bypassPermissions" ? "ON" : "OFF"}
-            </button>
-          </>
-        )}
+        <div className="w-px h-4 bg-border" />
+        <button
+          type="button"
+          onClick={() => handleSetMode(mode === "bypassPermissions" ? "default" : "bypassPermissions")}
+          title="Permissões automáticas: executa tudo sem pedir aprovação. Pode ligar/desligar durante o processamento (equivalente ao Shift+Tab do CLI)."
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
+            mode === "bypassPermissions"
+              ? "bg-warning/20 text-warning border-warning/40"
+              : "text-text-muted border-border hover:text-text-secondary"
+          }`}
+        >
+          <Zap size={12} /> Auto {mode === "bypassPermissions" ? "ON" : "OFF"}
+        </button>
         <div className="flex items-center gap-1">
           {MODE_ORDER.map((m) => (
             <button
