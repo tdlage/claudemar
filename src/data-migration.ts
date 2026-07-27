@@ -484,8 +484,33 @@ async function migrateMetrics(): Promise<void> {
   }
 }
 
+const USER_FK_TABLES = ["users", "user_projects", "user_agents", "user_tracker_projects", "user_project_tabs"];
+
+async function ensureUnicodeCollation(pool: ReturnType<typeof getPool>): Promise<void> {
+  const [rows] = await pool.query(
+    "SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?) AND TABLE_COLLATION <> 'utf8mb4_unicode_ci'",
+    [USER_FK_TABLES],
+  );
+  const tables = (rows as Array<{ name: string }>).map((r) => r.name);
+  if (tables.length === 0) return;
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.query("SET FOREIGN_KEY_CHECKS = 0");
+    for (const table of tables) {
+      await conn.query(`ALTER TABLE \`${table}\` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+    }
+    console.log(`[data-migration] Converted to utf8mb4_unicode_ci: ${tables.join(", ")}`);
+  } finally {
+    await conn.query("SET FOREIGN_KEY_CHECKS = 1").catch(() => {});
+    conn.release();
+  }
+}
+
 export async function runDataMigrations(): Promise<void> {
   const pool = getPool();
+
+  await ensureUnicodeCollation(pool);
 
   for (const sql of TABLE_DEFINITIONS) {
     await pool.execute(sql);
