@@ -129,6 +129,7 @@ class ExecutionManager extends EventEmitter {
   private recent: ExecutionInfo[] = [];
   private pendingQuestions = new Map<string, { info: ExecutionInfo; opts: StartExecutionOpts }>();
   private sessions = new Map<string, ClaudeSession>();
+  private retiredSessions = new Set<ClaudeSession>();
   private sessionGen = new Map<string, number>();
   private llmConfigGen = 0;
 
@@ -183,7 +184,7 @@ class ExecutionManager extends EventEmitter {
     this.lastSessionModelMap.delete(key);
     const session = this.sessions.get(key);
     if (session) {
-      session.end();
+      this.retireSession(session);
       this.sessions.delete(key);
     }
   }
@@ -282,7 +283,7 @@ class ExecutionManager extends EventEmitter {
       if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged) {
         return { session: existing, isNew: false };
       }
-      existing.end();
+      this.retireSession(existing);
       this.sessions.delete(sessionKey);
     }
 
@@ -315,8 +316,26 @@ class ExecutionManager extends EventEmitter {
   private dropSession(sessionKey: string): void {
     const session = this.sessions.get(sessionKey);
     if (session) {
-      session.end();
+      this.retireSession(session);
       this.sessions.delete(sessionKey);
+    }
+  }
+
+  private sessionHasActive(session: ClaudeSession): boolean {
+    for (const entry of this.active.values()) {
+      if (entry.session === session) return true;
+    }
+    return false;
+  }
+
+  // Sessões com execução ativa nunca são encerradas na hora — abortar o runner mataria
+  // a execução em andamento ("process aborted by user"). O encerramento fica adiado
+  // para o finalize da última execução que ainda usa a sessão.
+  private retireSession(session: ClaudeSession): void {
+    if (this.sessionHasActive(session)) {
+      this.retiredSessions.add(session);
+    } else {
+      session.end();
     }
   }
 
@@ -775,6 +794,10 @@ class ExecutionManager extends EventEmitter {
     if (entry.timer) clearTimeout(entry.timer);
     this.active.delete(entry.info.id);
     entry.detach?.();
+    if (this.retiredSessions.has(entry.session) && !this.sessionHasActive(entry.session)) {
+      this.retiredSessions.delete(entry.session);
+      entry.session.end();
+    }
     if (entry.info.output.length > MAX_MEMORY_OUTPUT) {
       entry.info.output = entry.info.output.slice(0, MAX_MEMORY_OUTPUT) + "\n...(truncated)";
     }
