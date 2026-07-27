@@ -2,6 +2,26 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { query, execute, getPool, toMySQLDatetime } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
+export const PROJECT_TAB_KEYS = ["terminal", "input", "output", "repositories", "files", "ci", "pipeline"] as const;
+export type ProjectTabKey = (typeof PROJECT_TAB_KEYS)[number];
+
+// Abas visíveis quando o projeto habilitado não tem configuração explícita (comportamento histórico).
+export const DEFAULT_PROJECT_TABS: ProjectTabKey[] = ["terminal", "input", "output"];
+
+const TAB_KEY_SET = new Set<string>(PROJECT_TAB_KEYS);
+
+export function sanitizeProjectTabs(input: unknown, projects: string[]): Record<string, ProjectTabKey[]> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const allowed = new Set(projects);
+  const out: Record<string, ProjectTabKey[]> = {};
+  for (const [project, tabs] of Object.entries(input as Record<string, unknown>)) {
+    if (!allowed.has(project) || !Array.isArray(tabs)) continue;
+    const clean = PROJECT_TAB_KEYS.filter((k) => (tabs as unknown[]).includes(k));
+    out[project] = clean;
+  }
+  return out;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -10,6 +30,7 @@ export interface User {
   projects: string[];
   agents: string[];
   trackerProjects: string[];
+  projectTabs: Record<string, ProjectTabKey[]>;
   createdAt: string;
 }
 
@@ -42,6 +63,9 @@ class UsersManager {
     const trackerRows = await query<(RowDataPacket & { user_id: string; tracker_project_id: string })[]>(
       "SELECT user_id, tracker_project_id FROM user_tracker_projects",
     );
+    const tabRows = await query<(RowDataPacket & { user_id: string; project_name: string; tab_key: string })[]>(
+      "SELECT user_id, project_name, tab_key FROM user_project_tabs",
+    );
 
     const projectMap = new Map<string, string[]>();
     for (const r of projectRows) {
@@ -61,6 +85,13 @@ class UsersManager {
       list.push(r.tracker_project_id);
       trackerMap.set(r.user_id, list);
     }
+    const tabsMap = new Map<string, Record<string, ProjectTabKey[]>>();
+    for (const r of tabRows) {
+      if (!TAB_KEY_SET.has(r.tab_key)) continue;
+      const byProject = tabsMap.get(r.user_id) ?? {};
+      (byProject[r.project_name] ??= []).push(r.tab_key as ProjectTabKey);
+      tabsMap.set(r.user_id, byProject);
+    }
 
     for (const row of rows) {
       const createdAt = row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at);
@@ -72,6 +103,7 @@ class UsersManager {
         projects: projectMap.get(row.id) ?? [],
         agents: agentMap.get(row.id) ?? [],
         trackerProjects: trackerMap.get(row.id) ?? [],
+        projectTabs: tabsMap.get(row.id) ?? {},
         createdAt,
       });
     }
@@ -98,6 +130,7 @@ class UsersManager {
       projects: [],
       agents: [],
       trackerProjects: [],
+      projectTabs: {},
       createdAt: new Date().toISOString(),
     };
 
@@ -110,7 +143,7 @@ class UsersManager {
     return user;
   }
 
-  async update(id: string, data: Partial<Pick<User, "name" | "email" | "projects" | "agents" | "trackerProjects">>): Promise<User | null> {
+  async update(id: string, data: Partial<Pick<User, "name" | "email" | "projects" | "agents" | "trackerProjects" | "projectTabs">>): Promise<User | null> {
     const user = this.users.get(id);
     if (!user) return null;
 
@@ -127,6 +160,18 @@ class UsersManager {
         await conn.execute("DELETE FROM user_projects WHERE user_id = ?", [id]);
         for (const p of data.projects) {
           await conn.execute("INSERT INTO user_projects (user_id, project_name) VALUES (?, ?)", [id, p]);
+        }
+      }
+
+      // Reescreve as abas sempre que projetos ou abas mudam: garante que projetos removidos
+      // não deixem configuração órfã e que só entrem abas de projetos habilitados.
+      if (data.projectTabs !== undefined || data.projects !== undefined) {
+        user.projectTabs = sanitizeProjectTabs(data.projectTabs ?? user.projectTabs, user.projects);
+        await conn.execute("DELETE FROM user_project_tabs WHERE user_id = ?", [id]);
+        for (const [project, tabs] of Object.entries(user.projectTabs)) {
+          for (const tab of tabs) {
+            await conn.execute("INSERT INTO user_project_tabs (user_id, project_name, tab_key) VALUES (?, ?, ?)", [id, project, tab]);
+          }
         }
       }
 

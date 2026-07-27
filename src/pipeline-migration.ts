@@ -8,8 +8,7 @@ export type PipelineStage =
   | "implementation"
   | "code_review"
   | "e2e"
-  | "pull_request"
-  | "monitor";
+  | "pull_request";
 
 export type IntakePluginType = "manual" | "github_issues" | "usage_pattern" | "agent";
 
@@ -20,13 +19,12 @@ export const PIPELINE_STAGES: { key: PipelineStage; label: string; color: string
   { key: "code_review", label: "Code Review", color: "#ec4899" },
   { key: "e2e", label: "E2E", color: "#a855f7" },
   { key: "pull_request", label: "Pull Request", color: "#22c55e" },
-  { key: "monitor", label: "Monitor", color: "#14b8a6" },
 ];
 
 export const STAGE_ORDER: PipelineStage[] = PIPELINE_STAGES.map((s) => s.key);
 
-// Etapas que o usuário pode pular por card. 'implementation' nunca é pulável; 'intake'/'monitor'
-// não são etapas executáveis de trabalho.
+// Etapas que o usuário pode pular por card. 'implementation' nunca é pulável; 'intake'
+// não é etapa executável de trabalho.
 export const SKIPPABLE_STAGES: PipelineStage[] = ["requirement", "plan", "code_review", "e2e", "pull_request"];
 
 const SKIPPABLE_SET = new Set<PipelineStage>(SKIPPABLE_STAGES);
@@ -47,7 +45,7 @@ export function sanitizeSkippedStages(input: unknown): PipelineStage[] {
 }
 
 // Validação estrita (ex.: payload de API): rejeita qualquer etapa não pulável
-// ('implementation'/'intake'/'monitor') ou valor inválido. Deduplica e ordena por STAGE_ORDER.
+// ('implementation'/'intake') ou valor inválido. Deduplica e ordena por STAGE_ORDER.
 export function validateSkippedStages(input: unknown): PipelineStage[] {
   if (!Array.isArray(input)) throw new Error("skippedStages deve ser um array");
   const set = new Set<PipelineStage>();
@@ -67,7 +65,7 @@ export function firstActiveStageIndex(fromIdx: number, skipped: ReadonlySet<Pipe
   return -1;
 }
 
-const STAGE_ENUM = "ENUM('intake','requirement','plan','implementation','code_review','e2e','pull_request','monitor')";
+const STAGE_ENUM = "ENUM('intake','requirement','plan','implementation','code_review','e2e','pull_request')";
 const INTAKE_TYPE_ENUM = "ENUM('manual','github_issues','usage_pattern','agent')";
 
 export interface DefaultStageConfig {
@@ -130,13 +128,6 @@ Ao finalizar, chame mcp__pipeline__report_e2e com { passed, screenshots: [nomes 
 Se JÁ existe um PR aberto para essa branch (verifique com 'gh pr view' / 'gh pr list --head <branch>'), o push já o atualiza — NÃO crie outro. Caso contrário, abra um Pull Request com o gh CLI.
 No corpo do PR (ao criar) inclua as evidências: resumo do requisito, plano, resultado dos testes automatizados, resultado do code-review e evidências do E2E.
 Chame mcp__pipeline__report_pull_request UMA VEZ POR REPOSITÓRIO com { repo, url, number } (do PR existente ou recém-criado).`,
-  },
-  {
-    stage: "monitor",
-    skill: null,
-    agentName: null,
-    promptTemplate: `Acompanhe o estado dos Pull Requests deste card. Esta etapa é majoritariamente passiva: comentários humanos e reviews "changes requested" retroalimentam o fluxo automaticamente via webhook.
-Se receber instruções de acompanhamento, resuma o status atual de cada PR.`,
   },
 ];
 
@@ -248,6 +239,7 @@ const STAGE_RUN_USAGE_COLUMNS: { name: string; ddl: string }[] = [
 const PIPELINE_CARD_COLUMNS: { name: string; ddl: string }[] = [
   { name: "skipped_stages", ddl: "JSON DEFAULT NULL" },
   { name: "model", ddl: "VARCHAR(64) DEFAULT NULL" },
+  { name: "revision_count", ddl: "INT NOT NULL DEFAULT 0" },
 ];
 
 // MySQL não suporta ADD COLUMN IF NOT EXISTS de forma portável: checa information_schema antes.
@@ -279,6 +271,24 @@ async function ensureStageTimeoutNullable(): Promise<void> {
   }
 }
 
+// A etapa 'monitor' (acompanhamento de PR via webhook) foi removida: o acompanhamento virou
+// manual (gate em pull_request + arrastar de volta p/ implementação). Move cards/runs para
+// pull_request, remove configs da etapa e só então estreita os ENUMs (MySQL não altera ENUM
+// com valores fora da nova lista em strict mode). Guardado pelo COLUMN_TYPE para rodar uma vez.
+async function ensureMonitorStageRemoved(): Promise<void> {
+  const pool = getPool();
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pipeline_cards' AND COLUMN_NAME = 'stage'",
+  );
+  if (!String(rows[0]?.COLUMN_TYPE ?? "").includes("'monitor'")) return;
+  await pool.execute("UPDATE pipeline_cards SET stage = 'pull_request' WHERE stage = 'monitor'");
+  await pool.execute("UPDATE pipeline_stage_runs SET stage = 'pull_request' WHERE stage = 'monitor'");
+  await pool.execute("DELETE FROM pipeline_stage_configs WHERE stage = 'monitor'");
+  await pool.execute(`ALTER TABLE pipeline_cards MODIFY COLUMN stage ${STAGE_ENUM} NOT NULL DEFAULT 'requirement'`);
+  await pool.execute(`ALTER TABLE pipeline_stage_runs MODIFY COLUMN stage ${STAGE_ENUM} NOT NULL`);
+  await pool.execute(`ALTER TABLE pipeline_stage_configs MODIFY COLUMN stage ${STAGE_ENUM} NOT NULL`);
+}
+
 export async function runPipelineMigrations(): Promise<void> {
   const pool = getPool();
   for (const sql of MIGRATIONS) {
@@ -287,5 +297,6 @@ export async function runPipelineMigrations(): Promise<void> {
   await ensureColumns("pipeline_stage_runs", STAGE_RUN_USAGE_COLUMNS);
   await ensureColumns("pipeline_cards", PIPELINE_CARD_COLUMNS);
   await ensureStageTimeoutNullable();
+  await ensureMonitorStageRemoved();
   console.log("[pipeline] Database migrations completed");
 }

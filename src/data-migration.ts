@@ -37,6 +37,14 @@ const TABLE_DEFINITIONS: string[] = [
     CONSTRAINT fk_utp_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
+  `CREATE TABLE IF NOT EXISTS user_project_tabs (
+    user_id CHAR(36) NOT NULL,
+    project_name VARCHAR(255) NOT NULL,
+    tab_key VARCHAR(50) NOT NULL,
+    PRIMARY KEY (user_id, project_name, tab_key),
+    CONSTRAINT fk_uptab_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
   `CREATE TABLE IF NOT EXISTS run_configs (
     id CHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,

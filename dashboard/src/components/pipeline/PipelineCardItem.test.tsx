@@ -30,6 +30,7 @@ function makeCard(overrides: Partial<PipelineCard> = {}): PipelineCard {
     implementationRetries: 0,
     codeReviewRetries: 0,
     e2eRetries: 0,
+    revisionCount: 0,
     position: 0,
     lastFeedback: null,
     createdBy: "user",
@@ -63,8 +64,8 @@ describe("PipelineCardItem — botão de ação inline", () => {
     expect(postMock).toHaveBeenCalledWith("/pipeline/cards/card-1/advance");
   });
 
-  it("mostra 'Concluir' no estágio monitor (critério 1)", () => {
-    renderCard(makeCard({ status: "awaiting_gate", stage: "monitor" }));
+  it("mostra 'Concluir' no estágio pull_request (critério 1)", () => {
+    renderCard(makeCard({ status: "awaiting_gate", stage: "pull_request" }));
     expect(screen.getByRole("button", { name: "Concluir" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Aprovar" })).not.toBeInTheDocument();
   });

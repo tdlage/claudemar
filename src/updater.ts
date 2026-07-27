@@ -151,6 +151,9 @@ export interface RestartCallbacks {
 }
 
 export function restartService(callbacks?: RestartCallbacks): void {
+  // Trava ANTES de checar: com o dreno ativo, nenhuma execução nova inicia (startExecution
+  // bloqueia), então o conjunto ativo só esvazia — nunca haverá prompt em execução no restart.
+  executionManager.beginDrain();
   const active = executionManager.getActiveExecutions();
   if (active.length > 0) {
     callbacks?.onWaiting?.(active.length);

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -13,6 +13,7 @@ import { buildAgentDefinitions } from "./agents/subagents.js";
 import { teammatesOf, squadMcpsForAgent, squadSkillsForAgent } from "./agents/teams-manager.js";
 import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
 import { config } from "./config.js";
+import { safeProjectPath } from "./session.js";
 import { settingsManager } from "./settings-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
 import { resolveExecutionModel, DEFAULT_PROJECT_MODEL } from "./models-discovery.js";
@@ -72,6 +73,9 @@ export interface StartExecutionOpts {
   schedulerMode?: boolean;
   skills?: string[];
   extraMcpServers?: Record<string, McpServerConfig>;
+  // Continuações internas de um trabalho já em curso (retry de resume, resposta de pergunta)
+  // podem iniciar mesmo com o dreno de restart ativo — são a mesma execução lógica.
+  continueDuringDrain?: boolean;
 }
 
 const MAX_RECENT = 100;
@@ -121,12 +125,12 @@ interface ActiveEntry {
 
 class ExecutionManager extends EventEmitter {
   private active = new Map<string, ActiveEntry>();
+  private draining = false;
   private recent: ExecutionInfo[] = [];
   private pendingQuestions = new Map<string, { info: ExecutionInfo; opts: StartExecutionOpts }>();
   private sessions = new Map<string, ClaudeSession>();
   private sessionGen = new Map<string, number>();
   private llmConfigGen = 0;
-  private draining = false;
 
   private lastSessionMap = new Map<string, string>();
   private lastSessionModelMap = new Map<string, string>();
@@ -223,14 +227,20 @@ class ExecutionManager extends EventEmitter {
       suffix += buildSecretsHint(opts.targetName);
     }
     if (opts.targetType === "project") {
-      const projectInputDir = resolve(opts.cwd, ".input");
-      if (existsSync(projectInputDir)) {
-        try {
-          const files = readdirSync(projectInputDir).filter((f) => !f.startsWith("."));
-          if (files.length > 0) {
-            suffix += `\n[SYSTEM: You have ${files.length} reference file(s) in ${projectInputDir}/. Check them if relevant to your task.]`;
-          }
-        } catch { }
+      const projectPath = safeProjectPath(opts.targetName);
+      if (projectPath) {
+        const projectInputDir = resolve(projectPath, ".input");
+        if (existsSync(projectInputDir)) {
+          try {
+            const files = readdirSync(projectInputDir).filter((f) => !f.startsWith("."));
+            if (files.length > 0) {
+              suffix += `\n[SYSTEM: You have ${files.length} reference file(s) in ${projectInputDir}/. Check them if relevant to your task.]`;
+            }
+          } catch { }
+        }
+        const projectOutputDir = resolve(projectPath, ".output");
+        mkdirSync(projectOutputDir, { recursive: true });
+        suffix += `\n[SYSTEM: Artifacts that should NOT be committed to git (logs, test output, reports, screenshots, generated files, etc.) must be saved under ${projectOutputDir}/. Code changes belong in the repository; everything else goes there.]`;
       }
     }
     if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
@@ -314,13 +324,22 @@ class ExecutionManager extends EventEmitter {
     this.llmConfigGen++;
   }
 
+  // Trava de restart: com o dreno ativo nenhuma execução nova inicia (rotas/fila/pipeline
+  // retêm ou rejeitam trabalho novo), então o conjunto ativo só esvazia — o restartService
+  // pode reiniciar com segurança quando getActiveExecutions() chegar a zero.
   beginDrain(): void {
+    if (this.draining) return;
     this.draining = true;
+    console.log("[execution-manager] Dreno ativo: novas execuções bloqueadas (restart pendente)");
+  }
+
+  isDraining(): boolean {
+    return this.draining;
   }
 
   startExecution(opts: StartExecutionOpts): string {
-    if (this.draining) {
-      throw new Error("Serviço encerrando para reiniciar — nenhuma execução nova é aceita. Tente novamente em instantes.");
+    if (this.draining && !opts.continueDuringDrain) {
+      throw new Error("Serviço em reinício para atualização — novas execuções estão bloqueadas. Tente novamente em instantes.");
     }
     const id = randomUUID();
     const model = this.resolveModel(opts);
@@ -483,7 +502,7 @@ class ExecutionManager extends EventEmitter {
         info.result = result;
         this.emit("error", info.id, info, info.error);
 
-        this.startExecution({ ...opts, resumeSessionId: null, noResume: true });
+        this.startExecution({ ...opts, resumeSessionId: null, noResume: true, continueDuringDrain: true });
         return;
       }
     }
@@ -550,7 +569,7 @@ class ExecutionManager extends EventEmitter {
       info.error = "Session not found, retrying...";
       this.emit("error", info.id, info, info.error);
 
-      this.startExecution({ ...opts, resumeSessionId: null, noResume: true });
+      this.startExecution({ ...opts, resumeSessionId: null, noResume: true, continueDuringDrain: true });
       return;
     }
 
@@ -627,7 +646,7 @@ class ExecutionManager extends EventEmitter {
     info.pendingQuestion = null;
     this.emit("question:answered", execId, info);
 
-    return this.startExecution({ ...opts, prompt: answer, blocks: undefined, resumeSessionId: sessionId });
+    return this.startExecution({ ...opts, prompt: answer, blocks: undefined, resumeSessionId: sessionId, continueDuringDrain: true });
   }
 
   getPendingQuestion(execId: string): PendingQuestion | null {

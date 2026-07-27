@@ -8,8 +8,10 @@ import { Modal } from "../shared/Modal";
 import { Button } from "../shared/Button";
 import { Badge } from "../shared/Badge";
 import { MarkdownViewer } from "../shared/MarkdownViewer";
+import { EditableMarkdownField } from "../shared/EditableMarkdownField";
 import { useCardRuns } from "../../hooks/usePipeline";
 import { UsageIndicator } from "./UsageIndicator";
+import { SendBackModal } from "./SendBackModal";
 import { CARD_STATUS_CONFIG, PIPELINE_STAGES, RUN_STATUS_CONFIG, SKIPPABLE_STAGES, STAGE_LABEL } from "./constants";
 
 const STAGE_INDEX: Record<PipelineStage, number> = Object.fromEntries(
@@ -123,24 +125,29 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSendBack, setShowSendBack] = useState(false);
-  const [feedback, setFeedback] = useState("");
   const [editRepos, setEditRepos] = useState(false);
   const [repoSel, setRepoSel] = useState<string[]>([]);
   const [modelSelectable, setModelSelectable] = useState(false);
-  const canEditRepos = (card.stage === "requirement" || card.stage === "plan") && card.status !== "running";
+  const [titleDraft, setTitleDraft] = useState(card.title);
+  const canEdit = card.status !== "running";
+  const canEditRepos = (card.stage === "requirement" || card.stage === "plan") && canEdit;
 
   useEffect(() => {
     api.get<{ provider: string }>("/system/provider").then((d) => setModelSelectable(d.provider === "anthropic")).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setTitleDraft(card.title);
+  }, [card.title]);
 
   const status = CARD_STATUS_CONFIG[card.status];
   const showStart = card.status === "idle";
   const gated = card.status === "awaiting_gate" || card.status === "failed";
   const activeRun = runs.find((r) => r.status === "running" && r.execId);
 
-  const monitorHasOpenPr = card.stage === "monitor" && card.repos.some((r) => r.prUrl && r.repoStatus !== "merged" && r.repoStatus !== "closed");
-  const concludeLabel = card.stage !== "monitor" ? "Aprovar etapa" : monitorHasOpenPr ? "Mergear PR e concluir" : "Concluir";
-  const ConcludeIcon = monitorHasOpenPr ? GitMerge : CheckCircle2;
+  const hasOpenPr = card.stage === "pull_request" && card.repos.some((r) => r.prUrl && r.repoStatus !== "merged" && r.repoStatus !== "closed");
+  const concludeLabel = card.stage !== "pull_request" ? "Aprovar etapa" : hasOpenPr ? "Mergear PR e concluir" : "Concluir";
+  const ConcludeIcon = hasOpenPr ? GitMerge : CheckCircle2;
 
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -152,6 +159,15 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
     } finally {
       setBusy(false);
     }
+  };
+
+  const saveField = (data: { title?: string; intakeInput?: string; requirementText?: string; planMarkdown?: string }) =>
+    act(() => api.put(`/pipeline/cards/${card.id}`, data));
+
+  const saveTitle = () => {
+    const title = titleDraft.trim();
+    if (title && title !== card.title) void saveField({ title });
+    else setTitleDraft(card.title);
   };
 
   const toggleSkip = (stage: PipelineStage) => {
@@ -210,12 +226,10 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
                 <ConcludeIcon size={14} className="mr-1" /> {concludeLabel}
               </Button>
             )}
-            {card.stage !== "monitor" && (
-              <Button size="sm" variant="secondary" disabled={busy} onClick={() => act(() => api.post(`/pipeline/cards/${card.id}/retry`))}>
-                Repetir
-              </Button>
-            )}
-            <Button size="sm" variant="secondary" disabled={busy} onClick={() => setShowSendBack((v) => !v)}>
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => act(() => api.post(`/pipeline/cards/${card.id}/retry`))}>
+              Repetir
+            </Button>
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => setShowSendBack(true)}>
               Devolver p/ implementação
             </Button>
             {card.status !== "failed" && (
@@ -223,24 +237,6 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
                 Rejeitar
               </Button>
             )}
-          </div>
-        )}
-
-        {showSendBack && (
-          <div className="space-y-2">
-            <textarea
-              value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
-              placeholder="O que precisa ser ajustado na implementação?"
-              className="w-full h-20 bg-bg border border-border rounded p-2 text-sm focus:outline-none focus:border-accent"
-            />
-            <Button size="sm" variant="primary" disabled={busy || !feedback.trim()} onClick={() => act(async () => {
-              await api.post(`/pipeline/cards/${card.id}/send-back`, { feedback });
-              setShowSendBack(false);
-              setFeedback("");
-            })}>
-              Enviar e reabrir implementação
-            </Button>
           </div>
         )}
 
@@ -253,17 +249,53 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
           </section>
         )}
 
-        {card.intakeInput && (
-          <section>
-            <h4 className="text-xs font-semibold text-text-secondary mb-1">Entrada de captação</h4>
-            <pre className="text-xs whitespace-pre-wrap text-text-secondary bg-bg rounded p-2 border border-border">{card.intakeInput}</pre>
-          </section>
-        )}
+        <section>
+          <h4 className="text-xs font-semibold text-text-secondary mb-1">Título</h4>
+          <input
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={saveTitle}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+            disabled={!canEdit || busy}
+            className="w-full bg-bg border border-border rounded p-2 text-sm focus:outline-none focus:border-accent disabled:opacity-60"
+          />
+        </section>
+
+        <section>
+          <h4 className="text-xs font-semibold text-text-secondary mb-1">Entrada de captação</h4>
+          <EditableMarkdownField
+            value={card.intakeInput}
+            editable={canEdit}
+            emptyLabel="Sem descrição."
+            placeholder="Descrição / contexto usado como entrada no processamento"
+            onSave={(md) => saveField({ intakeInput: md })}
+          />
+        </section>
+
+        <section>
+          <h4 className="text-xs font-semibold text-text-secondary mb-1">Requisito</h4>
+          <EditableMarkdownField
+            value={card.requirementText}
+            editable={canEdit}
+            emptyLabel="Ainda não gerado pela etapa de requisito."
+            onSave={(md) => saveField({ requirementText: md })}
+          />
+        </section>
+
+        <section>
+          <h4 className="text-xs font-semibold text-text-secondary mb-1">Plano</h4>
+          <EditableMarkdownField
+            value={card.planMarkdown}
+            editable={canEdit}
+            emptyLabel="Ainda não gerado pela etapa de plano."
+            onSave={(md) => saveField({ planMarkdown: md })}
+          />
+        </section>
 
         <section>
           <h4 className="text-xs font-semibold text-text-secondary mb-1.5">Etapas a executar</h4>
           <div className="flex flex-wrap gap-1.5">
-            {PIPELINE_STAGES.filter((s) => s.key !== "monitor").map((s) => {
+            {PIPELINE_STAGES.map((s) => {
               const isImpl = s.key === "implementation";
               const willRun = isImpl || !card.skippedStages.includes(s.key);
               const passed = STAGE_INDEX[s.key] < STAGE_INDEX[card.stage];
@@ -365,6 +397,8 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
             Excluir card
           </Button>
         </div>
+
+        {showSendBack && <SendBackModal card={card} onClose={() => setShowSendBack(false)} />}
       </div>
     </Modal>
   );

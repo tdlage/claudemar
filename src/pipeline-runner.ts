@@ -12,7 +12,6 @@ import { query, execute } from "./database.js";
 import { createPipelineMcpServer } from "./pipeline-mcp.js";
 import { buildPlanReposInstruction } from "./pipeline-prompt.js";
 import { resolveTimeoutMs } from "./pipeline-timeout.js";
-import { pipelineEventManager, type PrFeedbackEvent, type PrMergedEvent, type PrReopenedEvent } from "./pipeline-events.js";
 import type { PipelineStage } from "./pipeline-migration.js";
 
 const UPLOADS_DIR = resolve(config.dataPath, "tracker-uploads");
@@ -91,18 +90,6 @@ class PipelineRunner {
       this.liveUsage.set(execId, { value, lastEmit: now });
       pipelineManager.emitRunUsage(mapping.cardId, mapping.runId, value).catch((err) => console.error("[pipeline-runner] emitRunUsage failed:", err));
     });
-
-    pipelineEventManager.on("pr:feedback", (e: PrFeedbackEvent) => {
-      pipelineManager.handlePrFeedback(e.repoFullName, e.prNumber, e.body, e.author).catch((err) => console.error("[pipeline-runner] pr:feedback failed:", err));
-    });
-
-    pipelineEventManager.on("pr:closed", (e: PrMergedEvent) => {
-      pipelineManager.handlePrClosed(e.repoFullName, e.prNumber, e.merged).catch((err) => console.error("[pipeline-runner] pr:closed failed:", err));
-    });
-
-    pipelineEventManager.on("pr:reopened", (e: PrReopenedEvent) => {
-      pipelineManager.handlePrReopened(e.repoFullName, e.prNumber).catch((err) => console.error("[pipeline-runner] pr:reopened failed:", err));
-    });
   }
 
   // Um card só roda UMA etapa por vez (sessão SDK + worktree são compartilhadas). Enquanto o
@@ -116,6 +103,8 @@ class PipelineRunner {
   }
 
   private pump(): void {
+    // Restart pendente: etapas novas não iniciam; os cards permanecem na etapa atual.
+    if (executionManager.isDraining()) return;
     while (this.active < config.maxParallelPipelineRuns && this.queue.length > 0) {
       const item = this.queue.shift()!;
       this.active++;
@@ -141,13 +130,6 @@ class PipelineRunner {
   }
 
   private async startStage(cardId: string, stage: PipelineStage): Promise<void> {
-    // monitor é passivo (dirigido por webhook): nunca executa um agente.
-    if (stage === "monitor") {
-      await pipelineManager.parkAtMonitorGate(cardId).catch(() => {});
-      this.releaseSlot(cardId);
-      return;
-    }
-
     const card = await pipelineManager.getCard(cardId);
     if (!card) { this.releaseSlot(cardId); return; }
 
@@ -225,7 +207,15 @@ class PipelineRunner {
       }
     }
 
-    if (card.lastFeedback) parts.push(`## FEEDBACK A TRATAR (prioridade)\n${card.lastFeedback}`);
+    if (card.lastFeedback) {
+      parts.push(`## AJUSTE SOLICITADO (prioridade máxima)\n${card.lastFeedback}\n\nATENÇÃO: este é um ajuste pontual sobre trabalho JÁ REALIZADO nas worktrees acima. Revise e corrija APENAS o ponto solicitado — NÃO reimplemente nada do zero.`);
+    }
+
+    // Card devolvido p/ implementação (send-back ou E2E falho): todo o ciclo seguinte (implementação,
+    // review, E2E, PR) trabalha em modo revisão — incrementos sobre o que já existe nas worktrees.
+    if (card.revisionCount > 0 && stage !== "requirement" && stage !== "plan") {
+      parts.push(`## Modo revisão (ciclo ${card.revisionCount + 1})\nEste card já passou por desenvolvimento: as worktrees/branches já contêm o trabalho feito e pode já existir PR aberto. Em TODAS as etapas deste ciclo, faça apenas ajustes incrementais sobre o existente — nunca refaça o trabalho do zero.`);
+    }
 
     const reportTool = REPORT_TOOL[stage];
     const reminder = reportTool

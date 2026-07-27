@@ -85,7 +85,9 @@ export function createDashboardServer() {
   app.use("/api/settings", jsonParser, requireAdmin, settingsRouter);
   app.use("/api/transcribe", transcriptionRouter);
   app.use("/api/tracker", express.json({ limit: "150mb" }), trackerRouter);
-  app.use("/api/pipeline", express.json({ limit: "150mb" }), requireAdmin, pipelineRouter);
+  // Acesso por projeto (admin ou user com a aba "pipeline" habilitada) é validado nos
+  // param middlewares do próprio pipelineRouter.
+  app.use("/api/pipeline", express.json({ limit: "150mb" }), pipelineRouter);
 
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "Not found" });

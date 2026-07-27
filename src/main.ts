@@ -87,6 +87,8 @@ let shuttingDown = false;
 async function drainQueue(_id: string, info: ExecutionInfo) {
   if (shuttingDown) return;
   try {
+    // Restart pendente: a fila fica retida (persistida) até o serviço voltar.
+    if (executionManager.isDraining()) return;
     const key = commandQueue.targetKey(info.targetType, info.targetName);
     if (executionManager.isTargetActive(info.targetType, info.targetName)) return;
     const next = await commandQueue.dequeue(key);

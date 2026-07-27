@@ -26,6 +26,7 @@ export const systemRouter = Router();
 systemRouter.get("/status", (_req, res) => {
   res.json({
     activeExecutions: executionManager.getActiveExecutions().length,
+    draining: executionManager.isDraining(),
     uptime: process.uptime(),
   });
 });

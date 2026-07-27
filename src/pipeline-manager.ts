@@ -105,6 +105,7 @@ export interface PipelineCard {
   implementationRetries: number;
   codeReviewRetries: number;
   e2eRetries: number;
+  revisionCount: number;
   position: number;
   lastFeedback: string | null;
   skippedStages: PipelineStage[];
@@ -210,6 +211,7 @@ interface CardRow extends RowDataPacket {
   implementation_retries: number;
   code_review_retries: number;
   e2e_retries: number;
+  revision_count: number;
   position: number;
   last_feedback: string | null;
   skipped_stages: string | null;
@@ -320,6 +322,7 @@ function mapCard(r: CardRow, repos: PipelineCardRepo[], usage: CardUsage = EMPTY
     implementationRetries: r.implementation_retries,
     codeReviewRetries: r.code_review_retries,
     e2eRetries: r.e2e_retries,
+    revisionCount: r.revision_count ?? 0,
     position: r.position,
     lastFeedback: r.last_feedback,
     skippedStages: sanitizeSkippedStages(parseJson<unknown>(r.skipped_stages, [])),
@@ -624,7 +627,7 @@ class PipelineManager extends EventEmitter {
   async setAuto(id: string, auto: boolean): Promise<PipelineCard | null> {
     await execute("UPDATE pipeline_cards SET auto = ? WHERE id = ?", [auto ? 1 : 0, id]);
     const card = await this.emitCard(id);
-    if (card && auto && card.status === "awaiting_gate" && card.stage !== "monitor") {
+    if (card && auto && card.status === "awaiting_gate" && card.stage !== "pull_request") {
       await execute("UPDATE pipeline_cards SET status = 'idle' WHERE id = ?", [id]);
       await this.emitCard(id);
       this.emit("stage:request", { cardId: id, stage: card.stage });
@@ -882,7 +885,7 @@ class PipelineManager extends EventEmitter {
   async approveGate(cardId: string): Promise<{ ok: boolean; error?: string }> {
     const card = await this.getCard(cardId);
     if (!card || card.status !== "awaiting_gate") return { ok: false };
-    if (card.stage === "monitor") {
+    if (card.stage === "pull_request") {
       // "Concluir" na última etapa mergeia os PRs abertos e então conclui. O merge na branch
       // principal é SEMPRE manual: só acontece por este clique humano (nunca em cards automáticos).
       const hasOpenPr = card.repos.some((r) => r.prNumber && r.repoStatus !== "merged" && r.repoStatus !== "closed");
@@ -904,7 +907,6 @@ class PipelineManager extends EventEmitter {
   async retry(cardId: string): Promise<boolean> {
     const card = await this.getCard(cardId);
     if (!card || card.status === "running" || card.status === "done") return false;
-    if (card.stage === "monitor") return false;
     await execute("UPDATE pipeline_cards SET status = 'idle' WHERE id = ?", [cardId]);
     await this.emitCard(cardId);
     this.emit("stage:request", { cardId, stage: card.stage });
@@ -914,7 +916,10 @@ class PipelineManager extends EventEmitter {
   async sendBack(cardId: string, feedback: string): Promise<boolean> {
     const card = await this.getCard(cardId);
     if (!card || card.status === "running") return false;
-    await execute("UPDATE pipeline_cards SET stage = 'implementation', status = 'idle', last_feedback = ? WHERE id = ?", [feedback || null, cardId]);
+    await execute(
+      "UPDATE pipeline_cards SET stage = 'implementation', status = 'idle', last_feedback = ?, implementation_retries = 0, code_review_retries = 0, revision_count = revision_count + 1 WHERE id = ?",
+      [feedback || null, cardId],
+    );
     await this.emitCard(cardId);
     this.emit("stage:request", { cardId, stage: "implementation" as PipelineStage });
     return true;
@@ -932,12 +937,6 @@ class PipelineManager extends EventEmitter {
     await this.setCardStatus(cardId, "failed");
   }
 
-  // Estaciona o card no gate de monitor sem executar agente (monitor é passivo/webhook-driven).
-  async parkAtMonitorGate(cardId: string): Promise<void> {
-    await execute("UPDATE pipeline_cards SET stage = 'monitor', status = 'awaiting_gate' WHERE id = ?", [cardId]);
-    await this.emitCard(cardId);
-  }
-
   private async advanceCard(card: PipelineCard): Promise<void> {
     const nextIdx = firstActiveStageIndex(STAGE_ORDER.indexOf(card.stage) + 1, new Set(card.skippedStages));
     if (nextIdx === -1) {
@@ -948,33 +947,16 @@ class PipelineManager extends EventEmitter {
   }
 
   // Entrada numa etapa: grava stage/status, limpa o feedback anterior, emite a atualização e
-  // dispara a execução (autos) ou a liquidação do gate de monitor. monitor é passivo (o
-  // acompanhamento de PR é dirigido por webhook), então mesmo autos param no gate ao chegar nele.
-  // `manualStatus` define o status de repouso de cards não-automáticos.
+  // dispara a execução (autos). `manualStatus` define o status de repouso de cards não-automáticos.
   private async moveToStage(card: PipelineCard, target: PipelineStage, manualStatus: CardStatus): Promise<PipelineCard | null> {
-    const autoRun = card.auto && target !== "monitor";
-    const status: CardStatus = autoRun ? "idle" : card.auto ? "awaiting_gate" : manualStatus;
+    const status: CardStatus = card.auto ? "idle" : manualStatus;
     await execute(
       "UPDATE pipeline_cards SET stage = ?, last_feedback = NULL, status = ? WHERE id = ?",
       [target, status, card.id],
     );
     const updated = await this.emitCard(card.id);
-    if (autoRun) this.emit("stage:request", { cardId: card.id, stage: target });
-    else if (card.auto && target === "monitor") await this.settleAutoMonitor(card);
+    if (card.auto) this.emit("stage:request", { cardId: card.id, stage: target });
     return updated;
-  }
-
-  // Card automático ao chegar no monitor: se há PR aberto, para no gate (o merge é sempre manual);
-  // se pull_request foi pulado (sem PRs para mergear), conclui o card diretamente.
-  private async settleAutoMonitor(card: PipelineCard): Promise<void> {
-    // Há PR aberto: o merge na branch principal é SEMPRE manual (humano clica "Mergear PRs"),
-    // mesmo em cards automáticos. O card fica no gate do monitor (já em awaiting_gate).
-    if (card.repos.some((r) => r.prNumber)) return;
-    const result = await execute("UPDATE pipeline_cards SET status = 'done' WHERE id = ? AND status <> 'done'", [card.id]);
-    if (result.affectedRows > 0) {
-      await this.emitCard(card.id);
-      await this.removeCardWorktrees(card);
-    }
   }
 
   private async retryOrFail(card: PipelineCard, field: RetryField, stage: PipelineStage, current: number, feedback: string): Promise<void> {
@@ -993,7 +975,7 @@ class PipelineManager extends EventEmitter {
       return;
     }
     const status: CardStatus = card.auto ? "idle" : "awaiting_gate";
-    await execute("UPDATE pipeline_cards SET e2e_retries = e2e_retries + 1, implementation_retries = 0, code_review_retries = 0, stage = 'implementation', last_feedback = ?, status = ? WHERE id = ?", [feedback, status, card.id]);
+    await execute("UPDATE pipeline_cards SET e2e_retries = e2e_retries + 1, implementation_retries = 0, code_review_retries = 0, revision_count = revision_count + 1, stage = 'implementation', last_feedback = ?, status = ? WHERE id = ?", [feedback, status, card.id]);
     await this.emitCard(card.id);
     if (card.auto) this.emit("stage:request", { cardId: card.id, stage: "implementation" as PipelineStage });
   }
@@ -1017,7 +999,9 @@ class PipelineManager extends EventEmitter {
         else await this.setCardStatus(cardId, "failed");
         break;
       case "pull_request":
-        if (art.prs && art.prs.length > 0) await this.advanceCard(card);
+        // Última etapa: com PRs reportados o card para no gate aguardando o merge humano
+        // (approveGate mergeia e conclui); sem PRs, falha para atenção.
+        if (art.prs && art.prs.length > 0) await this.setCardStatus(cardId, "awaiting_gate");
         else await this.setCardStatus(cardId, "failed");
         break;
       case "implementation": {
@@ -1038,78 +1022,12 @@ class PipelineManager extends EventEmitter {
         }
         break;
       }
-      // monitor não roda etapa (parkAtMonitorGate no runner) — sem case aqui.
     }
-  }
-
-  // ── PR monitoring (webhook-driven) ──
-
-  async findCardRepoForPr(repoFullName: string, prNumber: number): Promise<{ card: PipelineCard; repo: PipelineCardRepo } | null> {
-    const rows = await query<CardRepoRow[]>("SELECT * FROM pipeline_card_repos WHERE pr_number = ?", [prNumber]);
-    // Casa exclusivamente pelo pr_url contendo o repo do webhook — nunca por número isolado
-    // (pr_number é por-repo e pode colidir; um fallback "single row" casaria repo errado).
-    const match = rows.find((r) => r.pr_url?.includes(`/${repoFullName}/pull/`));
-    if (!match) {
-      if (rows.length > 0) console.warn(`[pipeline] PR ${repoFullName}#${prNumber}: ${rows.length} repo(s) com esse nº, nenhum pr_url casou — webhook ignorado`);
-      return null;
-    }
-    const card = await this.getCard(match.card_id);
-    if (!card) return null;
-    return { card, repo: mapCardRepo(match) };
-  }
-
-  async handlePrFeedback(repoFullName: string, prNumber: number, body: string, author: string): Promise<void> {
-    if (config.pipelineBotLogin && author === config.pipelineBotLogin) return;
-    const found = await this.findCardRepoForPr(repoFullName, prNumber);
-    if (!found) return;
-    const { card, repo } = found;
-    if (card.status === "done" || card.stage !== "monitor") return;
-    const feedback = `[Feedback do PR ${repo.repoName} #${prNumber} por @${author}]\n${body}`;
-    if (card.lastFeedback === feedback) return; // ignora redelivery/comentário idêntico
-    await execute(
-      "UPDATE pipeline_cards SET stage = 'implementation', status = 'idle', implementation_retries = 0, code_review_retries = 0, last_feedback = ? WHERE id = ?",
-      [feedback, card.id],
-    );
-    await this.emitCard(card.id);
-    this.emit("stage:request", { cardId: card.id, stage: "implementation" as PipelineStage });
-  }
-
-  async handlePrClosed(repoFullName: string, prNumber: number, merged: boolean): Promise<void> {
-    const found = await this.findCardRepoForPr(repoFullName, prNumber);
-    if (!found) return;
-    const { card, repo } = found;
-    await execute("UPDATE pipeline_card_repos SET repo_status = ? WHERE id = ? AND repo_status NOT IN ('merged','closed')", [merged ? "merged" : "closed", repo.id]);
-    await this.emitCard(card.id);
-    if (card.status === "done") return;
-    const repos = await this.getCardRepos(card.id);
-    const allSettled = repos.every((r) => r.repoStatus === "merged" || r.repoStatus === "closed");
-    const anyMerged = repos.some((r) => r.repoStatus === "merged");
-    if (allSettled && card.stage === "monitor") {
-      if (anyMerged) {
-        // Conclusão idempotente: só um evento (re)entregue vence a corrida.
-        const result = await execute("UPDATE pipeline_cards SET status = 'done' WHERE id = ? AND status <> 'done'", [card.id]);
-        if (result.affectedRows > 0) {
-          await this.emitCard(card.id);
-          await this.removeCardWorktrees(card);
-        }
-      } else {
-        // Todos os PRs fechados sem merge → trabalho rejeitado: falha para atenção humana (não fica preso).
-        const result = await execute("UPDATE pipeline_cards SET status = 'failed', last_feedback = ? WHERE id = ? AND status NOT IN ('failed','done')", ["Todos os PRs foram fechados sem merge.", card.id]);
-        if (result.affectedRows > 0) await this.emitCard(card.id);
-      }
-    }
-  }
-
-  async handlePrReopened(repoFullName: string, prNumber: number): Promise<void> {
-    const found = await this.findCardRepoForPr(repoFullName, prNumber);
-    if (!found || found.card.status === "done") return;
-    await execute("UPDATE pipeline_card_repos SET repo_status = 'pr_open' WHERE id = ?", [found.repo.id]);
-    await this.emitCard(found.card.id);
   }
 
   // Mergeia os PRs abertos do card via `gh pr merge` (operação determinística, sem agente).
   // Sucesso em todos → card concluído + worktrees limpas. Falha (conflito/checks) → registra o
-  // erro em last_feedback e mantém o card no gate do monitor para atenção humana.
+  // erro em last_feedback e mantém o card no gate de pull_request para atenção humana.
   async mergeCardPrs(cardId: string): Promise<{ merged: string[]; failed: { repo: string; error: string }[] }> {
     const card = await this.getCard(cardId);
     if (!card) return { merged: [], failed: [] };
@@ -1123,6 +1041,16 @@ class PipelineManager extends EventEmitter {
       if (!repo.prNumber || repo.repoStatus === "merged" || repo.repoStatus === "closed") continue;
       const repoPath = projectPath ? resolveRepoPath(projectPath, repo.repoName) : null;
       if (!repoPath) { failed.push({ repo: repo.repoName, error: "repositório não resolvido" }); continue; }
+      // O estado do PR no GitHub não é mais sincronizado por webhook: consulta antes de mergear
+      // para não falhar num PR já mergeado/fechado manualmente.
+      const view = await executeSpawn("gh", ["pr", "view", String(repo.prNumber), "--json", "state", "--jq", ".state"], repoPath, 30000)
+        .catch(() => ({ output: "", exitCode: 1 }));
+      const state = view.exitCode === 0 ? view.output.trim().toUpperCase() : "";
+      if (state === "MERGED" || state === "CLOSED") {
+        await execute("UPDATE pipeline_card_repos SET repo_status = ? WHERE id = ?", [state === "MERGED" ? "merged" : "closed", repo.id]);
+        if (state === "MERGED") merged.push(repo.repoName);
+        continue;
+      }
       const res = await executeSpawn("gh", ["pr", "merge", String(repo.prNumber), "--merge"], repoPath, 120000)
         .catch((e) => ({ output: e instanceof Error ? e.message : String(e), exitCode: 1 }));
       if (res.exitCode === 0) {

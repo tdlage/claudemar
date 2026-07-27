@@ -5,9 +5,10 @@ import { PROJECT_SELECTABLE_MODELS } from "../../lib/types";
 import { usePipeline, usePipelineCards } from "../../hooks/usePipeline";
 import { Button } from "../shared/Button";
 import { Modal } from "../shared/Modal";
-import { PIPELINE_STAGES } from "./constants";
+import { PIPELINE_STAGES, canSendBack } from "./constants";
 import { PipelineCardItem } from "./PipelineCardItem";
 import { PipelineCardDetail } from "./PipelineCardDetail";
+import { SendBackModal } from "./SendBackModal";
 import { StageConfigEditor } from "./StageConfigEditor";
 import { IntakePluginConfig } from "./IntakePluginConfig";
 
@@ -132,6 +133,9 @@ export function PipelineBoard({ projectName }: Props) {
   const [showStages, setShowStages] = useState(false);
   const [showPlugins, setShowPlugins] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [dragCardId, setDragCardId] = useState<string | null>(null);
+  const [dragOverImpl, setDragOverImpl] = useState(false);
+  const [sendBackCardId, setSendBackCardId] = useState<string | null>(null);
 
   if (loading && !bundle) return <p className="text-text-muted">Carregando...</p>;
 
@@ -141,6 +145,18 @@ export function PipelineBoard({ projectName }: Props) {
 
   const pipeline = bundle.pipeline;
   const selectedCard = cards.find((c) => c.id === selectedCardId) ?? null;
+  const sendBackCard = cards.find((c) => c.id === sendBackCardId) ?? null;
+  const dragCard = cards.find((c) => c.id === dragCardId) ?? null;
+  const dropAllowed = dragCard !== null && canSendBack(dragCard);
+
+  const handleDropOnImplementation = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverImpl(false);
+    setDragCardId(null);
+    const id = e.dataTransfer.getData("text/plain");
+    const card = cards.find((c) => c.id === id);
+    if (card && canSendBack(card)) setSendBackCardId(card.id);
+  };
 
   return (
     <div className="space-y-3">
@@ -154,18 +170,34 @@ export function PipelineBoard({ projectName }: Props) {
       <div className="flex gap-3 overflow-x-auto pb-2">
         {PIPELINE_STAGES.map((stage) => {
           const stageCards = cards.filter((c) => c.stage === stage.key);
-          // No monitor, os mais recentes primeiro (ordem inversa).
-          if (stage.key === "monitor") stageCards.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+          const isImplTarget = stage.key === "implementation" && dragCard !== null;
           return (
-            <div key={stage.key} className="shrink-0 w-64 bg-bg/40 rounded-lg border border-border" style={{ borderTopColor: stage.color, borderTopWidth: 2 }}>
+            <div
+              key={stage.key}
+              className={`shrink-0 w-64 bg-bg/40 rounded-lg border border-border ${isImplTarget && dragOverImpl && dropAllowed ? "ring-2 ring-accent/40" : ""}`}
+              style={{ borderTopColor: stage.color, borderTopWidth: 2 }}
+              onDragOver={isImplTarget && dropAllowed ? (e) => { e.preventDefault(); setDragOverImpl(true); } : undefined}
+              onDragLeave={isImplTarget ? () => setDragOverImpl(false) : undefined}
+              onDrop={isImplTarget ? handleDropOnImplementation : undefined}
+            >
               <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: stage.color }} />
                 <span className="text-xs font-medium">{stage.label}</span>
                 <span className="ml-auto text-[10px] text-text-muted">{stageCards.length}</span>
               </div>
               <div className="p-2 space-y-2 min-h-[60px]">
+                {isImplTarget && dropAllowed && stageCards.length === 0 && (
+                  <p className="text-[10px] text-text-muted text-center py-2">Solte aqui para devolver p/ implementação</p>
+                )}
                 {stageCards.map((card) => (
-                  <PipelineCardItem key={card.id} card={card} projectName={projectName} onClick={() => setSelectedCardId(card.id)} />
+                  <PipelineCardItem
+                    key={card.id}
+                    card={card}
+                    projectName={projectName}
+                    onClick={() => setSelectedCardId(card.id)}
+                    onDragStart={() => setDragCardId(card.id)}
+                    onDragEnd={() => { setDragCardId(null); setDragOverImpl(false); }}
+                  />
                 ))}
               </div>
             </div>
@@ -177,6 +209,7 @@ export function PipelineBoard({ projectName }: Props) {
       {showStages && <StageConfigEditor pipelineId={pipeline.id} stageConfigs={bundle.stageConfigs} onClose={() => setShowStages(false)} onSaved={refresh} />}
       {showPlugins && <IntakePluginConfig pipelineId={pipeline.id} plugins={bundle.plugins} onClose={() => setShowPlugins(false)} onChanged={refresh} />}
       {selectedCard && <PipelineCardDetail card={selectedCard} projectName={projectName} availableRepos={bundle.repos} onClose={() => setSelectedCardId(null)} />}
+      {sendBackCard && <SendBackModal card={sendBackCard} onClose={() => setSendBackCardId(null)} />}
     </div>
   );
 }

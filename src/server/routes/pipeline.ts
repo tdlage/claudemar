@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { Router } from "express";
+import type { Response, NextFunction } from "express";
 import { pipelineManager } from "../../pipeline-manager.js";
 import { signPipelineScreenshots } from "../../pipeline-runner.js";
 import { runIntake } from "../../pipeline-intake.js";
@@ -7,10 +8,41 @@ import { safeProjectPath } from "../../session.js";
 import { discoverRepos } from "../../repositories.js";
 import { isValidCron } from "../../pipeline-cron.js";
 import { PIPELINE_STAGES, type PipelineStage } from "../../pipeline-migration.js";
+import { hasProjectTab } from "../middleware.js";
 
 export const pipelineRouter = Router();
 
 const STAGE_KEYS = new Set<string>(["intake", ...PIPELINE_STAGES.map((s) => s.key)]);
+
+// Users acessam o pipeline apenas dos projetos em que a aba "pipeline" foi habilitada; cada
+// param resolve o projeto dono do recurso para aplicar essa checagem (admin passa direto).
+function assertPipelineAccess(req: Express.Request, res: Response, next: NextFunction, projectName: string | null): void {
+  const ctx = req.ctx!;
+  if (ctx.role === "admin") { next(); return; }
+  if (!projectName || !ctx.projects.includes(projectName) || !hasProjectTab(ctx, projectName, "pipeline")) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  next();
+}
+
+pipelineRouter.param("project", (req, res, next) => {
+  assertPipelineAccess(req, res, next, req.params.project as string);
+});
+
+pipelineRouter.param("pipelineId", async (req, res, next) => {
+  const pipeline = await pipelineManager.getPipeline(req.params.pipelineId as string);
+  assertPipelineAccess(req, res, next, pipeline?.projectName ?? null);
+});
+
+// ":id" é usado por cards e plugins de intake — resolve o dono tentando os dois.
+pipelineRouter.param("id", async (req, res, next) => {
+  const id = req.params.id as string;
+  const card = await pipelineManager.getCard(id);
+  const pipelineId = card?.pipelineId ?? (await pipelineManager.getIntakePlugin(id))?.pipelineId;
+  const pipeline = pipelineId ? await pipelineManager.getPipeline(pipelineId) : null;
+  assertPipelineAccess(req, res, next, pipeline?.projectName ?? null);
+});
 
 function authorId(req: Express.Request): string {
   const ctx = req.ctx!;
@@ -125,13 +157,24 @@ pipelineRouter.get("/cards/:id", async (req, res) => {
 });
 
 pipelineRouter.put("/cards/:id", async (req, res) => {
-  const card = await pipelineManager.updateCard(req.params.id as string, {
-    title: req.body.title,
-    requirementText: req.body.requirementText,
-    planMarkdown: req.body.planMarkdown,
-    intakeInput: req.body.intakeInput,
-  });
-  if (!card) { res.status(404).json({ error: "Card not found" }); return; }
+  const { title, requirementText, planMarkdown, intakeInput } = req.body;
+  if (title !== undefined && (typeof title !== "string" || !title.trim())) {
+    res.status(400).json({ error: "title deve ser uma string não-vazia" });
+    return;
+  }
+  for (const [field, value] of Object.entries({ requirementText, planMarkdown, intakeInput })) {
+    if (value !== undefined && typeof value !== "string") {
+      res.status(400).json({ error: `${field} deve ser uma string` });
+      return;
+    }
+  }
+  const existing = await pipelineManager.getCard(req.params.id as string);
+  if (!existing) { res.status(404).json({ error: "Card not found" }); return; }
+  if (existing.status === "running") {
+    res.status(409).json({ error: "Não é possível editar um card em execução" });
+    return;
+  }
+  const card = await pipelineManager.updateCard(existing.id, { title: title?.trim(), requirementText, planMarkdown, intakeInput });
   res.json(card);
 });
 

@@ -6,7 +6,7 @@ import type { Effort } from "../claude/options.js";
 import { commandQueue } from "../queue.js";
 import { teamEvents } from "../agents/teams-manager.js";
 import { runProcessManager } from "../run-process-manager.js";
-import { resolveContext, type RequestContext } from "./middleware.js";
+import { resolveContext, hasProjectTab, type RequestContext } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
 import { trackerManager } from "../tracker-manager.js";
@@ -152,7 +152,9 @@ export function setupWebSocket(io: SocketServer): void {
     });
 
     socket.on("subscribe:pipeline", () => {
-      if (getCtx()?.role !== "admin") return;
+      const ctx = getCtx();
+      if (!ctx) return;
+      if (ctx.role !== "admin" && !ctx.projects.some((p) => hasProjectTab(ctx, p, "pipeline"))) return;
       socket.join("pipeline");
     });
 

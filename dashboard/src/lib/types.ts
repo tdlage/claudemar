@@ -217,9 +217,13 @@ export interface SearchResponse {
   count: number;
 }
 
+export const PROJECT_TAB_KEYS = ["terminal", "input", "output", "repositories", "files", "ci", "pipeline"] as const;
+export type ProjectTabKey = (typeof PROJECT_TAB_KEYS)[number];
+export const DEFAULT_PROJECT_TABS: ProjectTabKey[] = ["terminal", "input", "output"];
+
 export type MeResponse =
   | { role: "admin" }
-  | { role: "user"; id: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[] };
+  | { role: "user"; id: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[]; projectTabs: Record<string, ProjectTabKey[]> };
 
 export interface LlmProfile {
   id: string;
@@ -553,7 +557,7 @@ export interface TeamsOverview {
 // ── Pipeline ──
 
 export type PipelineStage =
-  | "intake" | "requirement" | "plan" | "implementation" | "code_review" | "e2e" | "pull_request" | "monitor";
+  | "intake" | "requirement" | "plan" | "implementation" | "code_review" | "e2e" | "pull_request";
 
 export type PipelineCardStatus = "idle" | "running" | "awaiting_gate" | "failed" | "done";
 export type PipelineRunStatus = "running" | "passed" | "failed" | "error" | "cancelled";
@@ -631,6 +635,7 @@ export interface PipelineCard {
   implementationRetries: number;
   codeReviewRetries: number;
   e2eRetries: number;
+  revisionCount: number;
   position: number;
   lastFeedback: string | null;
   skippedStages: PipelineStage[];

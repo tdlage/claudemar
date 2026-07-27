@@ -1,7 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Pencil, Trash2, X, Save, Copy, Check } from "lucide-react";
 import { api } from "../lib/api";
-import type { AgentInfo, ProjectInfo, TrackerProject } from "../lib/types";
+import { DEFAULT_PROJECT_TABS, PROJECT_TAB_KEYS } from "../lib/types";
+import type { AgentInfo, ProjectInfo, TrackerProject, ProjectTabKey } from "../lib/types";
+
+const TAB_LABEL: Record<ProjectTabKey, string> = {
+  terminal: "Terminal",
+  input: "Input",
+  output: "Output",
+  repositories: "Repositories",
+  files: "Code",
+  ci: "CI",
+  pipeline: "Pipeline",
+};
 
 interface User {
   id: string;
@@ -11,6 +22,7 @@ interface User {
   projects: string[];
   agents: string[];
   trackerProjects: string[];
+  projectTabs: Record<string, ProjectTabKey[]>;
   createdAt: string;
 }
 
@@ -77,7 +89,14 @@ export function UsersPage() {
       setEditing(null);
     } else {
       setSelectedId(user.id);
-      setEditing({ name: user.name, email: user.email, projects: [...user.projects], agents: [...user.agents], trackerProjects: [...(user.trackerProjects || [])] });
+      setEditing({
+        name: user.name,
+        email: user.email,
+        projects: [...user.projects],
+        agents: [...user.agents],
+        trackerProjects: [...(user.trackerProjects || [])],
+        projectTabs: { ...(user.projectTabs || {}) },
+      });
     }
   };
 
@@ -98,10 +117,22 @@ export function UsersPage() {
   const toggleProject = (projectName: string) => {
     if (!editing) return;
     const current = editing.projects || [];
-    const next = current.includes(projectName)
-      ? current.filter((p) => p !== projectName)
-      : [...current, projectName];
-    setEditing({ ...editing, projects: next });
+    const enabling = !current.includes(projectName);
+    const next = enabling ? [...current, projectName] : current.filter((p) => p !== projectName);
+    const tabs = { ...(editing.projectTabs || {}) };
+    if (enabling) tabs[projectName] = tabs[projectName] ?? [...DEFAULT_PROJECT_TABS];
+    else delete tabs[projectName];
+    setEditing({ ...editing, projects: next, projectTabs: tabs });
+  };
+
+  const toggleProjectTab = (projectName: string, tab: ProjectTabKey) => {
+    if (!editing) return;
+    const tabs = { ...(editing.projectTabs || {}) };
+    const current = tabs[projectName] ?? [...DEFAULT_PROJECT_TABS];
+    tabs[projectName] = current.includes(tab)
+      ? current.filter((t) => t !== tab)
+      : PROJECT_TAB_KEYS.filter((k) => k === tab || current.includes(k));
+    setEditing({ ...editing, projectTabs: tabs });
   };
 
   const toggleAgent = (agentName: string) => {
@@ -259,21 +290,46 @@ export function UsersPage() {
                       <label className="block text-xs font-medium text-text-muted mb-2">
                         Projects ({editing.projects?.length || 0}/{projects.length})
                       </label>
-                      <div className="space-y-1 max-h-48 overflow-y-auto">
-                        {projects.map((p) => (
-                          <label
-                            key={p.name}
-                            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-hover cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={editing.projects?.includes(p.name) || false}
-                              onChange={() => toggleProject(p.name)}
-                              className="rounded border-border text-accent focus:ring-accent"
-                            />
-                            <span className="text-sm text-text-primary">{p.name}</span>
-                          </label>
-                        ))}
+                      <div className="space-y-1 max-h-64 overflow-y-auto">
+                        {projects.map((p) => {
+                          const enabled = editing.projects?.includes(p.name) || false;
+                          const projectTabs = editing.projectTabs?.[p.name] ?? DEFAULT_PROJECT_TABS;
+                          return (
+                            <div key={p.name}>
+                              <label className="flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-hover cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={enabled}
+                                  onChange={() => toggleProject(p.name)}
+                                  className="rounded border-border text-accent focus:ring-accent"
+                                />
+                                <span className="text-sm text-text-primary">{p.name}</span>
+                              </label>
+                              {enabled && (
+                                <div className="flex flex-wrap gap-1 pl-7 pb-1.5">
+                                  {PROJECT_TAB_KEYS.map((tabKey) => {
+                                    const on = projectTabs.includes(tabKey);
+                                    return (
+                                      <button
+                                        key={tabKey}
+                                        type="button"
+                                        onClick={() => toggleProjectTab(p.name, tabKey)}
+                                        title={on ? "Aba visível — clique para ocultar" : "Aba oculta — clique para exibir"}
+                                        className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                          on
+                                            ? "bg-accent/15 border-accent/40 text-accent"
+                                            : "bg-bg border-border text-text-muted line-through"
+                                        }`}
+                                      >
+                                        {TAB_LABEL[tabKey]}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                         {projects.length === 0 && (
                           <span className="text-xs text-text-muted">No projects available</span>
                         )}

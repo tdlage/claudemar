@@ -1,10 +1,22 @@
 import type { Request, Response, NextFunction } from "express";
 import { tokenManager } from "./token-manager.js";
-import { usersManager } from "../users-manager.js";
+import { usersManager, DEFAULT_PROJECT_TABS, type ProjectTabKey } from "../users-manager.js";
 
 export type RequestContext =
   | { role: "admin" }
-  | { role: "user"; userId: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[] };
+  | { role: "user"; userId: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[]; projectTabs: Record<string, ProjectTabKey[]> };
+
+// Abas visíveis de um projeto para o contexto: admin vê tudo; user vê o configurado
+// (ou o default histórico terminal/input/output quando não há configuração).
+export function projectTabsFor(ctx: RequestContext, projectName: string): ProjectTabKey[] | "all" {
+  if (ctx.role === "admin") return "all";
+  return ctx.projectTabs[projectName] ?? DEFAULT_PROJECT_TABS;
+}
+
+export function hasProjectTab(ctx: RequestContext, projectName: string, tab: ProjectTabKey): boolean {
+  const tabs = projectTabsFor(ctx, projectName);
+  return tabs === "all" || tabs.includes(tab);
+}
 
 declare global {
   namespace Express {
@@ -18,7 +30,7 @@ export function resolveContext(token: string): RequestContext | null {
   if (tokenManager.validate(token)) return { role: "admin" };
   const user = token ? usersManager.findByToken(token) : null;
   if (user) {
-    return { role: "user", userId: user.id, name: user.name, projects: user.projects, agents: user.agents, trackerProjects: user.trackerProjects };
+    return { role: "user", userId: user.id, name: user.name, projects: user.projects, agents: user.agents, trackerProjects: user.trackerProjects, projectTabs: user.projectTabs };
   }
   return null;
 }

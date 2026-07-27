@@ -13,7 +13,9 @@ export interface OutputFile {
 }
 
 interface OutputBrowserProps {
-  agentName: string;
+  apiBasePath: string;
+  base: string;
+  outputDir: string;
   files: OutputFile[];
   onRefresh: () => void;
 }
@@ -24,7 +26,7 @@ function formatSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-export function OutputBrowser({ agentName, files, onRefresh }: OutputBrowserProps) {
+export function OutputBrowser({ apiBasePath, base, outputDir, files, onRefresh }: OutputBrowserProps) {
   const { addToast } = useToast();
   const [currentPath, setCurrentPath] = useState("");
   const [viewerFile, setViewerFile] = useState<string | null>(null);
@@ -35,11 +37,11 @@ export function OutputBrowser({ agentName, files, onRefresh }: OutputBrowserProp
 
   const loadSubDir = useCallback((path: string) => {
     setLoading(true);
-    api.get<OutputFile[]>(`/agents/${agentName}/output?path=${encodeURIComponent(path)}`)
+    api.get<OutputFile[]>(`${apiBasePath}/output?path=${encodeURIComponent(path)}`)
       .then(setSubFiles)
       .catch(() => setSubFiles([]))
       .finally(() => setLoading(false));
-  }, [agentName]);
+  }, [apiBasePath]);
 
   useEffect(() => {
     if (currentPath) loadSubDir(currentPath);
@@ -65,7 +67,7 @@ export function OutputBrowser({ agentName, files, onRefresh }: OutputBrowserProp
       const token = localStorage.getItem("dashboard_token") || "";
       const entry = currentPath ? `${currentPath}/${fileName}` : fileName;
       const encodedPath = entry.split("/").map(encodeURIComponent).join("/");
-      const res = await fetch(`/api/agents/${agentName}/output-dl/${encodedPath}`, {
+      const res = await fetch(`/api${apiBasePath}/output-dl/${encodedPath}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error();
@@ -85,7 +87,7 @@ export function OutputBrowser({ agentName, files, onRefresh }: OutputBrowserProp
     try {
       const entry = currentPath ? `${currentPath}/${fileName}` : fileName;
       const encodedPath = entry.split("/").map(encodeURIComponent).join("/");
-      await api.delete(`/agents/${agentName}/output-rm/${encodedPath}`);
+      await api.delete(`${apiBasePath}/output-rm/${encodedPath}`);
       if (currentPath) {
         loadSubDir(currentPath);
       }
@@ -188,8 +190,8 @@ export function OutputBrowser({ agentName, files, onRefresh }: OutputBrowserProp
         <MarkdownViewerModal
           open
           onClose={() => setViewerFile(null)}
-          filePath={`output/${viewerFile}`}
-          base={`agent:${agentName}`}
+          filePath={`${outputDir}/${viewerFile}`}
+          base={base}
         />
       )}
     </div>

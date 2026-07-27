@@ -51,7 +51,7 @@ export function FileArchiveModal({ members, open, onClose }: Props) {
             </div>
             <div>
               <h3 className="text-xs font-medium text-text-secondary mb-2">Baixar (output do agente)</h3>
-              <OutputBrowser agentName={selected} files={outputFiles} onRefresh={loadOutputs} />
+              <OutputBrowser apiBasePath={`/agents/${selected}`} base={`agent:${selected}`} outputDir="output" files={outputFiles} onRefresh={loadOutputs} />
             </div>
           </div>
         ) : (

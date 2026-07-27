@@ -4,7 +4,10 @@ import { NewCardModal } from "./PipelineBoard";
 import { api } from "../../lib/api";
 
 vi.mock("../../lib/api", () => ({
-  api: { post: vi.fn().mockResolvedValue({}) },
+  api: {
+    post: vi.fn().mockResolvedValue({}),
+    get: vi.fn().mockResolvedValue({ provider: "anthropic" }),
+  },
 }));
 
 const postMock = api.post as unknown as ReturnType<typeof vi.fn>;

@@ -1,4 +1,4 @@
-import type { PipelineStage, PipelineCardStatus, PipelineRunStatus } from "../../lib/types";
+import type { PipelineStage, PipelineCard, PipelineCardStatus, PipelineRunStatus } from "../../lib/types";
 
 export const PIPELINE_STAGES: { key: PipelineStage; label: string; color: string }[] = [
   { key: "requirement", label: "Requisito", color: "#6366f1" },
@@ -7,7 +7,6 @@ export const PIPELINE_STAGES: { key: PipelineStage; label: string; color: string
   { key: "code_review", label: "Code Review", color: "#ec4899" },
   { key: "e2e", label: "E2E", color: "#a855f7" },
   { key: "pull_request", label: "Pull Request", color: "#22c55e" },
-  { key: "monitor", label: "Monitor", color: "#14b8a6" },
 ];
 
 export const SKIPPABLE_STAGES: PipelineStage[] = ["requirement", "plan", "code_review", "e2e", "pull_request"];
@@ -20,8 +19,12 @@ export const STAGE_LABEL: Record<PipelineStage, string> = {
   code_review: "Code Review",
   e2e: "E2E",
   pull_request: "Pull Request",
-  monitor: "Monitor",
 };
+
+// Card com PR aberto/aguardando merge pode ser arrastado de volta p/ Implementação (revisão pontual).
+export function canSendBack(card: PipelineCard): boolean {
+  return card.stage === "pull_request" && card.status !== "running" && card.status !== "done";
+}
 
 type Variant = "default" | "success" | "warning" | "danger" | "accent" | "info";
 

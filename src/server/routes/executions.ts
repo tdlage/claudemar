@@ -40,6 +40,10 @@ executionsRouter.get("/", (req, res) => {
 });
 
 executionsRouter.post("/", async (req, res) => {
+  if (executionManager.isDraining()) {
+    res.status(409).json({ error: "Serviço em reinício para atualização — tente novamente em instantes" });
+    return;
+  }
   const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, agentName, forceQueue, skipSystemPrompt, schedulerMode, model } = req.body;
 
   if (!prompt || !targetType) {

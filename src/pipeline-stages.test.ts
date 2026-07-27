@@ -20,11 +20,10 @@ function firstActive(skipped: PipelineStage[]): PipelineStage | null {
   return i === -1 ? null : STAGE_ORDER[i];
 }
 
-test("SKIPPABLE_STAGES não inclui implementation, intake nem monitor", () => {
+test("SKIPPABLE_STAGES não inclui implementation nem intake", () => {
   assert.deepEqual(SKIPPABLE_STAGES, ["requirement", "plan", "code_review", "e2e", "pull_request"]);
   assert.equal(isSkippable("implementation"), false);
   assert.equal(isSkippable("intake"), false);
-  assert.equal(isSkippable("monitor"), false);
   assert.equal(isSkippable("requirement"), true);
 });
 
@@ -42,27 +41,26 @@ test("salta uma etapa pulada", () => {
 
 test("salta etapas puladas consecutivas de uma vez", () => {
   assert.equal(nextActive("implementation", ["code_review", "e2e"]), "pull_request");
-  assert.equal(nextActive("implementation", ["code_review", "e2e", "pull_request"]), "monitor");
+  assert.equal(nextActive("implementation", ["code_review", "e2e", "pull_request"]), null);
 });
 
 test("requirement e plan pulados na largada → primeira ativa é implementation", () => {
   assert.equal(firstActive(["requirement", "plan"]), "implementation");
 });
 
-test("item totalmente simplificado: só implementation, depois monitor", () => {
+test("item totalmente simplificado: só implementation, depois conclui", () => {
   const all = [...SKIPPABLE_STAGES];
   assert.equal(firstActive(all), "implementation");
-  assert.equal(nextActive("implementation", all), "monitor");
+  assert.equal(nextActive("implementation", all), null);
 });
 
 test("firstActiveStageIndex retorna -1 quando não há etapa ativa após a posição", () => {
-  assert.equal(nextActive("monitor", []), null);
-  assert.equal(nextActive("pull_request", []), "monitor");
+  assert.equal(nextActive("pull_request", []), null);
 });
 
 test("sanitizeSkippedStages remove não-puláveis, deduplica e ordena por STAGE_ORDER", () => {
   assert.deepEqual(
-    sanitizeSkippedStages(["e2e", "plan", "implementation", "intake", "monitor", "plan", "foo", 123, null]),
+    sanitizeSkippedStages(["e2e", "plan", "implementation", "intake", "plan", "foo", 123, null]),
     ["plan", "e2e"],
   );
   assert.deepEqual(sanitizeSkippedStages("nope"), []);
@@ -75,10 +73,9 @@ test("validateSkippedStages aceita só etapas puláveis e deduplica", () => {
   assert.deepEqual(validateSkippedStages([]), []);
 });
 
-test("validateSkippedStages rejeita implementation, intake, monitor e valores inválidos", () => {
+test("validateSkippedStages rejeita implementation, intake e valores inválidos", () => {
   assert.throws(() => validateSkippedStages(["implementation"]), /não pode ser pulada/);
   assert.throws(() => validateSkippedStages(["intake"]), /não pode ser pulada/);
-  assert.throws(() => validateSkippedStages(["monitor"]), /não pode ser pulada/);
   assert.throws(() => validateSkippedStages(["plan", 5]), /Etapa inválida/);
   assert.throws(() => validateSkippedStages("plan"), /deve ser um array/);
 });

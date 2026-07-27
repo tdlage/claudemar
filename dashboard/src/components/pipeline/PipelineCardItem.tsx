@@ -6,19 +6,22 @@ import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import { Badge } from "../shared/Badge";
 import { UsageIndicator } from "./UsageIndicator";
-import { CARD_STATUS_CONFIG } from "./constants";
+import { CARD_STATUS_CONFIG, canSendBack } from "./constants";
 
 interface Props {
   card: PipelineCard;
   projectName: string;
   onClick: () => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }
 
-export function PipelineCardItem({ card, projectName, onClick }: Props) {
+export function PipelineCardItem({ card, projectName, onClick, onDragStart, onDragEnd }: Props) {
   const status = CARD_STATUS_CONFIG[card.status];
   const prCount = card.repos.filter((r) => r.prUrl).length;
   const { addToast } = useToast();
   const [busy, setBusy] = useState(false);
+  const draggable = canSendBack(card);
 
   const runAction = async (e: React.MouseEvent, fn: () => Promise<unknown>) => {
     e.stopPropagation();
@@ -32,15 +35,24 @@ export function PipelineCardItem({ card, projectName, onClick }: Props) {
     }
   };
 
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("text/plain", card.id);
+    e.dataTransfer.effectAllowed = "move";
+    onDragStart?.();
+  };
+
   const inlineAction =
     card.status === "awaiting_gate"
-      ? { label: card.stage === "monitor" ? "Concluir" : "Aprovar", Icon: CheckCircle2, run: () => api.post(`/pipeline/cards/${card.id}/advance`) }
+      ? { label: card.stage === "pull_request" ? "Concluir" : "Aprovar", Icon: CheckCircle2, run: () => api.post(`/pipeline/cards/${card.id}/advance`) }
       : card.status === "idle"
       ? { label: "Iniciar", Icon: Play, run: () => api.post(`/pipeline/cards/${card.id}/retry`) }
       : null;
 
   return (
     <div
+      draggable={draggable}
+      onDragStart={draggable ? handleDragStart : undefined}
+      onDragEnd={onDragEnd}
       onClick={onClick}
       className="group bg-surface border border-border rounded-md p-3 cursor-pointer hover:border-accent/30 transition-colors space-y-2"
     >

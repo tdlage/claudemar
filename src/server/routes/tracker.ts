@@ -367,6 +367,10 @@ function generatePlanPrompt(item: { title: string; description: string; inScope:
 }
 
 trackerRouter.post("/items/:itemId/send-to-project", requireAdmin, async (req, res) => {
+  if (executionManager.isDraining()) {
+    res.status(409).json({ error: "Serviço em reinício para atualização — tente novamente em instantes" });
+    return;
+  }
   const { targetProject, prompt, planMode = true } = req.body;
   if (!targetProject || !prompt) { res.status(400).json({ error: "targetProject and prompt required" }); return; }
 
@@ -462,6 +466,10 @@ trackerRouter.post("/items/:itemId/send-to-project", requireAdmin, async (req, r
 });
 
 trackerRouter.post("/items/:itemId/execute-plan", requireAdmin, async (req, res) => {
+  if (executionManager.isDraining()) {
+    res.status(409).json({ error: "Serviço em reinício para atualização — tente novamente em instantes" });
+    return;
+  }
   const plan = await trackerManager.getItemPlan(req.params.itemId as string);
   if (!plan) { res.status(404).json({ error: "No plan found for this item" }); return; }
   if (plan.status !== "planned") { res.status(400).json({ error: `Plan status is '${plan.status}', expected 'planned'` }); return; }
@@ -507,6 +515,10 @@ trackerRouter.post("/items/:itemId/execute-plan", requireAdmin, async (req, res)
 });
 
 trackerRouter.post("/items/:itemId/review-plan", requireAdmin, async (req, res) => {
+  if (executionManager.isDraining()) {
+    res.status(409).json({ error: "Serviço em reinício para atualização — tente novamente em instantes" });
+    return;
+  }
   const { prompt } = req.body;
   if (!prompt) { res.status(400).json({ error: "prompt required" }); return; }
 

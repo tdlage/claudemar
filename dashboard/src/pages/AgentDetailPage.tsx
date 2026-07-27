@@ -267,7 +267,7 @@ export function AgentDetailPage() {
       )}
 
       {tab === "output" && (
-        <OutputBrowser agentName={agent.name} files={outputFiles} onRefresh={loadOutputs} />
+        <OutputBrowser apiBasePath={`/agents/${agent.name}`} base={`agent:${agent.name}`} outputDir="output" files={outputFiles} onRefresh={loadOutputs} />
       )}
 
       {tab === "config" && (

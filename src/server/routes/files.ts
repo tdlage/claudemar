@@ -7,8 +7,21 @@ import archiver from "archiver";
 import { config } from "../../config.js";
 import { getAgentPaths, isValidAgentName } from "../../agents/manager.js";
 import { safeProjectPath } from "../../session.js";
+import { hasProjectTab } from "../middleware.js";
 
 export const filesRouter = Router();
+
+// Users só acessam arquivos dos alvos habilitados: agente na lista do usuário, projeto na lista
+// E com a aba "files" habilitada; orchestrator é sempre admin.
+function canAccessBase(req: Request, base: string): boolean {
+  const ctx = req.ctx;
+  if (!ctx) return false;
+  if (ctx.role === "admin") return true;
+  const [type, name] = base.split(":");
+  if (type === "agent" && name) return ctx.agents.includes(name);
+  if (type === "project" && name) return ctx.projects.includes(name) && hasProjectTab(ctx, name, "files");
+  return false;
+}
 
 const TEXT_EXTENSIONS = new Set([
   ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".xml", ".html", ".htm",
@@ -59,6 +72,11 @@ function resolveRequestPath(
     res.status(400).json({
       error: requirePath ? "base and path query params required" : "base query param required",
     });
+    return null;
+  }
+
+  if (!canAccessBase(req, base)) {
+    res.status(403).json({ error: "Forbidden" });
     return null;
   }
 
@@ -141,6 +159,11 @@ filesRouter.get("/download", (req, res) => {
     return;
   }
 
+  if (!canAccessBase(req, base)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   const basePath = resolveBase(base);
   if (!basePath || !existsSync(basePath)) {
     res.status(404).json({ error: "Base not found" });
@@ -213,6 +236,12 @@ filesRouter.delete("/", (req, res) => {
 });
 
 filesRouter.get("/md", (req, res) => {
+  // Lê caminho absoluto arbitrário: exclusivo de admin.
+  if (req.ctx?.role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   const filePath = req.query.path as string;
 
   if (!filePath || !filePath.startsWith("/")) {
@@ -256,6 +285,11 @@ filesRouter.get("/search", (req, res) => {
 
   if (!base || !query) {
     res.status(400).json({ error: "base and query params required" });
+    return;
+  }
+
+  if (!canAccessBase(req, base)) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 

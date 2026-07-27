@@ -14,13 +14,14 @@ import { RepositoriesTab } from "../components/project/RepositoriesTab";
 import { CITab } from "../components/project/CITab";
 import { PipelineBoard } from "../components/pipeline/PipelineBoard";
 import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
+import { OutputBrowser, type OutputFile } from "../components/agent/OutputBrowser";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
-import { isAdmin } from "../hooks/useAuth";
-import { PROJECT_SELECTABLE_MODELS, DEFAULT_PROJECT_MODEL, type ProjectDetail } from "../lib/types";
+import { isAdmin, projectTabsFor, refreshMe } from "../hooks/useAuth";
+import { PROJECT_SELECTABLE_MODELS, DEFAULT_PROJECT_MODEL, type ProjectDetail, type ProjectTabKey } from "../lib/types";
 
-type TabKey = "terminal" | "repositories" | "files" | "input" | "ci" | "pipeline";
+type TabKey = ProjectTabKey;
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -32,10 +33,19 @@ export function ProjectDetailPage() {
   const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
   const [selectedSkill, setSelectedSkill] = useCachedState(`project:${name}:skill`, "");
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
+  const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
   const [ciInitialRepo, setCiInitialRepo] = useState<string | undefined>();
   const [providerId, setProviderId] = useState<string | null>(null);
   const [projectModel, setProjectModel] = useState<string>(DEFAULT_PROJECT_MODEL);
+  const [, setMeVersion] = useState(0);
   const admin = isAdmin();
+  const enabledTabs = name ? projectTabsFor(name) : "all";
+  const tabEnabled = (key: TabKey) => enabledTabs === "all" || enabledTabs.includes(key);
+
+  useEffect(() => {
+    if (admin) return;
+    refreshMe().then((me) => { if (me) setMeVersion((v) => v + 1); });
+  }, [admin]);
 
   const loadProject = useCallback(() => {
     if (!name) return;
@@ -51,6 +61,11 @@ export function ProjectDetailPage() {
     api.get<InputFile[]>(`/projects/${name}/input`).then(setInputFiles).catch(() => {});
   }, [name]);
 
+  const loadOutputs = useCallback(() => {
+    if (!name) return;
+    api.get<OutputFile[]>(`/projects/${name}/output`).then(setOutputFiles).catch(() => {});
+  }, [name]);
+
   const {
     execId, setExecId, isRunning, sessionData, loadSession,
     handleSessionChange, handleSessionRename, handleSessionDelete,
@@ -62,15 +77,16 @@ export function ProjectDetailPage() {
     targetType: "project",
     targetName: name ?? "",
     cachePrefix: `project:${name}`,
-    onExecutionComplete: loadProject,
+    onExecutionComplete: () => { loadProject(); loadOutputs(); },
   });
 
   useEffect(() => {
     loadProject();
+    loadOutputs();
     api.get<string[]>(`/projects/${name}/claude-agents`).then(setAgents).catch(() => {});
     api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
     api.get<{ provider: string }>("/system/provider").then((data) => setProviderId(data.provider)).catch(() => {});
-  }, [loadProject, name]);
+  }, [loadProject, loadOutputs, name]);
 
   const handleModelChange = async (model: string) => {
     if (!name) return;
@@ -125,26 +141,26 @@ export function ProjectDetailPage() {
   const hasGithubRepos = project.repos.some((r) => r.remoteUrl.includes("github.com"));
 
   const tabs: { key: TabKey; label: string; badge?: number; badgeVariant?: "warning" }[] = [
-    { key: "terminal", label: "Terminal" },
-    { key: "input" as const, label: `Input (${inputFiles.length})` },
-    ...(admin ? [
-      { key: "repositories" as const, label: "Repositories", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) },
-      { key: "files" as const, label: "Code" },
-      ...(hasGithubRepos ? [{ key: "ci" as const, label: "CI" }] : []),
-      ...(project.repos.length > 0 ? [{ key: "pipeline" as const, label: "Pipeline" }] : []),
-    ] : []),
+    ...(tabEnabled("terminal") ? [{ key: "terminal" as const, label: "Terminal" }] : []),
+    ...(tabEnabled("input") ? [{ key: "input" as const, label: `Input (${inputFiles.length})` }] : []),
+    ...(tabEnabled("output") ? [{ key: "output" as const, label: `Output (${outputFiles.length})` }] : []),
+    ...(tabEnabled("repositories") ? [{ key: "repositories" as const, label: "Repositories", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) }] : []),
+    ...(tabEnabled("files") ? [{ key: "files" as const, label: "Code" }] : []),
+    ...(tabEnabled("ci") && hasGithubRepos ? [{ key: "ci" as const, label: "CI" }] : []),
+    ...(tabEnabled("pipeline") && project.repos.length > 0 ? [{ key: "pipeline" as const, label: "Pipeline" }] : []),
   ];
+  const activeTab = tabs.some((t) => t.key === tab) ? tab : (tabs[0]?.key ?? "terminal");
 
   return (
-    <div className={`flex flex-col gap-4 ${tab === "files" ? "h-full" : ""}`}>
+    <div className={`flex flex-col gap-4 ${activeTab === "files" ? "h-full" : ""}`}>
       <div className="flex items-center gap-2 md:gap-3 shrink-0 flex-wrap">
         <h1 className="text-base md:text-lg font-semibold">{project.name}</h1>
         <Badge variant="default">{project.repos.length} repos</Badge>
       </div>
 
-      <Tabs tabs={tabs} active={tab} onChange={setTab} />
+      <Tabs tabs={tabs} active={activeTab} onChange={setTab} />
 
-      {tab === "terminal" && (
+      {activeTab === "terminal" && (
         <div className="space-y-3">
           {filteredQuestions.map((pq) => (
             <QuestionPanel
@@ -266,11 +282,15 @@ export function ProjectDetailPage() {
         </div>
       )}
 
-      {tab === "input" && (
+      {activeTab === "input" && (
         <InputBrowser apiBasePath={`/projects/${project.name}`} base={`project:${project.name}`} files={inputFiles} onRefresh={loadInputs} />
       )}
 
-      {tab === "repositories" && (
+      {activeTab === "output" && (
+        <OutputBrowser apiBasePath={`/projects/${project.name}`} base={`project:${project.name}`} outputDir=".output" files={outputFiles} onRefresh={loadOutputs} />
+      )}
+
+      {activeTab === "repositories" && (
         <RepositoriesTab
           projectName={project.name}
           repos={project.repos}
@@ -282,17 +302,17 @@ export function ProjectDetailPage() {
         />
       )}
 
-      {tab === "files" && name && (
+      {activeTab === "files" && name && (
         <div className="flex-1 min-h-0">
           <FilesBrowser projectName={name} />
         </div>
       )}
 
-      {tab === "ci" && (
+      {activeTab === "ci" && (
         <CITab projectName={project.name} repos={project.repos} initialRepo={ciInitialRepo} />
       )}
 
-      {tab === "pipeline" && (
+      {activeTab === "pipeline" && (
         <PipelineBoard projectName={project.name} />
       )}
     </div>

@@ -82,7 +82,6 @@ export const config = Object.freeze({
   maxParallelPipelineRuns: numericEnv("MAX_PARALLEL_PIPELINE_RUNS", 3),
   pipelineStageTimeoutMs: numericEnv("PIPELINE_STAGE_TIMEOUT_MS", 120 * 60 * 1000),
   maxPipelineRetries: numericEnv("MAX_PIPELINE_RETRIES", 3),
-  pipelineBotLogin: stringEnv("PIPELINE_BOT_LOGIN", ""),
 });
 
 if (Number.isNaN(config.allowedChatId)) {

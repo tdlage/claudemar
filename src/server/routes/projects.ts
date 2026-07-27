@@ -1,10 +1,11 @@
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve, sep } from "node:path";
+import { extname, resolve, sep } from "node:path";
 import { rm } from "node:fs/promises";
+import archiver from "archiver";
 import type { Request, Response } from "express";
 import { Router } from "express";
-import { safeFilename, listFiles, asyncHandler } from "../route-utils.js";
+import { safeFilename, listFiles, listDirEntries, asyncHandler } from "../route-utils.js";
 import {
   isValidProjectName,
   listProjects,
@@ -365,6 +366,115 @@ function inputDir(projectPath: string): string {
   return resolve(projectPath, ".input");
 }
 
+function outputDir(projectPath: string): string {
+  return resolve(projectPath, ".output");
+}
+
+function resolveProjectOutputPath(req: Request, res: Response): string | null {
+  const projectPath = resolveProject(req, res);
+  if (!projectPath) return null;
+
+  const rawWildcard = req.params.wildcard ?? req.params[0];
+  const relativePath = Array.isArray(rawWildcard) ? rawWildcard.join("/") : rawWildcard;
+  if (!relativePath) {
+    res.status(400).json({ error: "Invalid path" });
+    return null;
+  }
+
+  const segments = relativePath.split("/");
+  if (segments.some((s) => !safeFilename(s))) {
+    res.status(400).json({ error: "Invalid path segment" });
+    return null;
+  }
+
+  const base = outputDir(projectPath);
+  const filePath = resolve(base, ...segments);
+  if (!filePath.startsWith(base + sep)) {
+    res.status(400).json({ error: "Invalid path" });
+    return null;
+  }
+
+  return filePath;
+}
+
+projectsRouter.get("/:name/output", (req, res) => {
+  const projectPath = resolveProject(req, res);
+  if (!projectPath) return;
+
+  const base = outputDir(projectPath);
+  const subpath = typeof req.query.path === "string" ? req.query.path : "";
+  const targetDir = subpath ? resolve(base, subpath) : base;
+  if (!targetDir.startsWith(base + sep) && targetDir !== base) {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+  if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
+    if (subpath) {
+      res.status(404).json({ error: "Directory not found" });
+      return;
+    }
+    res.json([]);
+    return;
+  }
+
+  res.json(listDirEntries(targetDir));
+});
+
+projectsRouter.get("/:name/output-dl/{*wildcard}", (req, res) => {
+  const filePath = resolveProjectOutputPath(req, res);
+  if (!filePath) return;
+
+  if (!existsSync(filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const stat = statSync(filePath);
+  const basename = filePath.split(sep).pop()!;
+  if (stat.isDirectory()) {
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${basename}.zip"`);
+    const archive = archiver("zip", { zlib: { level: 6 } });
+    archive.on("error", () => {
+      if (!res.headersSent) res.status(500).json({ error: "Zip failed" });
+    });
+    archive.pipe(res);
+    archive.directory(filePath, basename);
+    archive.finalize();
+    return;
+  }
+
+  const MIME: Record<string, string> = {
+    ".json": "application/json", ".csv": "text/csv", ".txt": "text/plain",
+    ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
+    ".xml": "application/xml", ".html": "text/html", ".md": "text/markdown",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  };
+  const contentType = MIME[extname(basename).toLowerCase()] || "application/octet-stream";
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(basename)}"`);
+  res.setHeader("Content-Length", stat.size);
+  createReadStream(filePath).pipe(res);
+});
+
+projectsRouter.delete("/:name/output-rm/{*wildcard}", async (req, res) => {
+  const filePath = resolveProjectOutputPath(req, res);
+  if (!filePath) return;
+
+  if (!existsSync(filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  const stat = statSync(filePath);
+  if (stat.isDirectory()) {
+    await rm(filePath, { recursive: true, force: true });
+  } else {
+    unlinkSync(filePath);
+  }
+  res.json({ deleted: true });
+});
+
 projectsRouter.get("/:name/input", (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
@@ -469,6 +579,10 @@ function extractSkillDescription(content: string): string {
 }
 
 projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
+  if (executionManager.isDraining()) {
+    res.status(409).json({ error: "Serviço em reinício para atualização — tente novamente em instantes" });
+    return;
+  }
   const resolved = resolveProjectAndRepo(req, res);
   if (!resolved) return;
 
