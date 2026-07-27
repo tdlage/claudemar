@@ -121,6 +121,7 @@ interface ActiveEntry {
   detach?: () => void;
   timer?: ReturnType<typeof setTimeout>;
   timedOut?: boolean;
+  userInterrupted?: boolean;
 }
 
 class ExecutionManager extends EventEmitter {
@@ -527,12 +528,22 @@ class ExecutionManager extends EventEmitter {
     }
 
     if (result.isError) {
-      info.status = "error";
+      const cancelled = Boolean(entry.userInterrupted);
+      info.status = cancelled ? "cancelled" : "error";
       info.completedAt = new Date();
-      info.error = result.errorMessages.join("; ") || result.output || "Unknown error";
+      info.error = cancelled ? "Cancelado pelo usuário." : (result.errorMessages.join("; ") || result.output || "Unknown error");
       info.result = result;
+      if (cancelled && result.sessionId) {
+        this.lastSessionMap.set(entry.sessionKey, result.sessionId);
+        this.lastSessionModelMap.set(entry.sessionKey, info.model ?? DEFAULT_MODEL);
+        this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
+      }
       this.finalize(entry);
-      this.emit("error", info.id, info, info.error);
+      if (cancelled) {
+        this.emit("cancel", info.id, info);
+      } else {
+        this.emit("error", info.id, info, info.error);
+      }
       appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
       return;
     }
@@ -592,9 +603,10 @@ class ExecutionManager extends EventEmitter {
       return;
     }
 
-    info.status = "error";
+    const cancelled = Boolean(entry.userInterrupted);
+    info.status = cancelled ? "cancelled" : "error";
     info.completedAt = new Date();
-    info.error = message;
+    info.error = cancelled ? "Cancelado pelo usuário." : message;
     const durationMs = info.completedAt.getTime() - info.startedAt.getTime();
     info.result = {
       output: info.output,
@@ -602,12 +614,16 @@ class ExecutionManager extends EventEmitter {
       durationMs,
       costUsd: 0,
       totalTokens: 0,
-      isError: true,
-      errorMessages: [message],
+      isError: !cancelled,
+      errorMessages: cancelled ? [] : [message],
       permissionDenials: [],
     };
     this.finalize(entry);
-    this.emit("error", info.id, info, message);
+    if (cancelled) {
+      this.emit("cancel", info.id, info);
+    } else {
+      this.emit("error", info.id, info, message);
+    }
     appendHistory(buildHistoryEntry(info, { durationMs }));
   }
 
@@ -621,6 +637,7 @@ class ExecutionManager extends EventEmitter {
   async interrupt(id: string): Promise<boolean> {
     const entry = this.active.get(id);
     if (!entry) return false;
+    entry.userInterrupted = true;
     await entry.session.interrupt();
     return true;
   }
