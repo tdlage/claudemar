@@ -14,15 +14,20 @@ import {
 import {
   checkoutBranch,
   cloneRepo,
+  createRepoWorktree,
+  deleteRepoWorktree,
   discoverRepos,
   fetchRepo,
   getFileDiff,
   getRepoBranches,
   getRepoLog,
   getRepoStatus,
+  listWorktrees,
+  mergeWorktreeIntoBase,
   pullRepo,
   removeRepo,
   resolveRepoPath,
+  resolveWorktree,
   stashRepo,
 } from "../../repositories.js";
 import {
@@ -70,6 +75,31 @@ function resolveProjectAndRepo(req: Request, res: Response): { projectPath: stri
   }
 
   return { projectPath, repoPath };
+}
+
+async function resolveGitTarget(
+  req: Request,
+  res: Response,
+): Promise<{ projectPath: string; repoPath: string; workPath: string; worktreeBranch: string | null } | null> {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return null;
+
+  const worktree = req.query.worktree;
+  if (worktree === undefined) {
+    return { ...resolved, workPath: resolved.repoPath, worktreeBranch: null };
+  }
+  if (typeof worktree !== "string" || !worktree) {
+    res.status(400).json({ error: "Invalid worktree" });
+    return null;
+  }
+
+  const found = await resolveWorktree(resolved.repoPath, worktree);
+  if (!found) {
+    res.status(404).json({ error: "Worktree not found" });
+    return null;
+  }
+
+  return { ...resolved, workPath: found.path, worktreeBranch: found.branch || null };
 }
 
 async function resolveRepoWithRemote(
@@ -269,11 +299,11 @@ projectsRouter.delete("/:name/repos/:repo", async (req, res) => {
 });
 
 projectsRouter.get("/:name/repos/:repo/log", async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
+  const resolved = await resolveGitTarget(req, res);
   if (!resolved) return;
 
   try {
-    const commits = await getRepoLog(resolved.repoPath);
+    const commits = await getRepoLog(resolved.workPath);
     res.json(commits);
   } catch {
     res.json([]);
@@ -303,39 +333,39 @@ projectsRouter.post("/:name/repos/:repo/checkout", asyncHandler(async (req, res)
 }));
 
 projectsRouter.post("/:name/repos/:repo/pull", asyncHandler(async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
+  const resolved = await resolveGitTarget(req, res);
   if (!resolved) return;
 
-  const output = await pullRepo(resolved.repoPath);
+  const output = await pullRepo(resolved.workPath);
   res.json({ output });
 }));
 
 projectsRouter.post("/:name/repos/:repo/stash", asyncHandler(async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
+  const resolved = await resolveGitTarget(req, res);
   if (!resolved) return;
 
-  const output = await stashRepo(resolved.repoPath, req.body?.pop === true);
+  const output = await stashRepo(resolved.workPath, req.body?.pop === true);
   res.json({ output });
 }));
 
 projectsRouter.post("/:name/repos/:repo/fetch", asyncHandler(async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
+  const resolved = await resolveGitTarget(req, res);
   if (!resolved) return;
 
-  const output = await fetchRepo(resolved.repoPath);
+  const output = await fetchRepo(resolved.workPath);
   res.json({ output });
 }));
 
 projectsRouter.get("/:name/repos/:repo/status", asyncHandler(async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
+  const resolved = await resolveGitTarget(req, res);
   if (!resolved) return;
 
-  const files = await getRepoStatus(resolved.repoPath);
+  const files = await getRepoStatus(resolved.workPath);
   res.json(files);
 }));
 
 projectsRouter.get("/:name/repos/:repo/diff", asyncHandler(async (req, res) => {
-  const resolved = resolveProjectAndRepo(req, res);
+  const resolved = await resolveGitTarget(req, res);
   if (!resolved) return;
 
   const filePath = req.query.path;
@@ -344,8 +374,71 @@ projectsRouter.get("/:name/repos/:repo/diff", asyncHandler(async (req, res) => {
     return;
   }
 
-  const diff = await getFileDiff(resolved.repoPath, filePath);
+  const diff = await getFileDiff(resolved.workPath, filePath);
   res.json(diff);
+}));
+
+projectsRouter.get("/:name/repos/:repo/worktrees", asyncHandler(async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  const worktrees = await listWorktrees(resolved.repoPath);
+  res.json(worktrees);
+}));
+
+projectsRouter.post("/:name/repos/:repo/worktrees", asyncHandler(async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  const { branch, baseBranch } = req.body ?? {};
+  if (!branch || typeof branch !== "string") {
+    res.status(400).json({ error: "Branch required" });
+    return;
+  }
+
+  const worktree = await createRepoWorktree(
+    String(req.params.name),
+    String(req.params.repo),
+    resolved.repoPath,
+    branch,
+    typeof baseBranch === "string" && baseBranch ? baseBranch : undefined,
+  );
+  res.status(201).json(worktree);
+}));
+
+projectsRouter.delete("/:name/repos/:repo/worktrees", asyncHandler(async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  const worktreePath = req.query.path;
+  if (!worktreePath || typeof worktreePath !== "string") {
+    res.status(400).json({ error: "Query parameter 'path' is required" });
+    return;
+  }
+
+  const removed = await deleteRepoWorktree(resolved.repoPath, worktreePath, req.query.deleteBranch === "true");
+  if (!removed) {
+    res.status(404).json({ error: "Worktree not found" });
+    return;
+  }
+  res.json({ removed: true });
+}));
+
+projectsRouter.post("/:name/repos/:repo/worktrees/merge", asyncHandler(async (req, res) => {
+  const resolved = resolveProjectAndRepo(req, res);
+  if (!resolved) return;
+
+  const { worktree, push, remove } = req.body ?? {};
+  if (!worktree || typeof worktree !== "string") {
+    res.status(400).json({ error: "Worktree required" });
+    return;
+  }
+
+  const output = await mergeWorktreeIntoBase(resolved.repoPath, worktree, {
+    push: push !== false,
+    remove: remove !== false,
+  });
+  res.json({ output });
 }));
 
 projectsRouter.get("/:name/claude-agents", (_req, res) => {
@@ -578,18 +671,21 @@ function extractSkillDescription(content: string): string {
   return descMatch ? descMatch[1].trim() : "";
 }
 
-projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
+projectsRouter.post("/:name/repos/:repo/commit-push", asyncHandler(async (req, res) => {
   if (executionManager.isDraining()) {
     res.status(409).json({ error: "Serviço em reinício para atualização — tente novamente em instantes" });
     return;
   }
-  const resolved = resolveProjectAndRepo(req, res);
+  const resolved = await resolveGitTarget(req, res);
   if (!resolved) return;
 
-  const targetName = `__commitpush:${req.params.name}:${req.params.repo}`;
+  const worktreeSuffix = resolved.workPath !== resolved.repoPath
+    ? `:wt-${resolved.worktreeBranch || "detached"}`
+    : "";
+  const targetName = `__commitpush:${req.params.name}:${req.params.repo}${worktreeSuffix}`;
   const trackerItems: string[] = req.body?.trackerItems || [];
 
-  let prompt = "Analyze all uncommitted changes (staged and unstaged), write a clear and concise commit message following conventional commits style, stage all changes, commit, and push to origin. If there are merge conflicts, resolve them. Show the final commit message and push result.";
+  let prompt = "Analyze all uncommitted changes (staged and unstaged), write a clear and concise commit message following conventional commits style, stage all changes, commit, and push to origin. If the current branch has no upstream, push with -u origin <branch>. If there are merge conflicts, resolve them. Show the final commit message and push result.";
 
   if (trackerItems.length > 0) {
     prompt += `\n\nIMPORTANT: Include these tracker item references in the commit message footer as "Refs: ${trackerItems.join(", ")}".`;
@@ -601,14 +697,14 @@ projectsRouter.post("/:name/repos/:repo/commit-push", (req, res) => {
     targetType: "project",
     targetName,
     prompt,
-    cwd: resolved.repoPath,
+    cwd: resolved.workPath,
     noResume: true,
     username,
     autoApprove: true,
   });
 
   res.status(201).json({ id });
-});
+}));
 
 // ── CI / GitHub Actions ──
 

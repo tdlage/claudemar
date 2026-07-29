@@ -1,7 +1,9 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
 import { rm } from "node:fs/promises";
 import { executeSpawn } from "./executor.js";
+import { ensureWorktree, removeWorktree, slugify } from "./pipeline-worktree.js";
+import { config } from "./config.js";
 
 export interface RepoInfo {
   name: string;
@@ -328,6 +330,218 @@ export async function getFileDiff(repoPath: string, filePath: string): Promise<{
   }
 
   return { original, modified };
+}
+
+export interface WorktreeInfo {
+  path: string;
+  branch: string;
+  head: string;
+  isMain: boolean;
+  prunable: boolean;
+  hasChanges: boolean;
+  ahead: number;
+  behind: number;
+  baseBranch: string;
+}
+
+interface RawWorktree {
+  path: string;
+  head: string;
+  branch: string;
+  bare: boolean;
+  prunable: boolean;
+}
+
+const BRANCH_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/;
+
+export const REPO_WORKTREES_ROOT = resolve(config.dataPath, "repo-worktrees");
+
+function isValidBranchName(branch: string): boolean {
+  return BRANCH_NAME_RE.test(branch) && !branch.includes("..") && !branch.endsWith(".lock") && !branch.endsWith("/");
+}
+
+async function rawWorktrees(repoPath: string): Promise<RawWorktree[]> {
+  const { output, exitCode } = await executeSpawn("git", ["worktree", "list", "--porcelain"], repoPath, 10000);
+  if (exitCode !== 0) return [];
+
+  return output
+    .split(/\n\s*\n/)
+    .map((block) => {
+      const entry: RawWorktree = { path: "", head: "", branch: "", bare: false, prunable: false };
+      for (const line of block.split("\n")) {
+        if (line.startsWith("worktree ")) entry.path = resolve(line.slice(9).trim());
+        else if (line.startsWith("HEAD ")) entry.head = line.slice(5).trim();
+        else if (line.startsWith("branch ")) entry.branch = line.slice(7).trim().replace(/^refs\/heads\//, "");
+        else if (line === "bare") entry.bare = true;
+        else if (line.startsWith("prunable")) entry.prunable = true;
+      }
+      return entry;
+    })
+    .filter((entry) => entry.path && !entry.bare);
+}
+
+export async function getDefaultBranch(repoPath: string): Promise<string> {
+  const head = await executeSpawn("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], repoPath, 5000).catch(() => null);
+  if (head?.exitCode === 0) {
+    const name = head.output.trim().replace(/^origin\//, "");
+    if (name) return name;
+  }
+  for (const candidate of ["main", "master"]) {
+    const result = await executeSpawn("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${candidate}`], repoPath, 5000).catch(() => null);
+    if (result?.exitCode === 0) return candidate;
+  }
+  return "main";
+}
+
+export async function listWorktrees(repoPath: string): Promise<WorktreeInfo[]> {
+  const entries = await rawWorktrees(repoPath);
+  const baseBranch = await getDefaultBranch(repoPath);
+  const mainPath = resolve(repoPath);
+  const worktrees: WorktreeInfo[] = [];
+
+  for (const entry of entries) {
+    const isMain = entry.path === mainPath;
+
+    let hasChanges = false;
+    if (!entry.prunable) {
+      try {
+        const status = await executeSpawn("git", ["status", "--porcelain"], entry.path, 10000);
+        hasChanges = status.output.trim().length > 0;
+      } catch { /* worktree inacessível */ }
+    }
+
+    let ahead = 0;
+    let behind = 0;
+    if (!entry.prunable && entry.branch && entry.branch !== baseBranch) {
+      const counts = await executeSpawn(
+        "git",
+        ["rev-list", "--left-right", "--count", `${baseBranch}...${entry.branch}`],
+        repoPath,
+        10000,
+      ).catch(() => null);
+      if (counts?.exitCode === 0) {
+        const [left, right] = counts.output.trim().split(/\s+/).map(Number);
+        behind = left || 0;
+        ahead = right || 0;
+      }
+    }
+
+    worktrees.push({
+      path: entry.path,
+      branch: entry.branch,
+      head: entry.head,
+      isMain,
+      prunable: entry.prunable,
+      hasChanges,
+      ahead,
+      behind,
+      baseBranch,
+    });
+  }
+
+  return worktrees;
+}
+
+export async function resolveWorktree(repoPath: string, worktreePath: string): Promise<{ path: string; branch: string } | null> {
+  const target = resolve(worktreePath);
+  if (target === resolve(repoPath)) return null;
+  const entries = await rawWorktrees(repoPath);
+  const found = entries.find((entry) => entry.path === target);
+  return found ? { path: found.path, branch: found.branch } : null;
+}
+
+export function repoWorktreeDestPath(projectName: string, repoName: string, branch: string): string {
+  const repoDir = repoName === "." ? "root" : repoName;
+  return resolve(REPO_WORKTREES_ROOT, projectName, repoDir, slugify(branch));
+}
+
+export async function createRepoWorktree(
+  projectName: string,
+  repoName: string,
+  repoPath: string,
+  branch: string,
+  baseBranch?: string,
+): Promise<WorktreeInfo> {
+  if (!isValidBranchName(branch)) {
+    throw new Error("Nome de branch inválido.");
+  }
+  if (baseBranch && !isValidBranchName(baseBranch)) {
+    throw new Error("Nome de branch base inválido.");
+  }
+
+  const base = baseBranch || (await getDefaultBranch(repoPath));
+  const destPath = repoWorktreeDestPath(projectName, repoName, branch);
+  if (existsSync(destPath)) {
+    throw new Error(`Já existe um worktree em "${destPath}".`);
+  }
+
+  mkdirSync(dirname(destPath), { recursive: true });
+  await ensureWorktree(repoPath, base, branch, destPath);
+
+  const created = (await listWorktrees(repoPath)).find((w) => w.path === destPath);
+  if (!created) throw new Error("Worktree criado, mas não encontrado na listagem.");
+  return created;
+}
+
+export async function deleteRepoWorktree(repoPath: string, worktreePath: string, deleteBranch: boolean): Promise<boolean> {
+  const worktree = await resolveWorktree(repoPath, worktreePath);
+  if (!worktree) return false;
+  await removeWorktree(repoPath, worktree.path, deleteBranch && worktree.branch ? worktree.branch : null);
+  return true;
+}
+
+export async function mergeWorktreeIntoBase(
+  repoPath: string,
+  worktreePath: string,
+  options: { push: boolean; remove: boolean },
+): Promise<string> {
+  const worktrees = await listWorktrees(repoPath);
+  const worktree = worktrees.find((w) => w.path === resolve(worktreePath) && !w.isMain);
+  if (!worktree) throw new Error("Worktree não encontrado.");
+  if (!worktree.branch) throw new Error("Worktree está em detached HEAD, não é possível fazer merge.");
+  if (worktree.hasChanges) {
+    throw new Error("O worktree tem alterações não commitadas. Faça commit (ou stash) antes do merge.");
+  }
+
+  const base = worktree.baseBranch;
+  const mainStatus = await executeSpawn("git", ["status", "--porcelain"], repoPath, 10000);
+  if (mainStatus.output.trim()) {
+    throw new Error(`O repositório principal tem alterações não commitadas. Resolva-as antes de mergear em "${base}".`);
+  }
+
+  const outputs: string[] = [];
+  const current = (await executeSpawn("git", ["branch", "--show-current"], repoPath, 5000)).output.trim();
+  if (current !== base) {
+    const switched = await executeSpawn("git", ["switch", base], repoPath, 15000);
+    if (switched.exitCode !== 0) {
+      throw new Error(`Não foi possível mudar para "${base}": ${switched.output}`);
+    }
+  }
+
+  const pull = await executeSpawn("git", ["pull", "--ff-only"], repoPath, 30000).catch(() => null);
+  if (pull?.exitCode === 0 && pull.output.trim()) outputs.push(pull.output.trim());
+
+  const merge = await executeSpawn("git", ["merge", "--no-ff", "-m", `Merge branch '${worktree.branch}'`, worktree.branch], repoPath, 30000);
+  if (merge.exitCode !== 0) {
+    await executeSpawn("git", ["merge", "--abort"], repoPath, 15000).catch(() => null);
+    throw new Error(`Merge de "${worktree.branch}" em "${base}" falhou: ${merge.output}`);
+  }
+  outputs.push(merge.output.trim());
+
+  if (options.push) {
+    const push = await executeSpawn("git", ["push"], repoPath, 30000);
+    if (push.exitCode !== 0) {
+      throw new Error(`Merge concluído, mas o push falhou: ${push.output}`);
+    }
+    if (push.output.trim()) outputs.push(push.output.trim());
+  }
+
+  if (options.remove) {
+    await removeWorktree(repoPath, worktree.path, worktree.branch);
+    outputs.push(`Worktree removido e branch "${worktree.branch}" apagado.`);
+  }
+
+  return outputs.filter(Boolean).join("\n");
 }
 
 export function resolveRepoPath(projectPath: string, repoName: string): string | null {

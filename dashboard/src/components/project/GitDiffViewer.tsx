@@ -7,6 +7,7 @@ import type { GitFileStatus, GitFileDiff } from "../../lib/types";
 interface GitDiffViewerProps {
   projectName: string;
   repoName: string;
+  worktree?: string;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; title: string; color: string }> = {
@@ -21,17 +22,19 @@ function getStatusConfig(status: string) {
   return STATUS_CONFIG[status] ?? STATUS_CONFIG["?"];
 }
 
-export function GitDiffViewer({ projectName, repoName }: GitDiffViewerProps) {
+export function GitDiffViewer({ projectName, repoName, worktree }: GitDiffViewerProps) {
   const [files, setFiles] = useState<GitFileStatus[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [diff, setDiff] = useState<GitFileDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingDiff, setLoadingDiff] = useState(false);
 
+  const worktreeQuery = worktree ? `worktree=${encodeURIComponent(worktree)}` : "";
+
   const loadStatus = useCallback(async () => {
     try {
       const data = await api.get<GitFileStatus[]>(
-        `/projects/${projectName}/repos/${repoName}/status`,
+        `/projects/${projectName}/repos/${repoName}/status${worktreeQuery ? `?${worktreeQuery}` : ""}`,
       );
       setFiles(data);
       if (data.length > 0 && !selectedFile) {
@@ -42,7 +45,7 @@ export function GitDiffViewer({ projectName, repoName }: GitDiffViewerProps) {
     } finally {
       setLoading(false);
     }
-  }, [projectName, repoName, selectedFile]);
+  }, [projectName, repoName, worktreeQuery, selectedFile]);
 
   useEffect(() => {
     loadStatus();
@@ -57,12 +60,12 @@ export function GitDiffViewer({ projectName, repoName }: GitDiffViewerProps) {
     setLoadingDiff(true);
     api
       .get<GitFileDiff>(
-        `/projects/${projectName}/repos/${repoName}/diff?path=${encodeURIComponent(selectedFile)}`,
+        `/projects/${projectName}/repos/${repoName}/diff?path=${encodeURIComponent(selectedFile)}${worktreeQuery ? `&${worktreeQuery}` : ""}`,
       )
       .then(setDiff)
       .catch(() => setDiff(null))
       .finally(() => setLoadingDiff(false));
-  }, [projectName, repoName, selectedFile]);
+  }, [projectName, repoName, worktreeQuery, selectedFile]);
 
   if (loading) {
     return (

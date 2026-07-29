@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { GitBranch, GitPullRequest, GitCommitHorizontal, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, FileDiff, Circle } from "lucide-react";
+import { GitBranch, GitPullRequest, GitCommitHorizontal, GitMerge, FolderGit2, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, FileDiff, Circle } from "lucide-react";
 import { api } from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { Card } from "../shared/Card";
@@ -10,7 +10,7 @@ import { GitDiffViewer } from "./GitDiffViewer";
 import { GitLog } from "./GitLog";
 import { useToast } from "../shared/Toast";
 import { TrackerItemSelector } from "./TrackerItemSelector";
-import type { RepoInfo, RepoBranches, GitCommit, ExecutionInfo, CIWorkflowRun } from "../../lib/types";
+import type { RepoInfo, RepoBranches, GitCommit, ExecutionInfo, CIWorkflowRun, WorktreeInfo } from "../../lib/types";
 
 interface CIStatusSummary {
   conclusion: string | null;
@@ -51,16 +51,41 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
   const [diffRepo, setDiffRepo] = useState<string | null>(null);
 
   const [commitPush, setCommitPush] = useState<Record<string, CommitPushState>>({});
-  const [trackerSelectorRepo, setTrackerSelectorRepo] = useState<string | null>(null);
+  const [trackerSelectorTarget, setTrackerSelectorTarget] = useState<string | null>(null);
 
-  const handleCommitPushDone = useCallback((repoName: string, status: "completed" | "error", error?: string) => {
+  const [worktrees, setWorktrees] = useState<Record<string, WorktreeInfo[]>>({});
+  const [wtDiff, setWtDiff] = useState<string | null>(null);
+  const [wtCreateRepo, setWtCreateRepo] = useState<string | null>(null);
+  const [wtBranch, setWtBranch] = useState("");
+  const [wtBaseBranch, setWtBaseBranch] = useState("");
+  const [wtCreating, setWtCreating] = useState(false);
+  const [wtMergeTarget, setWtMergeTarget] = useState<{ repo: string; worktree: WorktreeInfo } | null>(null);
+  const [wtMergePush, setWtMergePush] = useState(true);
+  const [wtMergeRemove, setWtMergeRemove] = useState(true);
+  const [wtMerging, setWtMerging] = useState(false);
+  const [wtDeleteTarget, setWtDeleteTarget] = useState<{ repo: string; worktree: WorktreeInfo } | null>(null);
+  const [wtDeleteBranch, setWtDeleteBranch] = useState(false);
+
+  const loadWorktrees = useCallback(async (repoName: string) => {
+    try {
+      const list = await api.get<WorktreeInfo[]>(`/projects/${projectName}/repos/${repoName}/worktrees`);
+      setWorktrees((prev) => ({ ...prev, [repoName]: list }));
+    } catch { }
+  }, [projectName]);
+
+  const handleCommitPushDone = useCallback((targetKey: string, status: "completed" | "error", error?: string) => {
+    const [repoName, wtPath] = targetKey.split("@@");
     setCommitPush((prev) => ({
       ...prev,
-      [repoName]: { ...prev[repoName], status, error },
+      [targetKey]: { ...prev[targetKey], status, error },
     }));
     if (status === "completed") {
       addToast("success", `Commit & Push completed (${repoName})`);
-      setDiffRepo((prev) => (prev === repoName ? null : prev));
+      if (wtPath) {
+        setWtDiff((prev) => (prev === wtPath ? null : prev));
+      } else {
+        setDiffRepo((prev) => (prev === repoName ? null : prev));
+      }
       onRefresh();
       if (expandedRepo === repoName) {
         Promise.all([
@@ -70,6 +95,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
           if (b) setBranches((prev) => ({ ...prev, [repoName]: b }));
           if (l) setLogs((prev) => ({ ...prev, [repoName]: l }));
         });
+        loadWorktrees(repoName);
       }
     } else {
       addToast("error", `Commit & Push failed (${repoName})`);
@@ -77,11 +103,11 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
     setTimeout(() => {
       setCommitPush((prev) => {
         const next = { ...prev };
-        delete next[repoName];
+        delete next[targetKey];
         return next;
       });
     }, 5000);
-  }, [addToast, expandedRepo, onRefresh, projectName]);
+  }, [addToast, expandedRepo, loadWorktrees, onRefresh, projectName]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -177,15 +203,17 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
     }
   }, [repos, projectName]);
 
-  const handleCommitPush = async (repoName: string, trackerItems: string[] = []) => {
+  const handleCommitPush = async (targetKey: string, trackerItems: string[] = []) => {
+    const [repoName, wtPath] = targetKey.split("@@");
+    const query = wtPath ? `?worktree=${encodeURIComponent(wtPath)}` : "";
     try {
       const { id } = await api.post<{ id: string }>(
-        `/projects/${projectName}/repos/${repoName}/commit-push`,
+        `/projects/${projectName}/repos/${repoName}/commit-push${query}`,
         { trackerItems },
       );
       setCommitPush((prev) => ({
         ...prev,
-        [repoName]: { execId: id, status: "running" },
+        [targetKey]: { execId: id, status: "running" },
       }));
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to start commit & push");
@@ -205,6 +233,8 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
     } else {
       setDiffRepo((prev) => (prev === repoName ? null : prev));
     }
+
+    loadWorktrees(repoName);
 
     if (!branches[repoName]) {
       try {
@@ -282,6 +312,80 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
     await handleAction(repoName, "checkout", { branch });
   };
 
+  const handleWorktreeAction = async (repoName: string, worktree: WorktreeInfo, action: string) => {
+    const actionKey = `${repoName}:${worktree.path}:${action}`;
+    setLoadingAction(actionKey);
+    try {
+      const result = await api.post<{ output: string }>(
+        `/projects/${projectName}/repos/${repoName}/${action}?worktree=${encodeURIComponent(worktree.path)}`,
+      );
+      addToast("success", result.output || `${action} completed`);
+      loadWorktrees(repoName);
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : `${action} failed`);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleCreateWorktree = async () => {
+    if (!wtCreateRepo || !wtBranch.trim()) return;
+    setWtCreating(true);
+    try {
+      await api.post(`/projects/${projectName}/repos/${wtCreateRepo}/worktrees`, {
+        branch: wtBranch.trim(),
+        baseBranch: wtBaseBranch.trim() || undefined,
+      });
+      addToast("success", `Worktree created (${wtBranch.trim()})`);
+      loadWorktrees(wtCreateRepo);
+      setWtCreateRepo(null);
+      setWtBranch("");
+      setWtBaseBranch("");
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Failed to create worktree");
+    } finally {
+      setWtCreating(false);
+    }
+  };
+
+  const handleMergeWorktree = async () => {
+    if (!wtMergeTarget) return;
+    const { repo, worktree } = wtMergeTarget;
+    setWtMerging(true);
+    try {
+      const result = await api.post<{ output: string }>(
+        `/projects/${projectName}/repos/${repo}/worktrees/merge`,
+        { worktree: worktree.path, push: wtMergePush, remove: wtMergeRemove },
+      );
+      addToast("success", result.output || "Merge completed");
+      setWtMergeTarget(null);
+      setWtDiff((prev) => (prev === worktree.path ? null : prev));
+      loadWorktrees(repo);
+      onRefresh();
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Merge failed");
+    } finally {
+      setWtMerging(false);
+    }
+  };
+
+  const handleDeleteWorktree = async () => {
+    if (!wtDeleteTarget) return;
+    const { repo, worktree } = wtDeleteTarget;
+    try {
+      await api.delete(
+        `/projects/${projectName}/repos/${repo}/worktrees?path=${encodeURIComponent(worktree.path)}&deleteBranch=${wtDeleteBranch}`,
+      );
+      addToast("success", "Worktree removed");
+      setWtDeleteTarget(null);
+      setWtDeleteBranch(false);
+      setWtDiff((prev) => (prev === worktree.path ? null : prev));
+      loadWorktrees(repo);
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Failed to remove worktree");
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -305,6 +409,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
         const repoLog = logs[repo.name];
         const cpState = commitPush[repo.name];
         const ci = ciStatus[repo.name];
+        const repoWorktrees = (worktrees[repo.name] ?? []).filter((w) => !w.isMain);
 
         return (
           <Card key={repo.name} className="p-0 overflow-hidden">
@@ -411,7 +516,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => setTrackerSelectorRepo(repo.name)}
+                    onClick={() => setTrackerSelectorTarget(repo.name)}
                     disabled={cpState?.status === "running"}
                   >
                     {cpState?.status === "running" ? (
@@ -463,6 +568,136 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
                   </div>
                 )}
 
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-medium text-text-muted flex items-center gap-1.5">
+                      <FolderGit2 size={12} /> Worktrees ({repoWorktrees.length})
+                    </h3>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setWtBranch("");
+                        setWtBaseBranch("");
+                        setWtCreateRepo(repo.name);
+                      }}
+                    >
+                      <Plus size={13} className="mr-1" /> New Worktree
+                    </Button>
+                  </div>
+
+                  {repoWorktrees.length === 0 && (
+                    <p className="text-xs text-text-muted">
+                      No worktrees. Create one to work on a branch in isolation until it is merged.
+                    </p>
+                  )}
+
+                  <div className="space-y-2">
+                    {repoWorktrees.map((wt) => {
+                      const wtKey = `${repo.name}@@${wt.path}`;
+                      const wtCpState = commitPush[wtKey];
+                      const wtLoading = (action: string) => loadingAction === `${repo.name}:${wt.path}:${action}`;
+
+                      return (
+                        <div key={wt.path} className="border border-border rounded-md">
+                          <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+                            <GitBranch size={12} className="text-text-muted shrink-0" />
+                            <Badge variant="accent">{wt.branch || "detached"}</Badge>
+                            {wt.hasChanges && !wtCpState && (
+                              <Circle size={8} className="text-warning fill-warning shrink-0" />
+                            )}
+                            {wtCpState?.status === "running" && (
+                              <Loader2 size={12} className="animate-spin text-accent shrink-0" />
+                            )}
+                            {wtCpState?.status === "completed" && (
+                              <CheckCircle size={12} className="text-green-500 shrink-0" />
+                            )}
+                            {wtCpState?.status === "error" && (
+                              <XCircle size={12} className="text-red-500 shrink-0" />
+                            )}
+                            {(wt.ahead > 0 || wt.behind > 0) && (
+                              <span className="text-xs text-text-secondary shrink-0" title={`vs ${wt.baseBranch}`}>
+                                ↑{wt.ahead} ↓{wt.behind} vs {wt.baseBranch}
+                              </span>
+                            )}
+                            {wt.prunable && (
+                              <Badge variant="warning">prunable</Badge>
+                            )}
+                            <span className="flex-1 text-xs text-text-muted truncate text-right font-mono" title={wt.path}>
+                              {wt.path}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2 px-3 pb-2">
+                            {wt.hasChanges && (
+                              <Button
+                                size="sm"
+                                variant={wtDiff === wt.path ? "primary" : "secondary"}
+                                onClick={() => setWtDiff(wtDiff === wt.path ? null : wt.path)}
+                              >
+                                <FileDiff size={13} className="mr-1" />
+                                Changes
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => handleWorktreeAction(repo.name, wt, "pull")}
+                              disabled={wtLoading("pull")}
+                            >
+                              <GitPullRequest size={13} className="mr-1" />
+                              {wtLoading("pull") ? "Pulling..." : "Pull"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setTrackerSelectorTarget(wtKey)}
+                              disabled={wtCpState?.status === "running"}
+                            >
+                              {wtCpState?.status === "running" ? (
+                                <Loader2 size={13} className="mr-1 animate-spin" />
+                              ) : (
+                                <GitCommitHorizontal size={13} className="mr-1" />
+                              )}
+                              {wtCpState?.status === "running" ? "Committing..." : "Commit & Push"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                setWtMergePush(true);
+                                setWtMergeRemove(true);
+                                setWtMergeTarget({ repo: repo.name, worktree: wt });
+                              }}
+                              disabled={!wt.branch || wtCpState?.status === "running"}
+                            >
+                              <GitMerge size={13} className="mr-1" />
+                              Merge to {wt.baseBranch}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              onClick={() => {
+                                setWtDeleteBranch(false);
+                                setWtDeleteTarget({ repo: repo.name, worktree: wt });
+                              }}
+                            >
+                              <Trash2 size={13} className="mr-1" />
+                              Remove
+                            </Button>
+                          </div>
+
+                          {wtDiff === wt.path && (
+                            <div className="px-3 pb-3">
+                              <GitDiffViewer projectName={projectName} repoName={repo.name} worktree={wt.path} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {repoLog && (
                   <div>
                     <h3 className="text-xs font-medium text-text-muted mb-2">Recent Commits</h3>
@@ -510,15 +745,118 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
       </Modal>
 
       <TrackerItemSelector
-        open={!!trackerSelectorRepo}
-        onClose={() => setTrackerSelectorRepo(null)}
+        open={!!trackerSelectorTarget}
+        onClose={() => setTrackerSelectorTarget(null)}
         onConfirm={(items) => {
-          if (trackerSelectorRepo) {
-            handleCommitPush(trackerSelectorRepo, items);
+          if (trackerSelectorTarget) {
+            handleCommitPush(trackerSelectorTarget, items);
           }
-          setTrackerSelectorRepo(null);
+          setTrackerSelectorTarget(null);
         }}
       />
+
+      <Modal open={!!wtCreateRepo} onClose={() => setWtCreateRepo(null)} title="New Worktree">
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Branch</label>
+            <input
+              type="text"
+              value={wtBranch}
+              onChange={(e) => setWtBranch(e.target.value)}
+              placeholder="feature/my-branch"
+              className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Base branch (optional)</label>
+            <input
+              type="text"
+              value={wtBaseBranch}
+              onChange={(e) => setWtBaseBranch(e.target.value)}
+              placeholder="Default branch"
+              className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+            />
+          </div>
+          <p className="text-xs text-text-muted">
+            Creates an isolated checkout of the branch. Work on it, commit, and merge it back when ready.
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setWtCreateRepo(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleCreateWorktree} disabled={!wtBranch.trim() || wtCreating}>
+              {wtCreating ? "Creating..." : "Create"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!wtMergeTarget} onClose={() => setWtMergeTarget(null)} title="Merge Worktree">
+        <div className="space-y-3">
+          <p className="text-sm text-text-secondary">
+            Merge <strong className="text-text-primary">{wtMergeTarget?.worktree.branch}</strong> into{" "}
+            <strong className="text-text-primary">{wtMergeTarget?.worktree.baseBranch}</strong>?
+          </p>
+          {wtMergeTarget?.worktree.hasChanges && (
+            <p className="text-xs text-warning">
+              This worktree has uncommitted changes. Commit them first, otherwise the merge will be rejected.
+            </p>
+          )}
+          <label className="flex items-center gap-2 text-sm text-text-secondary">
+            <input
+              type="checkbox"
+              checked={wtMergePush}
+              onChange={(e) => setWtMergePush(e.target.checked)}
+            />
+            Push {wtMergeTarget?.worktree.baseBranch} after merge
+          </label>
+          <label className="flex items-center gap-2 text-sm text-text-secondary">
+            <input
+              type="checkbox"
+              checked={wtMergeRemove}
+              onChange={(e) => setWtMergeRemove(e.target.checked)}
+            />
+            Remove worktree and delete branch after merge
+          </label>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setWtMergeTarget(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleMergeWorktree} disabled={wtMerging}>
+              {wtMerging ? "Merging..." : "Merge"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!wtDeleteTarget} onClose={() => setWtDeleteTarget(null)} title="Remove Worktree">
+        <div className="space-y-3">
+          <p className="text-sm text-text-secondary">
+            Are you sure you want to remove the worktree for{" "}
+            <strong className="text-text-primary">{wtDeleteTarget?.worktree.branch || wtDeleteTarget?.worktree.path}</strong>?
+            {wtDeleteTarget?.worktree.hasChanges && (
+              <span className="text-warning"> It has uncommitted changes that will be lost.</span>
+            )}
+          </p>
+          <label className="flex items-center gap-2 text-sm text-text-secondary">
+            <input
+              type="checkbox"
+              checked={wtDeleteBranch}
+              onChange={(e) => setWtDeleteBranch(e.target.checked)}
+            />
+            Also delete branch {wtDeleteTarget?.worktree.branch}
+          </label>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setWtDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" size="sm" onClick={handleDeleteWorktree}>
+              Remove
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Remove Repository">
         <div className="space-y-3">

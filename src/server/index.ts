@@ -38,7 +38,15 @@ export function createDashboardServer() {
 
   const apiLimiter = rateLimit({
     windowMs: 60_000,
-    limit: 120,
+    limit: 1200,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { error: "Too many requests, please try again later" },
+  });
+
+  const authLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 30,
     standardHeaders: "draft-7",
     legacyHeaders: false,
     message: { error: "Too many requests, please try again later" },
@@ -67,6 +75,7 @@ export function createDashboardServer() {
 
   app.use("/webhooks", express.raw({ type: "application/json" }), webhooksRouter);
 
+  app.use("/api/auth", authLimiter);
   app.use("/api", apiLimiter);
   app.use("/api", authMiddleware);
 

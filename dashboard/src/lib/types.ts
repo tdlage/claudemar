@@ -144,6 +144,18 @@ export interface RepoBranches {
   branches: string[];
 }
 
+export interface WorktreeInfo {
+  path: string;
+  branch: string;
+  head: string;
+  isMain: boolean;
+  prunable: boolean;
+  hasChanges: boolean;
+  ahead: number;
+  behind: number;
+  baseBranch: string;
+}
+
 export interface GitCommit {
   hash: string;
   message: string;
