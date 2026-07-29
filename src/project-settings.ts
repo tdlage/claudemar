@@ -44,6 +44,12 @@ export class ProjectSettingsManager {
     this.persister.scheduleWrite(() => this.data);
   }
 
+  removeProject(projectName: string): void {
+    if (!(projectName in this.data)) return;
+    delete this.data[projectName];
+    this.persister.scheduleWrite(() => this.data);
+  }
+
   flush(): void {
     this.persister.flushSync(this.data);
   }

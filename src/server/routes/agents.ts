@@ -14,6 +14,7 @@ import {
 import type { AgentPaths } from "../../agents/types.js";
 import { listSchedulesByAgent, removeSchedule, removeSchedulesByAgent } from "../../agents/scheduler.js";
 import { removeAgentData, getTeamOfAgent, getTeam } from "../../agents/teams-manager.js";
+import { purgeAgentData } from "../../target-cleanup.js";
 import { secretsManager } from "../../secrets-manager.js";
 import { safeFilename, listFiles, listDirEntries } from "../route-utils.js";
 
@@ -183,6 +184,7 @@ agentsRouter.delete("/:name", async (req, res) => {
 
   const removedSchedules = await removeSchedulesByAgent(name);
   await removeAgentData(name);
+  await purgeAgentData(name);
   await rm(paths.root, { recursive: true, force: true });
 
   res.json({ removed: name, removedSchedules });

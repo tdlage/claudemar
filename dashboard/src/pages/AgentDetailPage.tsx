@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "react-router-dom";
-import { ListOrdered, Zap, FileText, CalendarClock } from "lucide-react";
+import { useParams, useNavigate } from "react-router-dom";
+import { ListOrdered, Zap, FileText, CalendarClock, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
+import { Modal } from "../components/shared/Modal";
+import { Button } from "../components/shared/Button";
 import { Terminal, type StartOpts } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
 import type { ImageBlock } from "../lib/imageBlock";
@@ -29,7 +31,11 @@ type TabKey = "terminal" | "code" | "input" | "output" | "config" | "scheduler" 
 
 export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
+  const navigate = useNavigate();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const [tab, setTab] = useCachedState<TabKey>(`agent:${name}:tab`, "terminal");
   const [sequential, setSequential] = useCachedState(`agent:${name}:sequential`, false);
   const [schedulerMode, setSchedulerMode] = useCachedState(`agent:${name}:schedulerMode`, false);
@@ -153,7 +159,67 @@ export function AgentDetailPage() {
         {agent.schedules.length > 0 && (
           <Badge variant="info">{agent.schedules.length} schedules</Badge>
         )}
+        {admin && (
+          <Button
+            size="sm"
+            variant="danger"
+            className="ml-auto"
+            onClick={() => {
+              setDeleteConfirmName("");
+              setDeleteOpen(true);
+            }}
+          >
+            <Trash2 size={13} className="mr-1" /> Delete
+          </Button>
+        )}
       </div>
+
+      <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete Agent">
+        <div className="space-y-3">
+          <p className="text-sm text-text-secondary">
+            This will permanently delete <strong className="text-text-primary">{agent.name}</strong> and
+            everything related to it: the agent folder (context, input, output), schedules and crons,
+            secrets, team membership, execution history, queued commands and long-term memory.
+            This cannot be undone.
+          </p>
+          <div>
+            <label className="block text-xs text-text-muted mb-1">
+              Type <strong className="text-text-primary">{agent.name}</strong> to confirm
+            </label>
+            <input
+              type="text"
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              placeholder={agent.name}
+              className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={deleteConfirmName !== agent.name || deleting}
+              onClick={async () => {
+                setDeleting(true);
+                try {
+                  await api.delete(`/agents/${agent.name}`);
+                  addToast("success", `Agent "${agent.name}" deleted`);
+                  navigate("/");
+                } catch (err) {
+                  addToast("error", err instanceof Error ? err.message : "Delete failed");
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting ? "Deleting..." : "Delete Agent"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 

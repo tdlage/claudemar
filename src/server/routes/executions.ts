@@ -13,6 +13,7 @@ import { resolveRepoPath } from "../../repositories.js";
 import { safeProjectPath } from "../../session.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { loadHistory, loadSessionRefs } from "../../history.js";
+import { filterExistingSessions, sessionFileExists } from "../../session-validator.js";
 import { isSelectableProjectModel } from "../../models-discovery.js";
 
 export const executionsRouter = Router();
@@ -231,10 +232,19 @@ function reqUsername(req: Request): string {
 executionsRouter.get("/session/:targetType/:targetName", async (req, res) => {
   const { targetType, targetName } = req.params;
   const user = reqUsername(req);
-  const sessionRefs = await loadSessionRefs(targetType, targetName);
+  const allRefs = await loadSessionRefs(targetType, targetName);
+  const { valid: sessionRefs, removed } = filterExistingSessions(allRefs);
+  for (const staleId of removed) {
+    sessionNamesManager.deleteName(staleId).catch(() => {});
+  }
+
   const dbHistory = sessionRefs.map((s) => s.sessionId);
-  const currentSessionId = executionManager.getLastSessionId(targetType, targetName, user);
+  let currentSessionId = executionManager.getLastSessionId(targetType, targetName, user);
   const currentModel = executionManager.getLastSessionModel(targetType, targetName, user);
+  if (currentSessionId && !executionManager.isSessionActive(targetType, targetName, user) && !sessionFileExists(currentSessionId)) {
+    executionManager.clearSessionId(targetType, targetName, user);
+    currentSessionId = undefined;
+  }
   if (currentSessionId && currentModel && !dbHistory.includes(currentSessionId)) {
     sessionRefs.unshift({ sessionId: currentSessionId, model: currentModel });
     dbHistory.unshift(currentSessionId);

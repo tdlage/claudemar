@@ -6,7 +6,7 @@ export interface CurrentModel {
   displayName: string;
 }
 
-const FALLBACK: CurrentModel = { id: "opus", displayName: "Opus 4.8" };
+const FALLBACK: CurrentModel = { id: "opus", displayName: "Opus 5" };
 
 let globalCache: CurrentModel | null = null;
 

@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "react-router-dom";
-import { Bot, ListOrdered, Zap, Cpu } from "lucide-react";
+import { useParams, useNavigate } from "react-router-dom";
+import { Bot, ListOrdered, Zap, Cpu, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
+import { Modal } from "../components/shared/Modal";
+import { Button } from "../components/shared/Button";
 import { Terminal, type StartOpts } from "../components/terminal/Terminal";
 import { QuestionPanel } from "../components/terminal/QuestionPanel";
 import type { ImageBlock } from "../lib/imageBlock";
@@ -25,7 +27,11 @@ type TabKey = ProjectTabKey;
 
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
+  const navigate = useNavigate();
   const [project, setProject] = useState<ProjectDetail | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const [tab, setTab] = useCachedState<TabKey>(`project:${name}:tab`, "terminal");
   const [sequential, setSequential] = useCachedState(`project:${name}:sequential`, true);
   const [selectedAgent, setSelectedAgent] = useCachedState(`project:${name}:agent`, "");
@@ -156,7 +162,67 @@ export function ProjectDetailPage() {
       <div className="flex items-center gap-2 md:gap-3 shrink-0 flex-wrap">
         <h1 className="text-base md:text-lg font-semibold">{project.name}</h1>
         <Badge variant="default">{project.repos.length} repos</Badge>
+        {admin && (
+          <Button
+            size="sm"
+            variant="danger"
+            className="ml-auto"
+            onClick={() => {
+              setDeleteConfirmName("");
+              setDeleteOpen(true);
+            }}
+          >
+            <Trash2 size={13} className="mr-1" /> Delete
+          </Button>
+        )}
       </div>
+
+      <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete Project">
+        <div className="space-y-3">
+          <p className="text-sm text-text-secondary">
+            This will permanently delete <strong className="text-text-primary">{project.name}</strong> and
+            everything related to it: the project folder with all repositories and files, worktrees,
+            pipeline (cards, runs, intake crons), run configs, execution history, queued commands and
+            long-term memory. This cannot be undone.
+          </p>
+          <div>
+            <label className="block text-xs text-text-muted mb-1">
+              Type <strong className="text-text-primary">{project.name}</strong> to confirm
+            </label>
+            <input
+              type="text"
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              placeholder={project.name}
+              className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={deleteConfirmName !== project.name || deleting}
+              onClick={async () => {
+                setDeleting(true);
+                try {
+                  await api.delete(`/projects/${project.name}`);
+                  addToast("success", `Project "${project.name}" deleted`);
+                  navigate("/");
+                } catch (err) {
+                  addToast("error", err instanceof Error ? err.message : "Delete failed");
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting ? "Deleting..." : "Delete Project"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Tabs tabs={tabs} active={activeTab} onChange={setTab} />
 

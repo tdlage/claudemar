@@ -150,6 +150,17 @@ class CommandQueue extends EventEmitter {
     return null;
   }
 
+  async removeByTarget(targetType: string, targetName: string): Promise<number> {
+    const key = this.targetKey(targetType, targetName);
+    const queue = this.queues.get(key) ?? [];
+    this.queues.delete(key);
+    await execute("DELETE FROM queue_items WHERE target_type = ? AND target_name = ?", [targetType, targetName]);
+    for (const item of queue) {
+      this.emit("queue:remove", item);
+    }
+    return queue.length;
+  }
+
   getAll(): QueueItem[] {
     const items: QueueItem[] = [];
     for (const queue of this.queues.values()) {

@@ -179,6 +179,10 @@ class ExecutionManager extends EventEmitter {
     this.lastSessionMap.set(this.userTargetKey(targetType, targetName, username), sessionId);
   }
 
+  isSessionActive(targetType: string, targetName: string, username?: string): boolean {
+    return this.sessions.has(this.userTargetKey(targetType, targetName, username));
+  }
+
   clearSessionId(targetType: string, targetName: string, username: string): void {
     const key = this.userTargetKey(targetType, targetName, username);
     this.lastSessionMap.delete(key);

@@ -254,6 +254,19 @@ export async function searchMemory(
   }
 }
 
+export async function deleteMemoryForTarget(target: MemoryTarget): Promise<void> {
+  if (!memoryEnabled()) return;
+  const c = getClient();
+  if (!c) return;
+
+  try {
+    await ensureCollection();
+    await c.delete(config.qdrantCollection, { wait: true, filter: targetFilter(target) });
+  } catch (err) {
+    console.error(`[memory] Falha ao apagar memória de ${target.targetType}:${target.targetName}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 export async function memoryHistory(
   target: MemoryTarget,
   sourceKey: string,

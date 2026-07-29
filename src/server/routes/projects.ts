@@ -40,6 +40,7 @@ import {
   rerunWorkflow,
 } from "../../github-actions.js";
 import { executionManager } from "../../execution-manager.js";
+import { purgeProjectData } from "../../target-cleanup.js";
 import { projectSettingsManager } from "../../project-settings.js";
 import { isSelectableProjectModel } from "../../models-discovery.js";
 
@@ -259,8 +260,10 @@ projectsRouter.delete("/:name", asyncHandler(async (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
 
+  const projectName = String(req.params.name);
+  await purgeProjectData(projectName);
   await rm(projectPath, { recursive: true, force: true });
-  res.json({ removed: req.params.name });
+  res.json({ removed: projectName });
 }));
 
 projectsRouter.get("/:name/repos", asyncHandler(async (req, res) => {

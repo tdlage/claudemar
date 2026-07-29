@@ -6,6 +6,8 @@ import { isAdmin } from "../hooks/useAuth";
 import { useCachedState } from "../hooks/useCachedState";
 import { useTeams } from "../hooks/useTeams";
 import { Tabs } from "../components/shared/Tabs";
+import { Modal } from "../components/shared/Modal";
+import { Button } from "../components/shared/Button";
 import { AgentAvatar } from "../components/teams/AgentAvatar";
 import { AppearanceEditor } from "../components/teams/AppearanceEditor";
 import { agentColor } from "../lib/avatar";
@@ -20,6 +22,8 @@ export function TeamDetailPage() {
   const { overview, reload, statusOf, recent } = useTeams();
   const [tab, setTab] = useCachedState<TabKey>(`team:${id}:tab`, "members");
   const [editingAvatar, setEditingAvatar] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const team = overview?.teams.find((t) => t.id === id);
   if (!overview) return <p className="text-text-muted text-sm">Carregando...</p>;
@@ -36,9 +40,14 @@ export function TeamDetailPage() {
   };
   const saveTeam = async (fields: Record<string, unknown>) => { await api.put(`/teams/${id}`, fields).catch(() => {}); reload(); };
   const removeTeam = async () => {
-    if (!confirm(`Excluir o time "${team.name}"? Os agentes voltam a ficar soltos.`)) return;
-    await api.delete(`/teams/${id}`).catch(() => {});
-    navigate("/teams");
+    setDeleting(true);
+    try {
+      await api.delete(`/teams/${id}`);
+      navigate("/teams");
+    } catch {
+      setDeleting(false);
+      setDeleteOpen(false);
+    }
   };
   const memberActivity = recent
     .filter((e) => e.targetType === "agent" && memberNames.includes(e.targetName))
@@ -143,7 +152,7 @@ export function TeamDetailPage() {
           </div>
 
           {admin && (
-            <button onClick={removeTeam} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-danger/15 text-danger hover:bg-danger/25 transition-colors">
+            <button onClick={() => setDeleteOpen(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-danger/15 text-danger hover:bg-danger/25 transition-colors">
               <Trash2 size={14} /> Excluir time
             </button>
           )}
@@ -167,6 +176,24 @@ export function TeamDetailPage() {
       {editingAvatar && (
         <AppearanceEditor agentName={editingAvatar} open onClose={() => setEditingAvatar(null)} onSaved={reload} />
       )}
+
+      <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Excluir Time">
+        <div className="space-y-3">
+          <p className="text-sm text-text-secondary">
+            Tem certeza que deseja excluir o time <strong className="text-text-primary">{team.name}</strong>?
+            Os membros, MCPs e skills do time serão removidos e os agentes voltam a ficar soltos
+            (os agentes em si não são apagados).
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setDeleteOpen(false)}>
+              Cancelar
+            </Button>
+            <Button variant="danger" size="sm" onClick={removeTeam} disabled={deleting}>
+              {deleting ? "Excluindo..." : "Excluir"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
