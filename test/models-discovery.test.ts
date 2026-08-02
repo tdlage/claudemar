@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   getModelDisplayName,
   isSelectableProjectModel,
+  normalizeModel,
   resolveExecutionModel,
   DEFAULT_PROJECT_MODEL,
   PROJECT_SELECTABLE_MODELS,
@@ -12,20 +13,27 @@ test("getModelDisplayName resolve Fable 5 pelo id", () => {
   assert.equal(getModelDisplayName("claude-fable-5"), "Fable 5");
 });
 
-test("getModelDisplayName mantém Opus 4.8 e alias opus", () => {
+test("getModelDisplayName resolve Opus 5 e mantém o alias legado opus", () => {
+  assert.equal(getModelDisplayName("claude-opus-5"), "Opus 5");
   assert.equal(getModelDisplayName("claude-opus-4-8"), "Opus 4.8");
-  assert.equal(getModelDisplayName("opus"), "Opus 4.8");
+  assert.equal(getModelDisplayName("opus"), "Opus 5");
+});
+
+test("normalizeModel mapeia o alias legado opus para o Opus 5 atual", () => {
+  assert.equal(normalizeModel("opus"), "claude-opus-5");
+  assert.equal(normalizeModel("claude-opus-5"), "claude-opus-5");
+  assert.equal(normalizeModel("claude-fable-5"), "claude-fable-5");
 });
 
 test("PROJECT_SELECTABLE_MODELS oferece exatamente Opus e Fable", () => {
   assert.deepEqual(
     PROJECT_SELECTABLE_MODELS.map((m) => m.model),
-    ["opus", "claude-fable-5"],
+    ["claude-opus-5", "claude-fable-5"],
   );
 });
 
 test("isSelectableProjectModel aceita apenas os modelos suportados", () => {
-  assert.equal(isSelectableProjectModel("opus"), true);
+  assert.equal(isSelectableProjectModel("claude-opus-5"), true);
   assert.equal(isSelectableProjectModel("claude-fable-5"), true);
   assert.equal(isSelectableProjectModel("claude-sonnet-4-6"), false);
   assert.equal(isSelectableProjectModel(""), false);
@@ -44,14 +52,25 @@ test("resolveExecutionModel: projeto + anthropic + fable → claude-fable-5", ()
   );
 });
 
-test("resolveExecutionModel: projeto sem preferência mantém o default (opus)", () => {
+test("resolveExecutionModel: projeto sem preferência usa o default (Opus 5)", () => {
   assert.equal(
     resolveExecutionModel({
       targetType: "project",
       activeProviderId: "anthropic",
       projectModel: DEFAULT_PROJECT_MODEL,
     }),
-    "opus",
+    "claude-opus-5",
+  );
+});
+
+test("resolveExecutionModel: preferência legada opus é normalizada para Opus 5", () => {
+  assert.equal(
+    resolveExecutionModel({
+      targetType: "project",
+      activeProviderId: "anthropic",
+      projectModel: "opus",
+    }),
+    "claude-opus-5",
   );
 });
 
@@ -62,7 +81,7 @@ test("resolveExecutionModel: provider gateway ignora a preferência do projeto",
       activeProviderId: "zai",
       projectModel: "claude-fable-5",
     }),
-    "opus",
+    "claude-opus-5",
   );
 });
 
@@ -73,7 +92,7 @@ test("resolveExecutionModel: alvos não-projeto usam o default", () => {
       activeProviderId: "anthropic",
       projectModel: "claude-fable-5",
     }),
-    "opus",
+    "claude-opus-5",
   );
 });
 

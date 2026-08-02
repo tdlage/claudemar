@@ -17,14 +17,19 @@ const CLAUDE_DEFAULT_MODELS: DiscoveredModel[] = [
 ];
 
 // Modelos Claude escolhíveis por projeto (só se aplicam ao provider nativo "anthropic").
-// Opus usa o alias "opus" para preservar o comportamento padrão (resolvido no system/init);
-// Fable usa o id explícito, aceito diretamente pelo Agent SDK.
+// Usamos ids explícitos aceitos diretamente pelo Agent SDK. O alias "opus" não é usado
+// porque a versão instalada do SDK ainda o expande para claude-opus-4-8, não para o Opus 5.
 export const PROJECT_SELECTABLE_MODELS = [
-  { model: "opus", displayName: "Opus 5" },
+  { model: "claude-opus-5", displayName: "Opus 5" },
   { model: "claude-fable-5", displayName: "Fable 5" },
 ] as const;
 
-export const DEFAULT_PROJECT_MODEL = "opus";
+export const DEFAULT_PROJECT_MODEL = "claude-opus-5";
+
+// Valores legados persistidos como alias "opus" devem apontar para o Opus 5 atual.
+export function normalizeModel(model: string): string {
+  return model === "opus" ? DEFAULT_PROJECT_MODEL : model;
+}
 
 export function isSelectableProjectModel(model: unknown): model is string {
   return typeof model === "string" && PROJECT_SELECTABLE_MODELS.some((m) => m.model === model);
@@ -38,10 +43,10 @@ export function resolveExecutionModel(params: {
   activeProviderId: string;
   projectModel: string;
 }): string {
-  if (params.explicitModel) return params.explicitModel;
+  if (params.explicitModel) return normalizeModel(params.explicitModel);
   if (params.targetType !== "project") return DEFAULT_PROJECT_MODEL;
   if (params.activeProviderId !== "anthropic") return DEFAULT_PROJECT_MODEL;
-  return params.projectModel;
+  return normalizeModel(params.projectModel);
 }
 
 function formatDisplayName(id: string): string {

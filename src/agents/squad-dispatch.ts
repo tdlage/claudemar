@@ -5,6 +5,7 @@ import { settingsManager } from "../settings-manager.js";
 import { applyProfile } from "../providers/llm.js";
 import { getAgentPaths, extractAgentSummary, readAgentsMd } from "./manager.js";
 import { listTeamMembers, getTeam, teamEvents } from "./teams-manager.js";
+import { DEFAULT_PROJECT_MODEL } from "../models-discovery.js";
 
 export interface DispatchResult {
   agent: string;
@@ -63,7 +64,7 @@ async function classify(prompt: string, names: string[]): Promise<string | null>
   const abortController = new AbortController();
   const env = applyProfile(process.env, settingsManager.getActiveProfile());
   const options: Options = {
-    model: "opus",
+    model: DEFAULT_PROJECT_MODEL,
     cwd: config.orchestratorPath,
     maxTurns: 1,
     permissionMode: "bypassPermissions",

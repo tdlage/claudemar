@@ -3,6 +3,7 @@ import { createMemoryMcpServer, memoryEnabled, type MemoryTarget } from "../memo
 import { createSchedulerMcpServer } from "../agents/scheduler.js";
 import { settingsManager } from "../settings-manager.js";
 import { applyProfile } from "../providers/llm.js";
+import { DEFAULT_PROJECT_MODEL, normalizeModel } from "../models-discovery.js";
 
 export type Effort = "low" | "medium" | "high" | "extra" | "max" | "ultracode";
 export type SdkEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
@@ -83,7 +84,7 @@ export function buildOptions(params: BuildOptionsParams): Options {
   const effort = params.effort ?? "high";
 
   const options: Options = {
-    model: params.model ?? "opus",
+    model: normalizeModel(params.model ?? DEFAULT_PROJECT_MODEL),
     cwd: params.cwd,
     env,
     abortController: params.abortController,

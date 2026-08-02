@@ -125,11 +125,11 @@ export interface ProjectDetail {
 }
 
 export const PROJECT_SELECTABLE_MODELS: { model: string; displayName: string }[] = [
-  { model: "opus", displayName: "Opus 5" },
+  { model: "claude-opus-5", displayName: "Opus 5" },
   { model: "claude-fable-5", displayName: "Fable 5" },
 ];
 
-export const DEFAULT_PROJECT_MODEL = "opus";
+export const DEFAULT_PROJECT_MODEL = "claude-opus-5";
 
 export interface RepoInfo {
   name: string;
