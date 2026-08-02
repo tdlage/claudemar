@@ -8,6 +8,7 @@ import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
 import { extractMdPaths, renderOutputHtml } from "../../lib/ansi";
 import { useCurrentModel } from "../../hooks/useCurrentModel";
 import { useCachedState } from "../../hooks/useCachedState";
+import { useToast } from "../shared/Toast";
 import { formatToolDetail } from "../../lib/toolDetail";
 import { formatTokens, formatDuration } from "../../lib/format";
 import { fileToImageBlock, imageBlocksFromClipboard, type ImageBlock } from "../../lib/imageBlock";
@@ -118,6 +119,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const currentModel = useCurrentModel();
+  const { addToast } = useToast();
   const cacheKey = base ?? "default";
 
   const [html, setHtml] = useState("");
@@ -156,11 +158,37 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     modeRef.current = mode;
   });
 
-  const render = useCallback((text: string) => {
+  const pendingRenderRef = useRef<string | null>(null);
+
+  const applyRender = useCallback((text: string) => {
     setHtml(renderOutputHtml(text || "(sem output)"));
     const paths = extractMdPaths(text);
     if (paths.length > 0) setMdPaths(paths);
   }, []);
+
+  const render = useCallback((text: string) => {
+    const sel = window.getSelection();
+    const el = containerRef.current;
+    if (sel && !sel.isCollapsed && el && (el.contains(sel.anchorNode) || el.contains(sel.focusNode))) {
+      pendingRenderRef.current = text;
+      return;
+    }
+    pendingRenderRef.current = null;
+    applyRender(text);
+  }, [applyRender]);
+
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const pending = pendingRenderRef.current;
+      if (pending === null) return;
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) return;
+      pendingRenderRef.current = null;
+      applyRender(pending);
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
+  }, [applyRender]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -211,9 +239,11 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     resubscribe();
 
     const matches = (id: string) => id === executionId;
+    let allowGap = false;
 
-    const catchupHandler = (data: { id: string; output: string; running?: boolean }) => {
+    const catchupHandler = (data: { id: string; output: string; running?: boolean; truncated?: boolean }) => {
       if (!matches(data.id)) return;
+      allowGap = data.truncated === true;
       const current = getOutput(executionId);
       if (data.output.length > current.length) {
         setOutput(executionId, data.output);
@@ -226,8 +256,15 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       }
     };
 
-    const chunkHandler = (data: { id: string; chunk: string }) => {
+    const chunkHandler = (data: { id: string; chunk: string; offset?: number }) => {
       if (!matches(data.id)) return;
+      const current = getOutput(executionId);
+      const offset = data.offset ?? current.length;
+      if (offset + data.chunk.length <= current.length) return;
+      if (offset > current.length && !allowGap) {
+        socket.emit("subscribe:execution", executionId);
+        return;
+      }
       appendOutput(data.id, data.chunk);
       render(getOutput(executionId));
     };
@@ -311,6 +348,11 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       setMessages([]);
     };
 
+    const onVisible = () => {
+      if (document.visibilityState === "visible") resubscribe();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     socket.on("connect", resubscribe);
     socket.on("execution:catchup", catchupHandler);
     socket.on("execution:output", chunkHandler);
@@ -327,6 +369,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     socket.on("execution:cancel", stopHandler);
 
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
       socket.off("connect", resubscribe);
       socket.off("execution:catchup", catchupHandler);
       socket.off("execution:output", chunkHandler);
@@ -344,6 +387,35 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       socket.emit("unsubscribe:execution", executionId);
     };
   }, [executionId, render]);
+
+  const execIdRef = useRef<string | null>(executionId);
+  useEffect(() => {
+    execIdRef.current = executionId;
+  }, [executionId]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    const onQueued = (d: { execId: string }) => {
+      if (d.execId !== execIdRef.current) return;
+      addToast("info", "A execução anterior já havia terminado — comando enfileirado.");
+    };
+    const onRestarted = (d: { execId: string }) => {
+      if (d.execId !== execIdRef.current) return;
+      addToast("info", "A execução anterior já havia terminado — comando enviado como nova execução.");
+    };
+    const onFailed = (d: { execId: string; reason?: string }) => {
+      if (d.execId !== execIdRef.current) return;
+      addToast("error", d.reason ?? "Falha ao enviar o comando.");
+    };
+    socket.on("execution:send:queued", onQueued);
+    socket.on("execution:send:restarted", onRestarted);
+    socket.on("execution:send:failed", onFailed);
+    return () => {
+      socket.off("execution:send:queued", onQueued);
+      socket.off("execution:send:restarted", onRestarted);
+      socket.off("execution:send:failed", onFailed);
+    };
+  }, [addToast]);
 
   const submit = useCallback(() => {
     const text = input.trim();

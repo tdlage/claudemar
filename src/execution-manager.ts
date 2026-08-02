@@ -49,6 +49,7 @@ export interface ExecutionInfo {
   pendingQuestion: PendingQuestion | null;
   planMode: boolean;
   resumeSessionId?: string | null;
+  streamOffset: number;
 }
 
 export interface StartExecutionOpts {
@@ -386,6 +387,7 @@ class ExecutionManager extends EventEmitter {
       pendingQuestion: null,
       planMode: opts.planMode ?? false,
       resumeSessionId: null,
+      streamOffset: 0,
     };
 
     const resumeId = opts.noResume
@@ -441,14 +443,18 @@ class ExecutionManager extends EventEmitter {
     const { info, session } = entry;
 
     const onChunk = (chunk: string) => {
+      const offset = info.streamOffset;
+      info.streamOffset += chunk.length;
       if (info.output.length < MAX_STREAM_OUTPUT) info.output += chunk;
-      this.emit("output", info.id, chunk);
+      this.emit("output", info.id, chunk, offset);
     };
     const onThinking = (chunk: string) => this.emit("thinking", info.id, chunk);
     const onToolUse = (name: string, toolInput: Record<string, unknown>) => {
       const formatted = formatToolUse(name, toolInput);
+      const offset = info.streamOffset;
+      info.streamOffset += formatted.length;
       if (info.output.length < MAX_STREAM_OUTPUT) info.output += formatted;
-      this.emit("output", info.id, formatted);
+      this.emit("output", info.id, formatted, offset);
       this.emit("tool", info.id, name, toolInput, name);
     };
     const onSessionId = (sessionId: string, model: string) => {
@@ -804,6 +810,7 @@ class ExecutionManager extends EventEmitter {
       pendingQuestion: null,
       planMode: e.planMode ?? false,
       username: e.username,
+      streamOffset: (e.output ?? "").length,
     }));
 
     for (const e of entries) {

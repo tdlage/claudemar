@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2, CheckCircle2, XCircle, GitPullRequest, GitMerge, ExternalLink } from "lucide-react";
 import type { PipelineCard, PipelineStage, PipelineStageRun } from "../../lib/types";
 import { PROJECT_SELECTABLE_MODELS } from "../../lib/types";
@@ -20,21 +20,54 @@ const STAGE_INDEX: Record<PipelineStage, number> = Object.fromEntries(
 
 function LiveOutput({ execId }: { execId: string }) {
   const [output, setOutput] = useState("");
+  const preRef = useRef<HTMLPreElement>(null);
+  const latestRef = useRef("");
   useEffect(() => {
     const socket = getSocket();
+    latestRef.current = "";
     setOutput("");
-    const onCatchup = (d: { id: string; output: string }) => { if (d.id === execId) setOutput(d.output || ""); };
-    const onOutput = (d: { id: string; chunk: string }) => { if (d.id === execId) setOutput((p) => p + d.chunk); };
+    let allowGap = false;
+    const flush = () => {
+      const sel = window.getSelection();
+      const el = preRef.current;
+      if (sel && !sel.isCollapsed && el && (el.contains(sel.anchorNode) || el.contains(sel.focusNode))) return;
+      setOutput(latestRef.current);
+    };
+    const resubscribe = () => socket.emit("subscribe:execution", execId);
+    const onCatchup = (d: { id: string; output: string; truncated?: boolean }) => {
+      if (d.id !== execId) return;
+      allowGap = d.truncated === true;
+      if ((d.output || "").length > latestRef.current.length) {
+        latestRef.current = d.output || "";
+        flush();
+      }
+    };
+    const onOutput = (d: { id: string; chunk: string; offset?: number }) => {
+      if (d.id !== execId) return;
+      const current = latestRef.current;
+      const offset = d.offset ?? current.length;
+      if (offset + d.chunk.length <= current.length) return;
+      if (offset > current.length && !allowGap) {
+        resubscribe();
+        return;
+      }
+      latestRef.current = current + d.chunk;
+      flush();
+    };
     socket.on("execution:catchup", onCatchup);
     socket.on("execution:output", onOutput);
-    socket.emit("subscribe:execution", execId);
+    socket.on("connect", resubscribe);
+    document.addEventListener("selectionchange", flush);
+    resubscribe();
     return () => {
       socket.emit("unsubscribe:execution", execId);
       socket.off("execution:catchup", onCatchup);
       socket.off("execution:output", onOutput);
+      socket.off("connect", resubscribe);
+      document.removeEventListener("selectionchange", flush);
     };
   }, [execId]);
-  return <pre className="text-[11px] whitespace-pre-wrap text-text-muted bg-bg rounded p-2 border border-border max-h-96 overflow-auto">{output || "Aguardando saída do agente..."}</pre>;
+  return <pre ref={preRef} className="text-[11px] whitespace-pre-wrap text-text-muted bg-bg rounded p-2 border border-border max-h-96 overflow-auto">{output || "Aguardando saída do agente..."}</pre>;
 }
 
 interface Props {

@@ -73,6 +73,8 @@ export function setupWebSocket(io: SocketServer): void {
           id,
           output: exec.output ?? "",
           running: executionManager.isExecutionActive(id),
+          streamOffset: exec.streamOffset,
+          truncated: exec.streamOffset > (exec.output ?? "").length,
         });
         for (const p of executionManager.getPendingPermissions(id)) {
           socket.emit("execution:permission", { id, reqId: p.reqId, toolName: p.toolName, input: p.input });
@@ -102,7 +104,54 @@ export function setupWebSocket(io: SocketServer): void {
     socket.on("execution:send", ({ execId, blocks, text }: { execId: string; blocks?: MessageBlock[]; text?: string }) => {
       if (!ownsExecution(execId)) return;
       const payload = blocks && blocks.length > 0 ? blocks : (text ?? "");
-      executionManager.sendMessage(execId, payload);
+      if (executionManager.sendMessage(execId, payload)) return;
+
+      const info = executionManager.getExecution(execId);
+      if (!info) return;
+      const prompt = text ?? (blocks ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
+      if (!prompt.trim()) return;
+
+      const targetBusy = executionManager.isTargetActive(info.targetType, info.targetName);
+      const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
+
+      if (targetBusy || hasQueued) {
+        if (blocks && blocks.some((b) => b.type === "image")) {
+          socket.emit("execution:send:failed", { execId, reason: "Não é possível enfileirar mensagens com imagem. Aguarde a execução atual terminar." });
+          return;
+        }
+        void commandQueue.enqueue({
+          targetType: info.targetType,
+          targetName: info.targetName,
+          prompt,
+          source: info.source,
+          cwd: info.cwd,
+          agentName: info.agentName,
+          username: info.username,
+          planMode: info.planMode || undefined,
+        }).then(() => {
+          socket.emit("execution:send:queued", { execId });
+        }).catch(() => {
+          socket.emit("execution:send:failed", { execId, reason: "Falha ao enfileirar o comando." });
+        });
+        return;
+      }
+
+      try {
+        const newId = executionManager.startExecution({
+          source: info.source,
+          targetType: info.targetType,
+          targetName: info.targetName,
+          agentName: info.agentName,
+          username: info.username,
+          prompt,
+          cwd: info.cwd,
+          planMode: info.planMode,
+          blocks: blocks && blocks.length > 0 ? blocks : undefined,
+        });
+        socket.emit("execution:send:restarted", { execId, newId });
+      } catch (err) {
+        socket.emit("execution:send:failed", { execId, reason: err instanceof Error ? err.message : String(err) });
+      }
     });
 
     socket.on("execution:interrupt", ({ id }: { id: string }) => {
@@ -208,8 +257,8 @@ export function setupWebSocket(io: SocketServer): void {
     emitActivity(id, info, "working");
   });
 
-  executionManager.on("output", (id, chunk) => {
-    io.to(`exec:${id}`).emit("execution:output", { id, chunk });
+  executionManager.on("output", (id, chunk, offset) => {
+    io.to(`exec:${id}`).emit("execution:output", { id, chunk, offset });
   });
 
   executionManager.prependListener("complete", (id, info) => {
