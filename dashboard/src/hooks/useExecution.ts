@@ -66,6 +66,12 @@ export function useExecutions() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refresh]);
 
+  useEffect(() => {
+    if (active.length === 0) return;
+    const timer = setInterval(() => void refresh(), 30_000);
+    return () => clearInterval(timer);
+  }, [active.length, refresh]);
+
   useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:start", ({ info }) => {
     if (isInternalExec(info)) return;
     setActive((prev) => [...prev, info]);
