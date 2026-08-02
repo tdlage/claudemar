@@ -275,6 +275,12 @@ export function setupWebSocket(io: SocketServer): void {
     }
   });
 
+  executionManager.on("task", (id, payload) => {
+    io.to(`exec:${id}`).emit("execution:task", { id, ...payload });
+    const info = executionManager.getExecution(id);
+    if (info && payload.phase !== "done") emitActivity(id, info, "working");
+  });
+
   executionManager.on("mode", (id, mode) => {
     io.to(`exec:${id}`).emit("execution:mode", { id, mode });
   });

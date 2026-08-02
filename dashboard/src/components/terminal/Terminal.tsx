@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   Send, Square, Brain, Gauge, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
+  Loader2, CheckCircle2, XCircle, Users,
 } from "lucide-react";
 import { getSocket } from "../../lib/socket";
 import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
@@ -8,6 +9,7 @@ import { extractMdPaths, renderOutputHtml } from "../../lib/ansi";
 import { useCurrentModel } from "../../hooks/useCurrentModel";
 import { useCachedState } from "../../hooks/useCachedState";
 import { formatToolDetail } from "../../lib/toolDetail";
+import { formatTokens, formatDuration } from "../../lib/format";
 import { fileToImageBlock, imageBlocksFromClipboard, type ImageBlock } from "../../lib/imageBlock";
 import { getSlashCache, setSlashCache } from "../../lib/slashCache";
 import { MdLinksBar } from "./MdLinksBar";
@@ -53,6 +55,34 @@ interface ToolEvent {
 interface CheckpointEntry {
   uuid: string;
   ts: number;
+}
+
+type SubagentStatus = "running" | "completed" | "failed" | "stopped" | "killed";
+
+interface SubagentTask {
+  taskId: string;
+  description: string;
+  subagentType?: string;
+  status: SubagentStatus;
+  tokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+  lastToolName?: string;
+  summary?: string;
+}
+
+interface TaskEventPayload {
+  id: string;
+  phase: "started" | "progress" | "updated" | "done";
+  taskId: string;
+  description?: string;
+  subagentType?: string;
+  status?: SubagentStatus;
+  tokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+  lastToolName?: string;
+  summary?: string;
 }
 
 
@@ -106,6 +136,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const [thinking, setThinking] = useState<ThinkingBlock[]>([]);
   const [thinkingCollapsed, setThinkingCollapsed] = useState(true);
   const [tools, setTools] = useState<ToolEvent[]>([]);
+  const [tasks, setTasks] = useState<Map<string, SubagentTask>>(new Map());
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
   const [mode, setMode] = useState<PermissionMode>("bypassPermissions");
@@ -135,7 +166,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     const el = containerRef.current;
     if (!el || !autoScrollRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [html, thinking, tools, permissions]);
+  }, [html, thinking, tools, tasks, permissions]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -153,6 +184,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     setMdPaths([]);
     setThinking([]);
     setTools([]);
+    setTasks(new Map());
     setPermissions([]);
     setCheckpoints([]);
     setCompactNotice(null);
@@ -218,6 +250,27 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       setTools((prev) => [...prev.slice(-30), { id: counterRef.current++, name: data.name, input: data.input }]);
     };
 
+    const taskHandler = (data: TaskEventPayload) => {
+      if (!matches(data.id)) return;
+      setTasks((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(data.taskId);
+        const merged: SubagentTask = {
+          taskId: data.taskId,
+          description: data.description ?? existing?.description ?? "Subagent",
+          subagentType: data.subagentType ?? existing?.subagentType,
+          status: data.phase === "done" ? (data.status ?? "completed") : (data.status ?? existing?.status ?? "running"),
+          tokens: data.tokens ?? existing?.tokens,
+          toolUses: data.toolUses ?? existing?.toolUses,
+          durationMs: data.durationMs ?? existing?.durationMs,
+          lastToolName: data.lastToolName ?? existing?.lastToolName,
+          summary: data.summary ?? existing?.summary,
+        };
+        next.set(data.taskId, merged);
+        return next;
+      });
+    };
+
     const permissionHandler = (data: { id: string; reqId: string; toolName: string; input: Record<string, unknown> }) => {
       if (!matches(data.id)) return;
       setPermissions((prev) => [...prev.filter((p) => p.reqId !== data.reqId), { reqId: data.reqId, toolName: data.toolName, input: data.input }]);
@@ -263,6 +316,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     socket.on("execution:output", chunkHandler);
     socket.on("execution:thinking", thinkingHandler);
     socket.on("execution:tool", toolHandler);
+    socket.on("execution:task", taskHandler);
     socket.on("execution:permission", permissionHandler);
     socket.on("execution:mode", modeHandler);
     socket.on("execution:slash-commands", slashHandler);
@@ -278,6 +332,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       socket.off("execution:output", chunkHandler);
       socket.off("execution:thinking", thinkingHandler);
       socket.off("execution:tool", toolHandler);
+      socket.off("execution:task", taskHandler);
       socket.off("execution:permission", permissionHandler);
       socket.off("execution:mode", modeHandler);
       socket.off("execution:slash-commands", slashHandler);
@@ -413,6 +468,39 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
                   {detail && (
                     <span className="font-mono text-text-muted truncate" title={detail}>{detail}</span>
                   )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {tasks.size > 0 && (
+          <div className="border border-border/60 rounded-md p-2 bg-surface/40 space-y-1">
+            <div className="flex items-center gap-1.5 text-xs text-text-muted">
+              <Users size={12} />
+              Subagentes ({[...tasks.values()].filter((t) => t.status === "running").length} ativos / {tasks.size})
+            </div>
+            {[...tasks.values()].map((t) => {
+              const meta = [
+                t.toolUses != null ? `${t.toolUses} tools` : null,
+                t.tokens != null ? `${formatTokens(t.tokens)} tok` : null,
+                t.durationMs != null ? formatDuration(t.durationMs) : null,
+              ].filter(Boolean).join(" · ");
+              return (
+                <div key={t.taskId} className="flex items-start gap-1.5 text-xs min-w-0">
+                  {t.status === "running" ? (
+                    <Loader2 size={12} className="text-accent mt-0.5 shrink-0 animate-spin" />
+                  ) : t.status === "completed" ? (
+                    <CheckCircle2 size={12} className="text-green-500 mt-0.5 shrink-0" />
+                  ) : (
+                    <XCircle size={12} className="text-red-500 mt-0.5 shrink-0" />
+                  )}
+                  {t.subagentType && <span className="font-mono text-accent shrink-0">{t.subagentType}</span>}
+                  <span className="text-text-secondary truncate" title={t.summary || t.description}>{t.description}</span>
+                  {t.status === "running" && t.lastToolName && (
+                    <span className="font-mono text-text-muted shrink-0">{t.lastToolName}</span>
+                  )}
+                  {meta && <span className="text-text-muted shrink-0 ml-auto">{meta}</span>}
                 </div>
               );
             })}

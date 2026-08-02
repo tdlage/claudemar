@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import type { AgentDefinition, McpServerConfig, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentResult, AskQuestion } from "./providers/types.js";
-import { ClaudeSession, type MessageBlock, type PendingPermission, type PermissionDecision, type UsageInfo } from "./claude/session.js";
+import { ClaudeSession, type MessageBlock, type PendingPermission, type PermissionDecision, type UsageInfo, type TaskEvent } from "./claude/session.js";
 import { isUltracode, type Effort } from "./claude/options.js";
 import { resolveBypass } from "./claude/permission.js";
 import { formatToolUse } from "./providers/format.js";
@@ -464,6 +464,7 @@ class ExecutionManager extends EventEmitter {
     const onPermission = (p: PendingPermission) => this.emit("permission", info.id, p.reqId, p.toolName, p.input);
     const onPermissionResolved = (reqId: string) => this.emit("permission-resolved", info.id, reqId);
     const onSubagentDone = (to: string) => this.emit("subagent-done", info.id, to);
+    const onTask = (payload: TaskEvent) => this.emit("task", info.id, payload);
     const onUsage = (u: UsageInfo) => this.emit("usage", info.id, u.costUsd, u.tokens, u.contextPct);
     const onCompact = (trigger: string) => this.emit("compact", info.id, trigger);
     const onCheckpoint = (uuid: string) => this.emit("checkpoint", info.id, uuid);
@@ -478,6 +479,7 @@ class ExecutionManager extends EventEmitter {
     session.on("permission", onPermission);
     session.on("permissionResolved", onPermissionResolved);
     session.on("subagentDone", onSubagentDone);
+    session.on("task", onTask);
     session.on("usage", onUsage);
     session.on("compact", onCompact);
     session.on("checkpoint", onCheckpoint);
@@ -493,6 +495,7 @@ class ExecutionManager extends EventEmitter {
       session.off("permission", onPermission);
       session.off("permissionResolved", onPermissionResolved);
       session.off("subagentDone", onSubagentDone);
+      session.off("task", onTask);
       session.off("usage", onUsage);
       session.off("compact", onCompact);
       session.off("checkpoint", onCheckpoint);

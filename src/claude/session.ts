@@ -27,6 +27,24 @@ export interface UsageInfo {
   contextPct: number;
 }
 
+export type SubagentTaskStatus = "running" | "completed" | "failed" | "stopped" | "killed";
+
+export interface TaskEvent {
+  phase: "started" | "progress" | "updated" | "done";
+  taskId: string;
+  description?: string;
+  subagentType?: string;
+  taskType?: string;
+  workflowName?: string;
+  status?: SubagentTaskStatus;
+  tokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+  lastToolName?: string;
+  summary?: string;
+  error?: string;
+}
+
 // Janela de contexto padrão (modelos Claude atuais) usada como fallback quando o runner não
 // expõe o máximo do modelo (ex.: via gateway) — sobrescrevível por CONTEXT_WINDOW_TOKENS.
 const DEFAULT_CONTEXT_WINDOW = Number(process.env.CONTEXT_WINDOW_TOKENS) || 200000;
@@ -111,6 +129,8 @@ export class ClaudeSession extends EventEmitter {
   private readonly requestedModel: string;
   private assistantBuffer = "";
   private agentToolCalls = new Map<string, string>();
+  private activeTasks = new Map<string, { description: string; subagentType?: string }>();
+  private pendingResult: AgentResult | null = null;
   private pendingUserText: string | null = null;
   private result: AgentResult | null = null;
   private settled = false;
@@ -197,10 +217,24 @@ export class ClaudeSession extends EventEmitter {
         this.handleMessage(message);
       }
       this.dead = true;
-      if (!this.settled) this.failTurn("Sessão encerrada sem resultado.");
+      if (!this.settled) this.drainPendingResult("Sessão encerrada sem resultado.");
     } catch (err) {
       this.dead = true;
-      if (!this.settled) this.failTurn(err instanceof Error ? err.message : String(err));
+      if (!this.settled) this.drainPendingResult(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // O stream terminou (fim natural, abort/timeout ou erro) antes de assentar. Se o turno
+  // principal já produziu um resultado que ficou retido aguardando subagentes em background,
+  // usa esse resultado; caso contrário, encerra o turno como falha.
+  private drainPendingResult(fallbackMessage: string): void {
+    if (this.pendingResult) {
+      const result = this.pendingResult;
+      this.pendingResult = null;
+      this.activeTasks.clear();
+      this.settleResult(result);
+    } else {
+      this.failTurn(fallbackMessage);
     }
   }
 
@@ -273,6 +307,86 @@ export class ClaudeSession extends EventEmitter {
       for (const f of (message as { files?: { file_id: string }[] }).files ?? []) {
         this.emit("checkpoint", f.file_id);
       }
+    } else if (message.subtype === "task_started") {
+      this.handleTaskStarted(message);
+    } else if (message.subtype === "task_progress") {
+      this.handleTaskProgress(message);
+    } else if (message.subtype === "task_updated") {
+      this.handleTaskUpdated(message);
+    } else if (message.subtype === "task_notification") {
+      this.handleTaskNotification(message);
+    }
+  }
+
+  private handleTaskStarted(message: Extract<SDKMessage, { subtype: "task_started" }>): void {
+    if (message.skip_transcript) return;
+    this.activeTasks.set(message.task_id, { description: message.description, subagentType: message.subagent_type });
+    this.emit("task", {
+      phase: "started",
+      taskId: message.task_id,
+      description: message.description,
+      subagentType: message.subagent_type,
+      taskType: message.task_type,
+      workflowName: message.workflow_name,
+      status: "running",
+    } satisfies TaskEvent);
+  }
+
+  private handleTaskProgress(message: Extract<SDKMessage, { subtype: "task_progress" }>): void {
+    if (!this.activeTasks.has(message.task_id)) return;
+    this.emit("task", {
+      phase: "progress",
+      taskId: message.task_id,
+      description: message.description,
+      subagentType: message.subagent_type,
+      tokens: message.usage.total_tokens,
+      toolUses: message.usage.tool_uses,
+      durationMs: message.usage.duration_ms,
+      lastToolName: message.last_tool_name,
+      summary: message.summary,
+      status: "running",
+    } satisfies TaskEvent);
+  }
+
+  private handleTaskUpdated(message: Extract<SDKMessage, { subtype: "task_updated" }>): void {
+    const status = message.patch.status;
+    this.emit("task", {
+      phase: "updated",
+      taskId: message.task_id,
+      description: message.patch.description,
+      status: status === "pending" || status === "paused" ? "running" : status,
+      error: message.patch.error,
+    } satisfies TaskEvent);
+    if (status === "completed" || status === "failed" || status === "killed") {
+      this.finishTask(message.task_id);
+    }
+  }
+
+  private handleTaskNotification(message: Extract<SDKMessage, { subtype: "task_notification" }>): void {
+    this.emit("task", {
+      phase: "done",
+      taskId: message.task_id,
+      status: message.status,
+      summary: message.summary,
+      tokens: message.usage?.total_tokens,
+      toolUses: message.usage?.tool_uses,
+      durationMs: message.usage?.duration_ms,
+    } satisfies TaskEvent);
+    this.finishTask(message.task_id);
+  }
+
+  private finishTask(taskId: string): void {
+    if (!this.activeTasks.delete(taskId)) return;
+    this.maybeSettlePending();
+  }
+
+  // Só assenta o resultado do turno principal depois que todos os subagentes em background
+  // terminarem — o SDK emite o "result" do turno enquanto os finders ainda rodam.
+  private maybeSettlePending(): void {
+    if (this.pendingResult && this.activeTasks.size === 0) {
+      const result = this.pendingResult;
+      this.pendingResult = null;
+      this.settleResult(result);
     }
   }
 
@@ -353,7 +467,14 @@ export class ClaudeSession extends EventEmitter {
       ingestTurn(this.target, result.sessionId, "assistant", result.output, { model: this.model });
     }
 
-    this.settleResult(result);
+    // Se há subagentes rodando em background, retém o resultado até que todos terminem
+    // (via task_notification) para não marcar a execução como concluída cedo demais.
+    if (this.activeTasks.size > 0) {
+      this.pendingResult = result;
+      this.emit("tasksPending", this.activeTasks.size);
+    } else {
+      this.settleResult(result);
+    }
   }
 
   private settleResult(result: AgentResult): void {
@@ -361,6 +482,8 @@ export class ClaudeSession extends EventEmitter {
     this.settled = true;
     this.assistantBuffer = "";
     this.agentToolCalls.clear();
+    this.activeTasks.clear();
+    this.pendingResult = null;
     this.emit("result", result);
   }
 
@@ -368,6 +491,8 @@ export class ClaudeSession extends EventEmitter {
     const stored = (ingestText ?? blocksToText(blocksOrText)).trim();
     this.pendingUserText = stored ? stored : null;
     this.settled = false;
+    this.activeTasks.clear();
+    this.pendingResult = null;
 
     let content: SDKUserMessage["message"]["content"];
     if (typeof blocksOrText === "string") {
@@ -479,6 +604,8 @@ export class ClaudeSession extends EventEmitter {
     }
     this.permissionResolvers.clear();
     this.agentToolCalls.clear();
+    this.activeTasks.clear();
+    this.pendingResult = null;
     this.queue.end();
     this.abortController.abort();
   }
