@@ -15,6 +15,7 @@ import { fileToImageBlock, imageBlocksFromClipboard, type ImageBlock } from "../
 import { getSlashCache, setSlashCache } from "../../lib/slashCache";
 import { MdLinksBar } from "./MdLinksBar";
 import { PermissionPrompt, type PermissionRequest } from "./PermissionPrompt";
+import { SelectionSafeHtml } from "../shared/SelectionSafeHtml";
 import { Dropdown } from "../shared/Dropdown";
 
 export type PermissionMode = "default" | "auto" | "plan" | "acceptEdits" | "bypassPermissions";
@@ -158,37 +159,11 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     modeRef.current = mode;
   });
 
-  const pendingRenderRef = useRef<string | null>(null);
-
-  const applyRender = useCallback((text: string) => {
+  const render = useCallback((text: string) => {
     setHtml(renderOutputHtml(text || "(sem output)"));
     const paths = extractMdPaths(text);
     if (paths.length > 0) setMdPaths(paths);
   }, []);
-
-  const render = useCallback((text: string) => {
-    const sel = window.getSelection();
-    const el = containerRef.current;
-    if (sel && !sel.isCollapsed && el && (el.contains(sel.anchorNode) || el.contains(sel.focusNode))) {
-      pendingRenderRef.current = text;
-      return;
-    }
-    pendingRenderRef.current = null;
-    applyRender(text);
-  }, [applyRender]);
-
-  useEffect(() => {
-    const onSelectionChange = () => {
-      const pending = pendingRenderRef.current;
-      if (pending === null) return;
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed) return;
-      pendingRenderRef.current = null;
-      applyRender(pending);
-    };
-    document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
-  }, [applyRender]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -506,7 +481,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
         ref={containerRef}
         className="activity-output flex-1 rounded-md overflow-auto bg-bg p-3 md:p-4 text-sm text-text-primary min-h-0 space-y-2"
       >
-        <div dangerouslySetInnerHTML={{ __html: html }} />
+        <SelectionSafeHtml html={html} />
 
         {thinking.length > 0 && (
           <div className="border border-border/60 rounded-md p-2 bg-surface/40">

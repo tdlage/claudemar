@@ -141,16 +141,25 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
       .catch(() => {});
   }, [sessionUrl]);
 
+  const onExecutionCompleteRef = useRef(onExecutionComplete);
+  useEffect(() => {
+    onExecutionCompleteRef.current = onExecutionComplete;
+  });
+
+  const completionHandledRef = useRef<string | null>(null);
+
   useEffect(() => {
     const running = active.find((e) => e.targetType === targetType && e.targetName === targetName);
     if (running) {
+      completionHandledRef.current = null;
       setExecId(running.id);
-    } else if (execId && !active.some((e) => e.id === execId)) {
+    } else if (execId && !active.some((e) => e.id === execId) && completionHandledRef.current !== execId) {
+      completionHandledRef.current = execId;
       loadSession();
       fetchHistory(historyLimit);
-      onExecutionComplete?.();
+      onExecutionCompleteRef.current?.();
     }
-  }, [active, execId, targetType, targetName, loadSession, fetchHistory, historyLimit, onExecutionComplete]);
+  }, [active, execId, targetType, targetName, setExecId, loadSession, fetchHistory, historyLimit]);
 
   const handleSessionChange = async (value: string) => {
     if (value === "__new") {

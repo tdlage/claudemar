@@ -34,8 +34,18 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
+const inflightGets = new Map<string, Promise<unknown>>();
+
+function dedupedGet<T>(path: string): Promise<T> {
+  const existing = inflightGets.get(path);
+  if (existing) return existing as Promise<T>;
+  const promise = request<T>(path).finally(() => inflightGets.delete(path));
+  inflightGets.set(path, promise);
+  return promise;
+}
+
 export const api = {
-  get: <T>(path: string) => request<T>(path),
+  get: <T>(path: string) => dedupedGet<T>(path),
 
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, {

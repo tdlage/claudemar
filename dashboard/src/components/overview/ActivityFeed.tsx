@@ -5,6 +5,7 @@ import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
 import { renderOutputHtml } from "../../lib/ansi";
 import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
+import { SelectionSafeHtml } from "../shared/SelectionSafeHtml";
 import { formatUsage } from "../../lib/types";
 import { formatDuration } from "../../lib/format";
 import type { ExecutionInfo, QueueItem } from "../../lib/types";
@@ -240,9 +241,9 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
                     {exec.error}
                   </div>
                 )}
-                <div
+                <SelectionSafeHtml
                   className="activity-output p-2 md:p-3 bg-bg rounded-md border border-border text-xs text-text-primary max-h-[400px] overflow-auto break-words"
-                  dangerouslySetInnerHTML={{ __html: sanitizedOutput }}
+                  html={sanitizedOutput}
                   onClick={(e) => handleOutputClick(e, exec)}
                 />
               </div>
