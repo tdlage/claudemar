@@ -69,10 +69,14 @@ export function setupWebSocket(io: SocketServer): void {
       socket.join(`exec:${id}`);
       const exec = executionManager.getExecution(id);
       if (exec) {
+        const isActive = executionManager.isExecutionActive(id);
+        const output = isActive
+          ? (exec.output ?? "")
+          : (exec.result?.output ?? exec.output ?? "");
         socket.emit("execution:catchup", {
           id,
-          output: exec.output ?? "",
-          running: executionManager.isExecutionActive(id),
+          output,
+          running: isActive,
           streamOffset: exec.streamOffset,
           truncated: exec.streamOffset > (exec.output ?? "").length,
         });
@@ -263,24 +267,27 @@ export function setupWebSocket(io: SocketServer): void {
 
   executionManager.prependListener("complete", (id, info) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
-    emitToExecutions("execution:complete", info, { id, info, hasQueued });
-    io.to(`exec:${id}`).emit("execution:complete", { id, info, hasQueued });
+    const finalInfo = { ...info, output: info.result?.output ?? info.output };
+    emitToExecutions("execution:complete", finalInfo, { id, info: finalInfo, hasQueued });
+    io.to(`exec:${id}`).emit("execution:complete", { id, info: finalInfo, hasQueued });
     emitActivity(id, info, finalActivity(info));
     lastActivity.delete(id);
   });
 
   executionManager.prependListener("error", (id, info, message) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
-    emitToExecutions("execution:error", info, { id, info, error: message, hasQueued });
-    io.to(`exec:${id}`).emit("execution:error", { id, info, error: message, hasQueued });
+    const finalInfo = { ...info, output: info.result?.output ?? info.output };
+    emitToExecutions("execution:error", finalInfo, { id, info: finalInfo, error: message, hasQueued });
+    io.to(`exec:${id}`).emit("execution:error", { id, info: finalInfo, error: message, hasQueued });
     emitActivity(id, info, finalActivity(info));
     lastActivity.delete(id);
   });
 
   executionManager.prependListener("cancel", (id, info) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
-    emitToExecutions("execution:cancel", info, { id, info, hasQueued });
-    io.to(`exec:${id}`).emit("execution:cancel", { id, info, hasQueued });
+    const finalInfo = { ...info, output: info.result?.output ?? info.output };
+    emitToExecutions("execution:cancel", finalInfo, { id, info: finalInfo, hasQueued });
+    io.to(`exec:${id}`).emit("execution:cancel", { id, info: finalInfo, hasQueued });
     emitActivity(id, info, finalActivity(info));
     lastActivity.delete(id);
   });

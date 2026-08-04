@@ -309,15 +309,23 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       setCheckpoints((prev) => [...prev.filter((c) => c.uuid !== data.uuid), { uuid: data.uuid, ts: Date.now() }]);
     };
 
-    const completeHandler = (data: { id: string }) => {
+    const completeHandler = (data: { id: string; info?: { output?: string } }) => {
       if (!matches(data.id)) return;
+      if (data.info?.output && data.info.output.length > getOutput(executionId).length) {
+        setOutput(executionId, data.info.output);
+        render(data.info.output);
+      }
       setRunning(false);
       setPermissions([]);
       setMessages([]);
     };
 
-    const stopHandler = (data: { id: string }) => {
+    const stopHandler = (data: { id: string; info?: { output?: string } }) => {
       if (!matches(data.id)) return;
+      if (data.info?.output && data.info.output.length > getOutput(executionId).length) {
+        setOutput(executionId, data.info.output);
+        render(data.info.output);
+      }
       setRunning(false);
       setPermissions([]);
       setMessages([]);
