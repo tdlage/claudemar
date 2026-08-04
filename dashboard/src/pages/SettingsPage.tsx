@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound, Cpu, Server, RefreshCw } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound, Cpu, Server, RefreshCw, Fingerprint } from "lucide-react";
 import { api } from "../lib/api";
 import { OPEN_API_KEYS_EVENT } from "../components/layout/ApiKeysSetup";
 import { ClaudeAccountSection } from "../components/layout/ClaudeAccountSection";
+import { isAdmin } from "../hooks/useAuth";
+import { registerPasskey, getPasskeyCredentials, deletePasskey, isPasskeySupported } from "../lib/passkey";
 import type { RuntimeSettings, EmailProfileMasked, LlmProfile, GatewayStatus } from "../lib/types";
 
 interface ProfileFormState {
@@ -38,6 +40,50 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [testMsg, setTestMsg] = useState<{ profile: string; type: "ok" | "err"; text: string } | null>(null);
+
+  const [passkeys, setPasskeys] = useState<Array<{ id: string; name: string; createdAt: string }>>([]);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [passkeyMsg, setPasskeyMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [passkeySupported, setPasskeySupported] = useState(false);
+  const [addingPasskey, setAddingPasskey] = useState(false);
+  const [newPasskeyName, setNewPasskeyName] = useState("");
+  const showPasskeys = isAdmin();
+
+  const loadPasskeys = useCallback(() => {
+    if (!showPasskeys) return;
+    getPasskeyCredentials().then(setPasskeys).catch(() => {});
+  }, [showPasskeys]);
+
+  useEffect(() => {
+    setPasskeySupported(isPasskeySupported());
+    loadPasskeys();
+  }, [loadPasskeys]);
+
+  const handleRegisterPasskey = async () => {
+    if (!newPasskeyName.trim() || passkeyLoading) return;
+    setPasskeyLoading(true);
+    setPasskeyMsg(null);
+    try {
+      await registerPasskey(newPasskeyName.trim());
+      setNewPasskeyName("");
+      setAddingPasskey(false);
+      setPasskeyMsg({ type: "ok", text: "Passkey registered" });
+      loadPasskeys();
+    } catch (err) {
+      setPasskeyMsg({ type: "err", text: err instanceof Error ? err.message : "Registration failed" });
+    } finally {
+      setPasskeyLoading(false);
+      setTimeout(() => setPasskeyMsg(null), 4000);
+    }
+  };
+
+  const handleDeletePasskey = async (id: string) => {
+    try {
+      await deletePasskey(id);
+      loadPasskeys();
+    } catch {
+    }
+  };
 
   const loadProfiles = useCallback(() => {
     api.get<EmailProfileMasked[]>("/settings/email/profiles").then(setProfiles).catch(() => {});
@@ -383,6 +429,94 @@ export function SettingsPage() {
           </button>
         </div>
       </section>
+
+      {showPasskeys && (
+        <section className="space-y-4">
+          <h2 className="text-sm font-semibold text-text-primary border-b border-border pb-2 flex items-center gap-2">
+            <Fingerprint size={14} className="text-text-muted" /> Admin Passkeys
+          </h2>
+          <p className="text-sm text-text-muted">
+            Cadastre credenciais WebAuthn para login com Touch ID / Face ID / senha do sistema. Funciona apenas para admin e apenas sobre HTTPS ou <code>localhost</code>.
+          </p>
+
+          {!passkeySupported && (
+            <p className="text-xs text-danger">Passkeys não são suportados neste navegador.</p>
+          )}
+
+          {passkeyMsg && (
+            <p className={`text-xs ${passkeyMsg.type === "ok" ? "text-success" : "text-danger"}`}>{passkeyMsg.text}</p>
+          )}
+
+          {addingPasskey ? (
+            <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-text-primary">Register new passkey</span>
+                <button
+                  onClick={() => { setAddingPasskey(false); setNewPasskeyName(""); }}
+                  className="text-text-muted hover:text-text-primary"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-1">Name</label>
+                <input
+                  type="text"
+                  value={newPasskeyName}
+                  onChange={(e) => setNewPasskeyName(e.target.value)}
+                  placeholder="MacBook Touch ID"
+                  autoFocus
+                  className={inputClass}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => { setAddingPasskey(false); setNewPasskeyName(""); }} className={btnCancel}>
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRegisterPasskey}
+                  disabled={passkeyLoading || !newPasskeyName.trim()}
+                  className={btnAccent}
+                >
+                  {passkeyLoading ? "Registering..." : "Register"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setAddingPasskey(true)}
+              disabled={!passkeySupported}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border text-text-secondary hover:bg-surface-hover disabled:opacity-40 disabled:pointer-events-none transition-colors"
+            >
+              <Plus size={14} /> Add passkey
+            </button>
+          )}
+
+          <div className="space-y-2">
+            {passkeys.map((pk) => (
+              <div key={pk.id} className="bg-surface border border-border rounded-lg px-4 py-3 flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-text-primary truncate">{pk.name}</div>
+                  <div className="text-xs text-text-muted font-mono truncate">{pk.id}</div>
+                  <div className="text-xs text-text-muted">{new Date(pk.createdAt).toLocaleString()}</div>
+                </div>
+                <button
+                  onClick={() => handleDeletePasskey(pk.id)}
+                  className={`${iconBtn} hover:text-danger`}
+                  title="Delete"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+            {passkeys.length === 0 && (
+              <div className="text-center py-8 text-text-muted text-sm">
+                No passkeys registered. Add one to enable biometric login.
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-text-primary border-b border-border pb-2">Email</h2>

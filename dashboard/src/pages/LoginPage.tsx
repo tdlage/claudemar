@@ -1,13 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Button } from "../components/shared/Button";
+import { isPasskeySupported, loginWithPasskey, getPasskeyStatus } from "../lib/passkey";
 
 export function LoginPage() {
   const { login, isAuthenticated } = useAuth();
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [passkeyEnabled, setPasskeyEnabled] = useState(false);
+  const [passkeySupported, setPasskeySupported] = useState(false);
+
+  useEffect(() => {
+    setPasskeySupported(isPasskeySupported());
+    getPasskeyStatus()
+      .then((s) => setPasskeyEnabled(s.enabled))
+      .catch(() => setPasskeyEnabled(false));
+  }, []);
 
   if (isAuthenticated) return <Navigate to="/" replace />;
 
@@ -29,6 +39,20 @@ export function LoginPage() {
       await login(token);
     } catch {
       setError("Connection failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePasskeyLogin = async () => {
+    setError("");
+    setLoading(true);
+
+    try {
+      const { token: passkeyToken } = await loginWithPasskey();
+      await login(passkeyToken);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Passkey authentication failed");
     } finally {
       setLoading(false);
     }
@@ -58,6 +82,25 @@ export function LoginPage() {
             {loading ? "Connecting..." : "Login"}
           </Button>
         </form>
+
+        {passkeySupported && passkeyEnabled && (
+          <>
+            <div className="flex items-center gap-3 my-4">
+              <div className="h-px bg-border flex-1" />
+              <span className="text-xs text-text-muted">or</span>
+              <div className="h-px bg-border flex-1" />
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={loading}
+              onClick={handlePasskeyLogin}
+              className="w-full"
+            >
+              {loading ? "Authenticating..." : "Login with Touch ID / Passkey"}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -35,9 +35,18 @@ function booleanEnv(key: string, fallback: boolean): boolean {
   return raw === "true" || raw === "1";
 }
 
+function hostnameFromUrl(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
 const installDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const basePath = process.env.CLAUDEMAR_DATA || process.env.BASE_PATH || resolve(homedir(), ".claudemar");
 const dataPath = resolve(basePath, "data");
+const publicBaseUrl = stringEnv("PUBLIC_BASE_URL", "");
 
 export const config = Object.freeze({
   telegramBotToken: requiredEnv("TELEGRAM_BOT_TOKEN"),
@@ -60,7 +69,7 @@ export const config = Object.freeze({
   openaiApiKey: process.env.OPENAI_API_KEY || "",
   gatewayUrl: stringEnv("GATEWAY_URL", "http://localhost:8080/anthropic"),
   dashboardPort: numericEnv("DASHBOARD_PORT", 3000),
-  publicBaseUrl: stringEnv("PUBLIC_BASE_URL", ""),
+  publicBaseUrl,
   dashboardToken: process.env.DASHBOARD_TOKEN || "",
   tokenRotationHours: numericEnv("TOKEN_ROTATION_HOURS", 24),
   claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || resolve(homedir(), ".claude"),
@@ -87,6 +96,11 @@ export const config = Object.freeze({
   maxParallelPipelineRuns: numericEnv("MAX_PARALLEL_PIPELINE_RUNS", 3),
   pipelineStageTimeoutMs: numericEnv("PIPELINE_STAGE_TIMEOUT_MS", 120 * 60 * 1000),
   maxPipelineRetries: numericEnv("MAX_PIPELINE_RETRIES", 3),
+  // WebAuthn / Passkeys (login biométrico para admin).
+  // RP ID deve ser o domínio exato onde o dashboard roda (sem protocolo/porta).
+  // Em produção use o hostname público; em dev "localhost" funciona.
+  webAuthnRpId: stringEnv("WEBAUTHN_RP_ID", hostnameFromUrl(publicBaseUrl) ?? "localhost"),
+  webAuthnRpName: stringEnv("WEBAUTHN_RP_NAME", "Claudemar"),
 });
 
 if (Number.isNaN(config.allowedChatId)) {
