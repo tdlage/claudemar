@@ -22,7 +22,9 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
 
   if (res.status === 401) {
     localStorage.removeItem("dashboard_token");
-    window.location.href = "/login";
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
     throw new Error("Unauthorized");
   }
 

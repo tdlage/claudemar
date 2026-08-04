@@ -19,7 +19,7 @@ import { systemRouter } from "./routes/system.js";
 import { runConfigsRouter } from "./routes/run-configs.js";
 import { transcriptionRouter } from "./routes/transcription.js";
 import { usersRouter } from "./routes/users.js";
-import { authRouter } from "./routes/auth.js";
+import { authRouter, authPublicRouter } from "./routes/auth.js";
 import { settingsRouter } from "./routes/settings.js";
 import { trackerRouter } from "./routes/tracker.js";
 import { pipelineRouter } from "./routes/pipeline.js";
@@ -77,9 +77,11 @@ export function createDashboardServer() {
 
   app.use("/api/auth", authLimiter);
   app.use("/api", apiLimiter);
-  app.use("/api", authMiddleware);
 
   const jsonParser = express.json({ limit: "5mb" });
+
+  app.use("/api/auth", jsonParser, authPublicRouter);
+  app.use("/api", authMiddleware);
 
   app.use("/api/auth", jsonParser, authRouter);
   app.use("/api/agents", express.json({ limit: "15mb" }), agentsRouter);

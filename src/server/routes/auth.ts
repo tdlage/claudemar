@@ -7,6 +7,38 @@ function requestHost(req: Request): string | undefined {
   return host ?? undefined;
 }
 
+export const authPublicRouter = Router();
+
+authPublicRouter.get("/passkey/status", (_req, res) => {
+  res.json({ enabled: passkeyManager.hasCredentials() });
+});
+
+authPublicRouter.post("/passkey/login-options", async (req, res) => {
+  try {
+    if (!passkeyManager.hasCredentials()) {
+      res.status(400).json({ error: "Passkey not configured" });
+      return;
+    }
+    const { options, challenge } = await passkeyManager.generateAuthenticationOptions(requestHost(req));
+    res.json({ options, challenge });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to generate authentication options" });
+  }
+});
+
+authPublicRouter.post("/passkey/login", async (req, res) => {
+  try {
+    const { challenge, response } = req.body as {
+      challenge: string;
+      response: Record<string, unknown>;
+    };
+    const result = await passkeyManager.verifyAuthentication(challenge, response as never, requestHost(req));
+    res.json(result);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : "Authentication failed" });
+  }
+});
+
 export const authRouter = Router();
 
 authRouter.get("/me", (req, res) => {
@@ -32,10 +64,6 @@ authRouter.get("/me", (req, res) => {
   });
 });
 
-authRouter.get("/passkey/status", (_req, res) => {
-  res.json({ enabled: passkeyManager.hasCredentials() });
-});
-
 authRouter.post("/passkey/register-options", requireAdmin, async (req, res) => {
   try {
     const { options, challenge } = await passkeyManager.generateRegistrationOptions("", requestHost(req));
@@ -56,32 +84,6 @@ authRouter.post("/passkey/register", requireAdmin, async (req, res) => {
     res.json({ id: passkey.id, name: passkey.name });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Registration failed" });
-  }
-});
-
-authRouter.post("/passkey/login-options", async (req, res) => {
-  try {
-    if (!passkeyManager.hasCredentials()) {
-      res.status(400).json({ error: "Passkey not configured" });
-      return;
-    }
-    const { options, challenge } = await passkeyManager.generateAuthenticationOptions(requestHost(req));
-    res.json({ options, challenge });
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to generate authentication options" });
-  }
-});
-
-authRouter.post("/passkey/login", async (req, res) => {
-  try {
-    const { challenge, response } = req.body as {
-      challenge: string;
-      response: Record<string, unknown>;
-    };
-    const result = await passkeyManager.verifyAuthentication(challenge, response as never, requestHost(req));
-    res.json(result);
-  } catch (err) {
-    res.status(401).json({ error: err instanceof Error ? err.message : "Authentication failed" });
   }
 });
 
