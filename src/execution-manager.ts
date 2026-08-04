@@ -269,7 +269,7 @@ class ExecutionManager extends EventEmitter {
     return resolveExecutionModel({
       explicitModel: opts.model,
       targetType: opts.targetType,
-      activeProviderId: settingsManager.getActiveProfile().id,
+      activeProfile: settingsManager.getActiveProfile(),
       projectModel: projectSettingsManager.getModel(opts.targetName),
     });
   }

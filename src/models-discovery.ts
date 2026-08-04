@@ -1,3 +1,5 @@
+import type { LlmProfile } from "./providers/llm.js";
+
 export const DEFAULT_OPUS_DISPLAY = "Opus 5";
 
 interface DiscoveredModel {
@@ -35,18 +37,20 @@ export function isSelectableProjectModel(model: unknown): model is string {
   return typeof model === "string" && PROJECT_SELECTABLE_MODELS.some((m) => m.model === model);
 }
 
-// Regra única de resolução do modelo de uma execução. Override explícito sempre vence; a
-// preferência por projeto só vale para alvo "project" com o provider nativo "anthropic" ativo.
+// Regra única de resolução do modelo de uma execução. Override explícito sempre vence.
+// Para projetos com provider nativo anthropic, usa a preferência do projeto. Para qualquer
+// outro provider ou alvo não-projeto, usa o modelo principal do perfil ativo.
 export function resolveExecutionModel(params: {
   explicitModel?: string;
   targetType: string;
-  activeProviderId: string;
+  activeProfile: LlmProfile;
   projectModel: string;
 }): string {
   if (params.explicitModel) return normalizeModel(params.explicitModel);
-  if (params.targetType !== "project") return DEFAULT_PROJECT_MODEL;
-  if (params.activeProviderId !== "anthropic") return DEFAULT_PROJECT_MODEL;
-  return normalizeModel(params.projectModel);
+  if (params.targetType === "project" && params.activeProfile.id === "anthropic") {
+    return normalizeModel(params.projectModel);
+  }
+  return params.activeProfile.opusModel.trim() || DEFAULT_PROJECT_MODEL;
 }
 
 function formatDisplayName(id: string): string {

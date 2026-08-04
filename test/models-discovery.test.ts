@@ -8,6 +8,37 @@ import {
   DEFAULT_PROJECT_MODEL,
   PROJECT_SELECTABLE_MODELS,
 } from "../src/models-discovery.js";
+import type { LlmProfile } from "../src/providers/llm.js";
+
+function anthropicProfile(projectModel?: string): LlmProfile {
+  return {
+    id: "anthropic",
+    label: "Anthropic",
+    baseUrl: "",
+    tokenEnv: "BIFROST_VIRTUAL_KEY",
+    opusModel: "",
+    sonnetModel: "",
+    haikuModel: "",
+    timeoutMs: "",
+    autoCompactWindow: "",
+    extraEnv: "",
+  };
+}
+
+function kimiProfile(projectModel?: string): LlmProfile {
+  return {
+    id: "kimi",
+    label: "Kimi",
+    baseUrl: "https://api.kimi.com/coding",
+    tokenEnv: "KIMI_API_KEY",
+    opusModel: "k3",
+    sonnetModel: "k3",
+    haikuModel: "k3",
+    timeoutMs: "",
+    autoCompactWindow: "1048576",
+    extraEnv: "",
+  };
+}
 
 test("getModelDisplayName resolve Fable 5 pelo id", () => {
   assert.equal(getModelDisplayName("claude-fable-5"), "Fable 5");
@@ -45,7 +76,7 @@ test("resolveExecutionModel: projeto + anthropic + fable → claude-fable-5", ()
   assert.equal(
     resolveExecutionModel({
       targetType: "project",
-      activeProviderId: "anthropic",
+      activeProfile: anthropicProfile(),
       projectModel: "claude-fable-5",
     }),
     "claude-fable-5",
@@ -56,7 +87,7 @@ test("resolveExecutionModel: projeto sem preferência usa o default (Opus 5)", (
   assert.equal(
     resolveExecutionModel({
       targetType: "project",
-      activeProviderId: "anthropic",
+      activeProfile: anthropicProfile(),
       projectModel: DEFAULT_PROJECT_MODEL,
     }),
     "claude-opus-5",
@@ -67,29 +98,37 @@ test("resolveExecutionModel: preferência legada opus é normalizada para Opus 5
   assert.equal(
     resolveExecutionModel({
       targetType: "project",
-      activeProviderId: "anthropic",
+      activeProfile: anthropicProfile(),
       projectModel: "opus",
     }),
     "claude-opus-5",
   );
 });
 
-test("resolveExecutionModel: provider gateway ignora a preferência do projeto", () => {
+test("resolveExecutionModel: provider gateway ignora a preferência do projeto e usa o modelo do perfil", () => {
   assert.equal(
     resolveExecutionModel({
       targetType: "project",
-      activeProviderId: "zai",
+      activeProfile: kimiProfile(),
       projectModel: "claude-fable-5",
     }),
-    "claude-opus-5",
+    "k3",
   );
 });
 
-test("resolveExecutionModel: alvos não-projeto usam o default", () => {
+test("resolveExecutionModel: alvos não-projeto usam o modelo do perfil ativo", () => {
   assert.equal(
     resolveExecutionModel({
       targetType: "agent",
-      activeProviderId: "anthropic",
+      activeProfile: kimiProfile(),
+      projectModel: "claude-fable-5",
+    }),
+    "k3",
+  );
+  assert.equal(
+    resolveExecutionModel({
+      targetType: "agent",
+      activeProfile: anthropicProfile(),
       projectModel: "claude-fable-5",
     }),
     "claude-opus-5",
@@ -101,7 +140,7 @@ test("resolveExecutionModel: override explícito sempre prevalece", () => {
     resolveExecutionModel({
       explicitModel: "claude-sonnet-4-6",
       targetType: "project",
-      activeProviderId: "zai",
+      activeProfile: kimiProfile(),
       projectModel: "claude-fable-5",
     }),
     "claude-sonnet-4-6",
