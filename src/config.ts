@@ -47,6 +47,11 @@ export const config = Object.freeze({
   dataPath,
   agentTimeoutMs: numericEnv("AGENT_TIMEOUT_MS", numericEnv("CLAUDE_TIMEOUT_MS", 0)),
   permissionTimeoutMs: numericEnv("PERMISSION_TIMEOUT_MS", 10 * 60 * 1000),
+  // Timeout de inatividade do runner do Agent SDK. Se nenhuma mensagem (output,
+  // thinking, tool_use, result, task progress, etc.) for recebida neste intervalo,
+  // a sessão é encerrada como erro — protege contra hangs silenciosos do SDK,
+  // como ao atingir o limite de sessão da conta (session limit).
+  sessionInactivityTimeoutMs: numericEnv("SESSION_INACTIVITY_TIMEOUT_MS", 10 * 60 * 1000),
   maxOutputLength: numericEnv("MAX_OUTPUT_LENGTH", 4096),
   maxBufferSize: numericEnv("MAX_BUFFER_SIZE", 10 * 1024 * 1024),
   orchestratorPath: resolve(basePath, "orchestrator"),

@@ -29,9 +29,9 @@ test("perfil kimi default aponta para o endpoint Anthropic-compatível do Kimi C
   assert.equal(profile.label, "Kimi (K3)");
   assert.equal(profile.baseUrl, "https://api.kimi.com/coding");
   assert.equal(profile.tokenEnv, "KIMI_API_KEY");
-  assert.equal(profile.opusModel, "k3[1m]");
-  assert.equal(profile.sonnetModel, "k3[1m]");
-  assert.equal(profile.haikuModel, "k3[1m]");
+  assert.equal(profile.opusModel, "k3");
+  assert.equal(profile.sonnetModel, "k3");
+  assert.equal(profile.haikuModel, "k3");
   assert.equal(profile.autoCompactWindow, "1048576");
 });
 
@@ -40,7 +40,7 @@ test("migrateLegacyProfiles reescreve o perfil kimi ainda apontando para a Moons
   const { profiles, changed } = migrateLegacyProfiles([legacy]);
   assert.equal(changed, true);
   assert.equal(profiles[0].baseUrl, "https://api.kimi.com/coding");
-  assert.equal(profiles[0].opusModel, "k3[1m]");
+  assert.equal(profiles[0].opusModel, "k3");
   assert.equal(profiles[0].label, "Meu Kimi");
 });
 
@@ -59,11 +59,11 @@ test("applyProfile com kimi configura o ambiente da execução (criterios 1 e 2)
     const env = applyProfile({ ANTHROPIC_API_KEY: "subscription-key" }, kimiProfile());
     assert.equal(env.ANTHROPIC_BASE_URL, "https://api.kimi.com/coding");
     assert.equal(env.ANTHROPIC_AUTH_TOKEN, "sk-kimi-test");
-    assert.equal(env.ANTHROPIC_DEFAULT_OPUS_MODEL, "k3[1m]");
-    assert.equal(env.ANTHROPIC_DEFAULT_SONNET_MODEL, "k3[1m]");
-    assert.equal(env.ANTHROPIC_DEFAULT_HAIKU_MODEL, "k3[1m]");
+    assert.equal(env.ANTHROPIC_DEFAULT_OPUS_MODEL, "k3");
+    assert.equal(env.ANTHROPIC_DEFAULT_SONNET_MODEL, "k3");
+    assert.equal(env.ANTHROPIC_DEFAULT_HAIKU_MODEL, "k3");
     assert.equal(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, "1048576");
-    assert.equal(env.CLAUDE_CODE_SUBAGENT_MODEL, "k3[1m]");
+    assert.equal(env.CLAUDE_CODE_SUBAGENT_MODEL, "k3");
     assert.equal(env.ENABLE_TOOL_SEARCH, "false");
     assert.equal("ANTHROPIC_API_KEY" in env, false);
   } finally {

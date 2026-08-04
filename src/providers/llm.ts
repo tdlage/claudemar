@@ -22,7 +22,12 @@ export const GATEWAY_TOKEN_ENV = "BIFROST_VIRTUAL_KEY";
 const GATEWAY_TIMEOUT_MS = "3000000";
 
 const KIMI_BASE_URL = "https://api.kimi.com/coding";
-const KIMI_MODEL = "k3[1m]";
+// A documentação do Kimi Code diz que `k3[1m]` é o seletor usado pelo Claude Code
+// para forçar a janela de 1M tokens. Para chamadas diretas à API Anthropic-compatível
+// (que é o que o Agent SDK faz), o model ID correto é o bare `k3`; `k3[1m]` é
+// interpretado pelo upstream como um modelo de 256K e retorna 400 quando o request
+// passa de 262144 tokens.
+const KIMI_MODEL = "k3";
 
 // Endpoint usado pela primeira versão do perfil kimi. Instalações que já semearam esse
 // perfil têm o valor antigo persistido em settings.json; a chave do Kimi Code (gerada em

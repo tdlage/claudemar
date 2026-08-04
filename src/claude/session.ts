@@ -51,6 +51,7 @@ const DEFAULT_CONTEXT_WINDOW = Number(process.env.CONTEXT_WINDOW_TOKENS) || 2000
 
 export interface ClaudeSessionInit extends Omit<BuildOptionsParams, "canUseTool" | "abortController"> {
   permissionTimeoutMs?: number;
+  inactivityTimeoutMs?: number;
   isSubagentAllowed?: (subagentType: string) => boolean;
 }
 
@@ -135,6 +136,9 @@ export class ClaudeSession extends EventEmitter {
   private result: AgentResult | null = null;
   private settled = false;
   private dead = false;
+  private inactivityTimeoutMs: number;
+  private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+  private inactivityExpired = false;
 
   constructor(init: ClaudeSessionInit) {
     super();
@@ -148,6 +152,7 @@ export class ClaudeSession extends EventEmitter {
     this.currentPermissionMode = init.planMode ? "plan" : init.permissionMode ?? (this.bypass ? "bypassPermissions" : "default");
     this.isSubagentAllowed = init.isSubagentAllowed ?? null;
     this.requestedModel = init.model ?? DEFAULT_PROJECT_MODEL;
+    this.inactivityTimeoutMs = init.inactivityTimeoutMs ?? 0;
 
     const options = buildOptions({
       ...init,
@@ -158,6 +163,32 @@ export class ClaudeSession extends EventEmitter {
 
     this.runner = query({ prompt: this.queue.iterable, options });
     void this.consume(this.runner);
+    this.startInactivityTimer();
+  }
+
+  private startInactivityTimer(): void {
+    if (this.inactivityTimeoutMs <= 0 || this.inactivityExpired || this.dead || this.settled) return;
+    this.clearInactivityTimer();
+    this.inactivityTimer = setTimeout(() => {
+      this.inactivityExpired = true;
+      this.abortController.abort();
+      this.queue.end();
+      if (!this.settled) {
+        this.failTurn("Sessão inativa por muito tempo — possível limite de sessão ou travamento do runner.");
+      }
+    }, this.inactivityTimeoutMs);
+  }
+
+  private resetInactivityTimer(): void {
+    if (this.inactivityExpired || this.dead || this.settled) return;
+    this.startInactivityTimer();
+  }
+
+  private clearInactivityTimer(): void {
+    if (this.inactivityTimer) {
+      clearTimeout(this.inactivityTimer);
+      this.inactivityTimer = null;
+    }
   }
 
   private handlePermission(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
@@ -239,6 +270,7 @@ export class ClaudeSession extends EventEmitter {
   }
 
   private failTurn(message: string): void {
+    this.clearInactivityTimer();
     this.settleResult({
       output: this.assistantBuffer,
       sessionId: this.sessionId,
@@ -257,6 +289,7 @@ export class ClaudeSession extends EventEmitter {
   }
 
   private handleMessage(message: SDKMessage): void {
+    this.resetInactivityTimer();
     switch (message.type) {
       case "system":
         this.handleSystem(message);
@@ -478,6 +511,7 @@ export class ClaudeSession extends EventEmitter {
   }
 
   private settleResult(result: AgentResult): void {
+    this.clearInactivityTimer();
     this.result = result;
     this.settled = true;
     this.assistantBuffer = "";
@@ -493,7 +527,7 @@ export class ClaudeSession extends EventEmitter {
     this.settled = false;
     this.activeTasks.clear();
     this.pendingResult = null;
-
+    this.startInactivityTimer();
     let content: SDKUserMessage["message"]["content"];
     if (typeof blocksOrText === "string") {
       content = blocksOrText;
@@ -599,6 +633,7 @@ export class ClaudeSession extends EventEmitter {
   }
 
   end(): void {
+    this.clearInactivityTimer();
     for (const { settle } of this.permissionResolvers.values()) {
       settle({ behavior: "deny", message: "Sessão encerrada." });
     }

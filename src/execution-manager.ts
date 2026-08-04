@@ -313,6 +313,7 @@ class ExecutionManager extends EventEmitter {
       squadSkills: opts.targetType === "agent" ? squadSkillsForAgent(opts.targetName) : opts.skills,
       schedulerMode: opts.schedulerMode,
       permissionTimeoutMs: config.permissionTimeoutMs,
+      inactivityTimeoutMs: config.sessionInactivityTimeoutMs,
     });
     this.sessions.set(sessionKey, session);
     this.sessionGen.set(sessionKey, this.llmConfigGen);
