@@ -70,10 +70,18 @@ export function SettingsPage() {
       setPasskeyMsg({ type: "ok", text: "Passkey registered" });
       loadPasskeys();
     } catch (err) {
-      setPasskeyMsg({ type: "err", text: err instanceof Error ? err.message : "Registration failed" });
+      const msg = err instanceof Error ? err.message : "Registration failed";
+      if (msg.toLowerCase().includes("rp id") || msg.toLowerCase().includes("origin")) {
+        setPasskeyMsg({
+          type: "err",
+          text: `Domínio inválido para passkey. Acesse pelo hostname configurado ou defina WEBAUTHN_RP_ID no .env para "${window.location.hostname}" e reinicie o servidor.`,
+        });
+      } else {
+        setPasskeyMsg({ type: "err", text: msg });
+      }
     } finally {
       setPasskeyLoading(false);
-      setTimeout(() => setPasskeyMsg(null), 4000);
+      setTimeout(() => setPasskeyMsg(null), 6000);
     }
   };
 

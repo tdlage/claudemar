@@ -98,8 +98,8 @@ export const config = Object.freeze({
   maxPipelineRetries: numericEnv("MAX_PIPELINE_RETRIES", 3),
   // WebAuthn / Passkeys (login biométrico para admin).
   // RP ID deve ser o domínio exato onde o dashboard roda (sem protocolo/porta).
-  // Em produção use o hostname público; em dev "localhost" funciona.
-  webAuthnRpId: stringEnv("WEBAUTHN_RP_ID", hostnameFromUrl(publicBaseUrl) ?? "localhost"),
+  // Em produção configure WEBAUTHN_RP_ID; em dev é derivado do hostname da requisição.
+  webAuthnRpId: stringEnv("WEBAUTHN_RP_ID", hostnameFromUrl(publicBaseUrl) ?? ""),
   webAuthnRpName: stringEnv("WEBAUTHN_RP_NAME", "Claudemar"),
 });
 

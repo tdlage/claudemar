@@ -82,13 +82,19 @@ class PasskeyManager {
     }
   }
 
-  private expectedOrigin(): string {
-    const origin = config.publicBaseUrl || `http://localhost:${config.dashboardPort}`;
-    return origin.replace(/\/$/, "");
+  private resolveHost(host?: string): string {
+    if (config.webAuthnRpId) return config.webAuthnRpId;
+    if (!host) return "localhost";
+    return host.split(":")[0];
   }
 
-  private rpId(): string {
-    return config.webAuthnRpId;
+  private resolveOrigin(host?: string): string {
+    const configured = config.publicBaseUrl.replace(/\/$/, "");
+    if (configured) return configured;
+    if (!host) return `http://localhost:${config.dashboardPort}`;
+    const isLocal = host.startsWith("localhost") || host.startsWith("127.");
+    const protocol = isLocal ? "http" : "https";
+    return `${protocol}://${host}`;
   }
 
   hasCredentials(): boolean {
@@ -99,10 +105,11 @@ class PasskeyManager {
     return [...this.credentials];
   }
 
-  async generateRegistrationOptions(name: string): Promise<{ options: PublicKeyCredentialCreationOptionsJSON; challenge: string }> {
+  async generateRegistrationOptions(name: string, host?: string): Promise<{ options: PublicKeyCredentialCreationOptionsJSON; challenge: string; rpId: string; origin: string }> {
+    const rpId = this.resolveHost(host);
     const options = await generateRegistrationOptions({
       rpName: config.webAuthnRpName,
-      rpID: this.rpId(),
+      rpID: rpId,
       userName: "admin",
       userDisplayName: "Administrator",
       attestationType: "none",
@@ -115,10 +122,10 @@ class PasskeyManager {
     });
 
     this.setChallenge(options.challenge, options.challenge);
-    return { options, challenge: options.challenge };
+    return { options, challenge: options.challenge, rpId, origin: this.resolveOrigin(host) };
   }
 
-  async verifyRegistration(name: string, challenge: string, response: RegistrationResponseJSON): Promise<AdminPasskey> {
+  async verifyRegistration(name: string, challenge: string, response: RegistrationResponseJSON, host?: string): Promise<AdminPasskey> {
     const expectedChallenge = this.takeChallenge(challenge);
     if (!expectedChallenge) {
       throw new Error("Challenge inválido ou expirado.");
@@ -127,8 +134,8 @@ class PasskeyManager {
     const verification = await verifyRegistrationResponse({
       response,
       expectedChallenge,
-      expectedOrigin: this.expectedOrigin(),
-      expectedRPID: this.rpId(),
+      expectedOrigin: this.resolveOrigin(host),
+      expectedRPID: this.resolveHost(host),
       requireUserVerification: true,
     });
 
@@ -151,18 +158,19 @@ class PasskeyManager {
     return passkey;
   }
 
-  async generateAuthenticationOptions(): Promise<{ options: PublicKeyCredentialRequestOptionsJSON; challenge: string }> {
+  async generateAuthenticationOptions(host?: string): Promise<{ options: PublicKeyCredentialRequestOptionsJSON; challenge: string; rpId: string; origin: string }> {
+    const rpId = this.resolveHost(host);
     const options = await generateAuthenticationOptions({
-      rpID: this.rpId(),
+      rpID: rpId,
       allowCredentials: this.credentials.map((c) => ({ id: c.id, transports: c.transports })),
       userVerification: "preferred",
     });
 
     this.setChallenge(options.challenge, options.challenge);
-    return { options, challenge: options.challenge };
+    return { options, challenge: options.challenge, rpId, origin: this.resolveOrigin(host) };
   }
 
-  async verifyAuthentication(challenge: string, response: AuthenticationResponseJSON): Promise<{ verified: boolean; token: string }> {
+  async verifyAuthentication(challenge: string, response: AuthenticationResponseJSON, host?: string): Promise<{ verified: boolean; token: string }> {
     const credential = this.credentials.find((c) => c.id === response.id);
     if (!credential) {
       throw new Error("Credencial não encontrada.");
@@ -176,8 +184,8 @@ class PasskeyManager {
     const verification = await verifyAuthenticationResponse({
       response,
       expectedChallenge,
-      expectedOrigin: this.expectedOrigin(),
-      expectedRPID: this.rpId(),
+      expectedOrigin: this.resolveOrigin(host),
+      expectedRPID: this.resolveHost(host),
       credential: {
         id: credential.id,
         publicKey: Buffer.from(credential.publicKey, "base64url"),
