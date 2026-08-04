@@ -144,11 +144,12 @@ class PasskeyManager {
     }
 
     const info = verification.registrationInfo;
+    const credential = info.credential;
     const passkey: AdminPasskey = {
-      id: info.credentialID,
-      publicKey: Buffer.from(info.credentialPublicKey).toString("base64url"),
-      counter: info.counter,
-      transports: info.credentialDeviceType === "multiDevice" ? ["hybrid", "internal"] : ["internal"],
+      id: credential.id,
+      publicKey: Buffer.from(credential.publicKey).toString("base64url"),
+      counter: credential.counter,
+      transports: credential.transports ?? (info.credentialDeviceType === "multiDevice" ? ["hybrid", "internal"] : ["internal"]),
       createdAt: new Date().toISOString(),
       name: name || `Passkey ${this.credentials.length + 1}`,
     };
