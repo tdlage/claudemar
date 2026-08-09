@@ -24,6 +24,7 @@ import { settingsRouter } from "./routes/settings.js";
 import { trackerRouter } from "./routes/tracker.js";
 import { pipelineRouter } from "./routes/pipeline.js";
 import { webhooksRouter } from "./routes/webhooks.js";
+import { brainRouter, brainPublicRouter, whatsappWebhookHandler } from "./routes/brain.js";
 
 export function createDashboardServer() {
   const app = express();
@@ -80,7 +81,11 @@ export function createDashboardServer() {
 
   const jsonParser = express.json({ limit: "5mb" });
 
+  const brainJsonParser = express.json({ limit: "60mb" });
+
   app.use("/api/auth", jsonParser, authPublicRouter);
+  app.post("/api/brain/whatsapp/webhook", express.raw({ type: "*/*", limit: "2mb" }), whatsappWebhookHandler);
+  app.use("/api/brain", brainPublicRouter);
   app.use("/api", authMiddleware);
 
   app.use("/api/auth", jsonParser, authRouter);
@@ -94,6 +99,8 @@ export function createDashboardServer() {
   app.use("/api/run-configs", jsonParser, requireAdmin, runConfigsRouter);
   app.use("/api/users", jsonParser, requireAdmin, usersRouter);
   app.use("/api/settings", jsonParser, requireAdmin, settingsRouter);
+  app.post("/api/brain/whatsapp/import", requireAdmin, brainJsonParser);
+  app.use("/api/brain", requireAdmin, jsonParser, brainRouter);
   app.use("/api/transcribe", transcriptionRouter);
   app.use("/api/tracker", express.json({ limit: "150mb" }), trackerRouter);
   // Acesso por projeto (admin ou user com a aba "pipeline" habilitada) é validado nos

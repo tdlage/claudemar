@@ -13,7 +13,13 @@ import { TrackerPage } from "./pages/TrackerPage";
 import { TeamsPage } from "./pages/TeamsPage";
 import { TeamDetailPage } from "./pages/TeamDetailPage";
 import { TeamOfficePage } from "./pages/TeamOfficePage";
+import { SecondBrainPage } from "./pages/SecondBrainPage";
 import { getMe } from "./hooks/useAuth";
+
+function KeyedBrainPage() {
+  const { tab } = useParams();
+  return <SecondBrainPage key={tab} />;
+}
 
 function KeyedTeamPage() {
   const { id } = useParams();
@@ -82,6 +88,9 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <AdminGuard><OverviewPage /></AdminGuard> },
       { path: "orchestrator", element: <AdminGuard><OrchestratorPage /></AdminGuard> },
+      { path: "second-brain", element: <AdminGuard><SecondBrainPage /></AdminGuard> },
+      { path: "second-brain/:tab", element: <AdminGuard><KeyedBrainPage /></AdminGuard> },
+      { path: "second-brain/:tab/*", element: <AdminGuard><KeyedBrainPage /></AdminGuard> },
       { path: "agents/:name", element: <KeyedAgentPage /> },
       { path: "projects/:name", element: <KeyedProjectPage /> },
       { path: "logs", element: <AdminGuard><LogsPage /></AdminGuard> },

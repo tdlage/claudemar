@@ -101,6 +101,25 @@ export const config = Object.freeze({
   // Em produção configure WEBAUTHN_RP_ID; em dev é derivado do hostname da requisição.
   webAuthnRpId: stringEnv("WEBAUTHN_RP_ID", hostnameFromUrl(publicBaseUrl) ?? ""),
   webAuthnRpName: stringEnv("WEBAUTHN_RP_NAME", "Claudemar"),
+  redisUrl: stringEnv("REDIS_URL", "redis://127.0.0.1:6379"),
+  brainRoot: process.env.BRAIN_ROOT ? resolve(process.env.BRAIN_ROOT) : resolve(basePath, "brain"),
+  brainAnthropicApiKey: stringEnv("BRAIN_ANTHROPIC_API_KEY", ""),
+  brainTz: stringEnv("BRAIN_TZ", "Europe/Madrid"),
+  googleClientId: stringEnv("GOOGLE_CLIENT_ID", ""),
+  googleClientSecret: stringEnv("GOOGLE_CLIENT_SECRET", ""),
+  r2Endpoint: stringEnv("R2_ENDPOINT", ""),
+  r2AccessKeyId: stringEnv("R2_ACCESS_KEY_ID", ""),
+  r2SecretAccessKey: stringEnv("R2_SECRET_ACCESS_KEY", ""),
+  r2BucketAttachments: stringEnv("R2_BUCKET_ATTACHMENTS", ""),
+  whatsappBridgeUrl: stringEnv("WHATSAPP_BRIDGE_URL", "http://127.0.0.1:3010"),
+  whatsappBridgeAuth: stringEnv("WHATSAPP_BRIDGE_AUTH", ""),
+  brainWhatsappWebhookSecret: stringEnv("BRAIN_WHATSAPP_WEBHOOK_SECRET", ""),
+  slackAppToken: stringEnv("SLACK_APP_TOKEN", ""),
+  slackBotToken: stringEnv("SLACK_BOT_TOKEN", ""),
+  bm25NormalizeDiacritics: booleanEnv("BM25_NORMALIZE_DIACRITICS", true),
+  rerankMinScore: numericEnv("RERANK_MIN_SCORE", 0),
+  selectorMinPool: numericEnv("SELECTOR_MIN_POOL", 12),
+  brainIncludePiiDefault: booleanEnv("BRAIN_INCLUDE_PII_DEFAULT", false),
 });
 
 if (Number.isNaN(config.allowedChatId)) {
@@ -113,3 +132,4 @@ mkdirSync(config.orchestratorPath, { recursive: true });
 mkdirSync(config.projectsPath, { recursive: true });
 mkdirSync(config.agentsPath, { recursive: true });
 mkdirSync(resolve(config.dataPath, "pipeline-worktrees"), { recursive: true });
+mkdirSync(config.brainRoot, { recursive: true });

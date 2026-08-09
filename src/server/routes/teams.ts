@@ -9,7 +9,7 @@ import {
 import { dispatchToSquad } from "../../agents/squad-dispatch.js";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 
-const RESERVED_MCP_NAMES = new Set(["memory", "scheduler"]);
+const RESERVED_MCP_NAMES = new Set(["memory", "scheduler", "brain"]);
 
 function stringRecord(raw: unknown): Record<string, string> {
   const out: Record<string, string> = {};

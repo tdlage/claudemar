@@ -26,6 +26,7 @@ import { initClaudeAuthWatch } from "./claude/claude-auth-state.js";
 import { initTeams } from "./agents/teams-manager.js";
 import { ensureMemoryReady } from "./memory/session-memory.js";
 import { gatewayManager } from "./providers/gateway.js";
+import { brainInit, brainShutdown } from "./brain/index.js";
 import { closePool } from "./database.js";
 
 function migrateClaudeMdToAgentsMd(): void {
@@ -82,6 +83,9 @@ await ensureMemoryReady().catch((err) => {
 await gatewayManager.start().catch((err) => {
   console.error("[gateway] Initialization failed:", err instanceof Error ? err.message : String(err));
 });
+void brainInit().catch((err) => {
+  console.error("[brain] Initialization failed:", err instanceof Error ? err.message : String(err));
+});
 let shuttingDown = false;
 
 async function drainQueue(_id: string, info: ExecutionInfo) {
@@ -134,6 +138,7 @@ async function shutdown() {
   runProcessManager.flush();
   settingsManager.flush();
   projectSettingsManager.flush();
+  await brainShutdown().catch(() => {});
   closePool().catch(() => {});
   httpServer.close(() => {
     process.exit(0);

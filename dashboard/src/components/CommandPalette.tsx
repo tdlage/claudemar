@@ -4,6 +4,7 @@ import {
   Search,
   LayoutDashboard,
   Bot,
+  Brain,
   FolderGit2,
   ScrollText,
 } from "lucide-react";
@@ -83,6 +84,16 @@ export function CommandPalette() {
         icon: ScrollText,
         action: () => {
           navigate("/logs");
+          close();
+        },
+      },
+      {
+        id: "nav:second-brain",
+        label: "Second Brain",
+        category: "Navigation",
+        icon: Brain,
+        action: () => {
+          navigate("/second-brain");
           close();
         },
       },

@@ -693,3 +693,322 @@ export interface PipelineBundle {
   repos: string[];
 }
 
+
+// ── Second Brain ──
+
+export type BrainChannel = "email" | "calendar" | "whatsapp" | "slack" | "drive";
+export type BrainTenant = "personal" | "biosoft";
+export type BrainSchedulerName = "gmail" | "calendar" | "ingest" | "triage" | "compile" | "index" | "digest" | "whatsapp" | "slack" | "distill" | "lint" | "freshness";
+
+export interface BrainParticipant {
+  name: string;
+  handle: string;
+  role: string;
+}
+
+export interface BrainAttachment {
+  name: string;
+  bytes: number;
+  sha256: string;
+  uri: string;
+}
+
+export interface BrainTriage {
+  relevance: 0 | 1 | 2 | 3;
+  tenant: BrainTenant;
+  contains_pii: 0 | 1;
+  reason: string;
+  entities: string[];
+  projects: string[];
+  has_commitment: boolean;
+  has_deadline: boolean;
+  action_required: boolean;
+  classified_at: string;
+  model: string;
+}
+
+export interface RawThreadFrontmatter {
+  id: string;
+  channel: BrainChannel;
+  subchannel: "direct" | "group";
+  account: string;
+  thread_key: string;
+  tenant: BrainTenant | "unknown";
+  contains_pii: 0 | 1;
+  occurred_from: string;
+  occurred_to: string;
+  ingested_at: string;
+  participants: BrainParticipant[];
+  subject: string;
+  message_count: number;
+  chatter_filtered: number;
+  attachments: BrainAttachment[];
+  raw_ref?: string;
+  triage?: BrainTriage;
+  compiled_into?: string[];
+}
+
+export interface RawThreadListItem {
+  path: string;
+  frontmatter: RawThreadFrontmatter;
+}
+
+export interface RawThreadBlock {
+  externalId: string;
+  at: string;
+  sender: string;
+  lang: string;
+  chatter: string | null;
+  body: string;
+}
+
+export interface RawThread {
+  path: string;
+  frontmatter: RawThreadFrontmatter;
+  blocks: RawThreadBlock[];
+}
+
+export interface BrainChannelSummary {
+  channel: string;
+  threads: number;
+  months: string[];
+  firstAt: string | null;
+  lastAt: string | null;
+}
+
+export interface BrainSchedulerStatus {
+  name: BrainSchedulerName;
+  enabled: boolean;
+  inFlight: boolean;
+  lastHeartbeat: string | null;
+  lastError: string;
+  disabledReason: string | null;
+}
+
+export interface GoogleAccountStatus {
+  email: string;
+  label: string;
+  tenant: BrainTenant;
+  connected: boolean;
+  reauthRequired: boolean;
+  expiryDate: string | null;
+}
+
+export interface BrainDayMetrics {
+  date: string;
+  fields: Record<string, number>;
+}
+
+export interface BackfillProgress {
+  currentAccount: string | null;
+  currentMonth: string | null;
+  processed: number;
+  total: number;
+  batchId: string | null;
+  detail: string;
+}
+
+export interface BackfillState {
+  status: "idle" | "running" | "done" | "error" | "cancelled";
+  phase: "raw" | "triage" | "compile" | null;
+  accounts: string[];
+  monthsRaw: number;
+  monthsCompile: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: string;
+  progress: BackfillProgress;
+}
+
+export interface BrainStatus {
+  redis: { reachable: boolean; lastError: string };
+  google: { configured: boolean; accounts: GoogleAccountStatus[] };
+  schedulers: BrainSchedulerStatus[];
+  queues: { events: number; eventsPending: number; triage: number; compile: number };
+  metrics: BrainDayMetrics[];
+  quarantineCount: number;
+  counts: { rawThreads: number; wikiPages: number };
+  git: { head: string; dirty: number };
+  backfill: BackfillState;
+  alerts: string[];
+}
+
+export interface BrainLlmProvider {
+  id: string;
+  label: string;
+  baseUrl: string;
+  apiKeyEnv: string;
+  features: { batch: boolean; caching: boolean; structuredOutputs: boolean };
+}
+
+export interface BrainStageLlm {
+  providerId: string;
+  model: string;
+}
+
+export type BrainWikiPageType = "person" | "org" | "project" | "topic" | "thread" | "lesson" | "procedure" | "decision";
+
+export interface BrainRetrievalSettings {
+  rerankMinScore: number;
+  businessRanking: boolean;
+  typeWeights: Record<BrainWikiPageType, number>;
+  halfLifeDays: Record<BrainWikiPageType, number | null>;
+  salienceBonus: number;
+}
+
+export interface BrainRecallDistribution {
+  month: string;
+  total: number;
+  scored: number;
+  bins: { from: number; to: number; count: number }[];
+  percentiles: { p25: number | null; p50: number | null; p75: number | null };
+}
+
+export interface BrainAccountSetting {
+  email: string;
+  label: string;
+  tenant: BrainTenant;
+}
+
+export interface BrainSettings {
+  schedulers: Record<BrainSchedulerName, boolean>;
+  cadences: { gmailMs: number; calendarMs: number; ingestMs: number; triageMs: number; compileMs: number; indexMs: number; whatsappMs: number; slackMs: number; freshnessMs: number };
+  chatter: { minChars: number; extraConfirmations: string[]; samplePerWeek: number };
+  llm: { providers: BrainLlmProvider[]; triage: BrainStageLlm; compile: BrainStageLlm; selector: BrainStageLlm; distill: BrainStageLlm; lint: BrainStageLlm };
+  compile: { minRelevance: number; maxSectionChars: number; contextPages: number; batchSize: number; maxPerTick: number };
+  accounts: BrainAccountSetting[];
+  tenantRules: { biosoftDomains: string[]; biosoftKeywords: string[] };
+  emailFilter: { skipCategories: string[]; blockedSenders: string[]; bulkAsNoise: boolean };
+  whatsapp: { tenant: BrainTenant };
+  slack: { tenant: BrainTenant };
+  gmailQuery: string;
+  backfill: { monthsRaw: number; monthsCompile: number };
+  retrieval: BrainRetrievalSettings;
+}
+
+export interface BrainQuarantineItem {
+  id: string;
+  kind: "malformed_event" | "ingest_failed" | "triage_failed" | "compile_failed" | "invalid_operations";
+  ts: string;
+  threadKey: string | null;
+  error: string;
+  payload?: unknown;
+}
+
+export interface BrainActivityItem {
+  at: string;
+  kind:
+    | "ingest"
+    | "triage"
+    | "compile"
+    | "quarantine"
+    | "connector"
+    | "backfill"
+    | "index"
+    | "digest"
+    | "distill"
+    | "lint"
+    | "alert";
+  label: string;
+  path?: string;
+}
+
+export interface BrainChatterSample {
+  ts: string;
+  channel: string;
+  threadKey: string;
+  text: string;
+  rule: string;
+}
+
+export interface WikiPageSummary {
+  path: string;
+  slug: string;
+  title: string;
+  type: string;
+  status: string;
+  updated_at: string;
+  confidence: string;
+}
+
+export interface WikiTreeSection {
+  dir: string;
+  pages: WikiPageSummary[];
+}
+
+export interface WikiPage {
+  path: string;
+  ref?: string;
+  frontmatter: Record<string, unknown>;
+  body: string;
+}
+
+export interface WikiVersion {
+  sha: string;
+  date: string;
+  message: string;
+}
+
+export interface BrainOpenLoop {
+  id: string;
+  title: string;
+  tenant: BrainTenant;
+  kind: "my_commitment" | "waiting_on" | "decision_pending";
+  counterparty: string;
+  opened_at: string;
+  due: string | null;
+  last_movement: string;
+  status: "open" | "done" | "superseded" | "abandoned";
+  supersedes: string | null;
+  sources: string[];
+  next_action: string;
+}
+
+export type BrainDegraded = "sparse-only" | "dense-only" | "no-rerank" | "no-selector";
+
+export interface BrainSearchHit {
+  sourceKey: string;
+  title: string;
+  type: WikiPageSummary["type"];
+  tenant: BrainTenant;
+  text: string;
+  rerankScore: number | null;
+  updatedAt: string;
+  containsPii: boolean;
+}
+
+export interface BrainSearchResult {
+  hits: BrainSearchHit[];
+  degraded: BrainDegraded[];
+  candidatesRrf: number;
+  topRerankScore: number | null;
+  minRerankScore: number | null;
+  belowThreshold: number;
+  ranked: boolean;
+  durationMs: number;
+}
+
+export interface BrainRecallLine {
+  ts: string;
+  surface: string;
+  tool: string;
+  scope: { targetType: string; targetName: string };
+  query: string;
+  requested: number;
+  candidates_rrf: number;
+  returned_ids: string[];
+  top_rerank_score: number | null;
+  min_rerank_score: number | null;
+  duration_ms: number;
+  degraded: string | null;
+  ranked?: boolean;
+}
+
+export interface BrainIndexStatus {
+  enabled: boolean;
+  trackedFiles: number;
+  lastFull: string | null;
+  reindexRunning: boolean;
+  points: number;
+  currentPoints: number;
+}

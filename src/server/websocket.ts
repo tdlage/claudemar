@@ -12,6 +12,8 @@ import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
 import { trackerManager } from "../tracker-manager.js";
 import { pipelineManager } from "../pipeline-manager.js";
 import { ciEventManager } from "../ci-events.js";
+import { brainEvents } from "../brain/events.js";
+import { getBrainStatus } from "../brain/status.js";
 
 const RATE_LIMIT_WINDOW_MS = 1000;
 const RATE_LIMIT_MAX_EVENTS = 30;
@@ -212,6 +214,16 @@ export function setupWebSocket(io: SocketServer): void {
 
     socket.on("unsubscribe:pipeline", () => {
       socket.leave("pipeline");
+    });
+
+    socket.on("subscribe:brain", () => {
+      const ctx = getCtx();
+      if (!ctx || ctx.role !== "admin") return;
+      socket.join("brain");
+    });
+
+    socket.on("unsubscribe:brain", () => {
+      socket.leave("brain");
     });
   });
 
@@ -437,6 +449,31 @@ export function setupWebSocket(io: SocketServer): void {
 
   ciEventManager.on("workflow_run", (data) => {
     io.to("executions").emit("ci:workflow_run", data);
+  });
+
+  brainEvents.on("activity", (data) => {
+    io.to("brain").emit("brain:activity", data);
+  });
+  brainEvents.on("google", (data) => {
+    io.to("brain").emit("brain:google", data);
+  });
+  brainEvents.on("backfill", (data) => {
+    io.to("brain").emit("brain:backfill", data);
+  });
+
+  let brainStatusTimer: ReturnType<typeof setTimeout> | null = null;
+  const BRAIN_STATUS_DEBOUNCE_MS = 10_000;
+  brainEvents.on("status-changed", () => {
+    if (brainStatusTimer) return;
+    brainStatusTimer = setTimeout(() => {
+      brainStatusTimer = null;
+      if (io.sockets.adapter.rooms.get("brain")?.size) {
+        getBrainStatus()
+          .then((status) => io.to("brain").emit("brain:status", status))
+          .catch(() => {});
+      }
+    }, BRAIN_STATUS_DEBOUNCE_MS);
+    brainStatusTimer.unref();
   });
 
   startFileWatcher((event, base, path) => {

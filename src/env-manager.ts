@@ -14,6 +14,7 @@ export interface ManagedEnvKey {
 
 const GATEWAY_GROUP = "Gateway de LLM (Bifrost)";
 const DIRECT_GROUP = "Provedores LLM (conexão direta)";
+const BRAIN_GROUP = "Second Brain";
 
 export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "OPENAI_API_KEY", label: "OpenAI API Key", group: GATEWAY_GROUP, help: "Usada pelo gateway para os modelos OpenAI (perfil openai) e pelo Whisper na transcrição de voz.", required: false },
@@ -25,6 +26,20 @@ export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "VOYAGE_API_KEY", label: "Voyage API Key", group: "Memória de longo prazo", help: "Embeddings (voyage-4-large) e rerank (rerank-2.5). Necessária para a memória.", required: false },
   { key: "QDRANT_URL", label: "Qdrant URL", group: "Memória de longo prazo", help: "Endpoint do cluster Qdrant (ex.: https://xxxx.cloud.qdrant.io).", required: false },
   { key: "QDRANT_API_KEY", label: "Qdrant API Key", group: "Memória de longo prazo", help: "Chave de acesso do Qdrant Cloud.", required: false },
+  { key: "BRAIN_ANTHROPIC_API_KEY", label: "Anthropic API Key (brain)", group: BRAIN_GROUP, help: "Chave da Anthropic dedicada ao pipeline do Second Brain (triagem/compilação). Separada de ANTHROPIC_API_KEY para não substituir a subscription do Claude.", required: false },
+  { key: "GOOGLE_CLIENT_ID", label: "Google Client ID", group: BRAIN_GROUP, help: "OAuth client do Google Cloud para os conectores Gmail/Calendar. Redirect URI: <PUBLIC_BASE_URL>/api/brain/google/callback.", required: false },
+  { key: "GOOGLE_CLIENT_SECRET", label: "Google Client Secret", group: BRAIN_GROUP, help: "Secret do OAuth client do Google Cloud.", required: false },
+  { key: "REDIS_URL", label: "Redis URL", group: BRAIN_GROUP, help: "Endpoint do Redis usado pelo brain (cursores, filas, dedup). Padrão: redis://127.0.0.1:6379.", required: false },
+  { key: "R2_ENDPOINT", label: "R2 Endpoint", group: BRAIN_GROUP, help: "Endpoint S3 do Cloudflare R2 para anexos e originais. Vazio = armazenamento local em BRAIN_ROOT/attachments.", required: false },
+  { key: "R2_ACCESS_KEY_ID", label: "R2 Access Key ID", group: BRAIN_GROUP, help: "Credencial de acesso do bucket R2.", required: false },
+  { key: "R2_SECRET_ACCESS_KEY", label: "R2 Secret Access Key", group: BRAIN_GROUP, help: "Credencial secreta do bucket R2.", required: false },
+  { key: "R2_BUCKET_ATTACHMENTS", label: "R2 Bucket (anexos)", group: BRAIN_GROUP, help: "Nome do bucket R2 para anexos do brain.", required: false },
+  { key: "WHATSAPP_BRIDGE_URL", label: "WhatsApp Bridge URL", group: BRAIN_GROUP, help: "Endpoint do bridge GOWA (container claudemar-whatsapp). Padrão: http://127.0.0.1:3010.", required: false },
+  { key: "WHATSAPP_BRIDGE_AUTH", label: "WhatsApp Bridge Auth", group: BRAIN_GROUP, help: "Basic auth do bridge no formato usuario:senha (APP_BASIC_AUTH do container).", required: false },
+  { key: "WHATSAPP_BRIDGE_WEBHOOK", label: "WhatsApp Bridge Webhook", group: BRAIN_GROUP, help: "URL que o container do bridge chama ao receber mensagem. Padrão: http://host.docker.internal:<porta>/api/brain/whatsapp/webhook.", required: false },
+  { key: "BRAIN_WHATSAPP_WEBHOOK_SECRET", label: "WhatsApp Webhook Secret", group: BRAIN_GROUP, help: "Segredo HMAC compartilhado com o bridge para validar webhooks de mensagem.", required: false },
+  { key: "SLACK_APP_TOKEN", label: "Slack App Token", group: BRAIN_GROUP, help: "Token xapp- (Socket Mode) do app Slack do brain.", required: false },
+  { key: "SLACK_BOT_TOKEN", label: "Slack Bot Token", group: BRAIN_GROUP, help: "Token xoxb- do bot Slack (Web API). O bot precisa ser convidado nos canais a ingerir.", required: false },
 ];
 
 export interface EnvKeyStatus extends ManagedEnvKey {

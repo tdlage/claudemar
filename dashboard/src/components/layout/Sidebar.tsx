@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Crown,
+  Brain,
   Bot,
   Folder,
   ScrollText,
@@ -261,6 +262,10 @@ export function Sidebar() {
               <NavLink to="/orchestrator" className={linkClass} title="Claudemar">
                 <Crown size={16} className={targetStatus["orchestrator:orchestrator"]?.running ? "text-warning animate-pulse" : "text-success"} />
                 {showExpanded && "Claudemar"}
+              </NavLink>
+              <NavLink to="/second-brain" className={linkClass} title="Second Brain">
+                <Brain size={16} />
+                {showExpanded && "Second Brain"}
               </NavLink>
             </div>
           )}

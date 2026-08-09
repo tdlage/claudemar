@@ -139,8 +139,24 @@ function useTrackerBreadcrumbs(pathname: string) {
   return names;
 }
 
+const BRAIN_SEGMENTS: Record<string, string> = {
+  "second-brain": "Second Brain",
+  raw: "Dados brutos",
+  wiki: "Wiki",
+  search: "Busca",
+  state: "Estado",
+  settings: "Configurações",
+  log: "Log",
+  quarantine: "Quarentena",
+};
+
 function buildBreadcrumbs(pathname: string, names: Record<string, string>): string[] {
   if (pathname === "/") return ["Overview"];
   const parts = pathname.split("/").filter(Boolean);
+  if (parts[0] === "second-brain") {
+    return parts.map((p) =>
+      BRAIN_SEGMENTS[p] ?? (UUID_RE.test(p) ? "..." : p.charAt(0).toUpperCase() + p.slice(1)),
+    );
+  }
   return parts.map((p) => names[p] || (UUID_RE.test(p) ? "..." : p.charAt(0).toUpperCase() + p.slice(1)));
 }

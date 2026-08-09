@@ -33,6 +33,8 @@ services:
       - CLAUDEMAR_DATA=/app
       - MYSQL_HOST=mysql
       - GATEWAY_URL=http://bifrost:8080/anthropic
+      - REDIS_URL=redis://redis:6379
+      - WHATSAPP_BRIDGE_URL=http://whatsapp-bridge:3000
     depends_on:
       mysql:
         condition: service_healthy
@@ -59,6 +61,39 @@ services:
       retries: 10
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
+  whatsapp-bridge:
+    image: aldinokemal2104/go-whatsapp-web-multidevice:latest
+    container_name: claudemar-whatsapp
+    restart: unless-stopped
+    # Bridge não-oficial (whatsmeow) — usar SEMPRE número secundário (risco de ban).
+    # Defina WHATSAPP_BRIDGE_AUTH (usuario:senha) no .env: sem isso a API REST do bridge
+    # fica sem autenticação para quem alcançar a porta 3010 no host.
+    environment:
+      - APP_PORT=3000
+      - APP_BASIC_AUTH=${WHATSAPP_BRIDGE_AUTH:-}
+      - WHATSAPP_WEBHOOK=${WHATSAPP_BRIDGE_WEBHOOK:-http://host.docker.internal:${DASHBOARD_PORT:-3000}/api/brain/whatsapp/webhook}
+      - WHATSAPP_WEBHOOK_SECRET=${BRAIN_WHATSAPP_WEBHOOK_SECRET:-}
+      - WHATSAPP_WEBHOOK_EVENTS=message
+      - WHATSAPP_AUTO_DOWNLOAD_MEDIA=false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - whatsapp_data:/app/storages
+    ports:
+      - "127.0.0.1:3010:3000"
+
+  redis:
+    image: redis:7-alpine
+    container_name: claudemar-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+
 volumes:
   mysql_data:
   bifrost_data:
+  redis_data:
+  whatsapp_data:

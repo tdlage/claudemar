@@ -6,6 +6,7 @@ import { isEnabled, getClient, ensureCollection } from "./qdrant.js";
 import { embed } from "./embeddings.js";
 import { rerank } from "./rerank.js";
 import { bm25Vector } from "./bm25.js";
+import { chunkText } from "./chunk.js";
 
 export interface MemoryTarget {
   targetType: string;
@@ -25,8 +26,6 @@ interface MemoryPayload {
   model?: string;
 }
 
-const CHUNK_CHARS = 6000;
-const CHUNK_OVERLAP = 400;
 const CLUSTER_THRESHOLD = 0.92;
 
 export function memoryEnabled(): boolean {
@@ -36,20 +35,6 @@ export function memoryEnabled(): boolean {
 export async function ensureMemoryReady(): Promise<void> {
   if (!memoryEnabled()) return;
   await ensureCollection();
-}
-
-function chunkText(text: string): string[] {
-  const trimmed = text.trim();
-  if (trimmed.length <= CHUNK_CHARS) return trimmed ? [trimmed] : [];
-  const chunks: string[] = [];
-  let start = 0;
-  while (start < trimmed.length) {
-    const end = Math.min(start + CHUNK_CHARS, trimmed.length);
-    chunks.push(trimmed.slice(start, end));
-    if (end >= trimmed.length) break;
-    start = end - CHUNK_OVERLAP;
-  }
-  return chunks;
 }
 
 function targetFilter(target: MemoryTarget) {
