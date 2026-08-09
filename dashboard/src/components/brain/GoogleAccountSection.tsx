@@ -4,13 +4,14 @@ import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
 import { Modal } from "../shared/Modal";
 import { useToast } from "../shared/Toast";
-import { useGoogleAccounts } from "../../hooks/useBrain";
+import { useGoogleAccounts, useTenants } from "../../hooks/useBrain";
 
 const selectClass =
   "bg-bg border border-border rounded-md px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent";
 
 export function GoogleAccountSection() {
   const { accounts, loading, connect, disconnect, updateAccount } = useGoogleAccounts();
+  const { tenants } = useTenants();
   const { addToast } = useToast();
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,10 +65,13 @@ export function GoogleAccountSection() {
               }
             }}
             className={selectClass}
-            title="Tenant desta conta — define o isolamento personal/biosoft na triagem"
+            title="Contexto padrão desta conta — a triagem ainda pode decidir outro pelo assunto"
           >
-            <option value="personal">personal</option>
-            <option value="biosoft">biosoft</option>
+            {tenants.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
           </select>
           {account.reauthRequired ? (
             <Button size="sm" variant="secondary" onClick={handleConnect}>

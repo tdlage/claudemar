@@ -110,6 +110,7 @@ export async function createWikiPage(params: {
   slug: string;
   title: string;
   tenant: BrainTenant;
+  tenantRoot?: BrainTenant;
   aliases: string[];
   sections: { section: string; content: string }[];
   sources: string[];
@@ -123,6 +124,7 @@ export async function createWikiPage(params: {
       slug: params.slug,
       title: params.title,
       tenant: params.tenant,
+      tenant_root: params.tenantRoot ?? params.tenant,
       contains_pii: params.containsPii ?? 0,
       aliases: params.aliases,
       status: "active",

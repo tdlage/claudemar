@@ -4,6 +4,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Pin, CheckCheck } from "lucide-react";
 import { api } from "../../lib/api";
 import { Badge } from "../shared/Badge";
+import { tenantVariant } from "../../lib/tenantVariant";
 import { useToast } from "../shared/Toast";
 
 function str(v: unknown): string {
@@ -77,7 +78,7 @@ export function WikiPageHeader({
             </Badge>
           </span>
         )}
-        {str(fm.tenant) && <Badge variant={fm.tenant === "biosoft" ? "info" : "default"}>{str(fm.tenant)}</Badge>}
+        {str(fm.tenant) && <Badge variant={tenantVariant(str(fm.tenant))}>{str(fm.tenant)}</Badge>}
         {fm.contains_pii === 1 && <Badge variant="warning">PII</Badge>}
         {reviewOverdue(fm) && (
           <>

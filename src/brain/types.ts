@@ -1,6 +1,20 @@
 export type BrainChannel = "email" | "calendar" | "whatsapp" | "slack" | "drive";
 export type BrainSubchannel = "direct" | "group";
-export type BrainTenant = "personal" | "biosoft";
+/** Id de contexto no registry dinâmico (state/contexts.md), inferido pela triagem. */
+export type BrainTenant = string;
+
+export interface TenantEntry {
+  id: string;
+  label: string;
+  parent: string | null;
+  aliases: string[];
+  domains: string[];
+  identifiers: string[];
+  threads: number;
+  created_at: string;
+  updated_at: string;
+  merged_into: string | null;
+}
 export type TriageRelevance = 0 | 1 | 2 | 3;
 export type WikiPageType =
   | "person"
@@ -44,6 +58,8 @@ export interface CanonicalEvent {
 export interface TriageResult {
   relevance: TriageRelevance;
   tenant: BrainTenant;
+  tenant_parent: string | null;
+  tenant_evidence: string;
   contains_pii: 0 | 1;
   reason: string;
   entities: string[];
@@ -84,6 +100,7 @@ export interface WikiFrontmatter {
   slug: string;
   title: string;
   tenant: BrainTenant;
+  tenant_root: BrainTenant;
   contains_pii: 0 | 1;
   aliases: string[];
   status: "active" | "dormant" | "archived";
@@ -234,10 +251,6 @@ export interface BrainSettings {
     maxPerTick: number;
   };
   accounts: BrainAccount[];
-  tenantRules: {
-    biosoftDomains: string[];
-    biosoftKeywords: string[];
-  };
   emailFilter: {
     skipCategories: string[];
     blockedSenders: string[];

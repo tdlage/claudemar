@@ -8,6 +8,7 @@ import { appendRecallLine, buildRecallLine } from "./recall-telemetry.js";
 import { brainSparseVector, bumpCounter, ensureBrainIndex, type BrainIndexPayload } from "./brain-index.js";
 import { businessScore, passesThreshold } from "./ranking.js";
 import { brainSettingsManager } from "./settings.js";
+import { tenantSubtree } from "./tenants.js";
 import type { BrainDegraded, BrainSearchHit, BrainSearchResult, BrainTenant, WikiPageType } from "./types.js";
 
 const RERANK_INSTRUCTION =
@@ -98,10 +99,10 @@ export async function brainSearch(params: BrainSearchParams): Promise<BrainSearc
   const must: unknown[] = [
     { key: "targetType", match: { value: "brain" } },
     { key: "current", match: { value: true } },
-    params.tenant
-      ? { key: "targetName", match: { value: params.tenant } }
-      : { key: "targetName", match: { any: ["personal", "biosoft"] } },
   ];
+  if (params.tenant) {
+    must.push({ key: "tenant", match: { any: await tenantSubtree(params.tenant) } });
+  }
   if (!includePii) must.push({ key: "containsPii", match: { value: false } });
   if (params.type) must.push({ key: "type", match: { value: params.type } });
   const filter = { must } as never;
@@ -233,7 +234,7 @@ export async function brainSearch(params: BrainSearchParams): Promise<BrainSearc
     buildRecallLine({
       surface: params.surface,
       tool: params.tool,
-      targetName: params.tenant ?? "personal,biosoft",
+      targetName: params.tenant ?? "todos",
       query: params.query,
       requested: limit,
       candidatesRrf,

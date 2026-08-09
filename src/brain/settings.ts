@@ -3,6 +3,8 @@ import { config } from "../config.js";
 import { JsonPersister } from "../json-persister.js";
 import { DEFAULT_HALF_LIFE_DAYS, DEFAULT_SALIENCE_BONUS, DEFAULT_TYPE_WEIGHTS } from "./ranking.js";
 import { SCHEDULER_NAMES } from "./types.js";
+import { ROOT_TENANT } from "./tenants.js";
+import { slugify } from "./text.js";
 import type {
   BrainAccount,
   BrainLlmProvider,
@@ -82,10 +84,9 @@ function defaults(): BrainSettings {
     },
     compile: { minRelevance: 2, maxSectionChars: 4000, contextPages: 6, batchSize: 20, maxPerTick: 100 },
     accounts: [],
-    tenantRules: { biosoftDomains: [], biosoftKeywords: [] },
     emailFilter: { skipCategories: ["promotions", "social"], blockedSenders: [], bulkAsNoise: true },
     whatsapp: { tenant: "personal" },
-    slack: { tenant: "biosoft" },
+    slack: { tenant: "personal" },
     gmailQuery: "",
     backfill: { monthsRaw: 12, monthsCompile: 3 },
     retrieval: {
@@ -115,7 +116,7 @@ function strArr(raw: unknown): string[] {
 }
 
 function tenant(raw: unknown): BrainTenant {
-  return raw === "biosoft" ? "biosoft" : "personal";
+  return typeof raw === "string" && raw.trim() ? slugify(raw, 48) : ROOT_TENANT;
 }
 
 function sanitizeProviders(raw: unknown): BrainLlmProvider[] {
@@ -218,7 +219,6 @@ function sanitize(raw: unknown): BrainSettings {
   const chat = (r.chatter ?? {}) as Record<string, unknown>;
   const llm = (r.llm ?? {}) as Record<string, unknown>;
   const comp = (r.compile ?? {}) as Record<string, unknown>;
-  const tr = (r.tenantRules ?? {}) as Record<string, unknown>;
   const ef = (r.emailFilter ?? {}) as Record<string, unknown>;
   const wa = (r.whatsapp ?? {}) as Record<string, unknown>;
   const sl = (r.slack ?? {}) as Record<string, unknown>;
@@ -261,10 +261,6 @@ function sanitize(raw: unknown): BrainSettings {
       maxPerTick: num(comp.maxPerTick, d.compile.maxPerTick, 1),
     },
     accounts: sanitizeAccounts(r.accounts),
-    tenantRules: {
-      biosoftDomains: strArr(tr.biosoftDomains),
-      biosoftKeywords: strArr(tr.biosoftKeywords),
-    },
     emailFilter: {
       skipCategories: (Array.isArray(ef.skipCategories)
         ? strArr(ef.skipCategories)

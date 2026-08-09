@@ -11,6 +11,7 @@ export interface BrainIndexPayload {
   text: string;
   targetType: "brain";
   targetName: BrainTenant;
+  tenant: BrainTenant;
   sourceKey: string;
   type: WikiPageType;
   title: string;
@@ -45,6 +46,7 @@ export async function ensureBrainIndex(): Promise<void> {
   const wanted: [string, "keyword" | "bool"][] = [
     ["type", "keyword"],
     ["containsPii", "bool"],
+    ["tenant", "keyword"],
   ];
   for (const [field, fieldSchema] of wanted) {
     if (!Object.prototype.hasOwnProperty.call(schema, field)) {
@@ -101,7 +103,8 @@ export async function upsertWikiPage(
     const payload: BrainIndexPayload = {
       text: chunk,
       targetType: "brain",
-      targetName: frontmatter.tenant,
+      targetName: frontmatter.tenant_root || frontmatter.tenant,
+      tenant: frontmatter.tenant,
       sourceKey: relPath,
       type: frontmatter.type,
       title: frontmatter.title,

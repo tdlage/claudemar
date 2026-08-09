@@ -6,6 +6,7 @@ import { annotateTriage, findThreadPath, readThread } from "./raw-store.js";
 import { noteCandidates } from "./entities.js";
 import { quarantineWrite } from "./quarantine.js";
 import { emitActivity } from "./events.js";
+import { ensureTenant, resolveTenantName, tenantRegistryPrompt } from "./tenants.js";
 import { brainSchedulers } from "./schedulers.js";
 import type { BrainChannel, TriageResult } from "./types.js";
 
@@ -18,6 +19,8 @@ export const TRIAGE_JSON_SCHEMA: Record<string, unknown> = {
   required: [
     "relevance",
     "tenant",
+    "tenant_parent",
+    "tenant_evidence",
     "contains_pii",
     "reason",
     "entities",
@@ -28,7 +31,9 @@ export const TRIAGE_JSON_SCHEMA: Record<string, unknown> = {
   ],
   properties: {
     relevance: { type: "integer", enum: [0, 1, 2, 3] },
-    tenant: { type: "string", enum: ["personal", "biosoft"] },
+    tenant: { type: "string" },
+    tenant_parent: { type: ["string", "null"] },
+    tenant_evidence: { type: "string" },
     contains_pii: { type: "integer", enum: [0, 1] },
     reason: { type: "string" },
     entities: { type: "array", items: { type: "string" } },
@@ -41,7 +46,9 @@ export const TRIAGE_JSON_SCHEMA: Record<string, unknown> = {
 
 const triageResultSchema = z.object({
   relevance: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
-  tenant: z.enum(["personal", "biosoft"]),
+  tenant: z.string().min(1),
+  tenant_parent: z.string().nullable(),
+  tenant_evidence: z.string(),
   contains_pii: z.union([z.literal(0), z.literal(1)]),
   reason: z.string(),
   entities: z.array(z.string()),
@@ -60,7 +67,17 @@ relevance:
 - 2 relevante: conversa com conteúdo que vale registrar (decisão, fato estável, procedimento)
 - 3 crítico: prazo, compromisso assumido, decisão importante, pendência com contraparte
 
-tenant: "biosoft" quando o assunto é da empresa Biosoft (clientes, produto, fiscal da empresa); senão "personal".
+tenant: o CONTEXTO a que a thread pertence — empresa, produto ou vida pessoal. Escolha um id da lista de
+contextos conhecidos (recebida abaixo) OU proponha um rótulo novo se nenhum servir.
+- Decida pelo ASSUNTO, não pela caixa de entrada: contabilidade, banco, jurídico e fornecedor de uma empresa
+  pertencem àquela empresa mesmo chegando no email pessoal. Use CNPJ, razão social, domínio do remetente,
+  nome de anexo e participantes recorrentes como evidência.
+- SEPARE COM GENEROSIDADE. Unificar contextos depois é barato; separar depois é impossível. Na dúvida entre um
+  contexto existente e um novo mais específico, escolha o NOVO. Produtos, unidades de negócio e empresas
+  irmãs com CNPJ próprio são contextos distintos, mesmo sob o mesmo dono.
+- tenant_parent: id do contexto pai quando o novo é filho de um existente (ex.: um produto dentro de uma
+  empresa, uma empresa dentro de um grupo); null quando for raiz.
+- tenant_evidence: uma frase curta com o que sustentou a escolha (domínio, CNPJ, participante, assunto).
 contains_pii: 1 se há pessoa física identificável (nome+contato, dados pessoais); email transacional de empresa = 0.
 entities: nomes de pessoas e organizações centrais na thread (não participantes triviais em cópia).
 projects: projetos/processos em andamento que a thread toca (ex.: "visto-nomada-digital").
@@ -86,6 +103,9 @@ export async function buildTriageRequest(threadKey: string): Promise<{ request: 
   const account = settings.accounts.find((a) => a.email === thread.frontmatter.account.toLowerCase());
   const substantive = thread.blocks.filter((b) => b.chatter === null);
   const parts: string[] = [
+    "# Contextos conhecidos (use o id, ou proponha um rótulo novo)",
+    await tenantRegistryPrompt(),
+    "",
     `Canal: ${thread.frontmatter.channel} (${thread.frontmatter.subchannel})`,
     `Conta de origem: ${thread.frontmatter.account}${account ? ` (tenant da conta: ${account.tenant})` : ""}`,
     `Assunto: ${thread.frontmatter.subject || "(sem assunto)"}`,
@@ -126,10 +146,37 @@ export function parseTriageResult(raw: unknown): TriageResult {
   return triageResultSchema.parse(raw) as TriageResult;
 }
 
+function handleDomains(participants: { handle: string }[]): string[] {
+  return [
+    ...new Set(
+      participants
+        .map((p) => p.handle.toLowerCase().trim())
+        .map((h) => (h.includes("@") ? h.slice(h.lastIndexOf("@") + 1) : ""))
+        .filter(Boolean),
+    ),
+  ];
+}
+
+export async function resolveTriageTenant(
+  result: TriageResult,
+  participants: { handle: string }[],
+): Promise<string> {
+  const existing = await resolveTenantName(result.tenant);
+  if (existing) return existing;
+  return ensureTenant({
+    label: result.tenant,
+    parent: result.tenant_parent,
+    domains: handleDomains(participants),
+  });
+}
+
 export async function applyTriageResult(threadKey: string, relPath: string, result: TriageResult): Promise<void> {
   const settings = brainSettingsManager.get();
+  const thread = await readThread(relPath);
+  const tenant = await resolveTriageTenant(result, thread?.frontmatter.participants ?? []);
   await annotateTriage(relPath, {
     ...result,
+    tenant,
     classified_at: new Date().toISOString(),
     model: settings.llm.triage.model,
   });
@@ -143,7 +190,7 @@ export async function applyTriageResult(threadKey: string, relPath: string, resu
   await getRedis().hdel(KEYS.triageAttempts, threadKey).catch(() => {});
   emitActivity({
     kind: "triage",
-    label: `relevance ${result.relevance} · ${result.tenant}${queued ? " · fila de compilação" : ""}`,
+    label: `relevance ${result.relevance} · ${tenant}${queued ? " · fila de compilação" : ""}`,
     path: relPath,
   });
 }

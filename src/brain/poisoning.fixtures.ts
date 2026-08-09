@@ -131,8 +131,8 @@ export const ATTACK_OPERATIONS: AttackOperationSet[] = [
     operations: [createPage({ sources: ["raw/email/2026/08/nao-existe--00000000.md"] })],
   },
   {
-    name: "tenant-divergente",
-    operations: [createPage({ tenant: "biosoft" })],
+    name: "contexto-divergente",
+    operations: [createPage({ tenant: "empresa-alheia" })],
   },
   {
     name: "tipo-em-diretorio-errado",

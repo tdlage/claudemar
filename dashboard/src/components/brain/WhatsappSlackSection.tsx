@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, Hash, QrCode, Upload, CheckCircle2, XCircle } from "lucide-react";
 import { api } from "../../lib/api";
+import { TenantSelect } from "./TenantSelect";
 import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
 import { Modal } from "../shared/Modal";
@@ -84,20 +85,11 @@ export function WhatsappSlackSection({
   };
 
   const tenantSelect = (channel: "whatsapp" | "slack") => (
-    <select
+    <TenantSelect
       value={settings[channel].tenant}
-      onChange={(e) =>
-        patch((prev) => ({
-          ...prev,
-          [channel]: { tenant: e.target.value === "biosoft" ? "biosoft" : "personal" },
-        }))
-      }
+      onChange={(tenant) => patch((prev) => ({ ...prev, [channel]: { tenant } }))}
       className={selectClass}
-      title="Tenant das mensagens deste canal"
-    >
-      <option value="personal">personal</option>
-      <option value="biosoft">biosoft</option>
-    </select>
+    />
   );
 
   return (

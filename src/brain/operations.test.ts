@@ -49,6 +49,8 @@ const rawPath = upsert.relPath;
 await annotateTriage(rawPath, {
   relevance: 3,
   tenant: "personal",
+  tenant_parent: null,
+  tenant_evidence: "teste",
   contains_pii: 1,
   reason: "prazo",
   entities: ["Ivan"],
@@ -78,6 +80,8 @@ const validCreate = {
   page_type: "person",
   title: "Ivan",
   tenant: "personal",
+  tenant_parent: null,
+  tenant_evidence: "teste",
   aliases: ["Ivan", "ivan@example.com"],
   sections: [{ section: "Identidade", content: "Contraparte do contrato." }],
   sources: [rawPath],
@@ -104,13 +108,13 @@ test("source inexistente é rejeitado", async () => {
   assert.ok(result.errors[0].includes("não existe em raw/"));
 });
 
-test("tenant divergente da thread é rejeitado", async () => {
+test("contexto fora da árvore da thread é rejeitado", async () => {
   const out = baseOutput({
-    operations: [{ ...validCreate, tenant: "biosoft" }] as CompileOutput["operations"],
+    operations: [{ ...validCreate, tenant: "outra-empresa" }] as CompileOutput["operations"],
   });
   const result = await validateCompileOutput(out, fm);
   assert.equal(result.ok, false);
-  assert.ok(result.errors.some((e) => e.includes("tenant")));
+  assert.ok(result.errors.some((e) => e.includes("contexto")));
 });
 
 test("seção acima do limite é rejeitada", async () => {

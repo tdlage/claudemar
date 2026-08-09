@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { format, formatDistanceToNow } from "date-fns";
 import { Search, RefreshCw, DatabaseZap, SlidersHorizontal } from "lucide-react";
 import { api } from "../../lib/api";
+import { TenantSelect } from "./TenantSelect";
 import { Badge } from "../shared/Badge";
+import { tenantVariant } from "../../lib/tenantVariant";
 import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { Modal } from "../shared/Modal";
@@ -346,11 +348,7 @@ export function SearchTab() {
             className={`${inputClass} w-full pl-8`}
           />
         </div>
-        <select value={tenant} onChange={(e) => setTenant(e.target.value)} className={inputClass}>
-          <option value="">tenant: ambos</option>
-          <option value="personal">personal</option>
-          <option value="biosoft">biosoft</option>
-        </select>
+        <TenantSelect value={tenant} onChange={setTenant} allowAll className={inputClass} />
         <select value={type} onChange={(e) => setType(e.target.value)} className={inputClass}>
           <option value="">tipo: todos</option>
           <option value="person">pessoa</option>
@@ -410,7 +408,7 @@ export function SearchTab() {
                     {hit.title}
                   </button>
                   <Badge variant="accent">{hit.type}</Badge>
-                  <Badge variant={hit.tenant === "biosoft" ? "info" : "default"}>{hit.tenant}</Badge>
+                  <Badge variant={tenantVariant(hit.tenant)}>{hit.tenant}</Badge>
                   {hit.containsPii && <Badge variant="warning">PII</Badge>}
                   <span className="text-xs text-text-muted ml-auto">
                     {hit.rerankScore !== null && <span className="font-mono mr-2">{hit.rerankScore.toFixed(2)}</span>}

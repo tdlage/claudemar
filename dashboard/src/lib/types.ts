@@ -697,7 +697,20 @@ export interface PipelineBundle {
 // ── Second Brain ──
 
 export type BrainChannel = "email" | "calendar" | "whatsapp" | "slack" | "drive";
-export type BrainTenant = "personal" | "biosoft";
+export type BrainTenant = string;
+export interface BrainTenantEntry {
+  id: string;
+  label: string;
+  parent: string | null;
+  aliases: string[];
+  domains: string[];
+  identifiers: string[];
+  threads: number;
+  created_at: string;
+  updated_at: string;
+  merged_into: string | null;
+}
+
 export type BrainSchedulerName = "gmail" | "calendar" | "ingest" | "triage" | "compile" | "index" | "digest" | "whatsapp" | "slack" | "distill" | "lint" | "freshness";
 
 export interface BrainParticipant {
@@ -733,7 +746,7 @@ export interface RawThreadFrontmatter {
   subchannel: "direct" | "group";
   account: string;
   thread_key: string;
-  tenant: BrainTenant | "unknown";
+  tenant: BrainTenant;
   contains_pii: 0 | 1;
   occurred_from: string;
   occurred_to: string;
@@ -877,7 +890,6 @@ export interface BrainSettings {
   llm: { providers: BrainLlmProvider[]; triage: BrainStageLlm; compile: BrainStageLlm; selector: BrainStageLlm; distill: BrainStageLlm; lint: BrainStageLlm };
   compile: { minRelevance: number; maxSectionChars: number; contextPages: number; batchSize: number; maxPerTick: number };
   accounts: BrainAccountSetting[];
-  tenantRules: { biosoftDomains: string[]; biosoftKeywords: string[] };
   emailFilter: { skipCategories: string[]; blockedSenders: string[]; bulkAsNoise: boolean };
   whatsapp: { tenant: BrainTenant };
   slack: { tenant: BrainTenant };

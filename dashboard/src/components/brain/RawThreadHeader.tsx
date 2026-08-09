@@ -3,6 +3,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { Paperclip, AlertCircle } from "lucide-react";
 import { Card } from "../shared/Card";
 import { Badge } from "../shared/Badge";
+import { tenantVariant } from "../../lib/tenantVariant";
 import type { RawThreadFrontmatter } from "../../lib/types";
 
 const RELEVANCE_META: Record<number, { label: string; variant: "default" | "info" | "accent" | "warning" }> = {
@@ -38,7 +39,7 @@ export function RawThreadHeader({ fm }: { fm: RawThreadFrontmatter }) {
         <h2 className="text-base font-semibold text-text-primary flex-1 min-w-48">{fm.subject || "(sem assunto)"}</h2>
         <Badge variant="accent">{fm.channel}</Badge>
         {fm.subchannel === "group" && <Badge>grupo</Badge>}
-        <Badge variant={fm.tenant === "biosoft" ? "info" : "default"}>{fm.tenant}</Badge>
+        <Badge variant={tenantVariant(fm.tenant)}>{fm.tenant}</Badge>
         {fm.contains_pii === 1 && <Badge variant="warning">PII</Badge>}
         {rel && (
           <Badge variant={rel.variant}>

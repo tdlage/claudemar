@@ -113,7 +113,10 @@ export function createBrainMcpServer(): ReturnType<typeof createSdkMcpServer> {
     "Busca semântica no wiki do Second Brain (conhecimento curado de emails, calendar e outros canais do usuário). Retorna páginas com sourceKey e data — cite-os ao usar um fato.",
     {
       query: z.string().describe("O que procurar"),
-      tenant: z.enum(["personal", "biosoft"]).optional().describe("Restringe ao tenant (padrão: ambos)"),
+      tenant: z
+        .string()
+        .optional()
+        .describe("Restringe ao contexto (id do registro) e seus filhos; padrão: todos os contextos"),
       type: z
         .enum(["person", "org", "project", "topic", "thread", "lesson", "procedure", "decision"])
         .optional()

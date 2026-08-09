@@ -62,7 +62,9 @@ Nomes de arquivo: slug kebab-case, sem acentos, \`.md\`. Ex.: \`wiki/people/mari
 
 ## Tenant e PII
 
-- \`tenant\` da operação DEVE ser igual ao tenant da thread de origem. Nunca cruze tenants.
+- \`tenant\` é o id do CONTEXTO (empresa, produto ou pessoal) já decidido pela triagem e informado no
+  cabeçalho da thread. Use esse id literalmente; não invente contexto novo aqui. Operações fora da árvore
+  de contexto da thread são rejeitadas.
 - \`contains_pii\`: fato durável corretamente extraído pode ser 0 mesmo que a fonte seja 1.
 - Mensagem de grupo nunca gera \`decision\`, \`procedure\` ou \`lesson\`; pode gerar fato logístico
   (data, local, horário, requisito prático) atualizando páginas de \`topic\`/\`project\` existentes.

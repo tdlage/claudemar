@@ -14,6 +14,8 @@ import { countBrainPoints } from "../../brain/brain-index.js";
 import { brainSearch } from "../../brain/search.js";
 import { readRecallDistribution, readRecallTail } from "../../brain/recall-telemetry.js";
 import { WIKI_DIRS, appendOpenLoopTransition, currentOpenLoops, markReviewed, readOpenLoops } from "../../brain/wiki.js";
+import { listTenants, mergeTenants, updateTenant } from "../../brain/tenants.js";
+import { rewriteTenantReferences } from "../../brain/tenant-rewrite.js";
 import { listDigests, readDigest } from "../../brain/digest.js";
 import { generateLintReport, listLintReports, readLintReport } from "../../brain/lint.js";
 import { buildAdhocTriageRequest, parseTriageResult } from "../../brain/triage.js";
@@ -107,6 +109,49 @@ brainPublicRouter.get(
 );
 
 brainRouter.get(
+  "/tenants",
+  asyncHandler(async (_req, res) => {
+    res.json(await listTenants());
+  }),
+);
+
+brainRouter.post(
+  "/tenants/merge",
+  asyncHandler(async (req, res) => {
+    const source = paramStr(req.body?.source);
+    const target = paramStr(req.body?.target);
+    if (!source || !target) {
+      res.status(400).json({ error: "source e target são obrigatórios" });
+      return;
+    }
+    try {
+      const result = await mergeTenants(source, target);
+      const rewritten = await rewriteTenantReferences([result.source, ...result.reparented], result.target);
+      brainEvents.emit("status-changed");
+      res.json({ ...result, ...rewritten });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }),
+);
+
+brainRouter.patch(
+  "/tenants/:id",
+  asyncHandler(async (req, res) => {
+    const label = typeof req.body?.label === "string" ? req.body.label : undefined;
+    const parent = req.body?.parent === null ? null : typeof req.body?.parent === "string" ? req.body.parent : undefined;
+    try {
+      const updated = await updateTenant(paramStr(req.params.id), { label, parent });
+      await rewriteTenantReferences([updated.id], updated.id);
+      brainEvents.emit("status-changed");
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }),
+);
+
+brainRouter.get(
   "/status",
   asyncHandler(async (_req, res) => {
     res.json(await getBrainStatus());
@@ -163,9 +208,9 @@ brainRouter.post("/google/account", (req, res) => {
     res.status(400).json({ error: "email é obrigatório" });
     return;
   }
-  const tenant = req.body?.tenant === "biosoft" ? ("biosoft" as BrainTenant) : ("personal" as BrainTenant);
+  const tenant = paramStr(req.body?.tenant).trim() || undefined;
   const label = typeof req.body?.label === "string" && req.body.label.trim() ? req.body.label.trim() : undefined;
-  brainSettingsManager.upsertAccount(email, { tenant, label });
+  brainSettingsManager.upsertAccount(email, { ...(tenant ? { tenant } : {}), label });
   res.json(getAccountsStatus());
 });
 
@@ -647,7 +692,7 @@ brainRouter.post(
       res.status(400).json({ error: "query é obrigatória" });
       return;
     }
-    const tenant = req.body?.tenant === "personal" || req.body?.tenant === "biosoft" ? req.body.tenant : undefined;
+    const tenant = paramStr(req.body?.tenant).trim() || undefined;
     const type = typeof req.body?.type === "string" ? (req.body.type as never) : undefined;
     const limit = Number(req.body?.limit) || undefined;
     const includePii = req.body?.includePii === true;

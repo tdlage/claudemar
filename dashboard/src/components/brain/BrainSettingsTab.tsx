@@ -7,6 +7,7 @@ import { LlmProvidersSection } from "./LlmProvidersSection";
 import { ConnectorSettings } from "./ConnectorSettings";
 import { ContractEditor } from "./ContractEditor";
 import { BackfillSection } from "./BackfillSection";
+import { TenantsSection } from "./TenantsSection";
 import { WhatsappSlackSection } from "./WhatsappSlackSection";
 
 const inputClass =
@@ -225,48 +226,8 @@ export function BrainSettingsTab() {
       </section>
 
       <section className="space-y-4">
-        <SectionHeader icon={Users} title="Regras de tenant" />
-        <p className="text-xs text-text-muted">
-          O tenant vem primeiro da conta de origem; estes domínios/palavras marcam threads biosoft mesmo em conta
-          pessoal.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-text-muted mb-1">Domínios biosoft (um por linha)</label>
-            <textarea
-              value={settings.tenantRules.biosoftDomains.join("\n")}
-              onChange={(e) =>
-                patch((prev) => ({
-                  ...prev,
-                  tenantRules: {
-                    ...prev.tenantRules,
-                    biosoftDomains: e.target.value.split("\n").map((l) => l.trim()).filter(Boolean),
-                  },
-                }))
-              }
-              rows={3}
-              className={`${inputClass} font-mono`}
-              placeholder="biosoft.com.br"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-muted mb-1">Palavras-chave (uma por linha)</label>
-            <textarea
-              value={settings.tenantRules.biosoftKeywords.join("\n")}
-              onChange={(e) =>
-                patch((prev) => ({
-                  ...prev,
-                  tenantRules: {
-                    ...prev.tenantRules,
-                    biosoftKeywords: e.target.value.split("\n").map((l) => l.trim()).filter(Boolean),
-                  },
-                }))
-              }
-              rows={3}
-              className={`${inputClass} font-mono`}
-            />
-          </div>
-        </div>
+        <SectionHeader icon={Users} title="Contextos (tenants)" />
+        <TenantsSection />
       </section>
 
       <section className="space-y-4">

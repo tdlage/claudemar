@@ -43,6 +43,7 @@ function page(reviewedAt: string, window: string): WikiFrontmatter {
     slug: "x",
     title: "X",
     tenant: "personal",
+    tenant_root: "personal",
     contains_pii: 0,
     aliases: [],
     status: "active",

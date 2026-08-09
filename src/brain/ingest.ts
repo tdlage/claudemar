@@ -6,6 +6,7 @@ import { brainSettingsManager } from "./settings.js";
 import { annotateTriage, readThread, upsertMessage } from "./raw-store.js";
 import { quarantineWrite } from "./quarantine.js";
 import { emitActivity } from "./events.js";
+import { ROOT_TENANT, canonicalTenant, resolveTenantByHandles } from "./tenants.js";
 import type { BrainTenant, CanonicalEvent } from "./types.js";
 
 const READ_COUNT = 50;
@@ -13,20 +14,15 @@ const CONSUMER = "main";
 const PENDING_MIN_IDLE_MS = 5 * 60 * 1000;
 const MAX_DELIVERIES = 5;
 
-function tenantHintFor(event: CanonicalEvent): BrainTenant | "unknown" {
+async function tenantHintFor(event: CanonicalEvent): Promise<BrainTenant> {
   const settings = brainSettingsManager.get();
-  if (event.channel === "whatsapp") return settings.whatsapp.tenant;
-  if (event.channel === "slack") return settings.slack.tenant;
+  const byDomain = await resolveTenantByHandles(event.participants.map((p) => p.handle));
+  if (byDomain) return byDomain;
+  if (event.channel === "whatsapp") return canonicalTenant(settings.whatsapp.tenant);
+  if (event.channel === "slack") return canonicalTenant(settings.slack.tenant);
   const account = settings.accounts.find((a) => a.email === event.account.toLowerCase());
-  if (account) return account.tenant;
-  const domains = settings.tenantRules.biosoftDomains.map((d) => d.toLowerCase()).filter(Boolean);
-  if (domains.length > 0) {
-    const handles = event.participants.map((p) => p.handle.toLowerCase());
-    if (handles.some((h) => domains.some((d) => h.endsWith(`@${d}`) || h.endsWith(`.${d}`)))) {
-      return "biosoft";
-    }
-  }
-  return "unknown";
+  if (account) return canonicalTenant(account.tenant);
+  return ROOT_TENANT;
 }
 
 async function processEvent(event: CanonicalEvent): Promise<void> {
@@ -49,7 +45,7 @@ async function processEvent(event: CanonicalEvent): Promise<void> {
   }
 
   const piiHint: 0 | 1 = event.channel === "calendar" && event.subchannel === "direct" ? 0 : 1;
-  const tenantHint = tenantHintFor(event);
+  const tenantHint = await tenantHintFor(event);
   const result = await upsertMessage({
     event,
     normalizedText: normalized.text,
@@ -75,7 +71,7 @@ async function processEvent(event: CanonicalEvent): Promise<void> {
 async function routeTriage(
   event: CanonicalEvent,
   relPath: string,
-  tenantHint: BrainTenant | "unknown",
+  tenantHint: BrainTenant,
   piiHint: 0 | 1,
 ): Promise<void> {
   const settings = brainSettingsManager.get();
@@ -87,7 +83,9 @@ async function routeTriage(
     if (!llmTriaged) {
       await annotateTriage(relPath, {
         relevance: 0,
-        tenant: tenantHint === "biosoft" ? "biosoft" : "personal",
+        tenant: tenantHint,
+        tenant_parent: null,
+        tenant_evidence: "heurística de email em massa",
         contains_pii: piiHint,
         reason: "email em massa (newsletter/notificação) — classificado por heurística, sem LLM",
         entities: [],

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { parseWikiFrontmatterLoose } from "./frontmatter.js";
 import { brainRoot, resolveInside } from "./paths.js";
 import { brainSettingsManager } from "./settings.js";
+import { canonicalTenant, tenantRoot } from "./tenants.js";
 import { sha256Hex, slugify } from "./text.js";
 import { candidateCount, noteCandidates } from "./entities.js";
 import {
@@ -22,7 +23,7 @@ import {
 import { markCompiledInto } from "./raw-store.js";
 import type { CompileOperation, CompileOutput, RawFrontmatter } from "./types.js";
 
-const tenantSchema = z.enum(["personal", "biosoft"]);
+const tenantSchema = z.string().min(1);
 const pageTypeSchema = z.enum(["person", "org", "project", "topic", "thread", "lesson", "procedure", "decision"]);
 
 const createPageSchema = z.object({
@@ -94,7 +95,7 @@ export const compileOutputSchema = z.object({
 
 const stringArray = { type: "array", items: { type: "string" } };
 const sourcesRequired = { type: "array", items: { type: "string" }, minItems: 1 };
-const tenantEnum = { type: "string", enum: ["personal", "biosoft"] };
+const tenantEnum = { type: "string" };
 const pageTypeEnum = {
   type: "string",
   enum: ["person", "org", "project", "topic", "thread", "lesson", "procedure", "decision"],
@@ -250,7 +251,8 @@ export async function validateCompileOutput(
 ): Promise<ValidationResult> {
   const settings = brainSettingsManager.get();
   const errors: string[] = [];
-  const threadTenant = thread.triage?.tenant ?? (thread.tenant === "biosoft" ? "biosoft" : "personal");
+  const threadTenant = await canonicalTenant(thread.triage?.tenant ?? thread.tenant);
+  const threadRoot = await tenantRoot(threadTenant);
   const isGroup = thread.subchannel === "group";
 
   for (const [i, op] of output.operations.entries()) {
@@ -268,8 +270,10 @@ export async function validateCompileOutput(
       if (op.path.split("/")[1] !== expectedDir) {
         errors.push(`${label}: página do tipo ${op.page_type} deve ficar em wiki/${expectedDir}/`);
       }
-      if (op.tenant !== threadTenant) {
-        errors.push(`${label}: tenant "${op.tenant}" difere do tenant da thread ("${threadTenant}")`);
+      if ((await tenantRoot(op.tenant)) !== threadRoot) {
+        errors.push(
+          `${label}: contexto "${op.tenant}" está fora da árvore do contexto da thread ("${threadRoot}")`,
+        );
       }
       if (isGroup && ["decision", "procedure", "lesson"].includes(op.page_type)) {
         errors.push(`${label}: thread de grupo não pode gerar página do tipo ${op.page_type}`);
@@ -302,9 +306,10 @@ export async function validateCompileOutput(
       const abs = resolve(brainRoot, op.path);
       if (!createdInBatch && existsSync(abs)) {
         const { data } = parseWikiFrontmatterLoose(await readFile(abs, "utf-8"));
-        if (data.tenant !== threadTenant) {
+        const pageRoot = await tenantRoot(typeof data.tenant === "string" ? data.tenant : "");
+        if (pageRoot !== threadRoot) {
           errors.push(
-            `${label}: página alvo é do tenant "${String(data.tenant)}", diferente da thread ("${threadTenant}")`,
+            `${label}: página alvo pertence ao contexto "${pageRoot}", fora da árvore da thread ("${threadRoot}")`,
           );
         }
         if (isGroup && ["decision", "procedure", "lesson"].includes(String(data.type))) {
@@ -335,8 +340,10 @@ export async function validateCompileOutput(
       errors.push(`open_loops[${i}]: thread de grupo não gera open-loop`);
       continue;
     }
-    if (loop.tenant !== threadTenant) {
-      errors.push(`open_loops[${i}]: tenant "${loop.tenant}" difere do tenant da thread ("${threadTenant}")`);
+    if ((await tenantRoot(loop.tenant)) !== threadRoot) {
+      errors.push(
+        `open_loops[${i}]: contexto "${loop.tenant}" está fora da árvore do contexto da thread ("${threadRoot}")`,
+      );
     }
   }
 
@@ -369,7 +376,8 @@ export async function applyCompileOutput(
         type: op.page_type,
         slug: slugify(op.path.split("/").pop()!.replace(/\.md$/, ""), 60),
         title: op.title,
-        tenant: op.tenant,
+        tenant: await canonicalTenant(op.tenant),
+        tenantRoot: await tenantRoot(op.tenant),
         aliases: op.aliases,
         sections: op.sections,
         sources: op.sources,

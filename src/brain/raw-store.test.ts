@@ -116,6 +116,8 @@ test("annotateTriage grava triage e promove tenant", async () => {
   await annotateTriage(relPath, {
     relevance: 3,
     tenant: "personal",
+    tenant_parent: null,
+    tenant_evidence: "teste",
     contains_pii: 1,
     reason: "prazo",
     entities: [],

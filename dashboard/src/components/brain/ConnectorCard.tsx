@@ -3,6 +3,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Mail, Calendar, Inbox, Filter, Hammer, Pause, Play, RefreshCw, MessageCircle, Hash } from "lucide-react";
 import { Card } from "../shared/Card";
 import { Badge } from "../shared/Badge";
+import { tenantVariant } from "../../lib/tenantVariant";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
 import type { BrainSchedulerStatus, GoogleAccountStatus } from "../../lib/types";
@@ -107,7 +108,7 @@ export function ConnectorCard({
                 }`}
               />
               <span className="text-text-secondary truncate flex-1">{account.email}</span>
-              <Badge variant={account.tenant === "biosoft" ? "info" : "default"}>{account.tenant}</Badge>
+              <Badge variant={tenantVariant(account.tenant)}>{account.tenant}</Badge>
               {account.reauthRequired && <Badge variant="danger">reautorizar</Badge>}
             </div>
           ))}

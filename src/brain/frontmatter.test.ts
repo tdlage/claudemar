@@ -57,6 +57,7 @@ function sampleWiki(): WikiFrontmatter {
     slug: "lucas-abad",
     title: "Lucas Gonçalves Abad",
     tenant: "personal",
+    tenant_root: "personal",
     contains_pii: 0,
     aliases: ["Lucas Abad", "lucas@example.com"],
     status: "active",

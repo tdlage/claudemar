@@ -8,6 +8,7 @@ import type {
   BrainQuarantineItem,
   BrainSettings,
   BrainStatus,
+  BrainTenantEntry,
   GoogleAccountStatus,
 } from "../lib/types";
 
@@ -73,6 +74,11 @@ export function useBrainData<T>(path: string | null, deps: unknown[] = []) {
   }, [refresh]);
 
   return { data, setData, loading, error, refresh };
+}
+
+export function useTenants() {
+  const { data, loading, refresh } = useBrainData<BrainTenantEntry[]>("/brain/tenants");
+  return { tenants: (data ?? []).filter((t) => !t.merged_into), loading, refresh };
 }
 
 export function useBrainStatus() {

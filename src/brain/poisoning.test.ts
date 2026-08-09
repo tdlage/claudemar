@@ -62,6 +62,8 @@ const benignPath = await ingest(BENIGN_MESSAGE);
 await annotateTriage(benignPath, {
   relevance: 3,
   tenant: "personal",
+  tenant_parent: null,
+  tenant_evidence: "teste",
   contains_pii: 0,
   reason: "prazo",
   entities: ["Mallory"],
@@ -84,6 +86,8 @@ const groupPath = await ingest({
 await annotateTriage(groupPath, {
   relevance: 3,
   tenant: "personal",
+  tenant_parent: null,
+  tenant_evidence: "teste",
   contains_pii: 1,
   reason: "logística",
   entities: [],
@@ -150,6 +154,8 @@ test("operação legítima não é falso positivo", async () => {
         page_type: "person",
         title: "Mallory Legítima",
         tenant: "personal",
+        tenant_parent: null,
+        tenant_evidence: "teste",
         aliases: ["mallory@example.com"],
         sections: [{ section: "Identidade", content: "Contraparte do contrato em revisão." }],
         sources: [benignPath],
@@ -165,6 +171,8 @@ test("operação legítima não é falso positivo", async () => {
       {
         title: "Revisar cláusula 4",
         tenant: "personal",
+        tenant_parent: null,
+        tenant_evidence: "teste",
         kind: "my_commitment",
         counterparty: "Mallory",
         due: "2026-08-08",
