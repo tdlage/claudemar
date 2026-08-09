@@ -146,13 +146,43 @@ export function parseTriageResult(raw: unknown): TriageResult {
   return triageResultSchema.parse(raw) as TriageResult;
 }
 
-function handleDomains(participants: { handle: string }[]): string[] {
+const PUBLIC_MAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "msn.com",
+  "yahoo.com",
+  "yahoo.com.br",
+  "icloud.com",
+  "me.com",
+  "proton.me",
+  "protonmail.com",
+  "uol.com.br",
+  "bol.com.br",
+  "terra.com.br",
+  "ig.com.br",
+  "globo.com",
+]);
+
+/**
+ * Só domínio próprio vira evidência de contexto: provedor público e o domínio das contas
+ * conectadas rotulariam qualquer email pessoal posterior como sendo daquela empresa.
+ */
+function contextDomains(participants: { handle: string }[]): string[] {
+  const own = new Set(
+    brainSettingsManager
+      .get()
+      .accounts.map((a) => a.email.split("@")[1])
+      .filter(Boolean),
+  );
   return [
     ...new Set(
       participants
         .map((p) => p.handle.toLowerCase().trim())
         .map((h) => (h.includes("@") ? h.slice(h.lastIndexOf("@") + 1) : ""))
-        .filter(Boolean),
+        .filter((d) => d && !PUBLIC_MAIL_DOMAINS.has(d) && !own.has(d)),
     ),
   ];
 }
@@ -166,7 +196,7 @@ export async function resolveTriageTenant(
   return ensureTenant({
     label: result.tenant,
     parent: result.tenant_parent,
-    domains: handleDomains(participants),
+    domains: contextDomains(participants),
   });
 }
 

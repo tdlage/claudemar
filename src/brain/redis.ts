@@ -35,6 +35,7 @@ export const KEYS = {
   aliasCandidates: "brain:alias:candidates",
   indexFiles: "brain:index:files",
   indexLastFull: "brain:index:lastFull",
+  indexSchema: "brain:index:schema",
   alerts: "brain:alerts",
   alertsActive: "brain:alerts:active",
   distillState: "brain:distill:state",

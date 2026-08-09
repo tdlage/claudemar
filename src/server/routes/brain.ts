@@ -126,7 +126,7 @@ brainRouter.post(
     }
     try {
       const result = await mergeTenants(source, target);
-      const rewritten = await rewriteTenantReferences([result.source, ...result.reparented], result.target);
+      const rewritten = await rewriteTenantReferences([result.source, result.target, ...result.reparented]);
       brainEvents.emit("status-changed");
       res.json({ ...result, ...rewritten });
     } catch (err) {
@@ -142,7 +142,7 @@ brainRouter.patch(
     const parent = req.body?.parent === null ? null : typeof req.body?.parent === "string" ? req.body.parent : undefined;
     try {
       const updated = await updateTenant(paramStr(req.params.id), { label, parent });
-      await rewriteTenantReferences([updated.id], updated.id);
+      await rewriteTenantReferences([updated.id]);
       brainEvents.emit("status-changed");
       res.json(updated);
     } catch (err) {

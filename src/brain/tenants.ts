@@ -96,6 +96,12 @@ export async function listTenants(): Promise<TenantEntry[]> {
   return [...(await readRegistry())];
 }
 
+export async function tenantDescendants(id: string): Promise<string[]> {
+  const entries = await readRegistry();
+  const canonical = follow(entries, slugify(id, 48));
+  return [canonical, ...descendantsOf(entries, canonical)];
+}
+
 function follow(entries: TenantEntry[], id: string): string {
   let current = id;
   for (let i = 0; i < MAX_DEPTH; i++) {
@@ -104,6 +110,21 @@ function follow(entries: TenantEntry[], id: string): string {
     current = entry.merged_into;
   }
   return current;
+}
+
+function isDescendantOf(entries: TenantEntry[], candidate: string, ancestor: string): boolean {
+  let current = follow(entries, candidate);
+  for (let i = 0; i < MAX_DEPTH; i++) {
+    if (current === ancestor) return true;
+    const entry = entries.find((e) => e.id === current);
+    if (!entry?.parent) return false;
+    current = follow(entries, entry.parent);
+  }
+  return false;
+}
+
+function descendantsOf(entries: TenantEntry[], id: string): string[] {
+  return entries.filter((e) => e.id !== id && isDescendantOf(entries, e.id, id)).map((e) => e.id);
 }
 
 function rootIn(entries: TenantEntry[], id: string): string {
@@ -187,7 +208,7 @@ export interface TenantProposal {
   identifiers?: string[];
 }
 
-export async function ensureTenant(proposal: TenantProposal): Promise<string> {
+export async function ensureTenant(proposal: TenantProposal, depth = 0): Promise<string> {
   const label = proposal.label.trim();
   if (!label) return ROOT_TENANT;
   const existing = await resolveTenantName(label);
@@ -195,13 +216,20 @@ export async function ensureTenant(proposal: TenantProposal): Promise<string> {
     await noteTenantEvidence(existing, proposal);
     return existing;
   }
+  let parentId: string | null = null;
+  if (proposal.parent) {
+    parentId = await resolveTenantName(proposal.parent);
+    if (!parentId && depth < MAX_DEPTH) {
+      parentId = await ensureTenant({ label: proposal.parent }, depth + 1);
+    }
+  }
   return brainWriteLock(async () => {
     invalidateTenantCache();
     const entries = await readRegistry();
     const slug = slugify(label, 48);
     const already = entries.find((e) => e.id === slug);
     if (already) return follow(entries, already.id);
-    const parent = proposal.parent ? await resolveTenantName(proposal.parent) : null;
+    const parent = parentId && parentId !== slug && entries.some((e) => e.id === parentId) ? parentId : null;
     const entry: TenantEntry = {
       id: slug,
       label,
@@ -261,9 +289,12 @@ export async function mergeTenants(sourceId: string, targetId: string): Promise<
     const from = entries.find((e) => e.id === source);
     const to = entries.find((e) => e.id === target);
     if (!from || !to) throw new Error("contexto não encontrado");
-    if (rootIn(entries, target) === source) throw new Error("destino é descendente da origem — fusão criaria ciclo");
+    if (isDescendantOf(entries, target, source)) {
+      throw new Error("destino é descendente da origem — fusão criaria ciclo");
+    }
 
-    const reparented = entries.filter((e) => e.parent === source && e.id !== source).map((e) => e.id);
+    const children = entries.filter((e) => e.parent === source && e.id !== source && e.id !== target).map((e) => e.id);
+    const reparented = [...new Set(children.flatMap((child) => [child, ...descendantsOf(entries, child)]))];
     const updated = entries.map((entry) => {
       if (entry.id === source) {
         return { ...entry, merged_into: target, updated_at: today() };
@@ -278,7 +309,7 @@ export async function mergeTenants(sourceId: string, targetId: string): Promise<
           updated_at: today(),
         };
       }
-      if (entry.parent === source) return { ...entry, parent: target, updated_at: today() };
+      if (entry.parent === source && entry.id !== target) return { ...entry, parent: target, updated_at: today() };
       return entry;
     });
     await writeRegistry(updated);
@@ -301,7 +332,9 @@ export async function updateTenant(
     if (patch.parent !== undefined) {
       parent = patch.parent ? follow(entries, slugify(patch.parent, 48)) : null;
       if (parent === canonical) throw new Error("um contexto não pode ser pai de si mesmo");
-      if (parent && rootIn(entries, parent) === canonical) throw new Error("o novo pai é descendente deste contexto");
+      if (parent && isDescendantOf(entries, parent, canonical)) {
+        throw new Error("o novo pai é descendente deste contexto");
+      }
       if (parent && !entries.some((e) => e.id === parent)) throw new Error("contexto pai não encontrado");
     }
     const label = patch.label?.trim() || entry.label;

@@ -19,6 +19,12 @@ import {
 } from "./brain-index.js";
 
 const FULL_WINDOW_HOURS: [number, number] = [3, 5];
+/**
+ * Fingerprint do que está gravado em cada ponto do índice. Mudou aqui (novo campo de payload,
+ * outra tokenização, outro chunking) → o conteúdo dos arquivos não muda, então o diff por hash
+ * não detectaria nada e as buscas passariam a filtrar por um campo que os pontos antigos não têm.
+ */
+const INDEX_SCHEMA_VERSION = `2|tenant|bm25:${config.bm25NormalizeDiacritics ? "norm" : "raw"}`;
 const FULL_MIN_INTERVAL_MS = 20 * 60 * 60 * 1000;
 
 let reindexInFlight = false;
@@ -50,8 +56,23 @@ export function diffFiles(current: Map<string, string>, tracked: Record<string, 
   return { changed, removed };
 }
 
+async function ensureIndexSchema(): Promise<void> {
+  const redis = getRedis();
+  const stored = await redis.get(KEYS.indexSchema).catch(() => null);
+  if (stored === INDEX_SCHEMA_VERSION) return;
+  await redis.del(KEYS.indexFiles).catch(() => {});
+  await redis.set(KEYS.indexSchema, INDEX_SCHEMA_VERSION).catch(() => {});
+  if (stored) {
+    emitActivity({
+      kind: "index",
+      label: "esquema do índice mudou — reindexando o wiki inteiro",
+    });
+  }
+}
+
 export async function incrementalTick(): Promise<{ indexed: number; removed: number }> {
   await ensureBrainIndex();
+  await ensureIndexSchema();
   const redis = getRedis();
 
   const files = await listWikiFiles();

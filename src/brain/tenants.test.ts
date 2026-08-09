@@ -94,3 +94,34 @@ test("contexto desconhecido é raiz de si mesmo, nunca cai no default", async ()
   assert.equal(await tenantRoot(""), ROOT_TENANT);
   assert.equal(await canonicalTenant(""), ROOT_TENANT);
 });
+
+test("reparent para neto é recusado (ciclo profundo)", async () => {
+  const a = await ensureTenant({ label: "Cadeia A" });
+  const b = await ensureTenant({ label: "Cadeia B", parent: a });
+  const c = await ensureTenant({ label: "Cadeia C", parent: b });
+  await assert.rejects(() => updateTenant(a, { parent: c }), /descendente/);
+  assert.equal(await tenantRoot(c), a);
+});
+
+test("fusão em descendente profundo é recusada", async () => {
+  const p = await ensureTenant({ label: "Cadeia P" });
+  const q = await ensureTenant({ label: "Cadeia Q", parent: p });
+  const r = await ensureTenant({ label: "Cadeia R", parent: q });
+  await assert.rejects(() => mergeTenants(p, r), /ciclo/);
+  assert.equal(await tenantRoot(r), p);
+});
+
+test("fusão devolve toda a subárvore reparentada, sem incluir o destino", async () => {
+  const raiz = await ensureTenant({ label: "Fusao Raiz" });
+  const meio = await ensureTenant({ label: "Fusao Meio", parent: raiz });
+  const folha = await ensureTenant({ label: "Fusao Folha", parent: meio });
+  const destino = await ensureTenant({ label: "Fusao Destino" });
+  const result = await mergeTenants(raiz, destino);
+  assert.deepEqual(result.reparented.sort(), [folha, meio].sort());
+  assert.equal(await tenantRoot(folha), destino);
+});
+
+test("pai proposto ainda inexistente é criado junto", async () => {
+  const filho = await ensureTenant({ label: "Produto Novo", parent: "Holding Nova" });
+  assert.equal(await tenantRoot(filho), "holding-nova");
+});

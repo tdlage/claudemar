@@ -8,7 +8,7 @@ import { brainWriteLock, writeFileAtomic } from "./git.js";
 import { parseRawFile, parseWikiFile, serializeRawFile, serializeWikiFile } from "./frontmatter.js";
 import { scanRawThreads } from "./raw-scan.js";
 import { WIKI_DIRS } from "./wiki.js";
-import { canonicalTenant, tenantRoot } from "./tenants.js";
+import { canonicalTenant, tenantDescendants, tenantRoot } from "./tenants.js";
 
 export interface RewriteSummary {
   rawThreads: number;
@@ -52,14 +52,19 @@ async function rewriteRawThreads(affected: Set<string>): Promise<number> {
   return touched;
 }
 
-async function repointIndex(affected: Set<string>, target: string): Promise<void> {
+/**
+ * Cada contexto afetado é reapontado para o SEU canônico atual: um filho reparentado continua
+ * sendo ele mesmo, só muda de raiz — rotulá-lo com o destino da fusão apagaria a distinção.
+ */
+async function repointIndex(affected: Set<string>): Promise<void> {
   const client = getClient();
   if (!client) return;
-  const root = await tenantRoot(target);
   for (const tenant of affected) {
+    const canonical = await canonicalTenant(tenant);
+    const root = await tenantRoot(canonical);
     await client
       .setPayload(config.qdrantCollection, {
-        payload: { tenant: target, targetName: root },
+        payload: { tenant: canonical, targetName: root },
         filter: {
           must: [
             { key: "targetType", match: { value: "brain" } },
@@ -72,13 +77,17 @@ async function repointIndex(affected: Set<string>, target: string): Promise<void
   }
 }
 
-export async function rewriteTenantReferences(affected: string[], target: string): Promise<RewriteSummary> {
-  const set = new Set(affected.filter(Boolean));
+export async function rewriteTenantReferences(affected: string[]): Promise<RewriteSummary> {
+  const set = new Set<string>();
+  for (const id of affected.filter(Boolean)) {
+    for (const descendant of await tenantDescendants(id)) set.add(descendant);
+    set.add(id);
+  }
   if (set.size === 0) return { rawThreads: 0, wikiPages: 0 };
   const summary = await brainWriteLock(async () => ({
     rawThreads: await rewriteRawThreads(set),
     wikiPages: await rewriteWikiPages(set),
   }));
-  await repointIndex(set, target);
+  await repointIndex(set);
   return summary;
 }

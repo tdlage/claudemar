@@ -58,7 +58,7 @@ export const wikiFrontmatterSchema = z.object({
   slug: z.string(),
   title: z.string(),
   tenant: z.string(),
-  tenant_root: z.string().default("personal"),
+  tenant_root: z.string().optional(),
   contains_pii: z.union([z.literal(0), z.literal(1)]),
   aliases: z.array(z.string()),
   status: z.enum(["active", "dormant", "archived"]),
@@ -192,7 +192,8 @@ export function parseWikiFile(content: string): { frontmatter: WikiFrontmatter; 
   try {
     const parsed = matter(content);
     const fm = wikiFrontmatterSchema.parse(parsed.data);
-    return { frontmatter: fm as WikiFrontmatter, body: parsed.content.replace(/^\n+/, "") };
+    const frontmatter = { ...fm, tenant_root: fm.tenant_root || fm.tenant } as WikiFrontmatter;
+    return { frontmatter, body: parsed.content.replace(/^\n+/, "") };
   } catch {
     return null;
   }

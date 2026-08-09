@@ -212,7 +212,7 @@ export async function brainSearch(params: BrainSearchParams): Promise<BrainSearc
     sourceKey: c.payload.sourceKey,
     title: c.payload.title,
     type: c.payload.type,
-    tenant: c.payload.targetName,
+    tenant: c.payload.tenant || c.payload.targetName,
     text: c.payload.text,
     rerankScore: c.rerankScore,
     updatedAt: c.payload.updatedAt,
