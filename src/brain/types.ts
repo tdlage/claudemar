@@ -256,12 +256,6 @@ export interface BrainSettings {
     blockedSenders: string[];
     bulkAsNoise: boolean;
   };
-  whatsapp: {
-    tenant: BrainTenant;
-  };
-  slack: {
-    tenant: BrainTenant;
-  };
   gmailQuery: string;
   backfill: {
     monthsRaw: number;

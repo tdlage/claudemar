@@ -6,7 +6,7 @@ import { brainSettingsManager } from "./settings.js";
 import { annotateTriage, readThread, upsertMessage } from "./raw-store.js";
 import { quarantineWrite } from "./quarantine.js";
 import { emitActivity } from "./events.js";
-import { ROOT_TENANT, canonicalTenant, resolveTenantByHandles } from "./tenants.js";
+import { ROOT_TENANT, canonicalTenant, resolveTenantByHandles, resolveTenantName } from "./tenants.js";
 import type { BrainTenant, CanonicalEvent } from "./types.js";
 
 const READ_COUNT = 50;
@@ -14,12 +14,16 @@ const CONSUMER = "main";
 const PENDING_MIN_IDLE_MS = 5 * 60 * 1000;
 const MAX_DELIVERIES = 5;
 
+/**
+ * Palpite antes da triagem, nunca a decisão final: domínio próprio primeiro, depois o nome da
+ * origem (workspace do Slack, sessão do WhatsApp) e só então o contexto padrão da conta Google.
+ */
 async function tenantHintFor(event: CanonicalEvent): Promise<BrainTenant> {
   const settings = brainSettingsManager.get();
   const byDomain = await resolveTenantByHandles(event.participants.map((p) => p.handle));
   if (byDomain) return byDomain;
-  if (event.channel === "whatsapp") return canonicalTenant(settings.whatsapp.tenant);
-  if (event.channel === "slack") return canonicalTenant(settings.slack.tenant);
+  const byOrigin = await resolveTenantName(event.account);
+  if (byOrigin) return byOrigin;
   const account = settings.accounts.find((a) => a.email === event.account.toLowerCase());
   if (account) return canonicalTenant(account.tenant);
   return ROOT_TENANT;

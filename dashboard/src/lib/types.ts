@@ -891,8 +891,6 @@ export interface BrainSettings {
   compile: { minRelevance: number; maxSectionChars: number; contextPages: number; batchSize: number; maxPerTick: number };
   accounts: BrainAccountSetting[];
   emailFilter: { skipCategories: string[]; blockedSenders: string[]; bulkAsNoise: boolean };
-  whatsapp: { tenant: BrainTenant };
-  slack: { tenant: BrainTenant };
   gmailQuery: string;
   backfill: { monthsRaw: number; monthsCompile: number };
   retrieval: BrainRetrievalSettings;

@@ -27,6 +27,7 @@ class SlackManager {
   private socket: SocketModeClient | null = null;
   private web: WebClient | null = null;
   private teamId = "slack";
+  private teamName = "";
   private starting = false;
   connected = false;
   lastError = "";
@@ -82,7 +83,7 @@ class SlackManager {
     return {
       channel: "slack",
       subchannel: isDirect ? "direct" : "group",
-      account: this.teamId,
+      account: this.teamName || this.teamId,
       external_id: `slack:${this.teamId}:${event.channel}:${event.ts}`,
       thread_key: `slack:${this.teamId}:${threadPart}`,
       occurred_at: new Date(occurredMs).toISOString(),
@@ -128,6 +129,10 @@ class SlackManager {
     return this.socket?.websocket?.isActive() === true;
   }
 
+  workspaceName(): string {
+    return this.teamName;
+  }
+
   async ensureStarted(): Promise<void> {
     if (this.starting) return;
     if (this.connected && this.socketAlive()) return;
@@ -138,6 +143,7 @@ class SlackManager {
       this.web = new WebClient(config.slackBotToken);
       const auth = await this.web.auth.test();
       this.teamId = (auth.team_id as string | undefined) ?? "slack";
+      this.teamName = (auth.team as string | undefined) ?? "";
 
       const socket = new SocketModeClient({ appToken: config.slackAppToken });
       socket.on("message", (args: { event: SlackMessageEvent; ack: () => Promise<void> }) => {

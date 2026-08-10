@@ -85,8 +85,6 @@ function defaults(): BrainSettings {
     compile: { minRelevance: 2, maxSectionChars: 4000, contextPages: 6, batchSize: 20, maxPerTick: 100 },
     accounts: [],
     emailFilter: { skipCategories: ["promotions", "social"], blockedSenders: [], bulkAsNoise: true },
-    whatsapp: { tenant: "personal" },
-    slack: { tenant: "personal" },
     gmailQuery: "",
     backfill: { monthsRaw: 12, monthsCompile: 3 },
     retrieval: {
@@ -220,8 +218,6 @@ function sanitize(raw: unknown): BrainSettings {
   const llm = (r.llm ?? {}) as Record<string, unknown>;
   const comp = (r.compile ?? {}) as Record<string, unknown>;
   const ef = (r.emailFilter ?? {}) as Record<string, unknown>;
-  const wa = (r.whatsapp ?? {}) as Record<string, unknown>;
-  const sl = (r.slack ?? {}) as Record<string, unknown>;
   const bf = (r.backfill ?? {}) as Record<string, unknown>;
   const ret = (r.retrieval ?? {}) as Record<string, unknown>;
   const providers = sanitizeProviders(llm.providers);
@@ -269,8 +265,6 @@ function sanitize(raw: unknown): BrainSettings {
       blockedSenders: strArr(ef.blockedSenders),
       bulkAsNoise: bool(ef.bulkAsNoise, d.emailFilter.bulkAsNoise),
     },
-    whatsapp: { tenant: tenant(wa.tenant ?? d.whatsapp.tenant) },
-    slack: { tenant: tenant(sl.tenant ?? d.slack.tenant) },
     gmailQuery: str(r.gmailQuery, d.gmailQuery),
     backfill: {
       monthsRaw: num(bf.monthsRaw, d.backfill.monthsRaw, 1),

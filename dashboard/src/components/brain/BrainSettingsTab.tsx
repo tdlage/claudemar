@@ -43,7 +43,7 @@ export function BrainSettingsTab() {
 
       <section className="space-y-4">
         <SectionHeader icon={Plug} title="WhatsApp e Slack" />
-        <WhatsappSlackSection settings={settings} patch={patch} />
+        <WhatsappSlackSection />
       </section>
 
       <section className="space-y-4">

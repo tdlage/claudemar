@@ -75,6 +75,8 @@ contextos conhecidos (recebida abaixo) OU proponha um rótulo novo se nenhum ser
 - SEPARE COM GENEROSIDADE. Unificar contextos depois é barato; separar depois é impossível. Na dúvida entre um
   contexto existente e um novo mais específico, escolha o NOVO. Produtos, unidades de negócio e empresas
   irmãs com CNPJ próprio são contextos distintos, mesmo sob o mesmo dono.
+- Em Slack e WhatsApp a origem é evidência forte: um workspace do Slack pertence a UMA organização, e
+  o nome dele aparece em "Conta de origem". Grupo de WhatsApp segue o assunto do grupo.
 - tenant_parent: id do contexto pai quando o novo é filho de um existente (ex.: um produto dentro de uma
   empresa, uma empresa dentro de um grupo); null quando for raiz.
 - tenant_evidence: uma frase curta com o que sustentou a escolha (domínio, CNPJ, participante, assunto).

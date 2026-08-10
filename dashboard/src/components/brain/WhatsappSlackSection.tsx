@@ -1,15 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, Hash, QrCode, Upload, CheckCircle2, XCircle } from "lucide-react";
 import { api } from "../../lib/api";
-import { TenantSelect } from "./TenantSelect";
 import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
 import { Modal } from "../shared/Modal";
 import { useToast } from "../shared/Toast";
-import type { BrainSettings } from "../../lib/types";
 
-const selectClass =
-  "bg-bg border border-border rounded-md px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent";
 
 interface BridgeStatus {
   reachable: boolean;
@@ -23,13 +19,7 @@ interface EnvKeyStatus {
   present: boolean;
 }
 
-export function WhatsappSlackSection({
-  settings,
-  patch,
-}: {
-  settings: BrainSettings;
-  patch: (updater: (prev: BrainSettings) => BrainSettings) => void;
-}) {
+export function WhatsappSlackSection() {
   const { addToast } = useToast();
   const [bridge, setBridge] = useState<BridgeStatus | null>(null);
   const [qr, setQr] = useState<string | null>(null);
@@ -84,21 +74,12 @@ export function WhatsappSlackSection({
     }
   };
 
-  const tenantSelect = (channel: "whatsapp" | "slack") => (
-    <TenantSelect
-      value={settings[channel].tenant}
-      onChange={(tenant) => patch((prev) => ({ ...prev, [channel]: { tenant } }))}
-      className={selectClass}
-    />
-  );
-
   return (
     <div className="space-y-4">
       <div className="bg-bg border border-border rounded-md p-3 space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
           <MessageCircle size={15} className="text-text-muted" />
           <span className="text-sm font-medium text-text-primary flex-1">WhatsApp (bridge — número secundário)</span>
-          {tenantSelect("whatsapp")}
           {bridge &&
             (bridge.loggedIn ? (
               <Badge variant="success">sessão ativa</Badge>
@@ -148,7 +129,6 @@ export function WhatsappSlackSection({
         <div className="flex items-center gap-2 flex-wrap">
           <Hash size={15} className="text-text-muted" />
           <span className="text-sm font-medium text-text-primary flex-1">Slack (Socket Mode)</span>
-          {tenantSelect("slack")}
           {["SLACK_APP_TOKEN", "SLACK_BOT_TOKEN"].map((key) =>
             envKeys[key] === undefined ? null : envKeys[key] ? (
               <span key={key} title={`${key} presente`}>
