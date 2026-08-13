@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { config } from "../../config.js";
 import { emitCanonicalEvent } from "../canonical.js";
 import { incrMetric } from "../redis.js";
+import { transcribeAudio } from "../../transcription.js";
 import { dayKeyInTz, hash8 } from "../text.js";
 import { brainSchedulers } from "../schedulers.js";
 import type { CanonicalEvent } from "../types.js";
@@ -129,6 +130,15 @@ function pickNested(record: WebhookRecord, path: string[]): string {
   return typeof current === "string" ? current.trim() : "";
 }
 
+function hasNested(record: WebhookRecord, path: string[]): boolean {
+  let current: unknown = record;
+  for (const key of path) {
+    if (!current || typeof current !== "object") return false;
+    current = (current as WebhookRecord)[key];
+  }
+  return current !== undefined && current !== null;
+}
+
 function parseTimestamp(raw: string): number {
   if (!raw) return Date.now();
   if (/^\d{10}$/.test(raw)) return Number(raw) * 1000;
@@ -141,7 +151,13 @@ function jidUser(jid: string): string {
   return jid.split("@")[0].split(":")[0];
 }
 
-export function mapWebhookToEvent(body: unknown): CanonicalEvent | null {
+export interface MappedWebhook {
+  event: CanonicalEvent;
+  /** Só quando a mensagem é áudio sem legenda: id para baixar e transcrever sob demanda. */
+  voiceNoteId: string | null;
+}
+
+export function mapWebhookToEvent(body: unknown): MappedWebhook | null {
   if (!body || typeof body !== "object") return null;
   const root = body as WebhookRecord;
   const eventType = pick(root, ["event", "type"]);
@@ -168,7 +184,18 @@ export function mapWebhookToEvent(body: unknown): CanonicalEvent | null {
   const pushName = pick(payload, ["pushname", "push_name", "sender_name", "name"]);
   const chatName = pick(payload, ["chat_name", "group_name", "subject"]);
 
-  return {
+  const mimetype = (
+    pick(payload, ["mimetype", "mime_type"]) || pickNested(payload, ["message", "mimetype"])
+  ).toLowerCase();
+  const kind = (pick(payload, ["type", "media_type", "message_type"]) || "").toLowerCase();
+  const isAudio =
+    mimetype.startsWith("audio/") ||
+    kind === "audio" ||
+    kind === "ptt" ||
+    kind === "voice" ||
+    hasNested(payload, ["message", "audioMessage"]);
+
+  const event: CanonicalEvent = {
     channel: "whatsapp",
     subchannel: isGroup ? "group" : "direct",
     account,
@@ -177,14 +204,57 @@ export function mapWebhookToEvent(body: unknown): CanonicalEvent | null {
     occurred_at: new Date(timestampMs).toISOString(),
     participants: [{ name: pushName || jidUser(senderJid), handle: senderJid, role: "from" }],
     subject: chatName || (isGroup ? `grupo ${chatId}` : `conversa com ${pushName || chatId}`),
-    body_text: text || "[mensagem sem texto — mídia não persistida]",
+    body_text: text || (isAudio ? AUDIO_PLACEHOLDER : "[mensagem sem texto — mídia não persistida]"),
     attachments: [],
   };
+  return { event, voiceNoteId: isAudio && !text && messageId ? messageId : null };
+}
+
+const AUDIO_PLACEHOLDER = "[áudio sem transcrição]";
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Baixa o áudio sob demanda só para transcrever e descarta os bytes: o bridge roda com
+ * WHATSAPP_AUTO_DOWNLOAD_MEDIA=false justamente para não guardar mídia em disco.
+ */
+async function transcribeVoiceNote(messageId: string): Promise<string | null> {
+  if (!config.openaiApiKey) return null;
+  try {
+    const device = await ensureDeviceId();
+    const res = await fetch(`${config.whatsappBridgeUrl}/message/${encodeURIComponent(messageId)}/download`, {
+      headers: { ...authHeaders(), "X-Device-Id": device },
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) throw new Error(`download respondeu HTTP ${res.status}`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length === 0) throw new Error("download vazio");
+    if (buffer.length > MAX_AUDIO_BYTES) throw new Error(`áudio acima de ${MAX_AUDIO_BYTES} bytes`);
+    const type = res.headers.get("content-type") ?? "";
+    const ext = type.includes("mpeg") ? "mp3" : type.includes("mp4") || type.includes("m4a") ? "m4a" : "ogg";
+    const text = (await transcribeAudio(buffer, `nota-de-voz.${ext}`)).trim();
+    if (!text) return null;
+    await incrMetric("whatsapp:transcribed");
+    return text;
+  } catch (err) {
+    await incrMetric("whatsapp:transcription_failed");
+    console.error(
+      "[brain:whatsapp] falha ao transcrever nota de voz:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
 }
 
 export async function handleWebhook(body: unknown): Promise<"emitted" | "duplicate" | "ignored"> {
-  const event = mapWebhookToEvent(body);
-  if (!event) return "ignored";
+  const mapped = mapWebhookToEvent(body);
+  if (!mapped) return "ignored";
+  const { event, voiceNoteId } = mapped;
+  if (voiceNoteId) {
+    const transcript = await transcribeVoiceNote(voiceNoteId);
+    event.body_text = transcript
+      ? `[nota de voz transcrita]\n${transcript}`
+      : "[áudio — transcrição indisponível]";
+  }
   const result = await emitCanonicalEvent(event);
   if (result === "emitted") await incrMetric("events:whatsapp");
   return result;
