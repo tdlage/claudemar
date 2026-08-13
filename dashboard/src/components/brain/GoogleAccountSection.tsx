@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { CheckCircle2, AlertTriangle, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckCircle2, AlertTriangle, Plus, Copy } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
 import { Modal } from "../shared/Modal";
 import { useToast } from "../shared/Toast";
 import { useGoogleAccounts, useTenants } from "../../hooks/useBrain";
+import { api } from "../../lib/api";
 
 const selectClass =
   "bg-bg border border-border rounded-md px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent";
@@ -12,6 +13,14 @@ const selectClass =
 export function GoogleAccountSection() {
   const { accounts, loading, connect, disconnect, updateAccount } = useGoogleAccounts();
   const { tenants } = useTenants();
+  const [redirect, setRedirect] = useState("");
+
+  useEffect(() => {
+    api
+      .get<{ redirectUri: string }>("/brain/google/redirect-uri")
+      .then((r) => setRedirect(r.redirectUri))
+      .catch(() => {});
+  }, []);
   const { addToast } = useToast();
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -37,6 +46,28 @@ export function GoogleAccountSection() {
 
   return (
     <div className="space-y-3">
+      {redirect && (
+        <div className="bg-bg border border-border rounded-md px-3 py-2 space-y-1">
+          <p className="text-xs text-text-muted">
+            URI de redirecionamento que este servidor envia ao Google. Precisa estar cadastrada{" "}
+            <strong>exatamente assim</strong> no OAuth client (protocolo, host com ou sem <span className="font-mono">www</span>,
+            porta e caminho) — qualquer diferença vira <span className="font-mono">redirect_uri_mismatch</span>.
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="text-xs text-text-primary font-mono truncate flex-1">{redirect}</code>
+            <button
+              onClick={() => {
+                void navigator.clipboard.writeText(redirect);
+                addToast("success", "URI copiada");
+              }}
+              className="text-text-muted hover:text-accent transition-colors shrink-0"
+              title="Copiar"
+            >
+              <Copy size={14} />
+            </button>
+          </div>
+        </div>
+      )}
       {loading && accounts.length === 0 && <p className="text-xs text-text-muted">Carregando…</p>}
       {!loading && accounts.length === 0 && (
         <p className="text-xs text-text-muted">

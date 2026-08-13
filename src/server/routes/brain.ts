@@ -199,6 +199,10 @@ brainRouter.post(
   }),
 );
 
+brainRouter.get("/google/redirect-uri", (_req, res) => {
+  res.json({ redirectUri: redirectUri(), configured: googleConfigured() });
+});
+
 brainRouter.get("/google/accounts", (_req, res) => {
   res.json(getAccountsStatus());
 });
