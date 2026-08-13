@@ -54,3 +54,37 @@ test("mídia não-áudio segue sem persistência", () => {
   assert.equal(mapped.voiceNoteId, null);
   assert.equal(mapped.event.body_text, "[mensagem sem texto — mídia não persistida]");
 });
+
+test("payload real do bridge: remetente e nome do grupo vêm dos campos certos", () => {
+  const mapped = mapWebhookToEvent({
+    device_id: "5531999999999@s.whatsapp.net",
+    payload: {
+      chat_jid: "120363166488862688@g.us",
+      sender_jid: "553188751812@s.whatsapp.net",
+      sender_display_name: "Joana",
+      message_id: "3BC0008C371851AFC497",
+      timestamp: "2026-08-13T23:55:44Z",
+      text: "combinado então",
+      chat_info: { name: "Time Produto" },
+    },
+  })!;
+  assert.equal(mapped.event.subchannel, "group");
+  assert.equal(mapped.event.subject, "Time Produto");
+  assert.equal(mapped.event.participants[0].name, "Joana");
+  assert.equal(mapped.event.participants[0].handle, "553188751812@s.whatsapp.net");
+  assert.equal(mapped.event.body_text, "combinado então");
+});
+
+test("sem nome do remetente cai no número, nunca no JID do grupo", () => {
+  const mapped = mapWebhookToEvent({
+    device_id: "wa",
+    payload: {
+      chat_jid: "120363166488862688@g.us",
+      sender_jid: "553188751812@s.whatsapp.net",
+      message_id: "M2",
+      timestamp: "2026-08-13T23:55:44Z",
+      text: "oi",
+    },
+  })!;
+  assert.equal(mapped.event.participants[0].name, "553188751812");
+});

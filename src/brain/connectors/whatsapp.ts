@@ -166,9 +166,12 @@ export function mapWebhookToEvent(body: unknown): MappedWebhook | null {
   const payload = (root.payload && typeof root.payload === "object" ? root.payload : root) as WebhookRecord;
   const account = pick(root, ["device_id", "device"]) || "whatsapp";
 
-  const chatJid = pick(payload, ["chat_id", "chat", "from", "remote_jid"]) || pickNested(payload, ["key", "remoteJid"]);
+  const chatJid =
+    pick(payload, ["chat_jid", "chat_id", "chat", "from", "remote_jid"]) ||
+    pickNested(payload, ["key", "remoteJid"]);
   const senderJid =
-    pick(payload, ["sender_id", "sender", "participant", "author"]) ||
+    pick(payload, ["sender_jid", "sender_id", "sender", "participant", "author"]) ||
+    pickNested(payload, ["sender", "jid"]) ||
     pickNested(payload, ["key", "participant"]) ||
     chatJid;
   const text =
@@ -181,8 +184,13 @@ export function mapWebhookToEvent(body: unknown): MappedWebhook | null {
   const timestampMs = parseTimestamp(pick(payload, ["timestamp", "time", "message_timestamp"]));
   const isGroup = chatJid.includes("@g.us");
   const chatId = jidUser(chatJid);
-  const pushName = pick(payload, ["pushname", "push_name", "sender_name", "name"]);
-  const chatName = pick(payload, ["chat_name", "group_name", "subject"]);
+  const pushName =
+    pick(payload, ["sender_display_name", "push_name", "pushname", "sender_name", "verified_name", "contact_name"]) ||
+    pickNested(payload, ["sender", "name"]);
+  const chatName =
+    pick(payload, ["chat_name", "group_name", "subject"]) ||
+    pickNested(payload, ["chat_info", "name"]) ||
+    pickNested(payload, ["chat", "name"]);
 
   const mimetype = (
     pick(payload, ["mimetype", "mime_type"]) || pickNested(payload, ["message", "mimetype"])
