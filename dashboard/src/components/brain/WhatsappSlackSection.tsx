@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageCircle, Hash, QrCode, Upload, CheckCircle2, XCircle } from "lucide-react";
+import { MessageCircle, Hash, QrCode, Upload, CheckCircle2, XCircle, Play } from "lucide-react";
 import { api } from "../../lib/api";
 import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
@@ -25,6 +25,7 @@ export function WhatsappSlackSection() {
   const [qr, setQr] = useState<string | null>(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [envKeys, setEnvKeys] = useState<Record<string, boolean>>({});
   const fileRef = useRef<HTMLInputElement>(null);
@@ -40,6 +41,26 @@ export function WhatsappSlackSection() {
       })
       .catch(() => {});
   }, []);
+
+  const startBridge = async () => {
+    setStarting(true);
+    try {
+      const status = await api.post<BridgeStatus>("/brain/whatsapp/start", {});
+      setBridge(status);
+      addToast(
+        status.reachable ? "success" : "error",
+        status.reachable
+          ? status.loggedIn
+            ? "Container no ar e sessão ativa"
+            : "Container no ar — escaneie o QR para parear"
+          : `Container subiu mas segue inacessível: ${status.detail}`,
+      );
+    } catch (e) {
+      addToast("error", e instanceof Error ? e.message : String(e));
+    } finally {
+      setStarting(false);
+    }
+  };
 
   const showQr = async () => {
     setBusy(true);
@@ -86,14 +107,37 @@ export function WhatsappSlackSection() {
             ) : bridge.reachable ? (
               <Badge variant="warning">sem sessão — escaneie o QR</Badge>
             ) : (
-              <Badge variant="danger">bridge inacessível</Badge>
+              <Badge variant="danger">container fora do ar</Badge>
             ))}
         </div>
         <p className="text-xs text-text-muted">
           Bridge não oficial (whatsmeow) em container — use SEMPRE um número secundário; risco de banimento pela
-          Meta. Mídia não é persistida. Configure BRAIN_WHATSAPP_WEBHOOK_SECRET antes de ligar o scheduler.
+          Meta. Mídia não é persistida.
         </p>
+        {bridge && !bridge.reachable && (
+          <p className="text-xs text-warning">
+            O container <span className="font-mono">claudemar-whatsapp</span> não está no ar — nada escuta em{" "}
+            <span className="font-mono">127.0.0.1:3010</span>. Use "Iniciar container" abaixo (equivale a{" "}
+            <span className="font-mono">docker compose up -d whatsapp-bridge</span>).
+          </p>
+        )}
+        {envKeys["BRAIN_WHATSAPP_WEBHOOK_SECRET"] === false && (
+          <p className="text-xs text-warning">
+            BRAIN_WHATSAPP_WEBHOOK_SECRET ausente — sem ele o webhook rejeita tudo e o scheduler fica desligado.
+            Defina em Settings → Variáveis de ambiente.
+          </p>
+        )}
         <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={startBridge}
+            disabled={starting}
+            className="flex items-center gap-1.5"
+          >
+            <Play size={14} />
+            {starting ? "Subindo…" : "Iniciar container"}
+          </Button>
           <Button size="sm" variant="secondary" onClick={showQr} disabled={busy} className="flex items-center gap-1.5">
             <QrCode size={14} />
             {busy ? "Buscando…" : "Mostrar QR de pareamento"}

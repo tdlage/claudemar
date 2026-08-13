@@ -43,6 +43,7 @@ import {
 import { brainEvents } from "../../brain/events.js";
 import {
   handleWebhook,
+  startWhatsappBridge,
   verifyWebhookSignature,
   whatsappQr,
   whatsappStatus,
@@ -841,6 +842,18 @@ brainRouter.post(
 brainRouter.get(
   "/whatsapp/status",
   asyncHandler(async (_req, res) => {
+    res.json(await whatsappStatus());
+  }),
+);
+
+brainRouter.post(
+  "/whatsapp/start",
+  asyncHandler(async (_req, res) => {
+    const started = await startWhatsappBridge();
+    if (!started.ok) {
+      res.status(500).json({ error: `não foi possível subir o container: ${started.error ?? "falha desconhecida"}` });
+      return;
+    }
     res.json(await whatsappStatus());
   }),
 );

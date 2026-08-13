@@ -204,15 +204,22 @@ export async function whatsappQr(): Promise<{ dataUri: string } | { error: strin
   }
 }
 
-async function ensureBridgeUp(): Promise<void> {
+export async function startWhatsappBridge(): Promise<{ ok: boolean; error?: string }> {
   try {
     await execFileAsync("docker", ["compose", "up", "-d", COMPOSE_SERVICE], {
       cwd: config.installDir,
       timeout: COMPOSE_TIMEOUT_MS,
     });
+    return { ok: true };
   } catch (err) {
-    console.error("[brain:whatsapp] falha ao subir o bridge:", err instanceof Error ? err.message : String(err));
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error("[brain:whatsapp] falha ao subir o bridge:", detail);
+    return { ok: false, error: detail };
   }
+}
+
+async function ensureBridgeUp(): Promise<void> {
+  await startWhatsappBridge();
 }
 
 brainSchedulers.register({
