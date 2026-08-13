@@ -19,15 +19,74 @@ function authHeaders(): Record<string, string> {
   return { Authorization: `Basic ${Buffer.from(config.whatsappBridgeAuth).toString("base64")}` };
 }
 
-async function bridgeFetch(path: string): Promise<unknown> {
+async function rawFetch(path: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(`${config.whatsappBridgeUrl}${path}`, {
-    headers: authHeaders(),
+    ...init,
+    headers: { ...authHeaders(), ...(init?.headers as Record<string, string> | undefined) },
     signal: AbortSignal.timeout(10_000),
   });
-  if (!res.ok) {
-    throw new Error(`bridge ${path} respondeu HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`bridge ${path} respondeu HTTP ${res.status}`);
   return res.json();
+}
+
+interface BridgeDevice {
+  id: string;
+  state?: string;
+}
+
+function deviceList(raw: unknown): BridgeDevice[] {
+  const results = (raw as { results?: unknown } | undefined)?.results;
+  if (!Array.isArray(results)) return [];
+  return results
+    .map((entry) => {
+      const e = (entry ?? {}) as Record<string, unknown>;
+      const id = typeof e.id === "string" ? e.id : typeof e.device === "string" ? e.device : "";
+      return { id, state: typeof e.state === "string" ? e.state : undefined };
+    })
+    .filter((d) => d.id);
+}
+
+let deviceId: string | null = null;
+
+/**
+ * O bridge é multi-dispositivo: toda rota /app/* exige X-Device-Id e recusa a chamada sem ele.
+ * Reaproveita um device já pareado quando existe; só cria um novo se o bridge estiver vazio.
+ */
+async function ensureDeviceId(): Promise<string> {
+  if (deviceId) return deviceId;
+  const devices = deviceList(await rawFetch("/devices"));
+  const connected = devices.find((d) => d.state === "connected");
+  const chosen = connected ?? devices[0];
+  if (chosen) {
+    deviceId = chosen.id;
+    return deviceId;
+  }
+  const created = await rawFetch("/devices", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "claudemar" }),
+  });
+  const id = (created as { results?: { id?: string } } | undefined)?.results?.id;
+  if (!id) throw new Error("bridge não devolveu id do device criado");
+  deviceId = id;
+  return deviceId;
+}
+
+export function resetWhatsappDevice(): void {
+  deviceId = null;
+}
+
+async function bridgeFetch(path: string): Promise<unknown> {
+  const device = await ensureDeviceId();
+  try {
+    return await rawFetch(path, { headers: { "X-Device-Id": device } });
+  } catch (err) {
+    if (err instanceof Error && /HTTP 404/.test(err.message)) {
+      resetWhatsappDevice();
+      return rawFetch(path, { headers: { "X-Device-Id": await ensureDeviceId() } });
+    }
+    throw err;
+  }
 }
 
 export function whatsappWindowDay(timestampMs: number): string {
