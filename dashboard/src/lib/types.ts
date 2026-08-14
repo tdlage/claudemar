@@ -698,6 +698,17 @@ export interface PipelineBundle {
 
 export type BrainChannel = "email" | "calendar" | "whatsapp" | "slack" | "drive";
 export type BrainTenant = string;
+export interface BrainChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface BrainChatResponse {
+  reply: string;
+  toolCalls: { name: string; input: Record<string, unknown> }[];
+  rounds: number;
+}
+
 export interface BrainTenantEntry {
   id: string;
   label: string;

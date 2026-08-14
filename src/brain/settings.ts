@@ -81,6 +81,7 @@ function defaults(): BrainSettings {
       selector: { providerId: "anthropic", model: DEFAULT_SELECTOR_MODEL },
       distill: { providerId: "anthropic", model: DEFAULT_DISTILL_MODEL },
       lint: { providerId: "anthropic", model: DEFAULT_LINT_MODEL },
+      chat: { providerId: "anthropic", model: DEFAULT_COMPILE_MODEL },
     },
     compile: { minRelevance: 2, maxSectionChars: 4000, contextPages: 6, batchSize: 20, maxPerTick: 100 },
     accounts: [],
@@ -248,6 +249,8 @@ function sanitize(raw: unknown): BrainSettings {
       selector: sanitizeStage(llm.selector, providers, d.llm.selector),
       distill: sanitizeStage(llm.distill, providers, d.llm.distill),
       lint: sanitizeStage(llm.lint, providers, d.llm.lint),
+      // Instalação anterior ao chat herda o provedor já configurado para a compilação.
+      chat: sanitizeStage(llm.chat ?? llm.compile, providers, d.llm.chat),
     },
     compile: {
       minRelevance: num(comp.minRelevance, d.compile.minRelevance),

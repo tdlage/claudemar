@@ -9,11 +9,13 @@ import { StateTab } from "../components/brain/StateTab";
 import { BrainSettingsTab } from "../components/brain/BrainSettingsTab";
 import { LogTab } from "../components/brain/LogTab";
 import { SearchTab } from "../components/brain/SearchTab";
+import { ChatTab } from "../components/brain/ChatTab";
 
-type TabKey = "overview" | "raw" | "wiki" | "search" | "state" | "settings" | "log";
+type TabKey = "overview" | "chat" | "raw" | "wiki" | "search" | "state" | "settings" | "log";
 
 const TAB_LABELS: Record<TabKey, string> = {
   overview: "Visão geral",
+  chat: "Conversar",
   raw: "Dados brutos",
   wiki: "Wiki",
   search: "Busca",
@@ -57,6 +59,7 @@ export function SecondBrainPage() {
       </div>
       <Tabs tabs={tabs} active={active} onChange={(key) => navigate(`/second-brain/${key === "overview" ? "" : key}`)} />
       {active === "overview" && <OverviewTab />}
+      {active === "chat" && <ChatTab />}
       {active === "raw" && <RawTab splat={splat} />}
       {active === "wiki" && <WikiTab splat={splat} />}
       {active === "search" && <SearchTab />}

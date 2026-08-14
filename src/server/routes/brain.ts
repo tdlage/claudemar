@@ -16,6 +16,7 @@ import { readRecallDistribution, readRecallTail } from "../../brain/recall-telem
 import { WIKI_DIRS, appendOpenLoopTransition, currentOpenLoops, markReviewed, readOpenLoops } from "../../brain/wiki.js";
 import { listTenants, mergeTenants, updateTenant } from "../../brain/tenants.js";
 import { rewriteTenantReferences } from "../../brain/tenant-rewrite.js";
+import { brainChat, type BrainChatMessage } from "../../brain/chat.js";
 import { listDigests, readDigest } from "../../brain/digest.js";
 import { generateLintReport, listLintReports, readLintReport } from "../../brain/lint.js";
 import { buildAdhocTriageRequest, parseTriageResult } from "../../brain/triage.js";
@@ -105,6 +106,33 @@ brainPublicRouter.get(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).send(closePage("Falha na conexão", msg));
+    }
+  }),
+);
+
+brainRouter.post(
+  "/chat",
+  asyncHandler(async (req, res) => {
+    const disabled = stageDisabledReason("chat");
+    if (disabled) {
+      res.status(400).json({ error: `chat indisponível: ${disabled}` });
+      return;
+    }
+    const raw = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    const messages: BrainChatMessage[] = raw
+      .filter((m: unknown): m is BrainChatMessage => {
+        const e = m as BrainChatMessage | undefined;
+        return Boolean(e && (e.role === "user" || e.role === "assistant") && typeof e.content === "string");
+      })
+      .map((m: BrainChatMessage) => ({ role: m.role, content: m.content.slice(0, 8000) }));
+    if (messages.length === 0) {
+      res.status(400).json({ error: "messages é obrigatório" });
+      return;
+    }
+    try {
+      res.json(await brainChat(messages));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   }),
 );

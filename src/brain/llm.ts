@@ -4,7 +4,7 @@ import { incrMetric } from "./redis.js";
 import { sha256Hex } from "./text.js";
 import type { BrainLlmProvider, BrainStageLlm } from "./types.js";
 
-export type BrainLlmStage = "triage" | "compile" | "selector" | "distill" | "lint";
+export type BrainLlmStage = "triage" | "compile" | "selector" | "distill" | "lint" | "chat";
 
 interface ResolvedStage {
   provider: BrainLlmProvider;
@@ -32,6 +32,12 @@ export function stageDisabledReason(stage: BrainLlmStage): string | null {
 export function stageSupportsBatch(stage: BrainLlmStage): boolean {
   const resolved = resolveStage(stage);
   return !("error" in resolved) && resolved.provider.features.batch;
+}
+
+export function stageClient(stage: BrainLlmStage): { client: Anthropic; model: string } | { error: string } {
+  const resolved = resolveStage(stage);
+  if ("error" in resolved) return resolved;
+  return { client: getClient(resolved), model: resolved.model };
 }
 
 function getClient(resolved: ResolvedStage): Anthropic {

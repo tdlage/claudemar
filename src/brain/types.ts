@@ -242,6 +242,7 @@ export interface BrainSettings {
     selector: BrainStageLlm;
     distill: BrainStageLlm;
     lint: BrainStageLlm;
+    chat: BrainStageLlm;
   };
   compile: {
     minRelevance: number;

@@ -141,6 +141,7 @@ function useTrackerBreadcrumbs(pathname: string) {
 
 const BRAIN_SEGMENTS: Record<string, string> = {
   "second-brain": "Second Brain",
+  chat: "Conversar",
   raw: "Dados brutos",
   wiki: "Wiki",
   search: "Busca",
