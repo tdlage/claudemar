@@ -96,6 +96,19 @@ export interface GmailPollSummary {
   error: string;
 }
 
+/**
+ * 404 do Gmail: a mensagem sumiu entre o history.list e o fetch (apagada de vez, ou o
+ * histórico referencia algo que não existe mais). Reter o cursor por isso trava a conta
+ * para sempre, porque a próxima tentativa vai bater no mesmo 404.
+ */
+function isMessageGone(err: unknown): boolean {
+  const status = (err as { status?: number; code?: number } | undefined)?.status ??
+    (err as { code?: number } | undefined)?.code;
+  if (status === 404) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return /requested entity was not found|not found/i.test(message);
+}
+
 async function processMessage(
   gmail: gmail_v1.Gmail,
   account: string,
@@ -279,7 +292,8 @@ async function pollAccount(account: string): Promise<GmailPollSummary> {
     }
 
     const unique = [...new Set(messageIds)];
-    let failed = 0;
+    let retryable = 0;
+    let gone = 0;
     for (const id of unique) {
       try {
         const result = await processMessage(gmail, account, id);
@@ -287,14 +301,19 @@ async function pollAccount(account: string): Promise<GmailPollSummary> {
         if (result === "emitted") summary.emitted += 1;
       } catch (err) {
         if (isInvalidGrant(err)) throw err;
-        failed += 1;
+        if (isMessageGone(err)) {
+          gone += 1;
+          continue;
+        }
+        retryable += 1;
         summary.error = err instanceof Error ? err.message : String(err);
         console.error(`[gmail] mensagem ${id} falhou (${account}):`, summary.error);
       }
       await sleep(FETCH_PACE_MS);
     }
-    if (failed > 0) {
-      summary.error = `${failed} mensagem(ns) falharam — cursor mantido para nova tentativa: ${summary.error}`;
+    if (gone > 0) await incrMetric("gmail:gone", gone);
+    if (retryable > 0) {
+      summary.error = `${retryable} mensagem(ns) falharam — cursor mantido para nova tentativa: ${summary.error}`;
     } else if (nextCursor) {
       await redis.set(cursorKey, nextCursor);
     }
@@ -342,6 +361,10 @@ export async function backfillGmailRange(
         if (result === "emitted") summary.emitted += 1;
       } catch (err) {
         if (isInvalidGrant(err)) throw err;
+        if (isMessageGone(err)) {
+          await incrMetric("gmail:gone");
+          continue;
+        }
         summary.error = err instanceof Error ? err.message : String(err);
         console.error(`[gmail] backfill: mensagem ${id} falhou (${account}):`, summary.error);
       }
