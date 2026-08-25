@@ -240,7 +240,8 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
         socket.emit("subscribe:execution", executionId);
         return;
       }
-      appendOutput(data.id, data.chunk);
+      const unseen = offset < current.length ? data.chunk.slice(current.length - offset) : data.chunk;
+      appendOutput(data.id, unseen);
       render(getOutput(executionId));
     };
 

@@ -72,9 +72,7 @@ export function setupWebSocket(io: SocketServer): void {
       const exec = executionManager.getExecution(id);
       if (exec) {
         const isActive = executionManager.isExecutionActive(id);
-        const output = isActive
-          ? (exec.output ?? "")
-          : (exec.result?.output ?? exec.output ?? "");
+        const output = exec.output || exec.result?.output || "";
         socket.emit("execution:catchup", {
           id,
           output,
@@ -279,7 +277,7 @@ export function setupWebSocket(io: SocketServer): void {
 
   executionManager.prependListener("complete", (id, info) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
-    const finalInfo = { ...info, output: info.result?.output ?? info.output };
+    const finalInfo = { ...info, output: info.output || info.result?.output || "" };
     emitToExecutions("execution:complete", finalInfo, { id, info: finalInfo, hasQueued });
     io.to(`exec:${id}`).emit("execution:complete", { id, info: finalInfo, hasQueued });
     emitActivity(id, info, finalActivity(info));
@@ -288,7 +286,7 @@ export function setupWebSocket(io: SocketServer): void {
 
   executionManager.prependListener("error", (id, info, message) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
-    const finalInfo = { ...info, output: info.result?.output ?? info.output };
+    const finalInfo = { ...info, output: info.output || info.result?.output || "" };
     emitToExecutions("execution:error", finalInfo, { id, info: finalInfo, error: message, hasQueued });
     io.to(`exec:${id}`).emit("execution:error", { id, info: finalInfo, error: message, hasQueued });
     emitActivity(id, info, finalActivity(info));
@@ -297,7 +295,7 @@ export function setupWebSocket(io: SocketServer): void {
 
   executionManager.prependListener("cancel", (id, info) => {
     const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
-    const finalInfo = { ...info, output: info.result?.output ?? info.output };
+    const finalInfo = { ...info, output: info.output || info.result?.output || "" };
     emitToExecutions("execution:cancel", finalInfo, { id, info: finalInfo, hasQueued });
     io.to(`exec:${id}`).emit("execution:cancel", { id, info: finalInfo, hasQueued });
     emitActivity(id, info, finalActivity(info));
