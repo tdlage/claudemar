@@ -52,6 +52,7 @@ const DEFAULT_CONTEXT_WINDOW = Number(process.env.CONTEXT_WINDOW_TOKENS) || 2000
 export interface ClaudeSessionInit extends Omit<BuildOptionsParams, "canUseTool" | "abortController"> {
   permissionTimeoutMs?: number;
   inactivityTimeoutMs?: number;
+  pendingTasksGraceMs?: number;
   isSubagentAllowed?: (subagentType: string) => boolean;
 }
 
@@ -139,6 +140,8 @@ export class ClaudeSession extends EventEmitter {
   private inactivityTimeoutMs: number;
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   private inactivityExpired = false;
+  private pendingTasksGraceMs: number;
+  private pendingTasksTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(init: ClaudeSessionInit) {
     super();
@@ -153,6 +156,7 @@ export class ClaudeSession extends EventEmitter {
     this.isSubagentAllowed = init.isSubagentAllowed ?? null;
     this.requestedModel = init.model ?? DEFAULT_PROJECT_MODEL;
     this.inactivityTimeoutMs = init.inactivityTimeoutMs ?? 0;
+    this.pendingTasksGraceMs = init.pendingTasksGraceMs ?? 0;
 
     const options = buildOptions({
       ...init,
@@ -174,7 +178,7 @@ export class ClaudeSession extends EventEmitter {
       this.abortController.abort();
       this.queue.end();
       if (!this.settled) {
-        this.failTurn("Sessão inativa por muito tempo — possível limite de sessão ou travamento do runner.");
+        this.drainPendingResult("Sessão inativa por muito tempo — possível limite de sessão ou travamento do runner.");
       }
     }, this.inactivityTimeoutMs);
   }
@@ -189,6 +193,38 @@ export class ClaudeSession extends EventEmitter {
       clearTimeout(this.inactivityTimer);
       this.inactivityTimer = null;
     }
+  }
+
+  // Com o resultado do turno retido aguardando subagentes em background, subagentes podem
+  // morrer sem nunca emitir task_notification (ex.: falha de spawn em provider third-party).
+  // Sem este grace timer a execução ficaria "running" até o watchdog de inatividade.
+  private startPendingTasksTimer(): void {
+    if (this.pendingTasksGraceMs <= 0) return;
+    this.clearPendingTasksTimer();
+    this.pendingTasksTimer = setTimeout(() => {
+      if (this.pendingResult) this.drainPendingResult("");
+    }, this.pendingTasksGraceMs);
+  }
+
+  private clearPendingTasksTimer(): void {
+    if (this.pendingTasksTimer) {
+      clearTimeout(this.pendingTasksTimer);
+      this.pendingTasksTimer = null;
+    }
+  }
+
+  private flushLostTasks(): void {
+    for (const [taskId, task] of this.activeTasks) {
+      this.emit("task", {
+        phase: "done",
+        taskId,
+        description: task.description,
+        subagentType: task.subagentType,
+        status: "failed",
+        summary: "Subagente sem resposta — descartado após espera.",
+      } satisfies TaskEvent);
+    }
+    this.activeTasks.clear();
   }
 
   private handlePermission(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
@@ -262,7 +298,7 @@ export class ClaudeSession extends EventEmitter {
     if (this.pendingResult) {
       const result = this.pendingResult;
       this.pendingResult = null;
-      this.activeTasks.clear();
+      this.flushLostTasks();
       this.settleResult(result);
     } else {
       this.failTurn(fallbackMessage);
@@ -341,14 +377,22 @@ export class ClaudeSession extends EventEmitter {
         this.emit("checkpoint", f.file_id);
       }
     } else if (message.subtype === "task_started") {
+      this.touchPendingTasks();
       this.handleTaskStarted(message);
     } else if (message.subtype === "task_progress") {
+      this.touchPendingTasks();
       this.handleTaskProgress(message);
     } else if (message.subtype === "task_updated") {
+      this.touchPendingTasks();
       this.handleTaskUpdated(message);
     } else if (message.subtype === "task_notification") {
+      this.touchPendingTasks();
       this.handleTaskNotification(message);
     }
+  }
+
+  private touchPendingTasks(): void {
+    if (this.pendingResult) this.startPendingTasksTimer();
   }
 
   private handleTaskStarted(message: Extract<SDKMessage, { subtype: "task_started" }>): void {
@@ -505,6 +549,7 @@ export class ClaudeSession extends EventEmitter {
     if (this.activeTasks.size > 0) {
       this.pendingResult = result;
       this.emit("tasksPending", this.activeTasks.size);
+      this.startPendingTasksTimer();
     } else {
       this.settleResult(result);
     }
@@ -512,6 +557,7 @@ export class ClaudeSession extends EventEmitter {
 
   private settleResult(result: AgentResult): void {
     this.clearInactivityTimer();
+    this.clearPendingTasksTimer();
     this.result = result;
     this.settled = true;
     this.assistantBuffer = "";
@@ -527,6 +573,7 @@ export class ClaudeSession extends EventEmitter {
     this.settled = false;
     this.activeTasks.clear();
     this.pendingResult = null;
+    this.clearPendingTasksTimer();
     this.startInactivityTimer();
     let content: SDKUserMessage["message"]["content"];
     if (typeof blocksOrText === "string") {
@@ -634,6 +681,7 @@ export class ClaudeSession extends EventEmitter {
 
   end(): void {
     this.clearInactivityTimer();
+    this.clearPendingTasksTimer();
     for (const { settle } of this.permissionResolvers.values()) {
       settle({ behavior: "deny", message: "Sessão encerrada." });
     }

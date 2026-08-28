@@ -314,6 +314,7 @@ class ExecutionManager extends EventEmitter {
       schedulerMode: opts.schedulerMode,
       permissionTimeoutMs: config.permissionTimeoutMs,
       inactivityTimeoutMs: config.sessionInactivityTimeoutMs,
+      pendingTasksGraceMs: config.pendingTasksGraceMs,
     });
     this.sessions.set(sessionKey, session);
     this.sessionGen.set(sessionKey, this.llmConfigGen);

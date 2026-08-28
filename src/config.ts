@@ -61,6 +61,11 @@ export const config = Object.freeze({
   // a sessão é encerrada como erro — protege contra hangs silenciosos do SDK,
   // como ao atingir o limite de sessão da conta (session limit).
   sessionInactivityTimeoutMs: numericEnv("SESSION_INACTIVITY_TIMEOUT_MS", 10 * 60 * 1000),
+  // Quando o turno principal já produziu resultado mas há subagentes em background,
+  // este é o tempo máximo sem NENHUM evento de task antes de considerá-los perdidos
+  // e assentar o turno com o resultado retido (subagentes podem morrer sem emitir
+  // task_notification, ex.: falha de spawn em providers third-party).
+  pendingTasksGraceMs: numericEnv("PENDING_TASKS_GRACE_MS", 3 * 60 * 1000),
   maxOutputLength: numericEnv("MAX_OUTPUT_LENGTH", 4096),
   maxBufferSize: numericEnv("MAX_BUFFER_SIZE", 10 * 1024 * 1024),
   orchestratorPath: resolve(basePath, "orchestrator"),
