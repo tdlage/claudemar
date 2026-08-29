@@ -4,7 +4,7 @@ import { config } from "../config.js";
 // SDK. baseUrl vazio = Anthropic nativo (mantém a subscription do Claude). Com baseUrl
 // preenchido, as requisições são roteadas para o gateway (Bifrost) ou para qualquer
 // endpoint compatível com a API da Anthropic, escolhendo o provedor pelo nome do modelo
-// (provider/model, ex.: "openai/gpt-5.5", "zai/glm-5.2", "sakana/fugu-ultra").
+// (provider/model, ex.: "openai/gpt-5.5", "sakana/fugu-ultra").
 export interface LlmProfile {
   id: string;
   label: string;
@@ -33,6 +33,14 @@ const KIMI_MODEL = "k3";
 // perfil têm o valor antigo persistido em settings.json; a chave do Kimi Code (gerada em
 // kimi.com/code) não autentica na Moonshot, então migramos o default intocado.
 const KIMI_LEGACY_BASE_URL = "https://api.moonshot.ai/anthropic";
+
+// GLM Coding Plan: a quota da assinatura só vale no endpoint de coding Anthropic-compatible.
+// Roteado pelo Bifrost (endpoint geral api/paas/v4) o upstream responde "Insufficient
+// balance", então o perfil zai conecta direto, como o kimi. O sufixo `[1m]` que a z.ai
+// documenta para o Claude Code retorna 400 em chamadas diretas à API — usar o nome bare.
+const ZAI_BASE_URL = "https://api.z.ai/api/anthropic";
+const ZAI_MODEL = "glm-5.3";
+const ZAI_HAIKU_MODEL = "glm-5.3-flash";
 
 // Token enviado ao gateway quando nenhuma virtual key está configurada. O Bifrost sem
 // governança ignora a credencial do cliente e usa as chaves dos upstreams; o placeholder
@@ -69,11 +77,11 @@ export function defaultLlmProfiles(): LlmProfile[] {
     {
       id: "zai",
       label: "z.ai (GLM)",
-      baseUrl,
-      tokenEnv: GATEWAY_TOKEN_ENV,
-      opusModel: "zai/glm-5.2",
-      sonnetModel: "zai/glm-5.2",
-      haikuModel: "zai/glm-4.7-flash",
+      baseUrl: ZAI_BASE_URL,
+      tokenEnv: "ZAI_API_KEY",
+      opusModel: ZAI_MODEL,
+      sonnetModel: ZAI_MODEL,
+      haikuModel: ZAI_HAIKU_MODEL,
       timeoutMs: GATEWAY_TIMEOUT_MS,
       autoCompactWindow: "1000000",
       extraEnv: "",
@@ -144,19 +152,23 @@ export function parseExtraEnv(extraEnv: string): Array<[string, string]> {
   return entries;
 }
 
-// Corrige perfis default cujos valores mudaram após já terem sido semeados. Só reescreve o
-// perfil kimi quando ele ainda está no endpoint legado da Moonshot (default intocado),
-// preservando qualquer customização feita pelo usuário.
+// Corrige perfis default cujos valores mudaram após já terem sido semeados. Só reescreve
+// um perfil quando o baseUrl ainda é o legado (default intocado), preservando qualquer
+// customização feita pelo usuário: kimi no endpoint antigo da Moonshot e zai ainda
+// roteado pelo gateway (incompatível com a quota do GLM Coding Plan).
 export function migrateLegacyProfiles(profiles: LlmProfile[]): { profiles: LlmProfile[]; changed: boolean } {
-  const kimiDefault = defaultLlmProfiles().find((p) => p.id === "kimi");
-  if (!kimiDefault) return { profiles, changed: false };
+  const defaults = new Map(defaultLlmProfiles().map((p) => [p.id, p]));
   let changed = false;
   const migrated = profiles.map((p) => {
-    if (p.id === "kimi" && p.baseUrl.trim() === KIMI_LEGACY_BASE_URL) {
-      changed = true;
-      return { ...kimiDefault, label: p.label || kimiDefault.label };
-    }
-    return p;
+    const def = defaults.get(p.id);
+    if (!def) return p;
+    const baseUrl = p.baseUrl.trim();
+    const legacy =
+      (p.id === "kimi" && baseUrl === KIMI_LEGACY_BASE_URL) ||
+      (p.id === "zai" && baseUrl === config.gatewayUrl.trim());
+    if (!legacy) return p;
+    changed = true;
+    return { ...def, label: p.label || def.label };
   });
   return { profiles: migrated, changed };
 }

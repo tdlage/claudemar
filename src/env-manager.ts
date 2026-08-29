@@ -18,7 +18,7 @@ const BRAIN_GROUP = "Second Brain";
 
 export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "OPENAI_API_KEY", label: "OpenAI API Key", group: GATEWAY_GROUP, help: "Usada pelo gateway para os modelos OpenAI (perfil openai) e pelo Whisper na transcrição de voz.", required: false },
-  { key: "ZAI_API_KEY", label: "z.ai API Key", group: GATEWAY_GROUP, help: "Token da z.ai (GLM). Consumido pelo gateway no perfil z.ai.", required: false },
+  { key: "ZAI_API_KEY", label: "z.ai API Key", group: DIRECT_GROUP, help: "Token da z.ai (GLM Coding Plan) para o perfil z.ai. Conexão direta ao endpoint de coding (api.z.ai/api/anthropic, compatível com a API da Anthropic) — a quota do Coding Plan não vale no endpoint geral usado pelo gateway.", required: false },
   { key: "SAKANA_API_KEY", label: "Sakana API Key", group: GATEWAY_GROUP, help: "Token da Sakana AI (Fugu). Consumido pelo gateway no perfil sakana.", required: false },
   { key: "KIMI_API_KEY", label: "Kimi API Key", group: DIRECT_GROUP, help: "Chave do Kimi Code (endpoint api.kimi.com/coding, compatível com a API da Anthropic) para o perfil kimi. Obtenha no console em https://www.kimi.com/code (Create API Key). Não confundir com a chave da plataforma Moonshot.", required: false },
   { key: "BIFROST_ANTHROPIC_API_KEY", label: "Anthropic API Key (gateway)", group: GATEWAY_GROUP, help: "Chave da Anthropic usada pelo gateway no perfil anthropic. Mantida separada de ANTHROPIC_API_KEY para não substituir a subscription do Claude.", required: false },

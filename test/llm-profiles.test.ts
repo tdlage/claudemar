@@ -137,8 +137,44 @@ test("seedMissingDefaultProfiles preserva perfil customizado que reutiliza o id 
 });
 
 test("perfis do gateway continuam usando a virtual key do Bifrost", () => {
-  for (const id of ["zai", "openai", "sakana"]) {
+  for (const id of ["openai", "sakana"]) {
     const profile = defaultLlmProfiles().find((p) => p.id === id);
     assert.equal(profile?.tokenEnv, GATEWAY_TOKEN_ENV);
   }
+});
+
+function zaiProfile() {
+  const profile = defaultLlmProfiles().find((p) => p.id === "zai");
+  assert.ok(profile, "perfil zai deve existir nos defaults");
+  return profile;
+}
+
+test("perfil zai default conecta direto ao endpoint de coding da z.ai", () => {
+  const profile = zaiProfile();
+  assert.equal(profile.baseUrl, "https://api.z.ai/api/anthropic");
+  assert.equal(profile.tokenEnv, "ZAI_API_KEY");
+  assert.equal(profile.opusModel, "glm-5.3");
+  assert.equal(profile.sonnetModel, "glm-5.3");
+  assert.equal(profile.haikuModel, "glm-5.3-flash");
+  assert.equal(profile.autoCompactWindow, "1000000");
+});
+
+test("migrateLegacyProfiles reescreve o perfil zai ainda roteado pelo gateway", async () => {
+  const { config } = await import("../src/config.js");
+  const legacy = { ...zaiProfile(), baseUrl: config.gatewayUrl, tokenEnv: GATEWAY_TOKEN_ENV, opusModel: "zai/glm-5.2", label: "Meu GLM" };
+  const { profiles, changed } = migrateLegacyProfiles([legacy]);
+  assert.equal(changed, true);
+  assert.equal(profiles[0].baseUrl, "https://api.z.ai/api/anthropic");
+  assert.equal(profiles[0].tokenEnv, "ZAI_API_KEY");
+  assert.equal(profiles[0].opusModel, "glm-5.3");
+  assert.equal(profiles[0].label, "Meu GLM");
+});
+
+test("migrateLegacyProfiles preserva perfil zai já migrado ou customizado", () => {
+  const current = zaiProfile();
+  const custom = { ...current, baseUrl: "https://proxy.interno/anthropic" };
+  const { profiles, changed } = migrateLegacyProfiles([current, custom]);
+  assert.equal(changed, false);
+  assert.equal(profiles[0].baseUrl, "https://api.z.ai/api/anthropic");
+  assert.equal(profiles[1].baseUrl, "https://proxy.interno/anthropic");
 });
