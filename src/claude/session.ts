@@ -651,6 +651,10 @@ export class ClaudeSession extends EventEmitter {
     return this.requestedModel;
   }
 
+  getPermissionMode(): PermissionMode {
+    return this.currentPermissionMode;
+  }
+
   getLastResult(): AgentResult | null {
     return this.result;
   }

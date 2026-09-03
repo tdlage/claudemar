@@ -4,6 +4,7 @@ import {
   autoApprovesTool,
   decideImmediatePermission,
   resolveBypass,
+  resolveStartPermissionMode,
 } from "../src/claude/permission.js";
 
 test("pipeline força bypass mesmo sem autoApprove (criterio 3)", () => {
@@ -32,6 +33,17 @@ test("web com permissionMode bypassPermissions entra em bypass", () => {
 
 test("telegram (não-web) é não-interativo e entra em bypass", () => {
   assert.equal(resolveBypass({ source: "telegram" }), true);
+});
+
+test("modo de início do web segue o permissionMode pedido", () => {
+  assert.equal(resolveStartPermissionMode({ source: "web", permissionMode: "bypassPermissions" }), "bypassPermissions");
+  assert.equal(resolveStartPermissionMode({ source: "web", permissionMode: "acceptEdits" }), "acceptEdits");
+  assert.equal(resolveStartPermissionMode({ source: "web" }), "default");
+});
+
+test("modo de início: planMode vence e fontes não-interativas viram bypass", () => {
+  assert.equal(resolveStartPermissionMode({ source: "web", planMode: true, permissionMode: "bypassPermissions" }), "plan");
+  assert.equal(resolveStartPermissionMode({ source: "telegram" }), "bypassPermissions");
 });
 
 test("schedule é desassistido e entra em bypass", () => {

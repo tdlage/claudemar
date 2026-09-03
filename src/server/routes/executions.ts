@@ -114,6 +114,8 @@ executionsRouter.post("/", async (req, res) => {
   const effectiveTargetName = targetName || "orchestrator";
   const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
   const resolvedEffort = typeof effort === "string" && EFFORTS.includes(effort as Effort) ? (effort as Effort) : undefined;
+  const validModes = ["default", "acceptEdits", "bypassPermissions", "plan"];
+  const requestedMode = typeof permissionMode === "string" && validModes.includes(permissionMode) ? (permissionMode as PermissionMode) : undefined;
   const queuePayload = {
     targetType,
     targetName: effectiveTargetName,
@@ -122,6 +124,7 @@ executionsRouter.post("/", async (req, res) => {
     cwd,
     resumeSessionId,
     planMode,
+    permissionMode: requestedMode,
     agentName,
     username,
     skipSystemPrompt: skipSystemPrompt || false,
@@ -142,13 +145,10 @@ executionsRouter.post("/", async (req, res) => {
     return;
   }
 
-  const validModes = ["default", "acceptEdits", "bypassPermissions", "plan"];
-  const requestedMode = typeof permissionMode === "string" && validModes.includes(permissionMode) ? (permissionMode as PermissionMode) : undefined;
   const id = executionManager.startExecution({
     ...queuePayload,
     rawPrompt: prompt,
     blocks: execBlocks,
-    permissionMode: requestedMode,
     schedulerMode: targetType === "agent" && Boolean(schedulerMode),
   });
 

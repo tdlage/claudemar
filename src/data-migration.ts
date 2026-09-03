@@ -67,6 +67,7 @@ const TABLE_DEFINITIONS: string[] = [
     resume_session_id VARCHAR(255) DEFAULT NULL,
     model VARCHAR(100) DEFAULT NULL,
     plan_mode TINYINT(1) NOT NULL DEFAULT 0,
+    permission_mode VARCHAR(20) DEFAULT NULL,
     agent_name VARCHAR(255) DEFAULT NULL,
     username VARCHAR(255) DEFAULT NULL,
     use_docker TINYINT(1) NOT NULL DEFAULT 0,
@@ -554,6 +555,13 @@ async function ensureQueueColumns(pool: ReturnType<typeof getPool>): Promise<voi
   );
   if ((effortRows as Array<{ cnt: number }>)[0].cnt === 0) {
     await pool.execute("ALTER TABLE queue_items ADD COLUMN effort VARCHAR(20) DEFAULT NULL");
+  }
+
+  const [modeRows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'queue_items' AND COLUMN_NAME = 'permission_mode'",
+  );
+  if ((modeRows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE queue_items ADD COLUMN permission_mode VARCHAR(20) DEFAULT NULL AFTER plan_mode");
   }
 }
 

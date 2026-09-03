@@ -126,7 +126,7 @@ export interface ProjectDetail {
 
 export const PROJECT_SELECTABLE_MODELS: { model: string; displayName: string }[] = [
   { model: "claude-opus-5", displayName: "Opus 5" },
-  { model: "claude-fable-5", displayName: "Fable 5" },
+  { model: "claude-fable-5-1", displayName: "Fable 5.1" },
 ];
 
 export const DEFAULT_PROJECT_MODEL = "claude-opus-5";

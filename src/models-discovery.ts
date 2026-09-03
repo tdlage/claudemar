@@ -11,7 +11,7 @@ interface DiscoveredModel {
 
 const CLAUDE_DEFAULT_MODELS: DiscoveredModel[] = [
   { id: "claude-opus-5", displayName: "Opus 5", createdAt: "", provider: "claude" },
-  { id: "claude-fable-5", displayName: "Fable 5", createdAt: "", provider: "claude" },
+  { id: "claude-fable-5-1", displayName: "Fable 5.1", createdAt: "", provider: "claude" },
   { id: "claude-sonnet-5", displayName: "Sonnet 5", createdAt: "", provider: "claude" },
   { id: "claude-opus-4-8", displayName: "Opus 4.8", createdAt: "", provider: "claude" },
   { id: "claude-sonnet-4-6", displayName: "Sonnet 4.6", createdAt: "", provider: "claude" },
@@ -23,14 +23,19 @@ const CLAUDE_DEFAULT_MODELS: DiscoveredModel[] = [
 // porque a versão instalada do SDK ainda o expande para claude-opus-4-8, não para o Opus 5.
 export const PROJECT_SELECTABLE_MODELS = [
   { model: "claude-opus-5", displayName: "Opus 5" },
-  { model: "claude-fable-5", displayName: "Fable 5" },
+  { model: "claude-fable-5-1", displayName: "Fable 5.1" },
 ] as const;
 
 export const DEFAULT_PROJECT_MODEL = "claude-opus-5";
 
-// Valores legados persistidos como alias "opus" devem apontar para o Opus 5 atual.
+// Valores legados já persistidos (alias "opus", Fable 5) apontam para os modelos atuais.
+const LEGACY_MODELS: Record<string, string> = {
+  opus: DEFAULT_PROJECT_MODEL,
+  "claude-fable-5": "claude-fable-5-1",
+};
+
 export function normalizeModel(model: string): string {
-  return model === "opus" ? DEFAULT_PROJECT_MODEL : model;
+  return LEGACY_MODELS[model] ?? model;
 }
 
 export function isSelectableProjectModel(model: unknown): model is string {

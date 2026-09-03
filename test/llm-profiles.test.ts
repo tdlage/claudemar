@@ -143,6 +143,17 @@ test("perfis do gateway continuam usando a virtual key do Bifrost", () => {
   }
 });
 
+test("perfil codex default aponta para o proxy local de subscription do ChatGPT", () => {
+  const profile = defaultLlmProfiles().find((p) => p.id === "codex");
+  assert.ok(profile, "perfil codex deve existir nos defaults");
+  assert.equal(profile.baseUrl, "http://127.0.0.1:18765");
+  assert.equal(profile.tokenEnv, "");
+  assert.equal(profile.opusModel, "gpt-5.6-sol");
+  assert.equal(profile.sonnetModel, "gpt-5.6-sol");
+  assert.equal(profile.haikuModel, "gpt-5.6-luna");
+  assert.ok(profile.extraEnv.includes("CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-luna"));
+});
+
 function zaiProfile() {
   const profile = defaultLlmProfiles().find((p) => p.id === "zai");
   assert.ok(profile, "perfil zai deve existir nos defaults");

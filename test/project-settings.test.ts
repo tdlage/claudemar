@@ -30,11 +30,11 @@ test("setModel/getModel persistem a escolha e sobrevivem a nova instância", () 
   const { file, cleanup } = freshStore();
   try {
     const mgr = new ProjectSettingsManager(file);
-    mgr.setModel("proj-a", "claude-fable-5");
+    mgr.setModel("proj-a", "claude-fable-5-1");
     mgr.flush();
 
     const reloaded = new ProjectSettingsManager(file);
-    assert.equal(reloaded.getModel("proj-a"), "claude-fable-5");
+    assert.equal(reloaded.getModel("proj-a"), "claude-fable-5-1");
   } finally {
     cleanup();
   }
@@ -44,7 +44,7 @@ test("voltar ao default remove a entrada persistida", () => {
   const { file, cleanup } = freshStore();
   try {
     const mgr = new ProjectSettingsManager(file);
-    mgr.setModel("proj-a", "claude-fable-5");
+    mgr.setModel("proj-a", "claude-fable-5-1");
     mgr.setModel("proj-a", "claude-opus-5");
     mgr.flush();
 
@@ -59,8 +59,8 @@ test("a preferência de um projeto não afeta outro", () => {
   const { file, cleanup } = freshStore();
   try {
     const mgr = new ProjectSettingsManager(file);
-    mgr.setModel("proj-a", "claude-fable-5");
-    assert.equal(mgr.getModel("proj-a"), "claude-fable-5");
+    mgr.setModel("proj-a", "claude-fable-5-1");
+    assert.equal(mgr.getModel("proj-a"), "claude-fable-5-1");
     assert.equal(mgr.getModel("proj-b"), "claude-opus-5");
     mgr.flush();
   } finally {

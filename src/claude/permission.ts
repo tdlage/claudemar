@@ -18,6 +18,14 @@ export function resolveBypass(opts: BypassInput): boolean {
   return opts.autoApprove === true || opts.permissionMode === "bypassPermissions" || !interactive;
 }
 
+// Modo efetivo de uma execução que está começando: é o que uma sessão reaproveitada precisa passar
+// a usar para não herdar o modo da execução anterior.
+export function resolveStartPermissionMode(opts: BypassInput): PermissionMode {
+  if (opts.planMode) return "plan";
+  if (opts.permissionMode) return opts.permissionMode;
+  return resolveBypass(opts) ? "bypassPermissions" : "default";
+}
+
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Update"]);
 
 export function autoApprovesTool(toolName: string, bypass: boolean, mode: PermissionMode): boolean {

@@ -42,6 +42,16 @@ const ZAI_BASE_URL = "https://api.z.ai/api/anthropic";
 const ZAI_MODEL = "glm-5.3";
 const ZAI_HAIKU_MODEL = "glm-5.3-flash";
 
+// A quota do ChatGPT (Plus/Pro) não é acessível por API key: só o backend do Codex a
+// aceita, com OAuth do ChatGPT e identidade de cliente oficial — fluxo que o Bifrost
+// não faz (maximhq/bifrost#4459). O perfil aponta direto para o proxy local claude-codex
+// (fcakyon/claude-code-with-codex), que traduz Messages→Responses e injeta o login do
+// Codex CLI (~/.codex/auth.json). O proxy ignora o token de cliente nas rotas gpt-*.
+// Janela gerida a 200K: o teto real do plano é 372K, mas o proxy compacta contra 200K.
+const CODEX_PROXY_URL = "http://127.0.0.1:18765";
+const CODEX_MODEL = "gpt-5.6-sol";
+const CODEX_HAIKU_MODEL = "gpt-5.6-luna";
+
 // Token enviado ao gateway quando nenhuma virtual key está configurada. O Bifrost sem
 // governança ignora a credencial do cliente e usa as chaves dos upstreams; o placeholder
 // evita vazar o token da subscription do Claude para o gateway.
@@ -97,6 +107,18 @@ export function defaultLlmProfiles(): LlmProfile[] {
       timeoutMs: GATEWAY_TIMEOUT_MS,
       autoCompactWindow: "",
       extraEnv: "",
+    },
+    {
+      id: "codex",
+      label: "OpenAI Codex (ChatGPT)",
+      baseUrl: CODEX_PROXY_URL,
+      tokenEnv: "",
+      opusModel: CODEX_MODEL,
+      sonnetModel: CODEX_MODEL,
+      haikuModel: CODEX_HAIKU_MODEL,
+      timeoutMs: GATEWAY_TIMEOUT_MS,
+      autoCompactWindow: "200000",
+      extraEnv: `CLAUDE_CODE_SUBAGENT_MODEL=${CODEX_HAIKU_MODEL}\nCLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`,
     },
     {
       id: "sakana",

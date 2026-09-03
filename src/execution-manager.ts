@@ -6,7 +6,7 @@ import type { AgentDefinition, McpServerConfig, PermissionMode } from "@anthropi
 import type { AgentResult, AskQuestion } from "./providers/types.js";
 import { ClaudeSession, type MessageBlock, type PendingPermission, type PermissionDecision, type UsageInfo, type TaskEvent } from "./claude/session.js";
 import { isUltracode, type Effort } from "./claude/options.js";
-import { resolveBypass } from "./claude/permission.js";
+import { resolveBypass, resolveStartPermissionMode } from "./claude/permission.js";
 import { formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
@@ -422,6 +422,14 @@ class ExecutionManager extends EventEmitter {
       // and resumed sessions need any effort change pushed to the live runner.
       if (opts.effort && (!isNew || isUltracode(opts.effort))) {
         await session.setEffort(opts.effort).catch(() => {});
+      }
+
+      // Sessão reaproveitada mantém o modo da execução anterior; o modo pedido agora tem que valer.
+      if (!isNew) {
+        const requestedMode = resolveStartPermissionMode(opts);
+        if (requestedMode !== session.getPermissionMode()) {
+          await session.setPermissionMode(requestedMode).catch(() => {});
+        }
       }
 
       session.sendUserMessage(opts.blocks ?? opts.prompt, opts.rawPrompt);

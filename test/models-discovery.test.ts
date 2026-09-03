@@ -40,8 +40,8 @@ function kimiProfile(projectModel?: string): LlmProfile {
   };
 }
 
-test("getModelDisplayName resolve Fable 5 pelo id", () => {
-  assert.equal(getModelDisplayName("claude-fable-5"), "Fable 5");
+test("getModelDisplayName resolve Fable 5.1 pelo id", () => {
+  assert.equal(getModelDisplayName("claude-fable-5-1"), "Fable 5.1");
 });
 
 test("getModelDisplayName resolve Opus 5 e mantém o alias legado opus", () => {
@@ -50,36 +50,37 @@ test("getModelDisplayName resolve Opus 5 e mantém o alias legado opus", () => {
   assert.equal(getModelDisplayName("opus"), "Opus 5");
 });
 
-test("normalizeModel mapeia o alias legado opus para o Opus 5 atual", () => {
+test("normalizeModel mapeia os valores legados para os modelos atuais", () => {
   assert.equal(normalizeModel("opus"), "claude-opus-5");
   assert.equal(normalizeModel("claude-opus-5"), "claude-opus-5");
-  assert.equal(normalizeModel("claude-fable-5"), "claude-fable-5");
+  assert.equal(normalizeModel("claude-fable-5"), "claude-fable-5-1");
+  assert.equal(normalizeModel("claude-fable-5-1"), "claude-fable-5-1");
 });
 
 test("PROJECT_SELECTABLE_MODELS oferece exatamente Opus e Fable", () => {
   assert.deepEqual(
     PROJECT_SELECTABLE_MODELS.map((m) => m.model),
-    ["claude-opus-5", "claude-fable-5"],
+    ["claude-opus-5", "claude-fable-5-1"],
   );
 });
 
 test("isSelectableProjectModel aceita apenas os modelos suportados", () => {
   assert.equal(isSelectableProjectModel("claude-opus-5"), true);
-  assert.equal(isSelectableProjectModel("claude-fable-5"), true);
+  assert.equal(isSelectableProjectModel("claude-fable-5-1"), true);
   assert.equal(isSelectableProjectModel("claude-sonnet-4-6"), false);
   assert.equal(isSelectableProjectModel(""), false);
   assert.equal(isSelectableProjectModel(undefined), false);
   assert.equal(isSelectableProjectModel(42), false);
 });
 
-test("resolveExecutionModel: projeto + anthropic + fable → claude-fable-5", () => {
+test("resolveExecutionModel: projeto + anthropic + fable → claude-fable-5-1", () => {
   assert.equal(
     resolveExecutionModel({
       targetType: "project",
       activeProfile: anthropicProfile(),
-      projectModel: "claude-fable-5",
+      projectModel: "claude-fable-5-1",
     }),
-    "claude-fable-5",
+    "claude-fable-5-1",
   );
 });
 
@@ -110,7 +111,7 @@ test("resolveExecutionModel: provider gateway ignora a preferência do projeto e
     resolveExecutionModel({
       targetType: "project",
       activeProfile: kimiProfile(),
-      projectModel: "claude-fable-5",
+      projectModel: "claude-fable-5-1",
     }),
     "k3",
   );
@@ -121,7 +122,7 @@ test("resolveExecutionModel: alvos não-projeto usam o modelo do perfil ativo", 
     resolveExecutionModel({
       targetType: "agent",
       activeProfile: kimiProfile(),
-      projectModel: "claude-fable-5",
+      projectModel: "claude-fable-5-1",
     }),
     "k3",
   );
@@ -129,7 +130,7 @@ test("resolveExecutionModel: alvos não-projeto usam o modelo do perfil ativo", 
     resolveExecutionModel({
       targetType: "agent",
       activeProfile: anthropicProfile(),
-      projectModel: "claude-fable-5",
+      projectModel: "claude-fable-5-1",
     }),
     "claude-opus-5",
   );
@@ -141,7 +142,7 @@ test("resolveExecutionModel: override explícito sempre prevalece", () => {
       explicitModel: "claude-sonnet-4-6",
       targetType: "project",
       activeProfile: kimiProfile(),
-      projectModel: "claude-fable-5",
+      projectModel: "claude-fable-5-1",
     }),
     "claude-sonnet-4-6",
   );

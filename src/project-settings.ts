@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { config } from "./config.js";
 import { JsonPersister } from "./json-persister.js";
-import { DEFAULT_PROJECT_MODEL, isSelectableProjectModel } from "./models-discovery.js";
+import { DEFAULT_PROJECT_MODEL, isSelectableProjectModel, normalizeModel } from "./models-discovery.js";
 
 interface ProjectSettings {
   model: string;
@@ -23,7 +23,8 @@ export class ProjectSettingsManager {
     if (!raw || typeof raw !== "object") return;
     for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
       if (!value || typeof value !== "object") continue;
-      const model = (value as Record<string, unknown>).model;
+      const stored = (value as Record<string, unknown>).model;
+      const model = typeof stored === "string" ? normalizeModel(stored) : stored;
       if (isSelectableProjectModel(model)) this.data[name] = { model };
     }
   }

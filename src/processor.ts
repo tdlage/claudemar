@@ -11,6 +11,7 @@ export function processQueueItem(item: QueueItem): string {
     resumeSessionId: item.resumeSessionId,
     model: item.model,
     planMode: item.planMode,
+    permissionMode: item.permissionMode,
     agentName: item.agentName,
     username: item.username,
     skipSystemPrompt: item.skipSystemPrompt,
