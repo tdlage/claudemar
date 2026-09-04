@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Pencil, Trash2, Check, X, GitFork } from "lucide-react";
 import type { SessionData } from "../../lib/types";
+import { inferRuntime, runtimeLabel } from "../../lib/runtime";
 
 interface SessionSelectorProps {
   sessionData: SessionData;
@@ -20,6 +21,10 @@ export function SessionSelector({ sessionData, onChange, onRename, onDelete, onF
 
   const getDisplayName = (sid: string) => {
     return sessionData.names[sid] ?? sid.slice(0, 8);
+  };
+
+  const getRuntimeLabel = (sid: string) => {
+    return runtimeLabel(sessionData.runtimes[sid] ?? inferRuntime(sessionData.models[sid]));
   };
 
   const handleRenameSubmit = async () => {
@@ -69,7 +74,7 @@ export function SessionSelector({ sessionData, onChange, onRename, onDelete, onF
         <option value="__new">Nova sessão</option>
         {sessionData.history.map((sid) => (
           <option key={sid} value={sid}>
-            {getDisplayName(sid)}{sid === sessionData.sessionId ? " (active)" : ""}
+            {getDisplayName(sid)} · {getRuntimeLabel(sid)}{sid === sessionData.sessionId ? " (active)" : ""}
           </option>
         ))}
       </select>

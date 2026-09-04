@@ -4,6 +4,7 @@ import { useExecutions } from "./useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "./useCachedState";
 import type { ExecutionInfo, SessionData } from "../lib/types";
+import { resolveRuntime } from "../lib/runtime";
 
 interface UseExecutionPageOptions {
   targetType: string;
@@ -12,7 +13,7 @@ interface UseExecutionPageOptions {
   onExecutionComplete?: () => void;
 }
 
-const EMPTY_SESSION_DATA: SessionData = { sessionId: null, history: [], names: {}, models: {} };
+const EMPTY_SESSION_DATA: SessionData = { sessionId: null, history: [], names: {}, models: {}, runtimes: {} };
 
 export function useExecutionPage({ targetType, targetName, cachePrefix, onExecutionComplete }: UseExecutionPageOptions) {
   const { addToast } = useToast();
@@ -74,6 +75,7 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
         targetName: (e.targetName as string) || "orchestrator",
         agentName: e.agentName as string | undefined,
         model: e.model as string | undefined,
+        runtime: resolveRuntime(e.runtime === "codex" || e.runtime === "claude" ? e.runtime : undefined, e.model as string | undefined),
         prompt: e.prompt as string,
         cwd: "",
         status: (e.status as string) || "completed",
@@ -137,6 +139,7 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
         history: data.history,
         names: data.names ?? {},
         models: data.models ?? {},
+        runtimes: data.runtimes ?? {},
       }))
       .catch(() => {});
   }, [sessionUrl]);
@@ -200,6 +203,7 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
         sessionId: isActive ? null : prev.sessionId,
         history: prev.history.filter((s) => s !== sessionId),
         models: Object.fromEntries(Object.entries(prev.models).filter(([sid]) => sid !== sessionId)),
+        runtimes: Object.fromEntries(Object.entries(prev.runtimes).filter(([sid]) => sid !== sessionId)),
       }));
       if (isActive) {
         await api.delete(sessionPath);

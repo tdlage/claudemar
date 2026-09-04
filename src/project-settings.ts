@@ -1,10 +1,15 @@
 import { resolve } from "node:path";
 import { config } from "./config.js";
 import { JsonPersister } from "./json-persister.js";
-import { DEFAULT_PROJECT_MODEL, isSelectableProjectModel, normalizeModel } from "./models-discovery.js";
+import {
+  getDefaultProjectModel,
+  isSelectableProjectModel,
+  normalizeModel,
+} from "./models-discovery.js";
+import type { LlmProfile } from "./providers/llm.js";
 
 interface ProjectSettings {
-  model: string;
+  models: Record<string, string>;
 }
 
 type ProjectSettingsStore = Record<string, ProjectSettings>;
@@ -23,25 +28,42 @@ export class ProjectSettingsManager {
     if (!raw || typeof raw !== "object") return;
     for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
       if (!value || typeof value !== "object") continue;
-      const stored = (value as Record<string, unknown>).model;
-      const model = typeof stored === "string" ? normalizeModel(stored) : stored;
-      if (isSelectableProjectModel(model)) this.data[name] = { model };
+      const entry = value as Record<string, unknown>;
+      const models: Record<string, string> = {};
+      if (entry.models && typeof entry.models === "object") {
+        for (const [profileId, stored] of Object.entries(entry.models as Record<string, unknown>)) {
+          if (typeof stored === "string" && this.isStoredModel(stored)) models[profileId] = normalizeModel(stored);
+        }
+      }
+      const legacyModel = typeof entry.model === "string" ? normalizeModel(entry.model) : "";
+      if (isSelectableProjectModel(legacyModel)) models.anthropic = legacyModel;
+      if (Object.keys(models).length > 0) this.data[name] = { models };
     }
   }
 
-  getModel(projectName: string): string {
-    return this.data[projectName]?.model ?? DEFAULT_PROJECT_MODEL;
+  private isStoredModel(model: string): boolean {
+    return model.length <= 100 && /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(model);
   }
 
-  setModel(projectName: string, model: string): void {
-    if (!isSelectableProjectModel(model)) {
+  getModel(projectName: string, profile?: LlmProfile): string {
+    const profileId = profile?.id ?? "anthropic";
+    return this.data[projectName]?.models[profileId] ?? getDefaultProjectModel(profile);
+  }
+
+  setModel(projectName: string, model: string, profile?: LlmProfile): void {
+    if (!isSelectableProjectModel(model, profile)) {
       throw new Error(`Invalid project model: ${model}`);
     }
-    if (model === DEFAULT_PROJECT_MODEL) {
-      delete this.data[projectName];
+    const profileId = profile?.id ?? "anthropic";
+    const defaultModel = getDefaultProjectModel(profile);
+    const models = { ...(this.data[projectName]?.models ?? {}) };
+    if (model === defaultModel) {
+      delete models[profileId];
     } else {
-      this.data[projectName] = { model };
+      models[profileId] = model;
     }
+    if (Object.keys(models).length === 0) delete this.data[projectName];
+    else this.data[projectName] = { models };
     this.persister.scheduleWrite(() => this.data);
   }
 

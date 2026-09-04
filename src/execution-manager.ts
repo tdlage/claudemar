@@ -16,11 +16,12 @@ import { config } from "./config.js";
 import { safeProjectPath } from "./session.js";
 import { settingsManager } from "./settings-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
-import { resolveExecutionModel, DEFAULT_PROJECT_MODEL } from "./models-discovery.js";
+import { inferRuntimeFromModel, resolveExecutionModel, DEFAULT_PROJECT_MODEL } from "./models-discovery.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { sessionFileExists } from "./session-validator.js";
 import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
+import type { AgentRuntime, LlmProfile } from "./providers/llm.js";
 
 export type ExecutionSource = "telegram" | "web" | "schedule" | "pipeline";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
@@ -38,6 +39,7 @@ export interface ExecutionInfo {
   targetName: string;
   agentName?: string;
   model?: string;
+  runtime: AgentRuntime;
   username?: string;
   prompt: string;
   cwd: string;
@@ -100,6 +102,7 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
     targetName: info.targetName,
     agentName: info.agentName || undefined,
     model: info.model || undefined,
+    runtime: info.runtime,
     status: info.status,
     startedAt: info.startedAt.toISOString(),
     completedAt: info.completedAt?.toISOString() ?? null,
@@ -138,6 +141,7 @@ class ExecutionManager extends EventEmitter {
 
   private lastSessionMap = new Map<string, string>();
   private lastSessionModelMap = new Map<string, string>();
+  private lastSessionRuntimeMap = new Map<string, AgentRuntime>();
   private sessionHistoryMap = new Map<string, string[]>();
 
   constructor() {
@@ -159,6 +163,10 @@ class ExecutionManager extends EventEmitter {
 
   getLastSessionModel(targetType: string, targetName: string, username?: string): string | undefined {
     return this.lastSessionModelMap.get(this.userTargetKey(targetType, targetName, username));
+  }
+
+  getLastSessionRuntime(targetType: string, targetName: string, username?: string): AgentRuntime | undefined {
+    return this.lastSessionRuntimeMap.get(this.userTargetKey(targetType, targetName, username));
   }
 
   getResolvedModelId(): string | undefined {
@@ -189,6 +197,7 @@ class ExecutionManager extends EventEmitter {
     const key = this.userTargetKey(targetType, targetName, username);
     this.lastSessionMap.delete(key);
     this.lastSessionModelMap.delete(key);
+    this.lastSessionRuntimeMap.delete(key);
     const session = this.sessions.get(key);
     if (session) {
       this.retireSession(session);
@@ -198,11 +207,11 @@ class ExecutionManager extends EventEmitter {
 
   async restoreLastSessions(): Promise<void> {
     const rows = await query<(RowDataPacket & {
-      target_type: string; target_name: string; username: string; session_id: string; model: string | null;
+      target_type: string; target_name: string; username: string; session_id: string; model: string | null; runtime: string | null;
     })[]>(
-      `SELECT target_type, target_name, username, session_id, model
+      `SELECT target_type, target_name, username, session_id, model, runtime
        FROM (
-         SELECT target_type, target_name, COALESCE(username, 'admin') AS username, session_id, model,
+         SELECT target_type, target_name, COALESCE(username, 'admin') AS username, session_id, model, runtime,
                 ROW_NUMBER() OVER (PARTITION BY target_type, target_name, COALESCE(username, 'admin') ORDER BY started_at DESC) AS rn
          FROM execution_history
          WHERE session_id IS NOT NULL AND status = 'completed'
@@ -214,6 +223,7 @@ class ExecutionManager extends EventEmitter {
       const key = this.userTargetKey(row.target_type, row.target_name, row.username);
       this.lastSessionMap.set(key, row.session_id);
       this.lastSessionModelMap.set(key, row.model ?? DEFAULT_MODEL);
+      this.lastSessionRuntimeMap.set(key, row.runtime === "codex" || row.runtime === "claude" ? row.runtime : inferRuntimeFromModel(row.model));
     }
   }
 
@@ -268,12 +278,12 @@ class ExecutionManager extends EventEmitter {
     return undefined;
   }
 
-  private resolveModel(opts: StartExecutionOpts): string {
+  private resolveModel(opts: StartExecutionOpts, activeProfile: LlmProfile): string {
     return resolveExecutionModel({
       explicitModel: opts.model,
       targetType: opts.targetType,
-      activeProfile: settingsManager.getActiveProfile(),
-      projectModel: projectSettingsManager.getModel(opts.targetName),
+      activeProfile,
+      projectModel: projectSettingsManager.getModel(opts.targetName, activeProfile),
     });
   }
 
@@ -369,7 +379,8 @@ class ExecutionManager extends EventEmitter {
       throw new Error("Serviço em reinício para atualização — novas execuções estão bloqueadas. Tente novamente em instantes.");
     }
     const id = randomUUID();
-    const model = this.resolveModel(opts);
+    const activeProfile = settingsManager.getActiveProfile();
+    const model = this.resolveModel(opts, activeProfile);
     const info: ExecutionInfo = {
       id,
       source: opts.source,
@@ -377,6 +388,7 @@ class ExecutionManager extends EventEmitter {
       targetName: opts.targetName,
       agentName: opts.agentName,
       model,
+      runtime: activeProfile.runtime,
       username: opts.username,
       prompt: opts.prompt,
       cwd: opts.cwd,
@@ -405,6 +417,7 @@ class ExecutionManager extends EventEmitter {
       console.log(`[execution] Resume session ${resumeId} not found on disk for ${opts.targetType}:${opts.targetName}, starting fresh`);
       this.lastSessionMap.delete(sessionKey);
       this.lastSessionModelMap.delete(sessionKey);
+      this.lastSessionRuntimeMap.delete(sessionKey);
       resumeId = undefined;
     }
 
@@ -481,6 +494,7 @@ class ExecutionManager extends EventEmitter {
       const key = entry.sessionKey;
       this.lastSessionMap.set(key, sessionId);
       this.lastSessionModelMap.set(key, info.model ?? DEFAULT_MODEL);
+      this.lastSessionRuntimeMap.set(key, info.runtime);
       this.pushSessionHistory(info.targetType, info.targetName, sessionId);
       if (!sessionNamesManager.getName(sessionId)) {
         sessionNamesManager.getNextAutoName(info.username).then((name) => sessionNamesManager.setName(sessionId, name));
@@ -542,6 +556,7 @@ class ExecutionManager extends EventEmitter {
         const key = entry.sessionKey;
         this.lastSessionMap.delete(key);
         this.lastSessionModelMap.delete(key);
+        this.lastSessionRuntimeMap.delete(key);
         this.dropSession(key);
         this.finalize(entry);
 
@@ -565,6 +580,7 @@ class ExecutionManager extends EventEmitter {
       if (cancelled && result.sessionId) {
         this.lastSessionMap.set(entry.sessionKey, result.sessionId);
         this.lastSessionModelMap.set(entry.sessionKey, info.model ?? DEFAULT_MODEL);
+        this.lastSessionRuntimeMap.set(entry.sessionKey, info.runtime);
         this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
       }
       this.finalize(entry);
@@ -585,6 +601,7 @@ class ExecutionManager extends EventEmitter {
       const key = entry.sessionKey;
       this.lastSessionMap.set(key, result.sessionId);
       this.lastSessionModelMap.set(key, info.model ?? DEFAULT_MODEL);
+      this.lastSessionRuntimeMap.set(key, info.runtime);
       this.pushSessionHistory(opts.targetType, opts.targetName, result.sessionId);
       if (!sessionNamesManager.getName(result.sessionId)) {
         sessionNamesManager.getNextAutoName(opts.username).then((name) => sessionNamesManager.setName(result.sessionId, name));
@@ -620,6 +637,7 @@ class ExecutionManager extends EventEmitter {
       const key = entry.sessionKey;
       this.lastSessionMap.delete(key);
       this.lastSessionModelMap.delete(key);
+      this.lastSessionRuntimeMap.delete(key);
       this.dropSession(key);
       this.finalize(entry);
 
@@ -748,6 +766,7 @@ class ExecutionManager extends EventEmitter {
         const key = entry.sessionKey;
         this.lastSessionMap.set(key, sessionId);
         this.lastSessionModelMap.set(key, entry.info.model ?? DEFAULT_MODEL);
+        this.lastSessionRuntimeMap.set(key, entry.info.runtime);
         this.pushSessionHistory(entry.opts.targetType, entry.opts.targetName, sessionId);
       }
 
@@ -806,6 +825,7 @@ class ExecutionManager extends EventEmitter {
       targetName: e.targetName || "orchestrator",
       agentName: e.agentName,
       model: e.model,
+      runtime: e.runtime ?? inferRuntimeFromModel(e.model),
       prompt: e.prompt,
       cwd: "",
       status: (e.status as ExecutionStatus) || "completed",

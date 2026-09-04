@@ -21,7 +21,7 @@ import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin, projectTabsFor, refreshMe } from "../hooks/useAuth";
-import { PROJECT_SELECTABLE_MODELS, DEFAULT_PROJECT_MODEL, type ProjectDetail, type ProjectTabKey } from "../lib/types";
+import { DEFAULT_PROJECT_MODEL, type ProjectDetail, type ProjectTabKey, type ProviderInfo } from "../lib/types";
 
 type TabKey = ProjectTabKey;
 
@@ -41,7 +41,7 @@ export function ProjectDetailPage() {
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
   const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
   const [ciInitialRepo, setCiInitialRepo] = useState<string | undefined>();
-  const [nativeAnthropic, setNativeAnthropic] = useState(false);
+  const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(null);
   const [projectModel, setProjectModel] = useState<string>(DEFAULT_PROJECT_MODEL);
   const [, setMeVersion] = useState(0);
   const admin = isAdmin();
@@ -91,7 +91,7 @@ export function ProjectDetailPage() {
     loadOutputs();
     api.get<string[]>(`/projects/${name}/claude-agents`).then(setAgents).catch(() => {});
     api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
-    api.get<{ nativeAnthropic: boolean }>("/system/provider").then((data) => setNativeAnthropic(data.nativeAnthropic)).catch(() => {});
+    api.get<ProviderInfo>("/system/provider").then(setProviderInfo).catch(() => {});
   }, [loadProject, loadOutputs, name]);
 
   const handleModelChange = async (model: string) => {
@@ -127,7 +127,7 @@ export function ProjectDetailPage() {
         effort: opts.effort,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
-        model: nativeAnthropic ? projectModel : undefined,
+        model: providerInfo?.selectableModels.some((item) => item.model === projectModel) ? projectModel : providerInfo?.defaultModel,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -145,6 +145,10 @@ export function ProjectDetailPage() {
 
   const changedRepoCount = project.repos.filter((r) => r.hasChanges).length;
   const hasGithubRepos = project.repos.some((r) => r.remoteUrl.includes("github.com"));
+  const selectableModels = providerInfo?.selectableModels ?? [];
+  const selectedModel = selectableModels.some((item) => item.model === projectModel)
+    ? projectModel
+    : (providerInfo?.defaultModel ?? projectModel);
 
   const tabs: { key: TabKey; label: string; badge?: number; badgeVariant?: "warning" }[] = [
     ...(tabEnabled("terminal") ? [{ key: "terminal" as const, label: "Terminal" }] : []),
@@ -248,24 +252,24 @@ export function ProjectDetailPage() {
               startPlaceholder={`Message ${name}...`}
               queueMode={sequential}
               isLive={isRunning}
-              showModelBadge={!nativeAnthropic}
+              showModelBadge={selectableModels.length === 0}
               onStart={handleStart}
               controls={
                 <>
-                  {nativeAnthropic && (
+                  {selectableModels.length > 0 && (
                     <div className="flex items-center gap-1">
-                      <Cpu size={13} className={projectModel !== DEFAULT_PROJECT_MODEL ? "text-accent" : "text-text-muted"} />
+                      <Cpu size={13} className={selectedModel !== providerInfo?.defaultModel ? "text-accent" : "text-text-muted"} />
                       <select
-                        value={projectModel}
+                        value={selectedModel}
                         onChange={(e) => handleModelChange(e.target.value)}
-                        title="Modelo Claude usado nas execuções deste projeto"
+                        title="Modelo usado nas execuções deste projeto"
                         className={`text-xs bg-transparent border rounded-md px-1 py-1 focus:outline-none focus:border-accent ${
-                          projectModel !== DEFAULT_PROJECT_MODEL
+                          selectedModel !== providerInfo?.defaultModel
                             ? "border-accent/40 text-accent"
                             : "border-border text-text-muted"
                         }`}
                       >
-                        {PROJECT_SELECTABLE_MODELS.map((m) => (
+                        {selectableModels.map((m) => (
                           <option key={m.model} value={m.model}>{m.displayName}</option>
                         ))}
                       </select>

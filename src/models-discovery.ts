@@ -28,6 +28,11 @@ export const PROJECT_SELECTABLE_MODELS = [
 
 export const DEFAULT_PROJECT_MODEL = "claude-opus-5";
 
+export interface SelectableProjectModel {
+  model: string;
+  displayName: string;
+}
+
 // Valores legados já persistidos (alias "opus", Fable 5) apontam para os modelos atuais.
 const LEGACY_MODELS: Record<string, string> = {
   opus: DEFAULT_PROJECT_MODEL,
@@ -38,13 +43,30 @@ export function normalizeModel(model: string): string {
   return LEGACY_MODELS[model] ?? model;
 }
 
-export function isSelectableProjectModel(model: unknown): model is string {
-  return typeof model === "string" && PROJECT_SELECTABLE_MODELS.some((m) => m.model === model);
+export function inferRuntimeFromModel(model?: string | null): "claude" | "codex" {
+  return /^(?:gpt-|chatgpt-|codex-|o\d)/i.test(model?.trim() ?? "") ? "codex" : "claude";
+}
+
+export function getSelectableProjectModels(profile?: LlmProfile): SelectableProjectModel[] {
+  if (!profile || isNativeAnthropic(profile)) return [...PROJECT_SELECTABLE_MODELS];
+  if (profile.runtime !== "codex") return [];
+
+  const models = [profile.opusModel.trim(), profile.haikuModel.trim()].filter(Boolean);
+  return [...new Set(models)].map((model) => ({ model, displayName: getModelDisplayName(model) }));
+}
+
+export function getDefaultProjectModel(profile?: LlmProfile): string {
+  if (!profile || isNativeAnthropic(profile)) return DEFAULT_PROJECT_MODEL;
+  return profile.opusModel.trim() || DEFAULT_PROJECT_MODEL;
+}
+
+export function isSelectableProjectModel(model: unknown, profile?: LlmProfile): model is string {
+  return typeof model === "string" && getSelectableProjectModels(profile).some((item) => item.model === model);
 }
 
 // Regra única de resolução do modelo de uma execução. Override explícito sempre vence.
-// Para projetos com provider nativo anthropic, usa a preferência do projeto. Para qualquer
-// outro provider ou alvo não-projeto, usa o modelo principal do perfil ativo.
+// Para projetos com um modelo válido no runtime ativo, usa a preferência do projeto.
+// Para qualquer outro alvo ou provider sem seletor, usa o modelo principal do perfil ativo.
 export function resolveExecutionModel(params: {
   explicitModel?: string;
   targetType: string;
@@ -52,13 +74,18 @@ export function resolveExecutionModel(params: {
   projectModel: string;
 }): string {
   if (params.explicitModel) return normalizeModel(params.explicitModel);
-  if (params.targetType === "project" && isNativeAnthropic(params.activeProfile)) {
+  if (params.targetType === "project" && isSelectableProjectModel(params.projectModel, params.activeProfile)) {
     return normalizeModel(params.projectModel);
   }
-  return params.activeProfile.opusModel.trim() || DEFAULT_PROJECT_MODEL;
+  return getDefaultProjectModel(params.activeProfile);
 }
 
 function formatDisplayName(id: string): string {
+  const gpt = id.match(/^gpt-(\d+(?:\.\d+)?)(?:-(.+))?$/i);
+  if (gpt) {
+    const variant = gpt[2]?.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+    return `GPT-${gpt[1]}${variant ? ` ${variant}` : ""}`;
+  }
   const versioned = id.match(/^claude-(\w+)-(\d+)-(\d+)/);
   if (versioned) {
     const [, tier, major, minor] = versioned;

@@ -13,12 +13,13 @@ import { runProcessManager } from "../../run-process-manager.js";
 import { settingsManager } from "../../settings-manager.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { usersManager } from "../../users-manager.js";
-import { getModelDisplayName, DEFAULT_OPUS_DISPLAY } from "../../models-discovery.js";
+import { getDefaultProjectModel, getModelDisplayName, getSelectableProjectModels, DEFAULT_OPUS_DISPLAY } from "../../models-discovery.js";
 import { isNativeAnthropic } from "../../providers/llm.js";
 import { startClaudeLogin, completeClaudeLogin, getClaudeAuthStatus } from "../../claude/oauth-login.js";
 import { getLastAuthError, clearLastAuthError } from "../../claude/claude-auth-state.js";
 import { cancelCodexLogin, codexLogout, getCodexAuthStatus, getCodexLoginState, startCodexDeviceLogin } from "../../codex/auth.js";
 import { clearLastCodexAuthError, getLastCodexAuthError } from "../../codex/codex-auth-state.js";
+import { fetchCodexUsage } from "../../codex/usage.js";
 
 const INSTALL_DIR = config.installDir;
 
@@ -143,7 +144,20 @@ systemRouter.post("/update", async (_req, res) => {
   }
 });
 
-let tokenUsageCache: { data: unknown; fetchedAt: number } | null = null;
+type UsageProvider = "anthropic" | "openai";
+
+interface UsageWindow {
+  label: string;
+  utilization: number;
+  resetsAt: string | null;
+}
+
+interface TokenUsageData {
+  provider: UsageProvider;
+  windows: UsageWindow[];
+}
+
+const tokenUsageCache = new Map<UsageProvider, { data: TokenUsageData; fetchedAt: number }>();
 const TOKEN_USAGE_TTL = 60_000;
 
 function getClaudeAccessToken(): string | null {
@@ -157,46 +171,70 @@ function getClaudeAccessToken(): string | null {
   }
 }
 
+async function fetchAnthropicUsage(): Promise<TokenUsageData> {
+  const token = getClaudeAccessToken();
+  if (!token) throw new Error("No Claude credentials found");
+
+  const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "anthropic-beta": "oauth-2025-04-20",
+      "User-Agent": "claudemar/1.0",
+    },
+  });
+
+  if (!response.ok) throw new Error(`Anthropic API returned ${response.status}`);
+
+  const json = await response.json() as Record<string, Record<string, unknown>>;
+  return {
+    provider: "anthropic",
+    windows: [
+      {
+        label: "5h",
+        utilization: (json.five_hour?.utilization as number) ?? 0,
+        resetsAt: (json.five_hour?.resets_at as string) ?? null,
+      },
+      {
+        label: "7d",
+        utilization: (json.seven_day?.utilization as number) ?? 0,
+        resetsAt: (json.seven_day?.resets_at as string) ?? null,
+      },
+    ],
+  };
+}
+
+function usageWindowLabel(minutes: number | null, index: number): string {
+  if (minutes === 300) return "5h";
+  if (minutes === 10_080) return "7d";
+  if (minutes && minutes % 1_440 === 0) return `${minutes / 1_440}d`;
+  if (minutes && minutes % 60 === 0) return `${minutes / 60}h`;
+  return index === 0 ? "Primary" : "Secondary";
+}
+
+async function fetchOpenAiUsage(): Promise<TokenUsageData> {
+  const windows = await fetchCodexUsage();
+  return {
+    provider: "openai",
+    windows: windows.map((window, index) => ({
+      label: usageWindowLabel(window.windowDurationMins, index),
+      utilization: window.usedPercent,
+      resetsAt: window.resetsAt ? new Date(window.resetsAt * 1_000).toISOString() : null,
+    })),
+  };
+}
+
 systemRouter.get("/token-usage", async (req, res) => {
   const force = req.query.force === "1";
-  if (!force && tokenUsageCache && Date.now() - tokenUsageCache.fetchedAt < TOKEN_USAGE_TTL) {
-    res.json(tokenUsageCache.data);
-    return;
-  }
-
-  const token = getClaudeAccessToken();
-  if (!token) {
-    res.json({ error: "No Claude credentials found" });
+  const provider: UsageProvider = req.query.provider === "openai" ? "openai" : "anthropic";
+  const cached = tokenUsageCache.get(provider);
+  if (!force && cached && Date.now() - cached.fetchedAt < TOKEN_USAGE_TTL) {
+    res.json(cached.data);
     return;
   }
 
   try {
-    const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "anthropic-beta": "oauth-2025-04-20",
-        "User-Agent": "claudemar/1.0",
-      },
-    });
-
-    if (!response.ok) {
-      res.json({ error: `API returned ${response.status}` });
-      return;
-    }
-
-    const json = await response.json() as Record<string, Record<string, unknown>>;
-    const data = {
-      fiveHour: {
-        utilization: (json.five_hour?.utilization as number) ?? 0,
-        resetsAt: (json.five_hour?.resets_at as string) ?? null,
-      },
-      sevenDay: {
-        utilization: (json.seven_day?.utilization as number) ?? 0,
-        resetsAt: (json.seven_day?.resets_at as string) ?? null,
-      },
-    };
-
-    tokenUsageCache = { data, fetchedAt: Date.now() };
+    const data = provider === "openai" ? await fetchOpenAiUsage() : await fetchAnthropicUsage();
+    tokenUsageCache.set(provider, { data, fetchedAt: Date.now() });
     res.json(data);
   } catch (err) {
     res.json({ error: err instanceof Error ? err.message : "Failed to fetch usage" });
@@ -220,7 +258,7 @@ systemRouter.post("/claude-login/complete", async (req, res) => {
   try {
     const result = await completeClaudeLogin(code);
     clearLastAuthError();
-    tokenUsageCache = null;
+    tokenUsageCache.delete("anthropic");
     res.json({ ok: true, ...result });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Falha ao concluir login" });
@@ -244,12 +282,15 @@ async function providerConfigured(): Promise<boolean> {
 
 systemRouter.get("/provider", async (_req, res) => {
   const profile = settingsManager.getActiveProfile();
+  const selectableModels = getSelectableProjectModels(profile);
   res.json({
     provider: profile.id,
     label: profile.label,
     runtime: profile.runtime,
     model: profile.opusModel || "auto",
     nativeAnthropic: isNativeAnthropic(profile),
+    defaultModel: getDefaultProjectModel(profile),
+    selectableModels,
     configured: await providerConfigured(),
   });
 });
@@ -269,7 +310,10 @@ systemRouter.post("/codex-login/start", (_req, res) => {
 
 systemRouter.get("/codex-login/state", (_req, res) => {
   const state = getCodexLoginState();
-  if (state.status === "done") clearLastCodexAuthError();
+  if (state.status === "done") {
+    clearLastCodexAuthError();
+    tokenUsageCache.delete("openai");
+  }
   res.json(state);
 });
 
@@ -280,6 +324,7 @@ systemRouter.post("/codex-login/cancel", (_req, res) => {
 systemRouter.post("/codex-logout", async (_req, res) => {
   try {
     await codexLogout();
+    tokenUsageCache.delete("openai");
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Falha ao desconectar" });

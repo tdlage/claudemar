@@ -1,5 +1,7 @@
 import { query, execute, toMySQLDatetime } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
+import { inferRuntimeFromModel } from "./models-discovery.js";
+import type { AgentRuntime } from "./providers/llm.js";
 
 export interface HistoryEntry {
   id: string;
@@ -8,6 +10,7 @@ export interface HistoryEntry {
   targetName: string;
   agentName?: string;
   model?: string;
+  runtime?: AgentRuntime;
   status: string;
   startedAt: string;
   completedAt: string | null;
@@ -29,6 +32,7 @@ interface HistoryRow extends RowDataPacket {
   target_name: string;
   agent_name: string | null;
   model: string | null;
+  runtime: string | null;
   status: string;
   started_at: string | Date;
   completed_at: string | Date | null;
@@ -55,6 +59,7 @@ function rowToEntry(row: HistoryRow): HistoryEntry {
     targetName: row.target_name,
     agentName: row.agent_name ?? undefined,
     model: row.model ?? undefined,
+    runtime: row.runtime === "codex" || row.runtime === "claude" ? row.runtime : inferRuntimeFromModel(row.model),
     status: row.status,
     startedAt,
     completedAt,
@@ -72,11 +77,11 @@ function rowToEntry(row: HistoryRow): HistoryEntry {
 
 export function appendHistory(entry: HistoryEntry): void {
   execute(
-    `INSERT INTO execution_history (id, prompt, target_type, target_name, agent_name, model, status, started_at, completed_at, cost_usd, total_tokens, duration_ms, source, output, error, session_id, plan_mode, username)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO execution_history (id, prompt, target_type, target_name, agent_name, model, runtime, status, started_at, completed_at, cost_usd, total_tokens, duration_ms, source, output, error, session_id, plan_mode, username)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       entry.id, entry.prompt, entry.targetType, entry.targetName,
-      entry.agentName ?? null, entry.model ?? null, entry.status, toMySQLDatetime(entry.startedAt), entry.completedAt ? toMySQLDatetime(entry.completedAt) : null,
+      entry.agentName ?? null, entry.model ?? null, entry.runtime ?? inferRuntimeFromModel(entry.model), entry.status, toMySQLDatetime(entry.startedAt), entry.completedAt ? toMySQLDatetime(entry.completedAt) : null,
       entry.costUsd ?? 0, entry.totalTokens ?? 0, entry.durationMs ?? 0, entry.source ?? "telegram",
       entry.output ?? null, entry.error ?? null, entry.sessionId ?? null,
       entry.planMode ? 1 : 0, entry.username ?? null,
@@ -113,12 +118,13 @@ export async function loadHistory(limit = 20, targetType?: string, targetName?: 
 export interface SessionRef {
   sessionId: string;
   model: string;
+  runtime: AgentRuntime;
 }
 
 export async function loadSessionRefs(targetType: string, targetName: string): Promise<SessionRef[]> {
-  const rows = await query<(RowDataPacket & { session_id: string; model: string | null })[]>(
-    `SELECT session_id, model FROM (
-       SELECT session_id, model, started_at,
+  const rows = await query<(RowDataPacket & { session_id: string; model: string | null; runtime: string | null })[]>(
+    `SELECT session_id, model, runtime FROM (
+       SELECT session_id, model, runtime, started_at,
               ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY started_at DESC) AS rn
        FROM execution_history
        WHERE target_type = ? AND target_name = ? AND session_id IS NOT NULL
@@ -128,5 +134,6 @@ export async function loadSessionRefs(targetType: string, targetName: string): P
   return rows.map((r) => ({
     sessionId: r.session_id,
     model: r.model ?? "opus",
+    runtime: r.runtime === "codex" || r.runtime === "claude" ? r.runtime : inferRuntimeFromModel(r.model),
   }));
 }

@@ -26,6 +26,7 @@ export interface ExecutionInfo {
   targetName: string;
   agentName?: string;
   model?: string;
+  runtime?: AgentRuntime;
   username?: string;
   prompt: string;
   cwd: string;
@@ -217,6 +218,7 @@ export interface SessionData {
   history: string[];
   names: Record<string, string>;
   models: Record<string, string>;
+  runtimes: Record<string, AgentRuntime>;
 }
 
 export interface SearchMatch {
@@ -282,6 +284,8 @@ export interface ProviderInfo {
   runtime: AgentRuntime;
   model: string;
   nativeAnthropic: boolean;
+  defaultModel: string;
+  selectableModels: { model: string; displayName: string }[];
   configured: boolean;
 }
 

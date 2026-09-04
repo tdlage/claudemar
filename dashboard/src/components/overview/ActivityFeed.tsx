@@ -8,7 +8,8 @@ import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
 import { SelectionSafeHtml } from "../shared/SelectionSafeHtml";
 import { formatUsage } from "../../lib/types";
 import { formatDuration } from "../../lib/format";
-import type { ExecutionInfo, QueueItem } from "../../lib/types";
+import type { AgentRuntime, ExecutionInfo, QueueItem } from "../../lib/types";
+import { inferRuntime, resolveRuntime, runtimeLabel } from "../../lib/runtime";
 
 const LIMIT_OPTIONS = [20, 50, 100] as const;
 
@@ -19,6 +20,8 @@ interface ActivityFeedProps {
   onToggle?: (id: string) => void;
   sessionNames?: Record<string, string>;
   sessionIds?: string[];
+  sessionRuntimes?: Record<string, AgentRuntime>;
+  sessionModels?: Record<string, string>;
   sessionFilter?: string;
   onSessionFilterChange?: (filter: string) => void;
   historyLimit?: number;
@@ -27,7 +30,7 @@ interface ActivityFeedProps {
   onSearchChange?: (query: string) => void;
 }
 
-export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {}, sessionIds = [], sessionFilter = "__all", onSessionFilterChange, historyLimit = 20, onHistoryLimitChange, searchQuery = "", onSearchChange }: ActivityFeedProps) {
+export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {}, sessionIds = [], sessionRuntimes = {}, sessionModels = {}, sessionFilter = "__all", onSessionFilterChange, historyLimit = 20, onHistoryLimitChange, searchQuery = "", onSearchChange }: ActivityFeedProps) {
   const [mdViewer, setMdViewer] = useState<{ path: string; base: string } | null>(null);
 
   const handleOutputClick = useCallback((e: React.MouseEvent, exec: ExecutionInfo) => {
@@ -67,7 +70,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
               <option value="__all">All sessions</option>
               {sessionIds.map((sid) => (
                 <option key={sid} value={sid}>
-                  {sessionNames[sid] ?? sid.slice(0, 8)}
+                  {sessionNames[sid] ?? sid.slice(0, 8)} · {runtimeLabel(sessionRuntimes[sid] ?? inferRuntime(sessionModels[sid]))}
                 </option>
               ))}
             </select>
@@ -149,6 +152,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
 
         const sanitizedOutput = renderOutputHtml(exec.output || "(sem output)");
         const sessionId = exec.result?.sessionId ?? exec.resumeSessionId;
+        const runtime = resolveRuntime(exec.runtime, exec.model);
 
         return (
           <div key={exec.id}>
@@ -157,6 +161,9 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
               onClick={clickable ? () => onToggle(exec.id) : undefined}
             >
               <Badge variant={statusVariant}>{exec.status}</Badge>
+              <span title={`${runtimeLabel(runtime)}${exec.model ? ` · ${exec.model}` : ""}`}>
+                <Badge variant={runtime === "codex" ? "info" : "accent"}>{runtimeLabel(runtime)}</Badge>
+              </span>
               <span className="text-text-muted text-xs hidden md:inline">
                 {exec.targetName}
               </span>

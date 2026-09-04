@@ -40,6 +40,8 @@ export function ExecutionActivity({
         onToggle={toggleExpanded}
         sessionNames={sessionData.names}
         sessionIds={sessionData.history}
+        sessionRuntimes={sessionData.runtimes}
+        sessionModels={sessionData.models}
         sessionFilter={sessionFilter}
         onSessionFilterChange={setSessionFilter}
         historyLimit={historyLimit}

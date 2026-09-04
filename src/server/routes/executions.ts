@@ -13,7 +13,8 @@ import { safeProjectPath } from "../../session.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { loadHistory, loadSessionRefs } from "../../history.js";
 import { filterExistingSessions, sessionFileExists } from "../../session-validator.js";
-import { isSelectableProjectModel } from "../../models-discovery.js";
+import { inferRuntimeFromModel, isSelectableProjectModel } from "../../models-discovery.js";
+import { settingsManager } from "../../settings-manager.js";
 
 export const executionsRouter = Router();
 
@@ -128,7 +129,7 @@ executionsRouter.post("/", async (req, res) => {
     username,
     skipSystemPrompt: skipSystemPrompt || false,
     effort: resolvedEffort,
-    model: isSelectableProjectModel(model) ? model : undefined,
+    model: isSelectableProjectModel(model, settingsManager.getActiveProfile()) ? model : undefined,
   };
 
   const targetActive = executionManager.isTargetActive(targetType, effectiveTargetName);
@@ -240,19 +241,25 @@ executionsRouter.get("/session/:targetType/:targetName", async (req, res) => {
   const dbHistory = sessionRefs.map((s) => s.sessionId);
   let currentSessionId = executionManager.getLastSessionId(targetType, targetName, user);
   const currentModel = executionManager.getLastSessionModel(targetType, targetName, user);
+  const currentRuntime = executionManager.getLastSessionRuntime(targetType, targetName, user);
   if (currentSessionId && !executionManager.isSessionActive(targetType, targetName, user) && !sessionFileExists(currentSessionId)) {
     executionManager.clearSessionId(targetType, targetName, user);
     currentSessionId = undefined;
   }
   if (currentSessionId && currentModel && !dbHistory.includes(currentSessionId)) {
-    sessionRefs.unshift({ sessionId: currentSessionId, model: currentModel });
+    sessionRefs.unshift({
+      sessionId: currentSessionId,
+      model: currentModel,
+      runtime: currentRuntime ?? inferRuntimeFromModel(currentModel),
+    });
     dbHistory.unshift(currentSessionId);
   }
   const sessionId = currentSessionId && dbHistory.includes(currentSessionId) ? currentSessionId : null;
   const history = sessionId ? [sessionId, ...dbHistory.filter((s) => s !== sessionId)] : dbHistory;
   const names = sessionNamesManager.getNames([...new Set(history)]);
   const models = Object.fromEntries(sessionRefs.map((s) => [s.sessionId, s.model]));
-  res.json({ sessionId, history, names, models });
+  const runtimes = Object.fromEntries(sessionRefs.map((s) => [s.sessionId, s.runtime]));
+  res.json({ sessionId, history, names, models, runtimes });
 });
 
 executionsRouter.put("/session/:targetType/:targetName", (req, res) => {

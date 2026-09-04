@@ -2,6 +2,8 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
   getModelDisplayName,
+  getSelectableProjectModels,
+  inferRuntimeFromModel,
   isSelectableProjectModel,
   normalizeModel,
   resolveExecutionModel,
@@ -50,6 +52,19 @@ test("getModelDisplayName resolve Opus 5 e mantém o alias legado opus", () => {
   assert.equal(getModelDisplayName("claude-opus-5"), "Opus 5");
   assert.equal(getModelDisplayName("claude-opus-4-8"), "Opus 4.8");
   assert.equal(getModelDisplayName("opus"), "Opus 5");
+});
+
+test("getModelDisplayName formata modelos GPT", () => {
+  assert.equal(getModelDisplayName("gpt-5.6-sol"), "GPT-5.6 Sol");
+  assert.equal(getModelDisplayName("gpt-5.6-luna"), "GPT-5.6 Luna");
+});
+
+test("inferRuntimeFromModel identifica históricos Codex e Claude", () => {
+  assert.equal(inferRuntimeFromModel("gpt-5.6-sol"), "codex");
+  assert.equal(inferRuntimeFromModel("o3"), "codex");
+  assert.equal(inferRuntimeFromModel("claude-opus-5"), "claude");
+  assert.equal(inferRuntimeFromModel("k3"), "claude");
+  assert.equal(inferRuntimeFromModel(null), "claude");
 });
 
 test("normalizeModel mapeia os valores legados para os modelos atuais", () => {
@@ -174,5 +189,26 @@ test("resolveExecutionModel: runtime codex ignora a preferência do projeto e us
       projectModel: "claude-opus-5",
     }),
     "gpt-5.6-sol",
+  );
+});
+
+test("runtime codex oferece os modelos principal e leve para seleção", () => {
+  assert.deepEqual(getSelectableProjectModels(codexProfile()), [
+    { model: "gpt-5.6-sol", displayName: "GPT-5.6 Sol" },
+    { model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
+  ]);
+  assert.equal(isSelectableProjectModel("gpt-5.6-sol", codexProfile()), true);
+  assert.equal(isSelectableProjectModel("gpt-5.6-luna", codexProfile()), true);
+  assert.equal(isSelectableProjectModel("claude-opus-5", codexProfile()), false);
+});
+
+test("resolveExecutionModel: runtime codex respeita o modelo selecionado no projeto", () => {
+  assert.equal(
+    resolveExecutionModel({
+      targetType: "project",
+      activeProfile: codexProfile(),
+      projectModel: "gpt-5.6-luna",
+    }),
+    "gpt-5.6-luna",
   );
 });

@@ -85,15 +85,18 @@ function normalizeId(runtime: AgentRuntime, sessionId: string): string {
   return runtime === "codex" ? sessionId.toLowerCase() : sessionId;
 }
 
-// Retorna apenas as sessões cujo transcript do runtime ativo ainda existe em disco.
-// Se o estado do disco não puder ser lido, não filtra nada (fail-open).
-export function filterExistingSessions<T extends { sessionId: string }>(refs: T[]): { valid: T[]; removed: string[] } {
-  const runtime = activeRuntime();
-  const existing = existingSessionIds(runtime);
-  if (!existing) return { valid: refs, removed: [] };
+// Valida cada sessão no runtime em que ela foi criada. Se o estado do disco daquele
+// runtime não puder ser lido, mantém a referência (fail-open).
+export function filterExistingSessions<T extends { sessionId: string; runtime?: AgentRuntime }>(refs: T[]): { valid: T[]; removed: string[] } {
   const valid: T[] = [];
   const removed: string[] = [];
   for (const ref of refs) {
+    const runtime = ref.runtime ?? activeRuntime();
+    const existing = existingSessionIds(runtime);
+    if (!existing) {
+      valid.push(ref);
+      continue;
+    }
     if (existing.has(normalizeId(runtime, ref.sessionId))) valid.push(ref);
     else removed.push(ref.sessionId);
   }

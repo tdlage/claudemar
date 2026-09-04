@@ -9,6 +9,7 @@ process.env.ALLOWED_CHAT_ID ??= "1";
 process.env.CLAUDEMAR_DATA ??= mkdtempSync(resolve(tmpdir(), "claudemar-test-"));
 
 const { parseDeviceAuthOutput, parseLoginStatus, stripAnsi } = await import("../src/codex/auth.js");
+const { parseCodexUsage } = await import("../src/codex/usage.js");
 const { looksLikeCodexAuthError } = await import("../src/codex/codex-auth-state.js");
 const { codexThreadIdFromFileName } = await import("../src/session-validator.js");
 
@@ -47,4 +48,31 @@ test("codexThreadIdFromFileName extrai o UUID do rollout, inclusive de threads r
     "019ec646-295a-73e0-8148-c2bf0c997625",
   );
   assert.equal(codexThreadIdFromFileName("history.jsonl"), null);
+});
+
+test("parseCodexUsage prioriza os limites Codex e preserva as janelas", () => {
+  assert.deepEqual(parseCodexUsage({
+    rateLimits: {
+      primary: { usedPercent: 99, windowDurationMins: 60, resetsAt: 1 },
+    },
+    rateLimitsByLimitId: {
+      codex: {
+        primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 1_730_947_200 },
+        secondary: { usedPercent: 10, windowDurationMins: 10_080, resetsAt: 1_731_456_000 },
+      },
+    },
+  }), [
+    { usedPercent: 25, windowDurationMins: 300, resetsAt: 1_730_947_200 },
+    { usedPercent: 10, windowDurationMins: 10_080, resetsAt: 1_731_456_000 },
+  ]);
+});
+
+test("parseCodexUsage aceita o snapshot legado e ignora janelas inválidas", () => {
+  assert.deepEqual(parseCodexUsage({
+    rateLimits: {
+      primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: null },
+      secondary: null,
+    },
+  }), [{ usedPercent: 42, windowDurationMins: 300, resetsAt: null }]);
+  assert.deepEqual(parseCodexUsage({ rateLimits: { primary: { usedPercent: "42" } } }), []);
 });

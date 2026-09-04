@@ -43,6 +43,7 @@ import { executionManager } from "../../execution-manager.js";
 import { purgeProjectData } from "../../target-cleanup.js";
 import { projectSettingsManager } from "../../project-settings.js";
 import { isSelectableProjectModel } from "../../models-discovery.js";
+import { settingsManager } from "../../settings-manager.js";
 
 export const projectsRouter = Router();
 
@@ -200,7 +201,7 @@ projectsRouter.get("/:name", asyncHandler(async (req, res) => {
   const projectName = String(req.params.name);
   const repos = await discoverRepos(projectPath);
   const inputFiles = listFiles(inputDir(projectPath));
-  res.json({ name: projectName, repos, inputFiles, model: projectSettingsManager.getModel(projectName) });
+  res.json({ name: projectName, repos, inputFiles, model: projectSettingsManager.getModel(projectName, settingsManager.getActiveProfile()) });
 }));
 
 projectsRouter.put("/:name/model", asyncHandler(async (req, res) => {
@@ -212,12 +213,13 @@ projectsRouter.put("/:name/model", asyncHandler(async (req, res) => {
   if (!projectPath) return;
 
   const { model } = req.body;
-  if (!isSelectableProjectModel(model)) {
+  const activeProfile = settingsManager.getActiveProfile();
+  if (!isSelectableProjectModel(model, activeProfile)) {
     res.status(400).json({ error: "Invalid model" });
     return;
   }
 
-  projectSettingsManager.setModel(String(req.params.name), model);
+  projectSettingsManager.setModel(String(req.params.name), model, activeProfile);
   res.json({ model });
 }));
 

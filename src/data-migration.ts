@@ -108,6 +108,7 @@ const TABLE_DEFINITIONS: string[] = [
     target_name VARCHAR(255) NOT NULL,
     agent_name VARCHAR(255) DEFAULT NULL,
     model VARCHAR(100) DEFAULT NULL,
+    runtime VARCHAR(16) DEFAULT NULL,
     status VARCHAR(50) NOT NULL,
     started_at DATETIME(3) NOT NULL,
     completed_at DATETIME(3) DEFAULT NULL,
@@ -548,4 +549,21 @@ async function ensureExecutionHistoryColumns(pool: ReturnType<typeof getPool>): 
   if ((modelRows as Array<{ cnt: number }>)[0].cnt === 0) {
     await pool.execute("ALTER TABLE execution_history ADD COLUMN model VARCHAR(100) DEFAULT NULL AFTER agent_name");
   }
+
+  const [runtimeRows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'execution_history' AND COLUMN_NAME = 'runtime'",
+  );
+  if ((runtimeRows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE execution_history ADD COLUMN runtime VARCHAR(16) DEFAULT NULL AFTER model");
+  }
+  await pool.execute(
+    `UPDATE execution_history
+     SET runtime = CASE
+       WHEN LOWER(COALESCE(model, '')) LIKE 'gpt-%'
+         OR LOWER(COALESCE(model, '')) LIKE 'chatgpt-%'
+         OR LOWER(COALESCE(model, '')) LIKE 'codex-%'
+         OR LOWER(COALESCE(model, '')) REGEXP '^o[0-9]'
+       THEN 'codex' ELSE 'claude' END
+     WHERE runtime IS NULL OR runtime NOT IN ('claude', 'codex')`,
+  );
 }
