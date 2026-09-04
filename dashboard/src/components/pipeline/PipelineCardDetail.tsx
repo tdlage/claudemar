@@ -166,7 +166,7 @@ export function PipelineCardDetail({ card, projectName, availableRepos, onClose 
   const canEditRepos = (card.stage === "requirement" || card.stage === "plan") && canEdit;
 
   useEffect(() => {
-    api.get<{ provider: string }>("/system/provider").then((d) => setModelSelectable(d.provider === "anthropic")).catch(() => {});
+    api.get<{ nativeAnthropic: boolean }>("/system/provider").then((d) => setModelSelectable(d.nativeAnthropic)).catch(() => {});
   }, []);
 
   useEffect(() => {

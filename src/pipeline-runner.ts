@@ -8,6 +8,7 @@ import { cardWorktreeRoot, PIPELINE_WORKTREES_ROOT } from "./pipeline-worktree.j
 import { signUploadUrl } from "./upload-signer.js";
 import { config } from "./config.js";
 import { settingsManager } from "./settings-manager.js";
+import { isNativeAnthropic } from "./providers/llm.js";
 import { query, execute } from "./database.js";
 import { createPipelineMcpServer } from "./pipeline-mcp.js";
 import { buildPlanReposInstruction } from "./pipeline-prompt.js";
@@ -153,9 +154,9 @@ class PipelineRunner {
 
     const mcp = createPipelineMcpServer({ runId: run.id, cardId, pipelineId: pipeline.id, stage });
 
-    // Modelo por card: só se aplica ao provider nativo "anthropic" (mesmo gating do modelo por
-    // projeto); em gateway o override é ignorado e o modelo é resolvido pelo perfil ativo.
-    const model = card.model && settingsManager.getActiveProfile().id === "anthropic" ? card.model : undefined;
+    // Modelo por card: só se aplica ao Anthropic nativo (mesmo gating do modelo por projeto);
+    // nos demais perfis o modelo é resolvido pelo perfil ativo.
+    const model = card.model && isNativeAnthropic(settingsManager.getActiveProfile()) ? card.model : undefined;
 
     const execId = executionManager.startExecution({
       source: "pipeline",

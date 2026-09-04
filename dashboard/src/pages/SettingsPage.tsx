@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound, Cpu, Server, RefreshCw, Fingerprint } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Save, Send, Settings, KeyRound, Cpu, Fingerprint } from "lucide-react";
 import { api } from "../lib/api";
 import { OPEN_API_KEYS_EVENT } from "../components/layout/ApiKeysSetup";
 import { ClaudeAccountSection } from "../components/layout/ClaudeAccountSection";
+import { CodexAccountSection } from "../components/layout/CodexAccountSection";
 import { isAdmin } from "../hooks/useAuth";
 import { registerPasskey, getPasskeyCredentials, deletePasskey, isPasskeySupported } from "../lib/passkey";
-import type { RuntimeSettings, EmailProfileMasked, LlmProfile, GatewayStatus } from "../lib/types";
+import type { RuntimeSettings, EmailProfileMasked, LlmProfile, AgentRuntime } from "../lib/types";
 
 interface ProfileFormState {
   awsAccessKeyId: string;
@@ -25,9 +26,6 @@ export function SettingsPage() {
   const [llmSaving, setLlmSaving] = useState(false);
   const [llmMsg, setLlmMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
-
-  const [gateway, setGateway] = useState<GatewayStatus | null>(null);
-  const [gatewayBusy, setGatewayBusy] = useState(false);
 
   const [profiles, setProfiles] = useState<EmailProfileMasked[]>([]);
   const [editingProfile, setEditingProfile] = useState<string | null>(null);
@@ -102,27 +100,6 @@ export function SettingsPage() {
     loadProfiles();
   }, [loadProfiles]);
 
-  const loadGateway = useCallback(() => {
-    api.get<GatewayStatus>("/system/gateway").then(setGateway).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    loadGateway();
-    const id = setInterval(loadGateway, 15000);
-    return () => clearInterval(id);
-  }, [loadGateway]);
-
-  const restartGateway = async () => {
-    setGatewayBusy(true);
-    try {
-      setGateway(await api.post<GatewayStatus>("/system/gateway/restart"));
-    } catch {
-      loadGateway();
-    } finally {
-      setGatewayBusy(false);
-    }
-  };
-
   const handleSaveLlm = async () => {
     setLlmSaving(true);
     setLlmMsg(null);
@@ -151,8 +128,9 @@ export function SettingsPage() {
     const profile: LlmProfile = {
       id: newProfileId(),
       label: "Novo provedor",
-      baseUrl: "http://localhost:8080/anthropic",
-      tokenEnv: "BIFROST_VIRTUAL_KEY",
+      runtime: "claude",
+      baseUrl: "",
+      tokenEnv: "",
       opusModel: "",
       sonnetModel: "",
       haikuModel: "",
@@ -274,40 +252,15 @@ export function SettingsPage() {
 
       <ClaudeAccountSection />
 
+      <CodexAccountSection />
+
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-text-primary border-b border-border pb-2 flex items-center gap-2">
           <Cpu size={14} className="text-text-muted" /> Provedores de LLM
         </h2>
         <p className="text-sm text-text-muted">
-          Cada perfil parametriza o proxy usado nas execuções: endpoint do gateway, token e os modelos por alias (<code>opus</code>/<code>sonnet</code>/<code>haiku</code>, no formato <code>provider/modelo</code>). O perfil <strong>ativo</strong> vale para todas as novas execuções. As chaves dos provedores (OpenAI, z.ai, Sakana, Anthropic) ficam em <strong>Chaves de API</strong> e são consumidas pelo gateway. Deixe a Base URL vazia para usar o Anthropic nativo (subscription).
+          Cada perfil define o runtime das execuções — <strong>Claude Agent SDK</strong> para APIs compatíveis com a Anthropic ou <strong>Codex SDK</strong> para os modelos OpenAI — além do endpoint, do token e dos modelos. O perfil <strong>ativo</strong> vale para todas as novas execuções. Com a Base URL vazia, o runtime Claude usa a subscription do Claude e o runtime Codex usa a assinatura do ChatGPT (conta acima). As chaves dos demais provedores ficam em <strong>Chaves de API</strong>.
         </p>
-
-        <div className="bg-surface border border-border rounded-lg px-4 py-3 flex items-center gap-3">
-          <Server size={16} className="shrink-0 text-text-muted" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-text-primary">Gateway Bifrost</span>
-              <span className="flex items-center gap-1.5 text-xs">
-                <span className={`h-2 w-2 rounded-full ${gateway?.reachable ? "bg-success" : gateway?.containerRunning ? "bg-yellow-500" : "bg-danger"}`} />
-                <span className={gateway?.reachable ? "text-success" : "text-text-muted"}>
-                  {!gateway ? "—" : gateway.reachable ? "Online" : gateway.containerRunning ? "Iniciando…" : "Offline"}
-                </span>
-              </span>
-            </div>
-            <div className="text-xs text-text-muted font-mono truncate">{gateway?.url || "—"}</div>
-            {gateway?.lastError && !gateway.reachable && (
-              <div className="text-xs text-danger truncate" title={gateway.lastError}>{gateway.lastError}</div>
-            )}
-          </div>
-          <button
-            onClick={restartGateway}
-            disabled={gatewayBusy}
-            className={`${iconBtn} hover:text-accent disabled:opacity-40 disabled:pointer-events-none`}
-            title="Reiniciar gateway"
-          >
-            <RefreshCw size={14} className={gatewayBusy ? "animate-spin" : ""} />
-          </button>
-        </div>
 
         <div className="space-y-2">
           {settings.llmProfiles.map((p) => {
@@ -329,10 +282,11 @@ export function SettingsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-text-primary truncate">{p.label || p.id}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-surface-hover text-text-muted">{p.runtime === "codex" ? "Codex SDK" : "Claude SDK"}</span>
                       {isActive && <span className="text-xs text-success">ativo</span>}
                     </div>
                     <div className="text-xs text-text-muted font-mono truncate">
-                      {p.opusModel || "—"}{p.baseUrl ? "" : " · nativo"}
+                      {p.opusModel || "—"}{p.baseUrl ? "" : p.runtime === "codex" ? " · ChatGPT" : " · nativo"}
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
@@ -362,41 +316,65 @@ export function SettingsPage() {
                         <input type="text" value={p.label} onChange={(e) => patchProfile(p.id, { label: e.target.value })} className={inputClass} />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-text-muted mb-1">Token (env var)</label>
-                        <input type="text" value={p.tokenEnv} onChange={(e) => patchProfile(p.id, { tokenEnv: e.target.value })} placeholder="BIFROST_VIRTUAL_KEY" className={inputMonoClass} />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-text-muted mb-1">Base URL (gateway)</label>
-                      <input type="text" value={p.baseUrl} onChange={(e) => patchProfile(p.id, { baseUrl: e.target.value })} placeholder="http://localhost:8080/anthropic — vazio = Anthropic nativo" className={inputMonoClass} />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-text-muted mb-1">Modelo opus</label>
-                        <input type="text" value={p.opusModel} onChange={(e) => patchProfile(p.id, { opusModel: e.target.value })} placeholder="openai/gpt-5.5" className={inputMonoClass} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-text-muted mb-1">Modelo sonnet</label>
-                        <input type="text" value={p.sonnetModel} onChange={(e) => patchProfile(p.id, { sonnetModel: e.target.value })} placeholder="openai/gpt-5.4-mini" className={inputMonoClass} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-text-muted mb-1">Modelo haiku</label>
-                        <input type="text" value={p.haikuModel} onChange={(e) => patchProfile(p.id, { haikuModel: e.target.value })} placeholder="openai/gpt-5.4-nano" className={inputMonoClass} />
+                        <label className="block text-xs font-medium text-text-muted mb-1">Runtime</label>
+                        <select value={p.runtime} onChange={(e) => patchProfile(p.id, { runtime: e.target.value as AgentRuntime })} className={inputClass}>
+                          <option value="claude">Claude Agent SDK (API compatível com Anthropic)</option>
+                          <option value="codex">Codex SDK (OpenAI / ChatGPT)</option>
+                        </select>
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-text-muted mb-1">Timeout (ms)</label>
-                        <input type="text" value={p.timeoutMs} onChange={(e) => patchProfile(p.id, { timeoutMs: e.target.value })} placeholder="3000000" className={inputMonoClass} />
+                        <label className="block text-xs font-medium text-text-muted mb-1">Base URL</label>
+                        <input type="text" value={p.baseUrl} onChange={(e) => patchProfile(p.id, { baseUrl: e.target.value })} placeholder={p.runtime === "codex" ? "vazio = assinatura do ChatGPT" : "https://api.kimi.com/coding — vazio = Anthropic nativo"} className={inputMonoClass} />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-text-muted mb-1">Auto-compact window</label>
+                        <label className="block text-xs font-medium text-text-muted mb-1">Token (env var)</label>
+                        <input type="text" value={p.tokenEnv} onChange={(e) => patchProfile(p.id, { tokenEnv: e.target.value })} placeholder={p.runtime === "codex" ? "só para provedor OpenAI-compatible customizado" : "KIMI_API_KEY"} className={inputMonoClass} />
+                      </div>
+                    </div>
+                    {p.runtime === "codex" ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-1">Modelo principal</label>
+                          <input type="text" value={p.opusModel} onChange={(e) => patchProfile(p.id, { opusModel: e.target.value })} placeholder="gpt-5.6-sol" className={inputMonoClass} />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-1">Modelo leve</label>
+                          <input type="text" value={p.haikuModel} onChange={(e) => patchProfile(p.id, { haikuModel: e.target.value })} placeholder="gpt-5.6-luna" className={inputMonoClass} />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-1">Modelo opus</label>
+                          <input type="text" value={p.opusModel} onChange={(e) => patchProfile(p.id, { opusModel: e.target.value })} placeholder="k3" className={inputMonoClass} />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-1">Modelo sonnet</label>
+                          <input type="text" value={p.sonnetModel} onChange={(e) => patchProfile(p.id, { sonnetModel: e.target.value })} placeholder="k3" className={inputMonoClass} />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-1">Modelo haiku</label>
+                          <input type="text" value={p.haikuModel} onChange={(e) => patchProfile(p.id, { haikuModel: e.target.value })} placeholder="k3" className={inputMonoClass} />
+                        </div>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {p.runtime === "claude" && (
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-1">Timeout (ms)</label>
+                          <input type="text" value={p.timeoutMs} onChange={(e) => patchProfile(p.id, { timeoutMs: e.target.value })} placeholder="3000000" className={inputMonoClass} />
+                        </div>
+                      )}
+                      <div>
+                        <label className="block text-xs font-medium text-text-muted mb-1">{p.runtime === "codex" ? "Janela de contexto (tokens)" : "Auto-compact window"}</label>
                         <input type="text" value={p.autoCompactWindow} onChange={(e) => patchProfile(p.id, { autoCompactWindow: e.target.value })} placeholder="vazio = janela do modelo" className={inputMonoClass} />
                       </div>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-text-muted mb-1">Env extra (KEY=VALUE por linha)</label>
-                      <textarea value={p.extraEnv} onChange={(e) => patchProfile(p.id, { extraEnv: e.target.value })} placeholder={"CLAUDE_CODE_SUBAGENT_MODEL=k3\nENABLE_TOOL_SEARCH=false"} rows={3} className={`${inputMonoClass} resize-y`} />
+                      <textarea value={p.extraEnv} onChange={(e) => patchProfile(p.id, { extraEnv: e.target.value })} placeholder={p.runtime === "codex" ? "CODEX_HOME=/caminho/alternativo" : "CLAUDE_CODE_SUBAGENT_MODEL=k3\nENABLE_TOOL_SEARCH=false"} rows={3} className={`${inputMonoClass} resize-y`} />
                     </div>
                     <p className="text-xs text-text-muted font-mono">id: {p.id}</p>
                   </div>

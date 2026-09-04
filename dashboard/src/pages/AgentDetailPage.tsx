@@ -21,9 +21,8 @@ import { FilesBrowser } from "../components/project/FilesBrowser";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
-import { AgentTeamChip } from "../components/teams/AgentTeamChip";
-import { AgentAvatar } from "../components/teams/AgentAvatar";
-import { AppearanceEditor } from "../components/teams/AppearanceEditor";
+import { AgentAvatar } from "../components/agent/AgentAvatar";
+import { AppearanceEditor } from "../components/agent/AppearanceEditor";
 import { isAdmin } from "../hooks/useAuth";
 import type { AgentDetail, AgentAppearance } from "../lib/types";
 
@@ -49,7 +48,7 @@ export function AgentDetailPage() {
 
   useEffect(() => {
     if (!name || !admin) return;
-    api.get<AgentAppearance>(`/teams/appearance/${name}`).then(setAppearance).catch(() => {});
+    api.get<AgentAppearance>(`/agents/${name}/appearance`).then(setAppearance).catch(() => {});
   }, [name, admin]);
 
   const loadOutputs = useCallback(() => {
@@ -155,7 +154,6 @@ export function AgentDetailPage() {
           <AgentAvatar name={agent.name} appearance={appearance} size={32} />
         </button>
         <h1 className="text-base md:text-lg font-semibold">{agent.name}</h1>
-        <AgentTeamChip agentName={agent.name} />
         {agent.schedules.length > 0 && (
           <Badge variant="info">{agent.schedules.length} schedules</Badge>
         )}
@@ -179,7 +177,7 @@ export function AgentDetailPage() {
           <p className="text-sm text-text-secondary">
             This will permanently delete <strong className="text-text-primary">{agent.name}</strong> and
             everything related to it: the agent folder (context, input, output), schedules and crons,
-            secrets, team membership, execution history, queued commands and long-term memory.
+            secrets, execution history, queued commands and long-term memory.
             This cannot be undone.
           </p>
           <div>

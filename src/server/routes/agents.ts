@@ -13,7 +13,8 @@ import {
 } from "../../agents/manager.js";
 import type { AgentPaths } from "../../agents/types.js";
 import { listSchedulesByAgent, removeSchedule, removeSchedulesByAgent } from "../../agents/scheduler.js";
-import { removeAgentData, getTeamOfAgent, getTeam } from "../../agents/teams-manager.js";
+import { deleteAppearance, getAppearance, setAppearance } from "../../agents/appearance.js";
+import { requireAdmin } from "../middleware.js";
 import { purgeAgentData } from "../../target-cleanup.js";
 import { secretsManager } from "../../secrets-manager.js";
 import { safeFilename, listFiles, listDirEntries } from "../route-utils.js";
@@ -183,22 +184,31 @@ agentsRouter.delete("/:name", async (req, res) => {
   }
 
   const removedSchedules = await removeSchedulesByAgent(name);
-  await removeAgentData(name);
+  await deleteAppearance(name);
   await purgeAgentData(name);
   await rm(paths.root, { recursive: true, force: true });
 
   res.json({ removed: name, removedSchedules });
 });
 
-agentsRouter.get("/:name/team", async (req, res) => {
+agentsRouter.get("/:name/appearance", async (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
     return;
   }
-  const teamId = getTeamOfAgent(name);
-  const team = teamId ? await getTeam(teamId) : null;
-  res.json({ team: team ? { id: team.id, name: team.name, emoji: team.emoji, color: team.color } : null });
+  res.json(await getAppearance(name));
+});
+
+agentsRouter.put("/:name/appearance", requireAdmin, async (req, res) => {
+  const { name } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  const { color, emoji } = req.body ?? {};
+  await setAppearance(name, { color: color ?? null, emoji: emoji ?? null });
+  res.json({ ok: true });
 });
 
 agentsRouter.get("/:name/schedules", async (req, res) => {

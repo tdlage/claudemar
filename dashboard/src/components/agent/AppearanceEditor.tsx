@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "../shared/Modal";
 import { api } from "../../lib/api";
 import { AgentAvatar } from "./AgentAvatar";
-import { TEAM_COLORS, AVATAR_EMOJIS } from "../../lib/teamStyle";
+import { AVATAR_COLORS, AVATAR_EMOJIS } from "../../lib/avatarStyle";
 import type { AgentAppearance } from "../../lib/types";
 
 interface Props {
@@ -17,12 +17,12 @@ export function AppearanceEditor({ agentName, open, onClose, onSaved }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    api.get<AgentAppearance>(`/teams/appearance/${agentName}`).then(setAppearance).catch(() => {});
+    api.get<AgentAppearance>(`/agents/${agentName}/appearance`).then(setAppearance).catch(() => {});
   }, [open, agentName]);
 
   const save = async (next: AgentAppearance) => {
     setAppearance(next);
-    await api.put(`/teams/appearance/${agentName}`, { color: next.color, emoji: next.emoji }).catch(() => {});
+    await api.put(`/agents/${agentName}/appearance`, { color: next.color, emoji: next.emoji }).catch(() => {});
     onSaved?.(next);
   };
 
@@ -42,7 +42,7 @@ export function AppearanceEditor({ agentName, open, onClose, onSaved }: Props) {
         <div>
           <label className="block text-xs text-text-muted mb-1.5">Cor</label>
           <div className="flex flex-wrap gap-1.5">
-            {TEAM_COLORS.map((c) => (
+            {AVATAR_COLORS.map((c) => (
               <button
                 key={c}
                 onClick={() => save({ ...appearance, color: c })}

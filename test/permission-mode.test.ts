@@ -69,7 +69,7 @@ test("em bypass, Bash é resolvido imediatamente com allow (criterios 1 e 2)", (
   const result = decideImmediatePermission(
     "Bash",
     { command: "git status" },
-    { bypass: true, currentPermissionMode: "bypassPermissions", isSubagentAllowed: null },
+    { bypass: true, currentPermissionMode: "bypassPermissions" },
   );
   assert.deepEqual(result, { behavior: "allow", updatedInput: { command: "git status" } });
 });
@@ -78,7 +78,7 @@ test("AskUserQuestion é negada imediatamente sem ficar pendente (criterio 5)", 
   const result = decideImmediatePermission(
     "AskUserQuestion",
     { questions: [] },
-    { bypass: true, currentPermissionMode: "bypassPermissions", isSubagentAllowed: null },
+    { bypass: true, currentPermissionMode: "bypassPermissions" },
   );
   assert.equal(result?.behavior, "deny");
 });
@@ -87,16 +87,7 @@ test("sem bypass e sem acceptEdits, decisão é adiada (null = pedir a humano, c
   const result = decideImmediatePermission(
     "Bash",
     { command: "rm -rf /" },
-    { bypass: false, currentPermissionMode: "default", isSubagentAllowed: null },
+    { bypass: false, currentPermissionMode: "default" },
   );
   assert.equal(result, null);
-});
-
-test("subagente fora do time é negado mesmo em bypass", () => {
-  const result = decideImmediatePermission(
-    "Agent",
-    { subagent_type: "estranho" },
-    { bypass: true, currentPermissionMode: "bypassPermissions", isSubagentAllowed: (t) => t === "amigo" },
-  );
-  assert.equal(result?.behavior, "deny");
 });

@@ -1,5 +1,4 @@
 import { runIntake } from "./pipeline-intake.js";
-import { initTeams } from "./agents/teams-manager.js";
 import { closePool } from "./database.js";
 
 async function main(): Promise<number> {
@@ -8,8 +7,6 @@ async function main(): Promise<number> {
     console.error("usage: pipeline-intake-run <plugin-id>");
     return 1;
   }
-
-  await initTeams();
 
   const startedAt = new Date().toISOString();
   console.log(`[pipeline-intake] ${startedAt} — executando intake do plugin ${pluginId}`);

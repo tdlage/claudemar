@@ -4,13 +4,13 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import type { AgentDefinition, McpServerConfig, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentResult, AskQuestion } from "./providers/types.js";
-import { ClaudeSession, type MessageBlock, type PendingPermission, type PermissionDecision, type UsageInfo, type TaskEvent } from "./claude/session.js";
-import { isUltracode, type Effort } from "./claude/options.js";
+import type { AgentSession, Effort, MessageBlock, PendingPermission, PermissionDecision, UsageInfo, TaskEvent } from "./runtime/types.js";
+import { createAgentSession } from "./runtime/create-session.js";
+import { isUltracode } from "./claude/options.js";
 import { resolveBypass, resolveStartPermissionMode } from "./claude/permission.js";
 import { formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
-import { teammatesOf, squadMcpsForAgent, squadSkillsForAgent } from "./agents/teams-manager.js";
 import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
 import { config } from "./config.js";
 import { safeProjectPath } from "./session.js";
@@ -18,6 +18,7 @@ import { settingsManager } from "./settings-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
 import { resolveExecutionModel, DEFAULT_PROJECT_MODEL } from "./models-discovery.js";
 import { sessionNamesManager } from "./session-names-manager.js";
+import { sessionFileExists } from "./session-validator.js";
 import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
@@ -116,7 +117,7 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
 
 interface ActiveEntry {
   info: ExecutionInfo;
-  session: ClaudeSession;
+  session: AgentSession;
   opts: StartExecutionOpts;
   sessionKey: string;
   detach?: () => void;
@@ -130,8 +131,8 @@ class ExecutionManager extends EventEmitter {
   private draining = false;
   private recent: ExecutionInfo[] = [];
   private pendingQuestions = new Map<string, { info: ExecutionInfo; opts: StartExecutionOpts }>();
-  private sessions = new Map<string, ClaudeSession>();
-  private retiredSessions = new Set<ClaudeSession>();
+  private sessions = new Map<string, AgentSession>();
+  private retiredSessions = new Set<AgentSession>();
   private sessionGen = new Map<string, number>();
   private llmConfigGen = 0;
 
@@ -227,8 +228,10 @@ class ExecutionManager extends EventEmitter {
   private buildSystemSuffix(opts: StartExecutionOpts): string {
     if (opts.skipSystemPrompt) return "";
     let suffix = "";
-    if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
+    if (opts.targetType === "orchestrator" && settingsManager.getActiveProfile().runtime === "claude") {
       suffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions. To delegate a task to another agent, invoke it as a subagent via the Agent tool (the available agents are exposed automatically).]`;
+    } else if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
+      suffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions.]`;
     }
     if (opts.targetType === "agent") {
       suffix += buildSecretsHint(opts.targetName);
@@ -259,9 +262,9 @@ class ExecutionManager extends EventEmitter {
     return suffix;
   }
 
+  // Só o orquestrador (runtime claude) delega a subagentes; agentes executam isolados.
   private buildSubagents(opts: StartExecutionOpts): Record<string, AgentDefinition> | undefined {
-    if (opts.targetType === "orchestrator") return buildAgentDefinitions();
-    if (opts.targetType === "agent") return buildAgentDefinitions(opts.targetName, teammatesOf(opts.targetName));
+    if (opts.targetType === "orchestrator" && settingsManager.getActiveProfile().runtime === "claude") return buildAgentDefinitions();
     return undefined;
   }
 
@@ -274,7 +277,7 @@ class ExecutionManager extends EventEmitter {
     });
   }
 
-  private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined, model: string): { session: ClaudeSession; isNew: boolean } {
+  private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined, model: string): { session: AgentSession; isNew: boolean } {
     const existing = this.sessions.get(sessionKey);
     if (existing) {
       const planChanged = Boolean(opts.planMode) !== existing.planMode;
@@ -294,7 +297,7 @@ class ExecutionManager extends EventEmitter {
     }
 
     const bypass = resolveBypass(opts);
-    const session = new ClaudeSession({
+    const session = createAgentSession({
       cwd: opts.cwd,
       model,
       target: { targetType: opts.targetType, targetName: opts.targetName },
@@ -306,11 +309,8 @@ class ExecutionManager extends EventEmitter {
       effort: opts.effort,
       systemAppend: this.buildSystemSuffix(opts),
       subagents: this.buildSubagents(opts),
-      isSubagentAllowed: opts.targetType === "agent"
-        ? (name: string) => teammatesOf(opts.targetName).includes(name)
-        : undefined,
-      extraMcpServers: opts.targetType === "agent" ? squadMcpsForAgent(opts.targetName) : opts.extraMcpServers,
-      squadSkills: opts.targetType === "agent" ? squadSkillsForAgent(opts.targetName) : opts.skills,
+      extraMcpServers: opts.extraMcpServers,
+      skills: opts.skills,
       schedulerMode: opts.schedulerMode,
       permissionTimeoutMs: config.permissionTimeoutMs,
       inactivityTimeoutMs: config.sessionInactivityTimeoutMs,
@@ -329,7 +329,7 @@ class ExecutionManager extends EventEmitter {
     }
   }
 
-  private sessionHasActive(session: ClaudeSession): boolean {
+  private sessionHasActive(session: AgentSession): boolean {
     for (const entry of this.active.values()) {
       if (entry.session === session) return true;
     }
@@ -339,7 +339,7 @@ class ExecutionManager extends EventEmitter {
   // Sessões com execução ativa nunca são encerradas na hora — abortar o runner mataria
   // a execução em andamento ("process aborted by user"). O encerramento fica adiado
   // para o finalize da última execução que ainda usa a sessão.
-  private retireSession(session: ClaudeSession): void {
+  private retireSession(session: AgentSession): void {
     if (this.sessionHasActive(session)) {
       this.retiredSessions.add(session);
     } else {
@@ -392,15 +392,24 @@ class ExecutionManager extends EventEmitter {
       streamOffset: 0,
     };
 
-    const resumeId = opts.noResume
+    const sessionKey = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
+    let resumeId = opts.noResume
       ? undefined
       : opts.resumeSessionId === null
         ? undefined
         : (opts.resumeSessionId ?? this.getLastSessionId(opts.targetType, opts.targetName, opts.username));
 
+    // Transcript que não existe no runtime ativo (ex.: sessão criada em outro runtime) não é
+    // retomado: evita um turno inteiro falhando só para cair na retentativa sem resume.
+    if (resumeId && !this.isSessionActive(opts.targetType, opts.targetName, opts.username) && !sessionFileExists(resumeId)) {
+      console.log(`[execution] Resume session ${resumeId} not found on disk for ${opts.targetType}:${opts.targetName}, starting fresh`);
+      this.lastSessionMap.delete(sessionKey);
+      this.lastSessionModelMap.delete(sessionKey);
+      resumeId = undefined;
+    }
+
     info.resumeSessionId = resumeId ?? null;
 
-    const sessionKey = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
     const { session, isNew } = this.getOrCreateSession(opts, sessionKey, resumeId, model);
 
     const entry: ActiveEntry = { info, session, opts, sessionKey };
@@ -479,7 +488,6 @@ class ExecutionManager extends EventEmitter {
     };
     const onPermission = (p: PendingPermission) => this.emit("permission", info.id, p.reqId, p.toolName, p.input);
     const onPermissionResolved = (reqId: string) => this.emit("permission-resolved", info.id, reqId);
-    const onSubagentDone = (to: string) => this.emit("subagent-done", info.id, to);
     const onTask = (payload: TaskEvent) => this.emit("task", info.id, payload);
     const onUsage = (u: UsageInfo) => this.emit("usage", info.id, u.costUsd, u.tokens, u.contextPct);
     const onCompact = (trigger: string) => this.emit("compact", info.id, trigger);
@@ -494,7 +502,6 @@ class ExecutionManager extends EventEmitter {
     session.on("sessionId", onSessionId);
     session.on("permission", onPermission);
     session.on("permissionResolved", onPermissionResolved);
-    session.on("subagentDone", onSubagentDone);
     session.on("task", onTask);
     session.on("usage", onUsage);
     session.on("compact", onCompact);
@@ -510,7 +517,6 @@ class ExecutionManager extends EventEmitter {
       session.off("sessionId", onSessionId);
       session.off("permission", onPermission);
       session.off("permissionResolved", onPermissionResolved);
-      session.off("subagentDone", onSubagentDone);
       session.off("task", onTask);
       session.off("usage", onUsage);
       session.off("compact", onCompact);

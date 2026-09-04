@@ -41,7 +41,7 @@ export function ProjectDetailPage() {
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
   const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
   const [ciInitialRepo, setCiInitialRepo] = useState<string | undefined>();
-  const [providerId, setProviderId] = useState<string | null>(null);
+  const [nativeAnthropic, setNativeAnthropic] = useState(false);
   const [projectModel, setProjectModel] = useState<string>(DEFAULT_PROJECT_MODEL);
   const [, setMeVersion] = useState(0);
   const admin = isAdmin();
@@ -91,7 +91,7 @@ export function ProjectDetailPage() {
     loadOutputs();
     api.get<string[]>(`/projects/${name}/claude-agents`).then(setAgents).catch(() => {});
     api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
-    api.get<{ provider: string }>("/system/provider").then((data) => setProviderId(data.provider)).catch(() => {});
+    api.get<{ nativeAnthropic: boolean }>("/system/provider").then((data) => setNativeAnthropic(data.nativeAnthropic)).catch(() => {});
   }, [loadProject, loadOutputs, name]);
 
   const handleModelChange = async (model: string) => {
@@ -127,7 +127,7 @@ export function ProjectDetailPage() {
         effort: opts.effort,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
-        model: providerId === "anthropic" ? projectModel : undefined,
+        model: nativeAnthropic ? projectModel : undefined,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -248,11 +248,11 @@ export function ProjectDetailPage() {
               startPlaceholder={`Message ${name}...`}
               queueMode={sequential}
               isLive={isRunning}
-              showModelBadge={providerId !== "anthropic"}
+              showModelBadge={!nativeAnthropic}
               onStart={handleStart}
               controls={
                 <>
-                  {providerId === "anthropic" && (
+                  {nativeAnthropic && (
                     <div className="flex items-center gap-1">
                       <Cpu size={13} className={projectModel !== DEFAULT_PROJECT_MODEL ? "text-accent" : "text-text-muted"} />
                       <select

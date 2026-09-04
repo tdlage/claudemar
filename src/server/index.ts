@@ -10,7 +10,6 @@ import { tokenManager } from "./token-manager.js";
 import { setupWebSocket } from "./websocket.js";
 import { verifyUploadSignature } from "../upload-signer.js";
 import { agentsRouter } from "./routes/agents.js";
-import { teamsRouter } from "./routes/teams.js";
 import { projectsRouter } from "./routes/projects.js";
 import { executionsRouter } from "./routes/executions.js";
 import { filesRouter } from "./routes/files.js";
@@ -90,7 +89,6 @@ export function createDashboardServer() {
 
   app.use("/api/auth", jsonParser, authRouter);
   app.use("/api/agents", express.json({ limit: "15mb" }), agentsRouter);
-  app.use("/api/teams", jsonParser, requireAdmin, teamsRouter);
   app.use("/api/projects", express.json({ limit: "15mb" }), projectsRouter);
   app.use("/api/executions", jsonParser, executionsRouter);
   app.use("/api/files", jsonParser, filesRouter);

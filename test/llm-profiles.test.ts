@@ -11,18 +11,34 @@ process.env.CLAUDEMAR_DATA ??= mkdtempSync(resolve(tmpdir(), "claudemar-test-"))
 const {
   applyProfile,
   defaultLlmProfiles,
+  isNativeAnthropic,
   parseExtraEnv,
   migrateLegacyProfiles,
   sanitizeProfile,
   seedMissingDefaultProfiles,
-  GATEWAY_TOKEN_ENV,
 } = await import("../src/providers/llm.js");
+
+const LEGACY_GATEWAY_URL = "http://localhost:8080/anthropic";
 
 function kimiProfile() {
   const profile = defaultLlmProfiles().find((p) => p.id === "kimi");
   assert.ok(profile, "perfil kimi deve existir nos defaults");
   return profile;
 }
+
+function codexProfile() {
+  const profile = defaultLlmProfiles().find((p) => p.id === "codex");
+  assert.ok(profile, "perfil codex deve existir nos defaults");
+  return profile;
+}
+
+test("defaults trazem apenas perfis sem gateway, cada um com seu runtime", () => {
+  const ids = defaultLlmProfiles().map((p) => p.id);
+  assert.deepEqual(ids, ["anthropic", "kimi", "zai", "codex"]);
+  for (const p of defaultLlmProfiles()) {
+    assert.equal(p.runtime, p.id === "codex" ? "codex" : "claude");
+  }
+});
 
 test("perfil kimi default aponta para o endpoint Anthropic-compatível do Kimi Code", () => {
   const profile = kimiProfile();
@@ -33,6 +49,25 @@ test("perfil kimi default aponta para o endpoint Anthropic-compatível do Kimi C
   assert.equal(profile.sonnetModel, "k3");
   assert.equal(profile.haikuModel, "k3");
   assert.equal(profile.autoCompactWindow, "1048576");
+});
+
+test("perfil codex default usa a assinatura do ChatGPT (sem baseUrl nem token)", () => {
+  const profile = codexProfile();
+  assert.equal(profile.runtime, "codex");
+  assert.equal(profile.label, "OpenAI (ChatGPT)");
+  assert.equal(profile.baseUrl, "");
+  assert.equal(profile.tokenEnv, "");
+  assert.equal(profile.opusModel, "gpt-5.6-sol");
+  assert.equal(profile.haikuModel, "gpt-5.6-luna");
+  assert.equal(isNativeAnthropic(profile), false);
+});
+
+test("isNativeAnthropic só vale para runtime claude sem baseUrl", () => {
+  const anthropic = defaultLlmProfiles().find((p) => p.id === "anthropic");
+  assert.ok(anthropic);
+  assert.equal(isNativeAnthropic(anthropic), true);
+  assert.equal(isNativeAnthropic(kimiProfile()), false);
+  assert.equal(isNativeAnthropic({ ...anthropic, runtime: "codex" }), false);
 });
 
 test("migrateLegacyProfiles reescreve o perfil kimi ainda apontando para a Moonshot", () => {
@@ -53,6 +88,32 @@ test("migrateLegacyProfiles preserva perfil kimi já migrado ou customizado para
   assert.equal(profiles[1].baseUrl, "https://proxy.interno/anthropic");
 });
 
+test("migrateLegacyProfiles converte o perfil codex do proxy local para o runtime nativo", () => {
+  const legacy = { ...codexProfile(), runtime: "claude" as const, baseUrl: "http://127.0.0.1:18765", label: "Meu Codex", extraEnv: "CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-luna" };
+  const { profiles, changed } = migrateLegacyProfiles([legacy]);
+  assert.equal(changed, true);
+  assert.equal(profiles[0].runtime, "codex");
+  assert.equal(profiles[0].baseUrl, "");
+  assert.equal(profiles[0].extraEnv, "");
+  assert.equal(profiles[0].label, "Meu Codex");
+});
+
+test("migrateLegacyProfiles remove os perfis openai e sakana que dependiam do gateway", () => {
+  const base = defaultLlmProfiles();
+  const openai = { ...base[0], id: "openai", label: "OpenAI (GPT)", baseUrl: LEGACY_GATEWAY_URL, tokenEnv: "BIFROST_VIRTUAL_KEY", opusModel: "openai/gpt-5.5" };
+  const sakana = { ...base[0], id: "sakana", label: "Sakana", baseUrl: "http://bifrost:8080/anthropic", tokenEnv: "BIFROST_VIRTUAL_KEY", opusModel: "sakana/fugu" };
+  const { profiles, changed } = migrateLegacyProfiles([...base, openai, sakana]);
+  assert.equal(changed, true);
+  assert.deepEqual(profiles.map((p) => p.id), base.map((p) => p.id));
+});
+
+test("migrateLegacyProfiles preserva perfil openai customizado fora do gateway", () => {
+  const custom = { ...codexProfile(), id: "openai", baseUrl: "https://proxy.interno/v1", tokenEnv: "MY_KEY" };
+  const { profiles, changed } = migrateLegacyProfiles([custom]);
+  assert.equal(changed, false);
+  assert.equal(profiles.length, 1);
+});
+
 test("applyProfile com kimi configura o ambiente da execução (criterios 1 e 2)", () => {
   process.env.KIMI_API_KEY = "sk-kimi-test";
   try {
@@ -69,6 +130,14 @@ test("applyProfile com kimi configura o ambiente da execução (criterios 1 e 2)
   } finally {
     delete process.env.KIMI_API_KEY;
   }
+});
+
+test("applyProfile sem token configurado não inventa credencial", () => {
+  delete process.env.KIMI_API_KEY;
+  const env = applyProfile({ ANTHROPIC_API_KEY: "subscription-key" }, kimiProfile());
+  assert.equal(env.ANTHROPIC_BASE_URL, "https://api.kimi.com/coding");
+  assert.equal("ANTHROPIC_AUTH_TOKEN" in env, false);
+  assert.equal("ANTHROPIC_API_KEY" in env, false);
 });
 
 test("applyProfile com perfil anthropic nativo não altera o ambiente (criterio 6)", () => {
@@ -109,6 +178,12 @@ test("sanitizeProfile preserva extraEnv e degrada para vazio em settings antigos
   assert.equal(legacy?.extraEnv, "");
 });
 
+test("sanitizeProfile assume runtime claude em settings antigos e preserva codex", () => {
+  assert.equal(sanitizeProfile({ id: "x" }, "fb")?.runtime, "claude");
+  assert.equal(sanitizeProfile({ id: "x", runtime: "codex" }, "fb")?.runtime, "codex");
+  assert.equal(sanitizeProfile({ id: "x", runtime: "outro" }, "fb")?.runtime, "claude");
+});
+
 test("seedMissingDefaultProfiles acrescenta o kimi em instalações antigas sem sobrescrever perfis", () => {
   const persisted = defaultLlmProfiles().filter((p) => p.id !== "kimi");
   persisted[0].label = "Custom Anthropic";
@@ -136,24 +211,6 @@ test("seedMissingDefaultProfiles preserva perfil customizado que reutiliza o id 
   assert.equal(result.profiles.find((p) => p.id === "kimi")?.label, "Meu Kimi");
 });
 
-test("perfis do gateway continuam usando a virtual key do Bifrost", () => {
-  for (const id of ["openai", "sakana"]) {
-    const profile = defaultLlmProfiles().find((p) => p.id === id);
-    assert.equal(profile?.tokenEnv, GATEWAY_TOKEN_ENV);
-  }
-});
-
-test("perfil codex default aponta para o proxy local de subscription do ChatGPT", () => {
-  const profile = defaultLlmProfiles().find((p) => p.id === "codex");
-  assert.ok(profile, "perfil codex deve existir nos defaults");
-  assert.equal(profile.baseUrl, "http://127.0.0.1:18765");
-  assert.equal(profile.tokenEnv, "");
-  assert.equal(profile.opusModel, "gpt-5.6-sol");
-  assert.equal(profile.sonnetModel, "gpt-5.6-sol");
-  assert.equal(profile.haikuModel, "gpt-5.6-luna");
-  assert.ok(profile.extraEnv.includes("CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-luna"));
-});
-
 function zaiProfile() {
   const profile = defaultLlmProfiles().find((p) => p.id === "zai");
   assert.ok(profile, "perfil zai deve existir nos defaults");
@@ -170,9 +227,8 @@ test("perfil zai default conecta direto ao endpoint de coding da z.ai", () => {
   assert.equal(profile.autoCompactWindow, "1000000");
 });
 
-test("migrateLegacyProfiles reescreve o perfil zai ainda roteado pelo gateway", async () => {
-  const { config } = await import("../src/config.js");
-  const legacy = { ...zaiProfile(), baseUrl: config.gatewayUrl, tokenEnv: GATEWAY_TOKEN_ENV, opusModel: "zai/glm-5.2", label: "Meu GLM" };
+test("migrateLegacyProfiles reescreve o perfil zai ainda roteado pelo gateway", () => {
+  const legacy = { ...zaiProfile(), baseUrl: LEGACY_GATEWAY_URL, tokenEnv: "BIFROST_VIRTUAL_KEY", opusModel: "zai/glm-5.2", label: "Meu GLM" };
   const { profiles, changed } = migrateLegacyProfiles([legacy]);
   assert.equal(changed, true);
   assert.equal(profiles[0].baseUrl, "https://api.z.ai/api/anthropic");

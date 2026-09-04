@@ -14,10 +14,11 @@ import { settingsManager } from "../../settings-manager.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { usersManager } from "../../users-manager.js";
 import { getModelDisplayName, DEFAULT_OPUS_DISPLAY } from "../../models-discovery.js";
-import { gatewayManager } from "../../providers/gateway.js";
-import { GATEWAY_TOKEN_ENV } from "../../providers/llm.js";
+import { isNativeAnthropic } from "../../providers/llm.js";
 import { startClaudeLogin, completeClaudeLogin, getClaudeAuthStatus } from "../../claude/oauth-login.js";
 import { getLastAuthError, clearLastAuthError } from "../../claude/claude-auth-state.js";
+import { cancelCodexLogin, codexLogout, getCodexAuthStatus, getCodexLoginState, startCodexDeviceLogin } from "../../codex/auth.js";
+import { clearLastCodexAuthError, getLastCodexAuthError } from "../../codex/codex-auth-state.js";
 
 const INSTALL_DIR = config.installDir;
 
@@ -233,42 +234,55 @@ systemRouter.get("/model", (_req, res) => {
   res.json({ id, displayName });
 });
 
-const GATEWAY_PROVIDER_KEY: Record<string, string> = {
-  openai: "OPENAI_API_KEY",
-  zai: "ZAI_API_KEY",
-  sakana: "SAKANA_API_KEY",
-  anthropic: "BIFROST_ANTHROPIC_API_KEY",
-};
-
-systemRouter.get("/provider", (_req, res) => {
+async function providerConfigured(): Promise<boolean> {
   const profile = settingsManager.getActiveProfile();
-  const direct = Boolean(profile.baseUrl) && Boolean(profile.tokenEnv) && profile.tokenEnv !== GATEWAY_TOKEN_ENV;
-  const prefix = profile.opusModel.split("/")[0];
-  const keyName = profile.baseUrl ? GATEWAY_PROVIDER_KEY[prefix] : "";
-  const configured = direct
-    ? Boolean(process.env[profile.tokenEnv])
-    : !profile.baseUrl || !keyName || Boolean(process.env[keyName]);
+  if (profile.baseUrl.trim()) return !profile.tokenEnv.trim() || Boolean(process.env[profile.tokenEnv.trim()]);
+  if (profile.runtime === "codex") return (await getCodexAuthStatus()).loggedIn;
+  const auth = getClaudeAuthStatus();
+  return auth.present && !auth.expired;
+}
+
+systemRouter.get("/provider", async (_req, res) => {
+  const profile = settingsManager.getActiveProfile();
   res.json({
     provider: profile.id,
     label: profile.label,
+    runtime: profile.runtime,
     model: profile.opusModel || "auto",
-    configured,
+    nativeAnthropic: isNativeAnthropic(profile),
+    configured: await providerConfigured(),
   });
 });
 
-systemRouter.get("/gateway", async (_req, res) => {
+systemRouter.get("/codex-auth", async (req, res) => {
+  const force = req.query.force === "1" || req.query.force === "true";
+  res.json({ ...(await getCodexAuthStatus(force)), authError: getLastCodexAuthError() });
+});
+
+systemRouter.post("/codex-login/start", (_req, res) => {
   try {
-    res.json(await gatewayManager.refresh());
+    res.json(startCodexDeviceLogin());
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to read gateway status" });
+    res.status(500).json({ error: err instanceof Error ? err.message : "Falha ao iniciar login" });
   }
 });
 
-systemRouter.post("/gateway/restart", async (_req, res) => {
+systemRouter.get("/codex-login/state", (_req, res) => {
+  const state = getCodexLoginState();
+  if (state.status === "done") clearLastCodexAuthError();
+  res.json(state);
+});
+
+systemRouter.post("/codex-login/cancel", (_req, res) => {
+  res.json(cancelCodexLogin());
+});
+
+systemRouter.post("/codex-logout", async (_req, res) => {
   try {
-    res.json(await gatewayManager.restart());
+    await codexLogout();
+    res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to restart gateway" });
+    res.status(500).json({ error: err instanceof Error ? err.message : "Falha ao desconectar" });
   }
 });
 

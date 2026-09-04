@@ -1,6 +1,6 @@
 # Claudemar
 
-Interface Telegram + Web para o Claude Agent SDK (só Claude/Opus), com memória de longo prazo via Qdrant+Voyage. Manages projects, agents, and AI executions.
+Interface Telegram + Web para agentes de IA com dois runtimes — Claude Agent SDK (APIs Anthropic-compatible) e Codex SDK (OpenAI via assinatura do ChatGPT) — com memória de longo prazo via Qdrant+Voyage. Manages projects, agents, and AI executions.
 
 ## Stack
 
@@ -27,7 +27,10 @@ src/                   # Backend
   config.ts            # Environment config (frozen object)
   execution-manager.ts # Agent SDK session lifecycle
   executor.ts          # Claude Agent SDK runner, output formatting
-  providers/           # SDK types and formatting helpers (types.ts, format.ts)
+  providers/           # LLM profiles (llm.ts), result types, formatting helpers
+  runtime/             # Runtime-agnostic session contract, base session, factory
+  claude/              # Claude Agent SDK session/options/permissions/OAuth
+  codex/               # Codex SDK session/options, local MCP host, ChatGPT device-auth
   memory/              # Long-term memory (Qdrant + Voyage)
   processor.ts         # Message → execution orchestration
   queue.ts             # Command queue (persisted, per-target)
@@ -56,7 +59,7 @@ install.sh             # Full installer (Node, repo, build, env, cron, systemd)
 - Events: `executionManager` extends EventEmitter (output, complete, error, cancel)
 - No comments unless critical. Code must be self-explanatory
 - Production-ready only. No mocks, no hardcoded values
-- All executions run on the Claude Agent SDK using the Opus model alias (`opus`); the resolved model id comes from the SDK `system/init` message
+- The active LLM profile (`settingsManager.getActiveProfile().runtime`) picks the runtime: `claude` (Agent SDK; resolved model id comes from `system/init`) or `codex` (Codex SDK; GPT always via ChatGPT subscription, never API key). Agents run isolated; only the orchestrator on the claude runtime dispatches subagents
 - Agent instructions live in AGENTS.md (CLAUDE.md is legacy, auto-migrated on startup)
 - NUNCA reiniciar o serviço local do claudemar (systemctl restart claudemar). O deploy e restart são feitos externamente
 

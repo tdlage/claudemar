@@ -14,8 +14,9 @@ function anthropicProfile(projectModel?: string): LlmProfile {
   return {
     id: "anthropic",
     label: "Anthropic",
+    runtime: "claude",
     baseUrl: "",
-    tokenEnv: "BIFROST_VIRTUAL_KEY",
+    tokenEnv: "",
     opusModel: "",
     sonnetModel: "",
     haikuModel: "",
@@ -28,6 +29,7 @@ function anthropicProfile(projectModel?: string): LlmProfile {
 function kimiProfile(projectModel?: string): LlmProfile {
   return {
     id: "kimi",
+    runtime: "claude",
     label: "Kimi",
     baseUrl: "https://api.kimi.com/coding",
     tokenEnv: "KIMI_API_KEY",
@@ -106,7 +108,7 @@ test("resolveExecutionModel: preferência legada opus é normalizada para Opus 5
   );
 });
 
-test("resolveExecutionModel: provider gateway ignora a preferência do projeto e usa o modelo do perfil", () => {
+test("resolveExecutionModel: provider não-nativo ignora a preferência do projeto e usa o modelo do perfil", () => {
   assert.equal(
     resolveExecutionModel({
       targetType: "project",
@@ -145,5 +147,32 @@ test("resolveExecutionModel: override explícito sempre prevalece", () => {
       projectModel: "claude-fable-5-1",
     }),
     "claude-sonnet-4-6",
+  );
+});
+
+function codexProfile(): LlmProfile {
+  return {
+    id: "codex",
+    label: "OpenAI (ChatGPT)",
+    runtime: "codex",
+    baseUrl: "",
+    tokenEnv: "",
+    opusModel: "gpt-5.6-sol",
+    sonnetModel: "gpt-5.6-sol",
+    haikuModel: "gpt-5.6-luna",
+    timeoutMs: "",
+    autoCompactWindow: "",
+    extraEnv: "",
+  };
+}
+
+test("resolveExecutionModel: runtime codex ignora a preferência do projeto e usa o modelo principal do perfil", () => {
+  assert.equal(
+    resolveExecutionModel({
+      targetType: "project",
+      activeProfile: codexProfile(),
+      projectModel: "claude-opus-5",
+    }),
+    "gpt-5.6-sol",
   );
 });

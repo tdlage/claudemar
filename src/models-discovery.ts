@@ -1,4 +1,4 @@
-import type { LlmProfile } from "./providers/llm.js";
+import { isNativeAnthropic, type LlmProfile } from "./providers/llm.js";
 
 export const DEFAULT_OPUS_DISPLAY = "Opus 5";
 
@@ -52,7 +52,7 @@ export function resolveExecutionModel(params: {
   projectModel: string;
 }): string {
   if (params.explicitModel) return normalizeModel(params.explicitModel);
-  if (params.targetType === "project" && params.activeProfile.id === "anthropic") {
+  if (params.targetType === "project" && isNativeAnthropic(params.activeProfile)) {
     return normalizeModel(params.projectModel);
   }
   return params.activeProfile.opusModel.trim() || DEFAULT_PROJECT_MODEL;

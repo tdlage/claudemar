@@ -23,9 +23,7 @@ import { runDataMigrations } from "./data-migration.js";
 import { initTrackerExecutionBridge } from "./tracker-execution-bridge.js";
 import { initPipelineRunner } from "./pipeline-runner.js";
 import { initClaudeAuthWatch } from "./claude/claude-auth-state.js";
-import { initTeams } from "./agents/teams-manager.js";
 import { ensureMemoryReady } from "./memory/session-memory.js";
-import { gatewayManager } from "./providers/gateway.js";
 import { brainInit, brainShutdown } from "./brain/index.js";
 import { closePool } from "./database.js";
 
@@ -64,9 +62,6 @@ await runDataMigrations().catch((err) => {
   console.error("[data-migration] Migration failed:", err.message);
 });
 await usersManager.initialize();
-await initTeams().catch((err) => {
-  console.error("[teams] Initialization failed:", err.message);
-});
 await sessionNamesManager.initialize();
 await commandQueue.initialize();
 await runProcessManager.initialize();
@@ -79,9 +74,6 @@ await initPipelineRunner().catch((err) => {
 await secretsManager.syncAllToFiles();
 await ensureMemoryReady().catch((err) => {
   console.error("[memory] Initialization failed:", err instanceof Error ? err.message : String(err));
-});
-await gatewayManager.start().catch((err) => {
-  console.error("[gateway] Initialization failed:", err instanceof Error ? err.message : String(err));
 });
 void brainInit().catch((err) => {
   console.error("[brain] Initialization failed:", err instanceof Error ? err.message : String(err));

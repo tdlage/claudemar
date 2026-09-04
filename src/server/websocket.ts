@@ -1,10 +1,8 @@
 import type { Server as SocketServer, Socket } from "socket.io";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { executionManager, type ExecutionInfo } from "../execution-manager.js";
-import type { MessageBlock, PermissionDecision } from "../claude/session.js";
-import type { Effort } from "../claude/options.js";
+import type { Effort, MessageBlock, PermissionDecision } from "../runtime/types.js";
 import { commandQueue } from "../queue.js";
-import { teamEvents } from "../agents/teams-manager.js";
 import { runProcessManager } from "../run-process-manager.js";
 import { resolveContext, hasProjectTab, type RequestContext } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
@@ -311,12 +309,6 @@ export function setupWebSocket(io: SocketServer): void {
     const info = executionManager.getExecution(id);
     if (!info) return;
     emitActivity(id, info, classifyTool(name));
-    if ((name === "Agent" || name === "Task") && info.targetType === "agent") {
-      const to = typeof input?.subagent_type === "string" ? input.subagent_type : null;
-      if (to && to !== info.targetName) {
-        emitToExecutions("agent:handoff", info, { from: info.targetName, to });
-      }
-    }
   });
 
   executionManager.on("permission", (id, reqId, toolName, input) => {
@@ -331,13 +323,6 @@ export function setupWebSocket(io: SocketServer): void {
     const info = executionManager.getExecution(id);
     if (info && info.targetType === "agent") {
       emitToExecutions("agent:permission:resolved", info, { id, targetName: info.targetName, reqId });
-    }
-  });
-
-  executionManager.on("subagent-done", (id, to) => {
-    const info = executionManager.getExecution(id);
-    if (info && info.targetType === "agent") {
-      emitToExecutions("agent:handoff:done", info, { from: info.targetName, to });
     }
   });
 
@@ -381,15 +366,6 @@ export function setupWebSocket(io: SocketServer): void {
   executionManager.on("question:answered", (id, info) => {
     emitToExecutions("execution:question:answered", info, { id, info });
     io.to(`exec:${id}`).emit("execution:question:answered", { id, info });
-  });
-
-  teamEvents.on("changed", () => {
-    io.to("executions").emit("team:updated", {});
-  });
-
-  teamEvents.on("dispatch", (payload: { teamId: string; agent: string; execId: string }) => {
-    const info = executionManager.getExecution(payload.execId);
-    if (info) emitToExecutions("squad:dispatch", info, payload);
   });
 
   commandQueue.on("queue:add", (item) => {

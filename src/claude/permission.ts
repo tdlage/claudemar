@@ -37,12 +37,11 @@ export function autoApprovesTool(toolName: string, bypass: boolean, mode: Permis
 export interface PermissionContext {
   bypass: boolean;
   currentPermissionMode: PermissionMode;
-  isSubagentAllowed: ((subagentType: string) => boolean) | null;
 }
 
 // Decisão síncrona de permissão. Retorna o resultado quando a chamada pode ser resolvida na hora
-// (auto-aprovação em bypass, AskUserQuestion sem humano, subagente fora do time); retorna null
-// quando é preciso pedir aprovação a um humano.
+// (auto-aprovação em bypass, AskUserQuestion sem humano); retorna null quando é preciso pedir
+// aprovação a um humano.
 export function decideImmediatePermission(
   toolName: string,
   input: Record<string, unknown>,
@@ -50,12 +49,6 @@ export function decideImmediatePermission(
 ): PermissionResult | null {
   if (toolName === "AskUserQuestion") {
     return { behavior: "deny", message: "Pergunta encaminhada ao usuário." };
-  }
-  if ((toolName === "Agent" || toolName === "Task") && ctx.isSubagentAllowed) {
-    const target = typeof input.subagent_type === "string" ? input.subagent_type : undefined;
-    if (target && !ctx.isSubagentAllowed(target)) {
-      return { behavior: "deny", message: `O agente "${target}" não está no seu time e não pode ser acionado.` };
-    }
   }
   if (autoApprovesTool(toolName, ctx.bypass, ctx.currentPermissionMode)) {
     return { behavior: "allow", updatedInput: input };

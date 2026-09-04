@@ -3,7 +3,6 @@ import { config } from "./config.js";
 import { executionManager, type ExecutionInfo } from "./execution-manager.js";
 import { getScheduleById } from "./agents/scheduler.js";
 import { getAgentPaths } from "./agents/manager.js";
-import { initTeams } from "./agents/teams-manager.js";
 import { closePool } from "./database.js";
 
 async function main(): Promise<number> {
@@ -24,8 +23,6 @@ async function main(): Promise<number> {
     console.error(`[schedule-run] agente "${schedule.agent}" não encontrado`);
     return 1;
   }
-
-  await initTeams();
 
   const startedAt = new Date().toISOString();
   console.log(`[schedule-run] ${startedAt} — executando agendamento ${id} (agente "${schedule.agent}")`);

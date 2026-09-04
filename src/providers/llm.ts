@@ -1,13 +1,14 @@
-import { config } from "../config.js";
+export type AgentRuntime = "claude" | "codex";
 
-// Cada perfil parametriza por completo o proxy/gateway usado nas execuções do Agent
-// SDK. baseUrl vazio = Anthropic nativo (mantém a subscription do Claude). Com baseUrl
-// preenchido, as requisições são roteadas para o gateway (Bifrost) ou para qualquer
-// endpoint compatível com a API da Anthropic, escolhendo o provedor pelo nome do modelo
-// (provider/model, ex.: "openai/gpt-5.5", "sakana/fugu-ultra").
+// Cada perfil escolhe o runtime das execuções e o parametriza por completo.
+// - claude: Claude Agent SDK. baseUrl vazio = Anthropic nativo (subscription do Claude);
+//   preenchido = qualquer endpoint compatível com a API da Anthropic (kimi, z.ai, ...).
+// - codex: Codex SDK. baseUrl vazio = assinatura do ChatGPT (login do Codex, nunca API key);
+//   preenchido = provedor OpenAI-compatible customizado autenticado por tokenEnv.
 export interface LlmProfile {
   id: string;
   label: string;
+  runtime: AgentRuntime;
   baseUrl: string;
   tokenEnv: string;
   opusModel: string;
@@ -18,8 +19,7 @@ export interface LlmProfile {
   extraEnv: string;
 }
 
-export const GATEWAY_TOKEN_ENV = "BIFROST_VIRTUAL_KEY";
-const GATEWAY_TIMEOUT_MS = "3000000";
+const DEFAULT_TIMEOUT_MS = "3000000";
 
 const KIMI_BASE_URL = "https://api.kimi.com/coding";
 // A documentação do Kimi Code diz que `k3[1m]` é o seletor usado pelo Claude Code
@@ -28,107 +28,74 @@ const KIMI_BASE_URL = "https://api.kimi.com/coding";
 // interpretado pelo upstream como um modelo de 256K e retorna 400 quando o request
 // passa de 262144 tokens.
 const KIMI_MODEL = "k3";
-
-// Endpoint usado pela primeira versão do perfil kimi. Instalações que já semearam esse
-// perfil têm o valor antigo persistido em settings.json; a chave do Kimi Code (gerada em
-// kimi.com/code) não autentica na Moonshot, então migramos o default intocado.
 const KIMI_LEGACY_BASE_URL = "https://api.moonshot.ai/anthropic";
 
 // GLM Coding Plan: a quota da assinatura só vale no endpoint de coding Anthropic-compatible.
-// Roteado pelo Bifrost (endpoint geral api/paas/v4) o upstream responde "Insufficient
-// balance", então o perfil zai conecta direto, como o kimi. O sufixo `[1m]` que a z.ai
-// documenta para o Claude Code retorna 400 em chamadas diretas à API — usar o nome bare.
+// O sufixo `[1m]` que a z.ai documenta para o Claude Code retorna 400 em chamadas diretas.
 const ZAI_BASE_URL = "https://api.z.ai/api/anthropic";
 const ZAI_MODEL = "glm-5.3";
 const ZAI_HAIKU_MODEL = "glm-5.3-flash";
 
-// A quota do ChatGPT (Plus/Pro) não é acessível por API key: só o backend do Codex a
-// aceita, com OAuth do ChatGPT e identidade de cliente oficial — fluxo que o Bifrost
-// não faz (maximhq/bifrost#4459). O perfil aponta direto para o proxy local claude-codex
-// (fcakyon/claude-code-with-codex), que traduz Messages→Responses e injeta o login do
-// Codex CLI (~/.codex/auth.json). O proxy ignora o token de cliente nas rotas gpt-*.
-// Janela gerida a 200K: o teto real do plano é 372K, mas o proxy compacta contra 200K.
-const CODEX_PROXY_URL = "http://127.0.0.1:18765";
 const CODEX_MODEL = "gpt-5.6-sol";
-const CODEX_HAIKU_MODEL = "gpt-5.6-luna";
+const CODEX_LIGHT_MODEL = "gpt-5.6-luna";
 
-// Token enviado ao gateway quando nenhuma virtual key está configurada. O Bifrost sem
-// governança ignora a credencial do cliente e usa as chaves dos upstreams; o placeholder
-// evita vazar o token da subscription do Claude para o gateway.
-const GATEWAY_PLACEHOLDER_TOKEN = "bifrost";
+// Valores persistidos por versões anteriores: gateway Bifrost (removido) e o proxy local
+// claude-codex que o perfil codex usava antes do runtime nativo do Codex SDK.
+const LEGACY_GATEWAY_URLS = new Set(["http://localhost:8080/anthropic", "http://bifrost:8080/anthropic"]);
+const LEGACY_GATEWAY_PROFILE_IDS = new Set(["openai", "sakana"]);
+const CODEX_LEGACY_PROXY_URL = "http://127.0.0.1:18765";
 
 export function defaultLlmProfiles(): LlmProfile[] {
-  const baseUrl = config.gatewayUrl;
   return [
     {
       id: "anthropic",
       label: "Anthropic (Claude)",
+      runtime: "claude",
       baseUrl: "",
-      tokenEnv: GATEWAY_TOKEN_ENV,
+      tokenEnv: "",
       opusModel: "",
       sonnetModel: "",
       haikuModel: "",
-      timeoutMs: GATEWAY_TIMEOUT_MS,
+      timeoutMs: DEFAULT_TIMEOUT_MS,
       autoCompactWindow: "",
       extraEnv: "",
     },
     {
       id: "kimi",
       label: "Kimi (K3)",
+      runtime: "claude",
       baseUrl: KIMI_BASE_URL,
       tokenEnv: "KIMI_API_KEY",
       opusModel: KIMI_MODEL,
       sonnetModel: KIMI_MODEL,
       haikuModel: KIMI_MODEL,
-      timeoutMs: GATEWAY_TIMEOUT_MS,
+      timeoutMs: DEFAULT_TIMEOUT_MS,
       autoCompactWindow: "1048576",
       extraEnv: `CLAUDE_CODE_SUBAGENT_MODEL=${KIMI_MODEL}\nENABLE_TOOL_SEARCH=false`,
     },
     {
       id: "zai",
       label: "z.ai (GLM)",
+      runtime: "claude",
       baseUrl: ZAI_BASE_URL,
       tokenEnv: "ZAI_API_KEY",
       opusModel: ZAI_MODEL,
       sonnetModel: ZAI_MODEL,
       haikuModel: ZAI_HAIKU_MODEL,
-      timeoutMs: GATEWAY_TIMEOUT_MS,
+      timeoutMs: DEFAULT_TIMEOUT_MS,
       autoCompactWindow: "1000000",
       extraEnv: "",
     },
     {
-      id: "openai",
-      label: "OpenAI (GPT)",
-      baseUrl,
-      tokenEnv: GATEWAY_TOKEN_ENV,
-      opusModel: "openai/gpt-5.5",
-      sonnetModel: "openai/gpt-5.4-mini",
-      haikuModel: "openai/gpt-5.4-nano",
-      timeoutMs: GATEWAY_TIMEOUT_MS,
-      autoCompactWindow: "",
-      extraEnv: "",
-    },
-    {
       id: "codex",
-      label: "OpenAI Codex (ChatGPT)",
-      baseUrl: CODEX_PROXY_URL,
+      label: "OpenAI (ChatGPT)",
+      runtime: "codex",
+      baseUrl: "",
       tokenEnv: "",
       opusModel: CODEX_MODEL,
       sonnetModel: CODEX_MODEL,
-      haikuModel: CODEX_HAIKU_MODEL,
-      timeoutMs: GATEWAY_TIMEOUT_MS,
-      autoCompactWindow: "200000",
-      extraEnv: `CLAUDE_CODE_SUBAGENT_MODEL=${CODEX_HAIKU_MODEL}\nCLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`,
-    },
-    {
-      id: "sakana",
-      label: "Sakana (Fugu)",
-      baseUrl,
-      tokenEnv: GATEWAY_TOKEN_ENV,
-      opusModel: "sakana/fugu-ultra",
-      sonnetModel: "sakana/fugu",
-      haikuModel: "sakana/fugu",
-      timeoutMs: GATEWAY_TIMEOUT_MS,
+      haikuModel: CODEX_LIGHT_MODEL,
+      timeoutMs: "",
       autoCompactWindow: "",
       extraEnv: "",
     },
@@ -147,6 +114,7 @@ export function sanitizeProfile(raw: unknown, fallbackId: string): LlmProfile | 
   return {
     id,
     label,
+    runtime: r.runtime === "codex" ? "codex" : "claude",
     baseUrl: str(r.baseUrl),
     tokenEnv: str(r.tokenEnv),
     opusModel: str(r.opusModel),
@@ -156,6 +124,10 @@ export function sanitizeProfile(raw: unknown, fallbackId: string): LlmProfile | 
     autoCompactWindow: str(r.autoCompactWindow),
     extraEnv: str(r.extraEnv),
   };
+}
+
+export function isNativeAnthropic(profile: LlmProfile): boolean {
+  return profile.runtime === "claude" && !profile.baseUrl.trim();
 }
 
 const EXTRA_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -174,24 +146,32 @@ export function parseExtraEnv(extraEnv: string): Array<[string, string]> {
   return entries;
 }
 
-// Corrige perfis default cujos valores mudaram após já terem sido semeados. Só reescreve
-// um perfil quando o baseUrl ainda é o legado (default intocado), preservando qualquer
-// customização feita pelo usuário: kimi no endpoint antigo da Moonshot e zai ainda
-// roteado pelo gateway (incompatível com a quota do GLM Coding Plan).
+// Corrige perfis default cujos valores mudaram após já terem sido semeados e descarta os
+// que dependiam do gateway removido. Só reescreve um perfil quando o baseUrl ainda é o
+// legado (default intocado), preservando qualquer customização feita pelo usuário.
 export function migrateLegacyProfiles(profiles: LlmProfile[]): { profiles: LlmProfile[]; changed: boolean } {
   const defaults = new Map(defaultLlmProfiles().map((p) => [p.id, p]));
   let changed = false;
-  const migrated = profiles.map((p) => {
-    const def = defaults.get(p.id);
-    if (!def) return p;
+  const migrated: LlmProfile[] = [];
+  for (const p of profiles) {
     const baseUrl = p.baseUrl.trim();
+    if (LEGACY_GATEWAY_PROFILE_IDS.has(p.id) && LEGACY_GATEWAY_URLS.has(baseUrl)) {
+      changed = true;
+      continue;
+    }
+    const def = defaults.get(p.id);
     const legacy =
-      (p.id === "kimi" && baseUrl === KIMI_LEGACY_BASE_URL) ||
-      (p.id === "zai" && baseUrl === config.gatewayUrl.trim());
-    if (!legacy) return p;
+      def !== undefined &&
+      ((p.id === "kimi" && baseUrl === KIMI_LEGACY_BASE_URL) ||
+        (p.id === "zai" && LEGACY_GATEWAY_URLS.has(baseUrl)) ||
+        (p.id === "codex" && baseUrl === CODEX_LEGACY_PROXY_URL));
+    if (!legacy) {
+      migrated.push(p);
+      continue;
+    }
     changed = true;
-    return { ...def, label: p.label || def.label };
-  });
+    migrated.push({ ...def, label: p.label || def.label });
+  }
   return { profiles: migrated, changed };
 }
 
@@ -221,10 +201,9 @@ export function seedMissingDefaultProfiles(profiles: LlmProfile[], seededIds: st
   return { profiles: merged, seededIds: [...seeded], changed };
 }
 
-// Aplica o perfil sobre uma cópia do ambiente do processo. Sem baseUrl mantém o
-// comportamento nativo (subscription do Claude). Com baseUrl, aponta o Agent SDK para o
-// gateway e fixa os modelos por alias (opus/sonnet/haiku → provider/model). O extraEnv
-// vale para qualquer perfil e é aplicado por último, podendo sobrescrever as demais vars.
+// Ambiente do runtime claude. Sem baseUrl mantém o comportamento nativo (subscription do
+// Claude). Com baseUrl, aponta o Agent SDK para o endpoint e fixa os modelos por alias.
+// O extraEnv vale para qualquer perfil e é aplicado por último.
 export function applyProfile(baseEnv: NodeJS.ProcessEnv, profile: LlmProfile): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...baseEnv };
   const baseUrl = profile.baseUrl.trim();
@@ -232,7 +211,7 @@ export function applyProfile(baseEnv: NodeJS.ProcessEnv, profile: LlmProfile): N
   if (baseUrl) {
     env.ANTHROPIC_BASE_URL = baseUrl;
     const token = profile.tokenEnv ? (process.env[profile.tokenEnv] ?? "").trim() : "";
-    env.ANTHROPIC_AUTH_TOKEN = token || GATEWAY_PLACEHOLDER_TOKEN;
+    if (token) env.ANTHROPIC_AUTH_TOKEN = token;
     delete env.ANTHROPIC_API_KEY;
 
     if (profile.timeoutMs.trim()) env.API_TIMEOUT_MS = profile.timeoutMs.trim();

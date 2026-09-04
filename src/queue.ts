@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { query, execute, toMySQLDatetime } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type { ExecutionSource, ExecutionTargetType } from "./execution-manager.js";
-import type { Effort } from "./claude/options.js";
+import type { Effort } from "./runtime/types.js";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 
 export interface QueueItem {

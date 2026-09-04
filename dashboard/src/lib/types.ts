@@ -237,9 +237,12 @@ export type MeResponse =
   | { role: "admin" }
   | { role: "user"; id: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[]; projectTabs: Record<string, ProjectTabKey[]> };
 
+export type AgentRuntime = "claude" | "codex";
+
 export interface LlmProfile {
   id: string;
   label: string;
+  runtime: AgentRuntime;
   baseUrl: string;
   tokenEnv: string;
   opusModel: string;
@@ -257,13 +260,29 @@ export interface RuntimeSettings {
   activeProfileId: string;
 }
 
-export interface GatewayStatus {
-  enabled: boolean;
-  containerRunning: boolean;
-  reachable: boolean;
+export interface CodexAuthStatus {
+  loggedIn: boolean;
+  method: "chatgpt" | "api" | "none";
+  detail: string;
+  checkedAt: number;
+  authError: { at: number; message: string } | null;
+}
+
+export interface CodexLoginState {
+  status: "idle" | "pending" | "done" | "error";
   url: string;
-  lastError: string;
-  lastCheckedAt: string;
+  code: string;
+  startedAt: number;
+  error: string;
+}
+
+export interface ProviderInfo {
+  provider: string;
+  label: string;
+  runtime: AgentRuntime;
+  model: string;
+  nativeAnthropic: boolean;
+  configured: boolean;
 }
 
 export interface EnvKeyStatus {
@@ -536,34 +555,9 @@ export interface TrackerItemPlan {
   updatedAt: string;
 }
 
-export interface Team {
-  id: string;
-  name: string;
-  description: string | null;
-  color: string | null;
-  emoji: string | null;
-  createdAt: string;
-  memberCount: number;
-}
-
-export interface TeamMember {
-  agentName: string;
-  role: string;
-}
-
 export interface AgentAppearance {
   color: string | null;
   emoji: string | null;
-}
-
-export interface TeamWithMembers extends Team {
-  members: TeamMember[];
-}
-
-export interface TeamsOverview {
-  teams: TeamWithMembers[];
-  loose: string[];
-  appearances: Record<string, AgentAppearance>;
 }
 
 // ── Pipeline ──

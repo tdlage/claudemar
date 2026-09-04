@@ -1,13 +1,7 @@
 import { useEffect, useState } from "react";
 import { Bot } from "lucide-react";
 import { api } from "../../lib/api";
-
-interface ProviderInfo {
-  provider: string;
-  label: string;
-  model: string;
-  configured: boolean;
-}
+import type { ProviderInfo } from "../../lib/types";
 
 export function ProviderBadge() {
   const [info, setInfo] = useState<ProviderInfo | null>(null);
@@ -31,7 +25,7 @@ export function ProviderBadge() {
 
   const needsKey = !info.configured;
   const color = needsKey ? "text-red-400" : "text-text-muted";
-  const title = `Provedor LLM: ${info.label} · ${info.model}${needsKey ? " (sem API key)" : ""}`;
+  const title = `Provedor LLM: ${info.label} · ${info.model}${needsKey ? (info.runtime === "codex" ? " (sem login do ChatGPT)" : " (sem credencial)") : ""}`;
 
   return (
     <span className={`flex items-center gap-1 text-xs font-mono ${color}`} title={title}>

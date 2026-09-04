@@ -27,7 +27,7 @@ export function NewCardModal({ pipelineId, repos, onClose, onCreated }: { pipeli
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<{ provider: string }>("/system/provider").then((d) => setModelSelectable(d.provider === "anthropic")).catch(() => {});
+    api.get<{ nativeAnthropic: boolean }>("/system/provider").then((d) => setModelSelectable(d.nativeAnthropic)).catch(() => {});
   }, []);
 
   const toggleRepo = (r: string) => setSelected((prev) => prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]);

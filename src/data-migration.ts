@@ -143,47 +143,17 @@ const TABLE_DEFINITIONS: string[] = [
     PRIMARY KEY (agent_name, filename)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
-  `CREATE TABLE IF NOT EXISTS teams (
-    id CHAR(36) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE,
-    description TEXT,
-    color VARCHAR(16) DEFAULT NULL,
-    emoji VARCHAR(16) DEFAULT NULL,
-    created_at DATETIME NOT NULL
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-
-  `CREATE TABLE IF NOT EXISTS team_members (
-    agent_name VARCHAR(255) PRIMARY KEY,
-    team_id CHAR(36) NOT NULL,
-    role VARCHAR(16) NOT NULL DEFAULT 'member',
-    joined_at DATETIME NOT NULL,
-    INDEX idx_team (team_id),
-    CONSTRAINT fk_tm_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-
   `CREATE TABLE IF NOT EXISTS agent_appearance (
     agent_name VARCHAR(255) PRIMARY KEY,
     color VARCHAR(16) DEFAULT NULL,
     emoji VARCHAR(16) DEFAULT NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
-  `CREATE TABLE IF NOT EXISTS squad_mcps (
-    id CHAR(36) PRIMARY KEY,
-    team_id CHAR(36) NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    config JSON NOT NULL,
-    created_at DATETIME NOT NULL,
-    UNIQUE KEY uk_team_name (team_id, name),
-    INDEX idx_team (team_id),
-    CONSTRAINT fk_smcp_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `DROP TABLE IF EXISTS squad_skills`,
+  `DROP TABLE IF EXISTS squad_mcps`,
+  `DROP TABLE IF EXISTS team_members`,
+  `DROP TABLE IF EXISTS teams`,
 
-  `CREATE TABLE IF NOT EXISTS squad_skills (
-    team_id CHAR(36) NOT NULL,
-    skill_name VARCHAR(255) NOT NULL,
-    PRIMARY KEY (team_id, skill_name),
-    CONSTRAINT fk_sskill_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
 interface HistoryEntry {
@@ -214,7 +184,6 @@ function readJsonFile(path: string): unknown | null {
     return null;
   }
 }
-
 
 function backupFile(path: string): void {
   if (existsSync(path)) {

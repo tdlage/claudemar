@@ -1,12 +1,12 @@
-import type { AgentDefinition, CanUseTool, McpServerConfig, Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { createMemoryMcpServer, memoryEnabled, type MemoryTarget } from "../memory/session-memory.js";
-import { BRAIN_SYSTEM_APPEND, createBrainMcpServer } from "../brain/mcp.js";
-import { createSchedulerMcpServer } from "../agents/scheduler.js";
+import type { CanUseTool, Options } from "@anthropic-ai/claude-agent-sdk";
 import { settingsManager } from "../settings-manager.js";
 import { applyProfile } from "../providers/llm.js";
 import { DEFAULT_PROJECT_MODEL, normalizeModel } from "../models-discovery.js";
+import { buildSystemAppend } from "../runtime/system-append.js";
+import { collectSessionMcpServers } from "../runtime/mcp-servers.js";
+import { resolveInitialPermissionMode } from "../runtime/permission-mode.js";
+import type { AgentSessionInit, Effort } from "../runtime/types.js";
 
-export type Effort = "low" | "medium" | "high" | "extra" | "max" | "ultracode";
 export type SdkEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 export type SdkFlagEffortLevel = "low" | "medium" | "high" | "xhigh";
 
@@ -18,8 +18,6 @@ const EFFORT_SDK: Record<Effort, SdkEffortLevel> = {
   max: "max",
   ultracode: "xhigh",
 };
-
-export const EFFORTS = Object.keys(EFFORT_SDK) as Effort[];
 
 export function effortToSdk(effort: Effort): SdkEffortLevel {
   return EFFORT_SDK[effort];
@@ -36,55 +34,16 @@ export function isUltracode(effort: Effort | undefined): boolean {
   return effort === "ultracode";
 }
 
-export interface BuildOptionsParams {
-  cwd: string;
-  target: MemoryTarget;
+export interface BuildOptionsParams extends AgentSessionInit {
   abortController: AbortController;
   canUseTool: CanUseTool;
-  model?: string;
-  agentName?: string;
-  planMode?: boolean;
-  permissionMode?: PermissionMode;
-  bypassPermissions?: boolean;
-  resumeSessionId?: string | null;
-  forkSession?: boolean;
-  effort?: Effort;
-  systemAppend?: string;
-  subagents?: Record<string, AgentDefinition>;
-  schedulerMode?: boolean;
-  extraMcpServers?: Record<string, McpServerConfig>;
-  squadSkills?: string[];
-  stderr?: (data: string) => void;
-}
-
-function buildSystemAppend(params: BuildOptionsParams): string {
-  const parts: string[] = [];
-  parts.push(
-    `Você está confinado ao diretório ${params.cwd}. NÃO leia, liste ou acesse arquivos fora deste diretório ou de seus subdiretórios, e nunca navegue para diretórios pai.`,
-  );
-  if (memoryEnabled()) {
-    parts.push(
-      "Você tem memória de longo prazo de sessões ANTERIORES (fora desta conversa), guardada por projeto/agente. Esta sessão NÃO injeta esse histórico automaticamente: quando o pedido depender de algo discutido ou decidido antes que não esteja nesta conversa, use a tool mcp__memory__search_memory para buscar nas sessões anteriores deste mesmo alvo, e mcp__memory__memory_history para ver como um fato específico (sourceKey) evoluiu ao longo do tempo. Não invente histórico: se precisar, consulte a memória.",
-    );
-  }
-  if (params.target.targetType === "orchestrator") {
-    parts.push(BRAIN_SYSTEM_APPEND);
-  }
-  if (params.systemAppend) parts.push(params.systemAppend);
-  return parts.join("\n\n");
-}
-
-function resolvePermissionMode(params: BuildOptionsParams): PermissionMode {
-  if (params.planMode) return "plan";
-  if (params.permissionMode) return params.permissionMode;
-  return params.bypassPermissions ? "bypassPermissions" : "default";
 }
 
 export function buildOptions(params: BuildOptionsParams): Options {
   const env = applyProfile(process.env, settingsManager.getActiveProfile());
   delete env.CLAUDECODE;
 
-  const permissionMode = resolvePermissionMode(params);
+  const permissionMode = resolveInitialPermissionMode(params);
   const effort = params.effort ?? "high";
 
   const options: Options = {
@@ -115,26 +74,13 @@ export function buildOptions(params: BuildOptionsParams): Options {
     if (params.forkSession) options.forkSession = true;
   }
 
-  const mcpServers: NonNullable<Options["mcpServers"]> = {};
-  if (params.extraMcpServers) {
-    for (const [name, cfg] of Object.entries(params.extraMcpServers)) mcpServers[name] = cfg;
-  }
-  const memoryServer = createMemoryMcpServer(params.target);
-  if (memoryServer) {
-    mcpServers.memory = memoryServer;
-  }
-  if (params.target.targetType === "orchestrator") {
-    mcpServers.brain = createBrainMcpServer();
-  }
-  if (params.schedulerMode && params.target.targetType === "agent") {
-    mcpServers.scheduler = createSchedulerMcpServer(params.target.targetName);
-  }
+  const mcpServers = collectSessionMcpServers(params);
   if (Object.keys(mcpServers).length > 0) {
     options.mcpServers = mcpServers;
   }
 
-  if (params.squadSkills && params.squadSkills.length > 0) {
-    options.skills = params.squadSkills;
+  if (params.skills && params.skills.length > 0) {
+    options.skills = params.skills;
   }
 
   if (params.subagents && Object.keys(params.subagents).length > 0) {

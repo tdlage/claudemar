@@ -1,60 +1,11 @@
-import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { query, type Query, type SDKMessage, type SDKUserMessage, type PermissionMode, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentResult, AskQuestion, PermissionDenial } from "../providers/types.js";
-import { ingestTurn, type MemoryTarget } from "../memory/session-memory.js";
-import { buildOptions, effortToFlagLevel, isUltracode, type BuildOptionsParams, type Effort } from "./options.js";
+import { buildOptions, effortToFlagLevel, isUltracode } from "./options.js";
 import { decideImmediatePermission } from "./permission.js";
-import { DEFAULT_PROJECT_MODEL } from "../models-discovery.js";
-
-export type PermissionDecision = "allow" | "always" | "deny";
-
-export interface MessageBlock {
-  type: "text" | "image";
-  text?: string;
-  source?: { type: "base64"; media_type: string; data: string };
-}
-
-export interface PendingPermission {
-  reqId: string;
-  toolName: string;
-  input: Record<string, unknown>;
-}
-
-export interface UsageInfo {
-  costUsd: number;
-  tokens: number;
-  contextPct: number;
-}
-
-export type SubagentTaskStatus = "running" | "completed" | "failed" | "stopped" | "killed";
-
-export interface TaskEvent {
-  phase: "started" | "progress" | "updated" | "done";
-  taskId: string;
-  description?: string;
-  subagentType?: string;
-  taskType?: string;
-  workflowName?: string;
-  status?: SubagentTaskStatus;
-  tokens?: number;
-  toolUses?: number;
-  durationMs?: number;
-  lastToolName?: string;
-  summary?: string;
-  error?: string;
-}
-
-// Janela de contexto padrão (modelos Claude atuais) usada como fallback quando o runner não
-// expõe o máximo do modelo (ex.: via gateway) — sobrescrevível por CONTEXT_WINDOW_TOKENS.
-const DEFAULT_CONTEXT_WINDOW = Number(process.env.CONTEXT_WINDOW_TOKENS) || 200000;
-
-export interface ClaudeSessionInit extends Omit<BuildOptionsParams, "canUseTool" | "abortController"> {
-  permissionTimeoutMs?: number;
-  inactivityTimeoutMs?: number;
-  pendingTasksGraceMs?: number;
-  isSubagentAllowed?: (subagentType: string) => boolean;
-}
+import { resolveInitialPermissionMode } from "../runtime/permission-mode.js";
+import { BaseAgentSession, DEFAULT_CONTEXT_WINDOW, blocksToText, contextPercent } from "../runtime/base-session.js";
+import type { AgentSessionInit, Effort, MessageBlock, PendingPermission, PermissionDecision, TaskEvent, UsageInfo } from "../runtime/types.js";
 
 interface PushableQueue {
   iterable: AsyncIterable<SDKUserMessage>;
@@ -108,16 +59,7 @@ function createPushableQueue(): PushableQueue {
   };
 }
 
-function blocksToText(blocksOrText: string | MessageBlock[]): string {
-  if (typeof blocksOrText === "string") return blocksOrText;
-  return blocksOrText.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
-}
-
-export class ClaudeSession extends EventEmitter {
-  readonly target: MemoryTarget;
-  readonly planMode: boolean;
-  readonly agentName?: string;
-  readonly schedulerMode: boolean;
+export class ClaudeSession extends BaseAgentSession {
   private queue = createPushableQueue();
   private abortController = new AbortController();
   private runner: Query | null = null;
@@ -125,37 +67,16 @@ export class ClaudeSession extends EventEmitter {
   private permissionTimeoutMs: number;
   private bypass: boolean;
   private currentPermissionMode: PermissionMode;
-  private isSubagentAllowed: ((subagentType: string) => boolean) | null;
-  private sessionId = "";
-  private model = "";
-  private readonly requestedModel: string;
-  private assistantBuffer = "";
-  private agentToolCalls = new Map<string, string>();
   private activeTasks = new Map<string, { description: string; subagentType?: string }>();
   private pendingResult: AgentResult | null = null;
-  private pendingUserText: string | null = null;
-  private result: AgentResult | null = null;
-  private settled = false;
-  private dead = false;
-  private inactivityTimeoutMs: number;
-  private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
-  private inactivityExpired = false;
   private pendingTasksGraceMs: number;
   private pendingTasksTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(init: ClaudeSessionInit) {
-    super();
-    this.setMaxListeners(50);
-    this.target = init.target;
-    this.planMode = Boolean(init.planMode);
-    this.agentName = init.agentName;
-    this.schedulerMode = Boolean(init.schedulerMode);
+  constructor(init: AgentSessionInit) {
+    super(init);
     this.permissionTimeoutMs = init.permissionTimeoutMs ?? 0;
     this.bypass = Boolean(init.bypassPermissions);
-    this.currentPermissionMode = init.planMode ? "plan" : init.permissionMode ?? (this.bypass ? "bypassPermissions" : "default");
-    this.isSubagentAllowed = init.isSubagentAllowed ?? null;
-    this.requestedModel = init.model ?? DEFAULT_PROJECT_MODEL;
-    this.inactivityTimeoutMs = init.inactivityTimeoutMs ?? 0;
+    this.currentPermissionMode = resolveInitialPermissionMode(init);
     this.pendingTasksGraceMs = init.pendingTasksGraceMs ?? 0;
 
     const options = buildOptions({
@@ -170,28 +91,11 @@ export class ClaudeSession extends EventEmitter {
     this.startInactivityTimer();
   }
 
-  private startInactivityTimer(): void {
-    if (this.inactivityTimeoutMs <= 0 || this.inactivityExpired || this.dead || this.settled) return;
-    this.clearInactivityTimer();
-    this.inactivityTimer = setTimeout(() => {
-      this.inactivityExpired = true;
-      this.abortController.abort();
-      this.queue.end();
-      if (!this.settled) {
-        this.drainPendingResult("Sessão inativa por muito tempo — possível limite de sessão ou travamento do runner.");
-      }
-    }, this.inactivityTimeoutMs);
-  }
-
-  private resetInactivityTimer(): void {
-    if (this.inactivityExpired || this.dead || this.settled) return;
-    this.startInactivityTimer();
-  }
-
-  private clearInactivityTimer(): void {
-    if (this.inactivityTimer) {
-      clearTimeout(this.inactivityTimer);
-      this.inactivityTimer = null;
+  protected onInactivity(): void {
+    this.abortController.abort();
+    this.queue.end();
+    if (!this.settled) {
+      this.drainPendingResult("Sessão inativa por muito tempo — possível limite de sessão ou travamento do runner.");
     }
   }
 
@@ -231,7 +135,6 @@ export class ClaudeSession extends EventEmitter {
     const immediate = decideImmediatePermission(toolName, input, {
       bypass: this.bypass,
       currentPermissionMode: this.currentPermissionMode,
-      isSubagentAllowed: this.isSubagentAllowed,
     });
     if (immediate) return Promise.resolve(immediate);
 
@@ -299,29 +202,20 @@ export class ClaudeSession extends EventEmitter {
       const result = this.pendingResult;
       this.pendingResult = null;
       this.flushLostTasks();
-      this.settleResult(result);
+      this.settleTurn(result);
     } else {
+      this.clearPendingTasksTimer();
+      this.activeTasks.clear();
+      this.pendingResult = null;
       this.failTurn(fallbackMessage);
     }
   }
 
-  private failTurn(message: string): void {
-    this.clearInactivityTimer();
-    this.settleResult({
-      output: this.assistantBuffer,
-      sessionId: this.sessionId,
-      durationMs: 0,
-      costUsd: 0,
-      totalTokens: 0,
-      isError: true,
-      errorMessages: [message],
-      permissionDenials: [],
-    });
-    this.emit("failure", message);
-  }
-
-  isAlive(): boolean {
-    return !this.dead;
+  private settleTurn(result: AgentResult): void {
+    this.clearPendingTasksTimer();
+    this.activeTasks.clear();
+    this.pendingResult = null;
+    this.settleResult(result);
   }
 
   private handleMessage(message: SDKMessage): void {
@@ -336,29 +230,8 @@ export class ClaudeSession extends EventEmitter {
       case "result":
         this.handleResult(message);
         break;
-      case "user":
-        this.observeSubagentResults(message);
-        break;
       default:
         break;
-    }
-  }
-
-  private observeSubagentResults(message: Extract<SDKMessage, { type: "user" }>): void {
-    if (this.agentToolCalls.size === 0) return;
-    try {
-      const content = (message.message as { content?: unknown[] }).content;
-      if (!Array.isArray(content)) return;
-      for (const raw of content) {
-        const block = raw as { type?: string; tool_use_id?: string };
-        if (block.type === "tool_result" && block.tool_use_id && this.agentToolCalls.has(block.tool_use_id)) {
-          const to = this.agentToolCalls.get(block.tool_use_id)!;
-          this.agentToolCalls.delete(block.tool_use_id);
-          this.emit("subagentDone", to);
-        }
-      }
-    } catch {
-      // observação não-crítica: nunca afeta a execução real
     }
   }
 
@@ -463,7 +336,7 @@ export class ClaudeSession extends EventEmitter {
     if (this.pendingResult && this.activeTasks.size === 0) {
       const result = this.pendingResult;
       this.pendingResult = null;
-      this.settleResult(result);
+      this.settleTurn(result);
     }
   }
 
@@ -472,7 +345,7 @@ export class ClaudeSession extends EventEmitter {
     if (!Array.isArray(content)) return;
 
     for (const raw of content) {
-      const block = raw as { type: string; text?: string; thinking?: string; name?: string; input?: Record<string, unknown>; id?: string };
+      const block = raw as { type: string; text?: string; thinking?: string; name?: string; input?: Record<string, unknown> };
       if (block.type === "text" && block.text) {
         this.assistantBuffer += block.text;
         this.emit("chunk", block.text);
@@ -480,10 +353,6 @@ export class ClaudeSession extends EventEmitter {
         this.emit("thinking", block.thinking);
       } else if (block.type === "tool_use" && block.name) {
         this.emit("toolUse", block.name, block.input ?? {});
-        if ((block.name === "Agent" || block.name === "Task") && block.id) {
-          const to = block.input?.subagent_type;
-          if (typeof to === "string" && to) this.agentToolCalls.set(block.id, to);
-        }
       }
     }
   }
@@ -493,12 +362,9 @@ export class ClaudeSession extends EventEmitter {
     try {
       const ctx = await this.runner?.getContextUsage();
       const max = ctx?.maxTokens || ctx?.rawMaxTokens || DEFAULT_CONTEXT_WINDOW;
-      const used = ctx?.totalTokens || contextTokens;
-      if (max > 0 && used > 0) {
-        contextPct = Math.min(100, Math.round((used / max) * 100));
-      }
+      contextPct = contextPercent(ctx?.totalTokens || contextTokens, max);
     } catch {
-      if (contextTokens > 0) contextPct = Math.min(100, Math.round((contextTokens / DEFAULT_CONTEXT_WINDOW) * 100));
+      contextPct = contextPercent(contextTokens, DEFAULT_CONTEXT_WINDOW);
     }
     this.emit("usage", { costUsd, tokens, contextPct } satisfies UsageInfo);
   }
@@ -536,13 +402,7 @@ export class ClaudeSession extends EventEmitter {
       permissionDenials: denials,
     };
 
-    if (this.pendingUserText) {
-      ingestTurn(this.target, result.sessionId, "user", this.pendingUserText);
-      this.pendingUserText = null;
-    }
-    if (result.output.trim()) {
-      ingestTurn(this.target, result.sessionId, "assistant", result.output, { model: this.model });
-    }
+    this.ingestResult(result);
 
     // Se há subagentes rodando em background, retém o resultado até que todos terminem
     // (via task_notification) para não marcar a execução como concluída cedo demais.
@@ -551,20 +411,8 @@ export class ClaudeSession extends EventEmitter {
       this.emit("tasksPending", this.activeTasks.size);
       this.startPendingTasksTimer();
     } else {
-      this.settleResult(result);
+      this.settleTurn(result);
     }
-  }
-
-  private settleResult(result: AgentResult): void {
-    this.clearInactivityTimer();
-    this.clearPendingTasksTimer();
-    this.result = result;
-    this.settled = true;
-    this.assistantBuffer = "";
-    this.agentToolCalls.clear();
-    this.activeTasks.clear();
-    this.pendingResult = null;
-    this.emit("result", result);
   }
 
   sendUserMessage(blocksOrText: string | MessageBlock[], ingestText?: string): void {
@@ -639,48 +487,8 @@ export class ClaudeSession extends EventEmitter {
     } catch {}
   }
 
-  getSessionId(): string {
-    return this.sessionId;
-  }
-
-  getModel(): string {
-    return this.model;
-  }
-
-  getRequestedModel(): string {
-    return this.requestedModel;
-  }
-
   getPermissionMode(): PermissionMode {
     return this.currentPermissionMode;
-  }
-
-  getLastResult(): AgentResult | null {
-    return this.result;
-  }
-
-  waitForResult(): Promise<AgentResult> {
-    return new Promise<AgentResult>((resolve) => {
-      const onResult = (r: AgentResult) => {
-        this.off("failure", onError);
-        resolve(r);
-      };
-      const onError = () => {
-        this.off("result", onResult);
-        resolve(this.result ?? {
-          output: "",
-          sessionId: this.sessionId,
-          durationMs: 0,
-          costUsd: 0,
-          totalTokens: 0,
-          isError: true,
-          errorMessages: ["Sessão encerrada com erro."],
-          permissionDenials: [],
-        });
-      };
-      this.once("result", onResult);
-      this.once("failure", onError);
-    });
   }
 
   end(): void {
@@ -690,7 +498,6 @@ export class ClaudeSession extends EventEmitter {
       settle({ behavior: "deny", message: "Sessão encerrada." });
     }
     this.permissionResolvers.clear();
-    this.agentToolCalls.clear();
     this.activeTasks.clear();
     this.pendingResult = null;
     this.queue.end();
