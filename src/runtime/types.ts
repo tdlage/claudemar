@@ -3,7 +3,7 @@ import type { AgentDefinition, McpServerConfig, PermissionMode } from "@anthropi
 import type { AgentResult } from "../providers/types.js";
 import type { MemoryTarget } from "../memory/session-memory.js";
 
-export const EFFORTS = ["low", "medium", "high", "extra", "max", "ultracode"] as const;
+export const EFFORTS = ["minimal", "low", "medium", "high", "extra", "max", "ultracode"] as const;
 export type Effort = (typeof EFFORTS)[number];
 
 export type PermissionDecision = "allow" | "always" | "deny";

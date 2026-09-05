@@ -57,6 +57,7 @@ test("buildThreadOptions nunca pede aprovação e mapeia o effort", () => {
   assert.equal(options.workingDirectory, "/tmp/p");
   assert.equal(options.sandboxMode, "danger-full-access");
   assert.equal(options.modelReasoningEffort, "xhigh");
+  assert.equal(buildThreadOptions({ model: "m", permissionMode: "default", effort: "minimal", cwd: "/" }).modelReasoningEffort, "minimal");
   assert.equal(buildThreadOptions({ model: "m", permissionMode: "default", effort: "low", cwd: "/" }).modelReasoningEffort, "low");
 });
 

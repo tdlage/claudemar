@@ -11,6 +11,7 @@ export type SdkEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 export type SdkFlagEffortLevel = "low" | "medium" | "high" | "xhigh";
 
 const EFFORT_SDK: Record<Effort, SdkEffortLevel> = {
+  minimal: "low",
   low: "low",
   medium: "medium",
   high: "high",

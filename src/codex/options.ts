@@ -43,6 +43,7 @@ export function sandboxForPermission(mode: PermissionMode): SandboxSettings {
 }
 
 export const EFFORT_CODEX: Record<Effort, ModelReasoningEffort> = {
+  minimal: "minimal",
   low: "low",
   medium: "medium",
   high: "high",

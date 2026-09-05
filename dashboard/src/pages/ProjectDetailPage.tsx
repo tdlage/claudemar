@@ -252,6 +252,7 @@ export function ProjectDetailPage() {
               startPlaceholder={`Message ${name}...`}
               queueMode={sequential}
               isLive={isRunning}
+              runtime={providerInfo?.runtime}
               showModelBadge={selectableModels.length === 0}
               onStart={handleStart}
               controls={

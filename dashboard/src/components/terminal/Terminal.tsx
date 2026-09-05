@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  Send, Square, Brain, Gauge, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
+  Send, Square, Brain, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
   Loader2, CheckCircle2, XCircle, Users,
 } from "lucide-react";
 import { getSocket } from "../../lib/socket";
@@ -16,7 +16,9 @@ import { getSlashCache, setSlashCache } from "../../lib/slashCache";
 import { MdLinksBar } from "./MdLinksBar";
 import { PermissionPrompt, type PermissionRequest } from "./PermissionPrompt";
 import { SelectionSafeHtml } from "../shared/SelectionSafeHtml";
-import { Dropdown } from "../shared/Dropdown";
+import { EffortSelector } from "./EffortSelector";
+import { defaultEffortFor, normalizeEffortFor, type Effort } from "./effortOptions";
+import type { AgentRuntime } from "../../lib/types";
 
 export type PermissionMode = "default" | "auto" | "plan" | "acceptEdits" | "bypassPermissions";
 
@@ -29,19 +31,6 @@ const MODE_LABELS: Record<PermissionMode, string> = {
 };
 
 const MODE_ORDER: PermissionMode[] = ["default", "plan", "acceptEdits"];
-
-export type Effort = "low" | "medium" | "high" | "extra" | "max" | "ultracode";
-
-const EFFORT_LABELS: Record<Effort, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  extra: "Extra",
-  max: "Max",
-  ultracode: "Ultracode",
-};
-
-const EFFORT_LEVELS = Object.keys(EFFORT_LABELS) as Effort[];
 
 interface ThinkingBlock {
   id: number;
@@ -108,6 +97,7 @@ interface TerminalProps {
   startPlaceholder?: string;
   queueMode?: boolean;
   isLive?: boolean;
+  runtime?: AgentRuntime;
   showModelBadge?: boolean;
   onStart?: (text: string, images: ImageBlock[], opts: StartOpts) => Promise<void> | void;
 }
@@ -116,10 +106,11 @@ function startPermissionMode(mode: PermissionMode): PermissionMode {
   return mode === "plan" ? "default" : mode;
 }
 
-export function Terminal({ executionId, base, controls, inputControls, startPlaceholder, queueMode, isLive, showModelBadge = true, onStart }: TerminalProps) {
+export function Terminal({ executionId, base, controls, inputControls, startPlaceholder, queueMode, isLive, runtime, showModelBadge = true, onStart }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const currentModel = useCurrentModel();
+  const activeRuntime = runtime ?? currentModel.runtime;
   const { addToast } = useToast();
   const cacheKey = base ?? "default";
 
@@ -143,7 +134,9 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
   const [mode, setMode] = useState<PermissionMode>("bypassPermissions");
-  const [effort, setEffort] = useCachedState<Effort>(`term:${cacheKey}:effort`, "high");
+  const [claudeEffort, setClaudeEffort] = useCachedState<Effort>(`term:${cacheKey}:effort:claude`, defaultEffortFor("claude"));
+  const [codexEffort, setCodexEffort] = useCachedState<Effort>(`term:${cacheKey}:effort:codex`, defaultEffortFor("codex"));
+  const effort = normalizeEffortFor(activeRuntime, activeRuntime === "codex" ? codexEffort : claudeEffort);
   const slashCacheKey = base ?? "default";
   const [slashCommands, setSlashCommands] = useState<string[]>(() => getSlashCache(slashCacheKey));
   const [slashIndex, setSlashIndex] = useState(0);
@@ -442,9 +435,10 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   }, [executionId]);
 
   const handleSetEffort = useCallback((next: Effort) => {
-    setEffort(next);
+    if (activeRuntime === "codex") setCodexEffort(next);
+    else setClaudeEffort(next);
     if (executionId) getSocket().emit("execution:set-effort", { id: executionId, effort: next });
-  }, [executionId]);
+  }, [activeRuntime, executionId, setClaudeEffort, setCodexEffort]);
 
   const handlePermissionDecision = useCallback((reqId: string, decision: "allow" | "always" | "deny") => {
     if (!executionId) return;
@@ -713,45 +707,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
               className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 160 }}
             />
-            <Dropdown
-              align="right"
-              direction="up"
-              menuClassName="w-44"
-              triggerTitle={`Esforço de raciocínio: ${EFFORT_LABELS[effort]}`}
-              triggerClassName={`inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium border transition-colors ${
-                effort === "high"
-                  ? "text-text-muted border-transparent hover:text-text-secondary"
-                  : "bg-accent/20 text-accent border-accent/40"
-              }`}
-              triggerContent={
-                <>
-                  <Gauge size={14} />
-                  <span className="hidden sm:inline">{EFFORT_LABELS[effort]}</span>
-                </>
-              }
-            >
-              {(close) => (
-                <>
-                  <div className="flex items-center justify-between px-3 py-1 text-[10px] uppercase tracking-wide text-text-muted">
-                    <span>Mais rápido</span>
-                    <span>Mais preciso</span>
-                  </div>
-                  {EFFORT_LEVELS.map((lvl) => (
-                    <button
-                      key={lvl}
-                      type="button"
-                      onClick={() => { handleSetEffort(lvl); close(); }}
-                      className={`flex items-center justify-between gap-2 w-full text-left px-3 py-1.5 text-xs ${
-                        effort === lvl ? "bg-accent/15 text-accent" : "text-text-secondary hover:bg-surface-hover"
-                      }`}
-                    >
-                      {EFFORT_LABELS[lvl]}
-                      {lvl === "ultracode" && <Zap size={11} className="opacity-70" />}
-                    </button>
-                  ))}
-                </>
-              )}
-            </Dropdown>
+            <EffortSelector runtime={activeRuntime} value={effort} onChange={handleSetEffort} />
             <label
               title="Anexar imagem"
               className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"

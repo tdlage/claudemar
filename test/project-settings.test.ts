@@ -109,13 +109,13 @@ test("mantém escolhas independentes para Anthropic e OpenAI", () => {
   }
 });
 
-test("OpenAI aceita apenas modelos configurados no perfil ativo", () => {
+test("OpenAI aceita apenas modelos do catálogo do perfil ativo", () => {
   const { file, cleanup } = freshStore();
   try {
     const mgr = new ProjectSettingsManager(file);
     assert.throws(() => mgr.setModel("proj-a", "gpt-4o", codexProfile));
-    mgr.setModel("proj-a", "gpt-5.6-luna", codexProfile);
-    assert.equal(mgr.getModel("proj-a", codexProfile), "gpt-5.6-luna");
+    mgr.setModel("proj-a", "gpt-6-astra", codexProfile);
+    assert.equal(mgr.getModel("proj-a", codexProfile), "gpt-6-astra");
     mgr.flush();
   } finally {
     cleanup();

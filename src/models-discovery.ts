@@ -28,6 +28,8 @@ export const PROJECT_SELECTABLE_MODELS = [
 
 export const DEFAULT_PROJECT_MODEL = "claude-opus-5";
 
+const CODEX_CHATGPT_MODELS = ["gpt-6-astra"] as const;
+
 export interface SelectableProjectModel {
   model: string;
   displayName: string;
@@ -51,7 +53,8 @@ export function getSelectableProjectModels(profile?: LlmProfile): SelectableProj
   if (!profile || isNativeAnthropic(profile)) return [...PROJECT_SELECTABLE_MODELS];
   if (profile.runtime !== "codex") return [];
 
-  const models = [profile.opusModel.trim(), profile.haikuModel.trim()].filter(Boolean);
+  const chatGptModels = profile.baseUrl.trim() ? [] : CODEX_CHATGPT_MODELS;
+  const models = [profile.opusModel.trim(), ...chatGptModels, profile.haikuModel.trim()].filter(Boolean);
   return [...new Set(models)].map((model) => ({ model, displayName: getModelDisplayName(model) }));
 }
 

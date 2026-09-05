@@ -55,6 +55,7 @@ test("getModelDisplayName resolve Opus 5 e mantém o alias legado opus", () => {
 });
 
 test("getModelDisplayName formata modelos GPT", () => {
+  assert.equal(getModelDisplayName("gpt-6-astra"), "GPT-6 Astra");
   assert.equal(getModelDisplayName("gpt-5.6-sol"), "GPT-5.6 Sol");
   assert.equal(getModelDisplayName("gpt-5.6-luna"), "GPT-5.6 Luna");
 });
@@ -192,12 +193,14 @@ test("resolveExecutionModel: runtime codex ignora a preferência do projeto e us
   );
 });
 
-test("runtime codex oferece os modelos principal e leve para seleção", () => {
+test("runtime codex oferece Astra e os modelos principal e leve para seleção", () => {
   assert.deepEqual(getSelectableProjectModels(codexProfile()), [
     { model: "gpt-5.6-sol", displayName: "GPT-5.6 Sol" },
+    { model: "gpt-6-astra", displayName: "GPT-6 Astra" },
     { model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
   ]);
   assert.equal(isSelectableProjectModel("gpt-5.6-sol", codexProfile()), true);
+  assert.equal(isSelectableProjectModel("gpt-6-astra", codexProfile()), true);
   assert.equal(isSelectableProjectModel("gpt-5.6-luna", codexProfile()), true);
   assert.equal(isSelectableProjectModel("claude-opus-5", codexProfile()), false);
 });

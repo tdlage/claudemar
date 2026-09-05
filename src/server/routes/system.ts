@@ -269,7 +269,7 @@ systemRouter.get("/model", (_req, res) => {
   const resolved = executionManager.getResolvedModelId();
   const id = resolved ?? "opus";
   const displayName = resolved ? getModelDisplayName(resolved) : DEFAULT_OPUS_DISPLAY;
-  res.json({ id, displayName });
+  res.json({ id, displayName, runtime: settingsManager.getActiveProfile().runtime });
 });
 
 async function providerConfigured(): Promise<boolean> {
