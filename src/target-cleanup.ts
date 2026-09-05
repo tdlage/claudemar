@@ -1,3 +1,4 @@
+import { config } from "./config.js";
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { execute } from "./database.js";
@@ -9,7 +10,7 @@ import { removePipelineCron } from "./pipeline-cron.js";
 import { runProcessManager } from "./run-process-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
 import { usersManager } from "./users-manager.js";
-import { REPO_WORKTREES_ROOT } from "./repositories.js";
+import { REPO_WORKTREES_ROOT, hiddenReposPath } from "./repositories.js";
 
 function cancelActiveExecutions(targetType: string, targetName: string): void {
   for (const exec of executionManager.getActiveExecutions()) {
@@ -53,6 +54,7 @@ export async function purgeProjectData(projectName: string): Promise<void> {
   await execute("DELETE FROM user_project_tabs WHERE project_name = ?", [projectName]);
   await usersManager.reload();
 
+  await rm(hiddenReposPath(resolve(config.projectsPath, projectName)), { recursive: true, force: true });
   projectSettingsManager.removeProject(projectName);
   await rm(resolve(REPO_WORKTREES_ROOT, projectName), { recursive: true, force: true });
   await deleteMemoryForTarget({ targetType: "project", targetName: projectName });

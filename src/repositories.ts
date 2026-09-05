@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, lstatSync, renameSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, resolve, sep } from "node:path";
 import { rm } from "node:fs/promises";
 import { executeSpawn } from "./executor.js";
@@ -11,6 +12,7 @@ export interface RepoInfo {
   branch: string;
   remoteUrl: string;
   hasChanges: boolean;
+  hidden?: boolean;
 }
 
 export interface RepoCommit {
@@ -30,6 +32,42 @@ function isGitRepo(dir: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function hiddenReposPath(projectPath: string): string {
+  const key = createHash("sha256").update(resolve(projectPath)).digest("hex");
+  return resolve(config.dataPath, "hidden-repositories", key);
+}
+
+export function setRepoVisibility(projectPath: string, repoName: string, visible: boolean): void {
+  if (!REPO_NAME_RE.test(repoName) || repoName === "." || repoName === "..") {
+    throw new Error("Não é possível ocultar o repositório raiz ou um nome inválido.");
+  }
+  const workspace = resolve(projectPath);
+  const storage = hiddenReposPath(workspace);
+  if (storage === workspace || storage.startsWith(workspace + sep)) {
+    throw new Error("O armazenamento de repositórios ocultos deve ficar fora do projeto.");
+  }
+  const active = resolve(workspace, repoName);
+  const hidden = resolve(storage, repoName);
+  const source = visible ? hidden : active;
+  const destination = visible ? active : hidden;
+  const present = (path: string) => {
+    try { lstatSync(path); return true; } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw err;
+    }
+  };
+  if (!present(source) && isGitRepo(destination) && !lstatSync(destination).isSymbolicLink()) return;
+  if (present(destination)) throw new Error("Já existe uma pasta com esse nome no destino.");
+  if (!present(source) || lstatSync(source).isSymbolicLink() || !isGitRepo(source)) {
+    throw new Error("Repositório não encontrado ou não suportado.");
+  }
+  if (existsSync(resolve(source, ".git", "worktrees")) && readdirSync(resolve(source, ".git", "worktrees")).length) {
+    throw new Error("Remova os worktrees vinculados antes de alterar a disponibilidade.");
+  }
+  mkdirSync(dirname(destination), { recursive: true });
+  renameSync(source, destination);
 }
 
 async function getGitInfo(repoPath: string): Promise<{ branch: string; remoteUrl: string; hasChanges: boolean }> {
@@ -55,7 +93,7 @@ async function getGitInfo(repoPath: string): Promise<{ branch: string; remoteUrl
   return { branch, remoteUrl, hasChanges };
 }
 
-export async function discoverRepos(projectPath: string): Promise<RepoInfo[]> {
+export async function discoverRepos(projectPath: string, includeHidden = false): Promise<RepoInfo[]> {
   const repos: RepoInfo[] = [];
 
   if (isGitRepo(projectPath)) {
@@ -86,6 +124,16 @@ export async function discoverRepos(projectPath: string): Promise<RepoInfo[]> {
     }
   } catch { /* can't read dir */ }
 
+  if (includeHidden) {
+    const storage = hiddenReposPath(projectPath);
+    if (existsSync(storage)) {
+      for (const entry of readdirSync(storage, { withFileTypes: true })) {
+        const repoPath = resolve(storage, entry.name);
+        if (!entry.isDirectory() || !isGitRepo(repoPath)) continue;
+        repos.push({ name: entry.name, path: resolve(projectPath, entry.name), ...(await getGitInfo(repoPath)), hidden: true });
+      }
+    }
+  }
   return repos;
 }
 
@@ -98,6 +146,10 @@ export async function cloneRepo(projectPath: string, url: string, name?: string)
 
   if (!REPO_NAME_RE.test(repoName)) {
     throw new Error("Nome de repositório inválido. Use apenas letras, números, '.', '-' e '_'.");
+  }
+
+  if (existsSync(resolve(hiddenReposPath(projectPath), repoName))) {
+    throw new Error("Esse repositório está oculto. Torne-o disponível antes de continuar.");
   }
 
   const targetPath = resolve(projectPath, repoName);
@@ -133,6 +185,10 @@ export async function removeRepo(projectPath: string, repoName: string): Promise
 
   if (repoName === ".") {
     throw new Error("Não é possível remover o repositório raiz.");
+  }
+
+  if (existsSync(resolve(hiddenReposPath(projectPath), repoName))) {
+    throw new Error("Esse repositório está oculto. Torne-o disponível antes de continuar.");
   }
 
   const targetPath = resolve(projectPath, repoName);

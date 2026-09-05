@@ -133,6 +133,7 @@ export const PROJECT_SELECTABLE_MODELS: { model: string; displayName: string }[]
 export const DEFAULT_PROJECT_MODEL = "claude-opus-5";
 
 export interface RepoInfo {
+  hidden?: boolean;
   name: string;
   path: string;
   branch: string;

@@ -313,3 +313,11 @@ dashboard/                 # React + Vite + Tailwind
 ## License
 
 MIT
+
+### Project repository availability
+
+In Projects → Repositories, use **Hide from agent** or **Make available** to control which repositories are physically present in the project workspace. All repositories are available by default. Hiding moves the entire directory, including `.git` and uncommitted files, into `data/hidden-repositories/<project-path-hash>/` outside the project. Restoring moves it back. The directory location is the persistent state, so no startup migration or prompt-based repository list is needed.
+
+Hidden repositories remain listed in the dashboard, but are excluded from normal repository discovery and pipeline repository selection. Restore a repository before using its Git actions. Deleting the project also deletes its hidden repositories. Visibility changes are rejected during active project executions, on destination conflicts, for symlink repositories, and for repositories with linked worktrees. The project root repository cannot be hidden. Moves require the storage and project to reside on the same filesystem; a failed move leaves the source intact.
+
+This removes repositories from the executor workspace; it does not add an operating-system read sandbox. Runtimes with unrestricted filesystem access can still access paths outside the workspace. Existing conversation history is not erased by changing repository availability.

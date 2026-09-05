@@ -29,6 +29,7 @@ import {
   resolveRepoPath,
   resolveWorktree,
   stashRepo,
+  setRepoVisibility,
 } from "../../repositories.js";
 import {
   cancelWorkflowRun,
@@ -139,7 +140,7 @@ projectsRouter.get("/", async (req, res) => {
         return { name, repoCount: 0, hasChanges: false };
       }
       try {
-        const repos = await discoverRepos(projectPath);
+        const repos = await discoverRepos(projectPath, true);
         return {
           name,
           repoCount: repos.length,
@@ -199,7 +200,7 @@ projectsRouter.get("/:name", asyncHandler(async (req, res) => {
   if (!projectPath) return;
 
   const projectName = String(req.params.name);
-  const repos = await discoverRepos(projectPath);
+  const repos = await discoverRepos(projectPath, true);
   const inputFiles = listFiles(inputDir(projectPath));
   res.json({ name: projectName, repos, inputFiles, model: projectSettingsManager.getModel(projectName, settingsManager.getActiveProfile()) });
 }));
@@ -272,7 +273,7 @@ projectsRouter.get("/:name/repos", asyncHandler(async (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
 
-  const repos = await discoverRepos(projectPath);
+  const repos = await discoverRepos(projectPath, true);
   res.json(repos);
 }));
 
@@ -289,6 +290,28 @@ projectsRouter.post("/:name/repos", asyncHandler(async (req, res) => {
   const clonedName = await cloneRepo(projectPath, url, repoName);
   res.status(201).json({ name: clonedName });
 }));
+
+projectsRouter.put("/:name/repos/:repo/visibility", (req, res) => {
+  const projectPath = resolveProject(req, res);
+  if (!projectPath) return;
+  if (typeof req.body?.visible !== "boolean") {
+    res.status(400).json({ error: "visible deve ser booleano" });
+    return;
+  }
+  if (executionManager.getActiveExecutions().some((execution) =>
+    execution.cwd === projectPath || execution.cwd.startsWith(projectPath + sep)
+    || execution.targetName === String(req.params.name)
+    || execution.targetName.startsWith(`__commitpush:${req.params.name}:`))) {
+    res.status(409).json({ error: "Aguarde as execuções do projeto terminarem antes de alterar os repositórios." });
+    return;
+  }
+  try {
+    setRepoVisibility(projectPath, String(req.params.repo), req.body.visible);
+    res.json({ hidden: !req.body.visible });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
 
 projectsRouter.delete("/:name/repos/:repo", async (req, res) => {
   const projectPath = resolveProject(req, res);

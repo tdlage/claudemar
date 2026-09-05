@@ -37,6 +37,20 @@ interface CommitPushState {
 
 export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }: RepositoriesTabProps) {
   const { addToast } = useToast();
+  const [visibilityPending, setVisibilityPending] = useState(false);
+  async function toggleVisibility(repo: RepoInfo) {
+    setVisibilityPending(true);
+    try {
+      await api.put(`/projects/${encodeURIComponent(projectName)}/repos/${encodeURIComponent(repo.name)}/visibility`, { visible: !!repo.hidden });
+      setExpandedRepo(null);
+      onRefresh();
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setVisibilityPending(false);
+    }
+  }
+
   const [expandedRepo, setExpandedRepo] = useState<string | null>(null);
   const [ciStatus, setCiStatus] = useState<Record<string, CIStatusSummary>>({});
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
@@ -148,7 +162,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
   }, [commitPush, handleCommitPushDone]);
 
   useEffect(() => {
-    const githubRepos = repos.filter((r) => r.remoteUrl.includes("github.com"));
+    const githubRepos = repos.filter((r) => !r.hidden && r.remoteUrl.includes("github.com"));
     if (githubRepos.length === 0) return;
 
     for (const repo of githubRepos) {
@@ -397,6 +411,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
         </Button>
       </div>
 
+      <p className="text-xs text-text-muted">All repositories are available by default. Hidden repositories are moved out of the project folder. This selection survives server restarts.</p>
       {repos.length === 0 && (
         <p className="text-sm text-text-muted py-8 text-center">
           No repositories found. Clone one to get started.
@@ -404,7 +419,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
       )}
 
       {repos.map((repo) => {
-        const isExpanded = expandedRepo === repo.name;
+        const isExpanded = !repo.hidden && expandedRepo === repo.name;
         const repoBranches = branches[repo.name];
         const repoLog = logs[repo.name];
         const cpState = commitPush[repo.name];
@@ -415,7 +430,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
           <Card key={repo.name} className="p-0 overflow-hidden">
             <button
               className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover transition-colors"
-              onClick={() => toggleExpand(repo.name)}
+              onClick={() => !repo.hidden && toggleExpand(repo.name)}
             >
               {isExpanded ? <ChevronDown size={14} className="text-text-muted shrink-0" /> : <ChevronRight size={14} className="text-text-muted shrink-0" />}
               <span className="font-medium text-sm text-text-primary">{repo.name}</span>
@@ -464,6 +479,12 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
               </span>
             </button>
 
+            <div className="flex items-center justify-between gap-3 px-4 py-2 border-t border-border">
+              <span className="text-xs text-text-muted">{repo.name === "." ? "Project root — always available" : repo.hidden ? "Hidden from agent workspace" : "Available to agent"}</span>
+              <Button size="sm" variant="secondary" disabled={visibilityPending || repo.name === "."} onClick={() => toggleVisibility(repo)}>
+                {repo.hidden ? "Make available" : "Hide from agent"}
+              </Button>
+            </div>
             {isExpanded && (
               <div className="border-t border-border px-4 py-3 space-y-4">
                 <div className="flex flex-wrap gap-2">

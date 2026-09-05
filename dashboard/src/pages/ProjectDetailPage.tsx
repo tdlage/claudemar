@@ -380,7 +380,7 @@ export function ProjectDetailPage() {
       )}
 
       {activeTab === "ci" && (
-        <CITab projectName={project.name} repos={project.repos} initialRepo={ciInitialRepo} />
+        <CITab projectName={project.name} repos={project.repos.filter((repo) => !repo.hidden)} initialRepo={ciInitialRepo} />
       )}
 
       {activeTab === "pipeline" && (
