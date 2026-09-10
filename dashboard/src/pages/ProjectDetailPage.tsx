@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Bot, ListOrdered, Zap, Cpu, Trash2 } from "lucide-react";
+import { Bot, ListOrdered, Zap, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { Modal } from "../components/shared/Modal";
 import { Button } from "../components/shared/Button";
@@ -21,7 +21,7 @@ import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin, projectTabsFor, refreshMe } from "../hooks/useAuth";
-import { DEFAULT_PROJECT_MODEL, type ProjectDetail, type ProjectTabKey, type ProviderInfo } from "../lib/types";
+import { type ProjectDetail, type ProjectTabKey } from "../lib/types";
 
 type TabKey = ProjectTabKey;
 
@@ -41,8 +41,6 @@ export function ProjectDetailPage() {
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
   const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
   const [ciInitialRepo, setCiInitialRepo] = useState<string | undefined>();
-  const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(null);
-  const [projectModel, setProjectModel] = useState<string>(DEFAULT_PROJECT_MODEL);
   const [, setMeVersion] = useState(0);
   const admin = isAdmin();
   const enabledTabs = name ? projectTabsFor(name) : "all";
@@ -58,7 +56,6 @@ export function ProjectDetailPage() {
     api.get<ProjectDetail>(`/projects/${name}`).then((data) => {
       setProject(data);
       setInputFiles(data.inputFiles ?? []);
-      setProjectModel(data.model ?? DEFAULT_PROJECT_MODEL);
     }).catch(() => {});
   }, [name]);
 
@@ -91,20 +88,7 @@ export function ProjectDetailPage() {
     loadOutputs();
     api.get<string[]>(`/projects/${name}/claude-agents`).then(setAgents).catch(() => {});
     api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
-    api.get<ProviderInfo>("/system/provider").then(setProviderInfo).catch(() => {});
   }, [loadProject, loadOutputs, name]);
-
-  const handleModelChange = async (model: string) => {
-    if (!name) return;
-    const previous = projectModel;
-    setProjectModel(model);
-    try {
-      await api.put(`/projects/${name}/model`, { model });
-    } catch (err) {
-      setProjectModel(previous);
-      addToast("error", err instanceof Error ? err.message : "Failed to update model");
-    }
-  };
 
   useEffect(() => {
     loadSession();
@@ -127,7 +111,7 @@ export function ProjectDetailPage() {
         effort: opts.effort,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
-        model: providerInfo?.selectableModels.some((item) => item.model === projectModel) ? projectModel : providerInfo?.defaultModel,
+        model: opts.model,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -145,10 +129,6 @@ export function ProjectDetailPage() {
 
   const changedRepoCount = project.repos.filter((r) => r.hasChanges).length;
   const hasGithubRepos = project.repos.some((r) => r.remoteUrl.includes("github.com"));
-  const selectableModels = providerInfo?.selectableModels ?? [];
-  const selectedModel = selectableModels.some((item) => item.model === projectModel)
-    ? projectModel
-    : (providerInfo?.defaultModel ?? projectModel);
 
   const tabs: { key: TabKey; label: string; badge?: number; badgeVariant?: "warning" }[] = [
     ...(tabEnabled("terminal") ? [{ key: "terminal" as const, label: "Terminal" }] : []),
@@ -252,30 +232,9 @@ export function ProjectDetailPage() {
               startPlaceholder={`Message ${name}...`}
               queueMode={sequential}
               isLive={isRunning}
-              runtime={providerInfo?.runtime}
-              showModelBadge={selectableModels.length === 0}
               onStart={handleStart}
               controls={
                 <>
-                  {selectableModels.length > 0 && (
-                    <div className="flex items-center gap-1">
-                      <Cpu size={13} className={selectedModel !== providerInfo?.defaultModel ? "text-accent" : "text-text-muted"} />
-                      <select
-                        value={selectedModel}
-                        onChange={(e) => handleModelChange(e.target.value)}
-                        title="Modelo usado nas execuções deste projeto"
-                        className={`text-xs bg-transparent border rounded-md px-1 py-1 focus:outline-none focus:border-accent ${
-                          selectedModel !== providerInfo?.defaultModel
-                            ? "border-accent/40 text-accent"
-                            : "border-border text-text-muted"
-                        }`}
-                      >
-                        {selectableModels.map((m) => (
-                          <option key={m.model} value={m.model}>{m.displayName}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
                   <div className="flex items-center gap-1">
                     <Bot size={13} className={selectedAgent ? "text-accent" : "text-text-muted"} />
                     <select

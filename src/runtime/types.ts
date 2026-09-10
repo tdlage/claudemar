@@ -1,3 +1,4 @@
+import type { LlmProfile } from "../providers/llm.js";
 import type { EventEmitter } from "node:events";
 import type { AgentDefinition, McpServerConfig, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentResult } from "../providers/types.js";
@@ -45,6 +46,7 @@ export interface TaskEvent {
 }
 
 export interface AgentSessionInit {
+  profile: LlmProfile;
   cwd: string;
   target: MemoryTarget;
   model?: string;

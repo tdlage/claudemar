@@ -48,7 +48,7 @@ export const EFFORT_CODEX: Record<Effort, ModelReasoningEffort> = {
   medium: "medium",
   high: "high",
   extra: "xhigh",
-  max: "xhigh",
+  max: "max",
   ultracode: "xhigh",
 };
 

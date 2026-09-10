@@ -1,3 +1,4 @@
+import { targetModelSettings } from "./target-model-settings.js";
 import { config } from "./config.js";
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -55,12 +56,14 @@ export async function purgeProjectData(projectName: string): Promise<void> {
   await usersManager.reload();
 
   await rm(hiddenReposPath(resolve(config.projectsPath, projectName)), { recursive: true, force: true });
+  targetModelSettings.set("project", projectName);
   projectSettingsManager.removeProject(projectName);
   await rm(resolve(REPO_WORKTREES_ROOT, projectName), { recursive: true, force: true });
   await deleteMemoryForTarget({ targetType: "project", targetName: projectName });
 }
 
 export async function purgeAgentData(agentName: string): Promise<void> {
+  targetModelSettings.set("agent", agentName);
   cancelActiveExecutions("agent", agentName);
   await commandQueue.removeByTarget("agent", agentName);
 

@@ -15,13 +15,15 @@ const CLAUDE_EFFORTS: EffortOption[] = [
   { value: "high", label: "High", description: "Best balance of quality and speed", isDefault: true },
   { value: "extra", label: "Extra high", description: "Deeper reasoning for coding and agents" },
   { value: "max", label: "Max", description: "Most thorough reasoning" },
+  { value: "ultracode", label: "Ultracode", description: "Extended reasoning with workflow orchestration for coding" },
 ];
 
 const OPENAI_EFFORTS: EffortOption[] = [
   { value: "minimal", label: "Instant", description: "Fast responses for everyday work" },
   { value: "medium", label: "Medium", description: "Standard reasoning", isDefault: true },
   { value: "high", label: "High", description: "Extended reasoning for complex tasks" },
-  { value: "extra", label: "Extra High", description: "Deepest reasoning for demanding tasks" },
+  { value: "extra", label: "Extra High", description: "Deeper reasoning for demanding tasks" },
+  { value: "max", label: "Max", description: "Maximum reasoning effort" },
 ];
 
 export function effortOptionsFor(runtime: AgentRuntime): EffortOption[] {
@@ -34,12 +36,11 @@ export function normalizeEffortFor(runtime: AgentRuntime, effort: Effort): Effor
 
   if (runtime === "codex") {
     if (effort === "low") return "minimal";
-    if (effort === "max" || effort === "ultracode") return "extra";
+    if (effort === "ultracode") return "max";
     return "medium";
   }
 
   if (effort === "minimal") return "low";
-  if (effort === "ultracode") return "max";
   return "high";
 }
 

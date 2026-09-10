@@ -321,3 +321,11 @@ In Projects → Repositories, use **Hide from agent** or **Make available** to c
 Hidden repositories remain listed in the dashboard, but are excluded from normal repository discovery and pipeline repository selection. Restore a repository before using its Git actions. Deleting the project also deletes its hidden repositories. Visibility changes are rejected during active project executions, on destination conflicts, for symlink repositories, and for repositories with linked worktrees. The project root repository cannot be hidden. Moves require the storage and project to reside on the same filesystem; a failed move leaves the source intact.
 
 This removes repositories from the executor workspace; it does not add an operating-system read sandbox. Runtimes with unrestricted filesystem access can still access paths outside the workspace. Existing conversation history is not erased by changing repository availability.
+
+### Model selection across providers
+
+Settings configures provider profiles and account credentials. There is no global provider switch: the model selector in project, agent, and orchestrator terminals lists models grouped by every authenticated provider. Native Claude uses its login or configured Anthropic credentials, native Codex uses its ChatGPT login, and custom profiles require their configured token environment variable. The catalog includes the native model list and each profile's primary, secondary, and light models.
+
+Choosing a model persists the provider and model together in `data/target-models.json`. Agent schedules use the agent's preference. Queued prompts retain the selection from when they were submitted. Each execution receives its own provider configuration; selecting a model does not change another project's or agent's provider. The selector is disabled while the terminal has an active execution.
+
+Legacy project preferences are adopted when first resolved. Unavailable saved models require a new selection instead of silently switching providers. Provider identity is also stored for sessions, so switching providers starts a compatible session. The old Settings active-profile field is retained only for migration compatibility.

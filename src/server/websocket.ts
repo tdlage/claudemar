@@ -75,6 +75,8 @@ export function setupWebSocket(io: SocketServer): void {
           id,
           output,
           running: isActive,
+          runtime: exec.runtime,
+          slashCommands: exec.slashCommands,
           streamOffset: exec.streamOffset,
           truncated: exec.streamOffset > (exec.output ?? "").length,
         });
@@ -129,6 +131,7 @@ export function setupWebSocket(io: SocketServer): void {
           cwd: info.cwd,
           agentName: info.agentName,
           username: info.username,
+          model: info.modelSelection,
           planMode: info.planMode || undefined,
         }).then(() => {
           socket.emit("execution:send:queued", { execId });
@@ -147,6 +150,7 @@ export function setupWebSocket(io: SocketServer): void {
           username: info.username,
           prompt,
           cwd: info.cwd,
+          model: info.modelSelection,
           planMode: info.planMode,
           blocks: blocks && blocks.length > 0 ? blocks : undefined,
         });
@@ -342,7 +346,8 @@ export function setupWebSocket(io: SocketServer): void {
   });
 
   executionManager.on("slash-commands", (id, commands) => {
-    io.to(`exec:${id}`).emit("execution:slash-commands", { id, commands });
+    const runtime = executionManager.getExecution(id)?.runtime;
+    io.to(`exec:${id}`).emit("execution:slash-commands", { id, commands, runtime });
   });
 
   executionManager.on("mcp-status", (id, servers) => {

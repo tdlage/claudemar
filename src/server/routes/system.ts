@@ -1,3 +1,4 @@
+import { availableProfiles, refreshProviderCatalog } from "../../provider-catalog.js";
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { cpus, homedir } from "node:os";
@@ -13,7 +14,6 @@ import { runProcessManager } from "../../run-process-manager.js";
 import { settingsManager } from "../../settings-manager.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { usersManager } from "../../users-manager.js";
-import { getDefaultProjectModel, getModelDisplayName, getSelectableProjectModels, DEFAULT_OPUS_DISPLAY } from "../../models-discovery.js";
 import { isNativeAnthropic } from "../../providers/llm.js";
 import { startClaudeLogin, completeClaudeLogin, getClaudeAuthStatus } from "../../claude/oauth-login.js";
 import { getLastAuthError, clearLastAuthError } from "../../claude/claude-auth-state.js";
@@ -265,33 +265,23 @@ systemRouter.post("/claude-login/complete", async (req, res) => {
   }
 });
 
-systemRouter.get("/model", (_req, res) => {
-  const resolved = executionManager.getResolvedModelId();
-  const id = resolved ?? "opus";
-  const displayName = resolved ? getModelDisplayName(resolved) : DEFAULT_OPUS_DISPLAY;
-  res.json({ id, displayName, runtime: settingsManager.getActiveProfile().runtime });
+systemRouter.get("/model", async (_req, res) => {
+  const models = await refreshProviderCatalog();
+  const first = models[0];
+  res.json({ id: first?.modelId ?? "", displayName: first?.displayName ?? "Sem modelo", runtime: first?.runtime ?? "claude" });
 });
 
-async function providerConfigured(): Promise<boolean> {
-  const profile = settingsManager.getActiveProfile();
-  if (profile.baseUrl.trim()) return !profile.tokenEnv.trim() || Boolean(process.env[profile.tokenEnv.trim()]);
-  if (profile.runtime === "codex") return (await getCodexAuthStatus()).loggedIn;
-  const auth = getClaudeAuthStatus();
-  return auth.present && !auth.expired;
-}
-
 systemRouter.get("/provider", async (_req, res) => {
-  const profile = settingsManager.getActiveProfile();
-  const selectableModels = getSelectableProjectModels(profile);
+  const selectableModels = await refreshProviderCatalog();
+  const profiles = availableProfiles();
+  const first = selectableModels[0];
   res.json({
-    provider: profile.id,
-    label: profile.label,
-    runtime: profile.runtime,
-    model: profile.opusModel || "auto",
-    nativeAnthropic: isNativeAnthropic(profile),
-    defaultModel: getDefaultProjectModel(profile),
-    selectableModels,
-    configured: await providerConfigured(),
+    provider: first?.providerId ?? "", label: first?.providerLabel ?? "Nenhum provider",
+    runtime: first?.runtime ?? "claude", model: first?.modelId ?? "",
+    nativeAnthropic: profiles.some(isNativeAnthropic),
+    defaultModel: first?.model ?? "", selectableModels,
+    providers: profiles.map(({ id, label, runtime }) => ({ id, label, runtime })),
+    configured: selectableModels.length > 0,
   });
 });
 

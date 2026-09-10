@@ -1,3 +1,4 @@
+import { refreshProviderCatalog } from "./provider-catalog.js";
 import "./migrate-data.js";
 import { existsSync, readdirSync, renameSync } from "node:fs";
 import { resolve } from "node:path";
@@ -61,6 +62,8 @@ await runPipelineMigrations().catch((err) => {
 await runDataMigrations().catch((err) => {
   console.error("[data-migration] Migration failed:", err.message);
 });
+await refreshProviderCatalog();
+setInterval(() => { void refreshProviderCatalog().catch(() => {}); }, 60_000).unref();
 await usersManager.initialize();
 await sessionNamesManager.initialize();
 await commandQueue.initialize();

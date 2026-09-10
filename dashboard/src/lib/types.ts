@@ -279,6 +279,15 @@ export interface CodexLoginState {
   error: string;
 }
 
+export interface ModelOption {
+  model: string;
+  modelId: string;
+  displayName: string;
+  providerId: string;
+  providerLabel: string;
+  runtime: AgentRuntime;
+}
+
 export interface ProviderInfo {
   provider: string;
   label: string;
@@ -286,7 +295,8 @@ export interface ProviderInfo {
   model: string;
   nativeAnthropic: boolean;
   defaultModel: string;
-  selectableModels: { model: string; displayName: string }[];
+  selectableModels: ModelOption[];
+  providers: { id: string; label: string; runtime: AgentRuntime }[];
   configured: boolean;
 }
 

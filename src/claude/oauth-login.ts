@@ -124,16 +124,16 @@ function writeCredentials(oauth: { accessToken: string; refreshToken?: string; e
   chmodSync(path, 0o600);
 }
 
-export function getClaudeAuthStatus(): { present: boolean; expiresAt: number | null; expired: boolean } {
+export function getClaudeAuthStatus(): { present: boolean; expiresAt: number | null; expired: boolean; canRefresh?: boolean } {
   const path = credentialsPath();
   if (!existsSync(path)) return { present: false, expiresAt: null, expired: true };
   try {
-    const raw = JSON.parse(readFileSync(path, "utf-8")) as { claudeAiOauth?: { accessToken?: string; expiresAt?: number } };
+    const raw = JSON.parse(readFileSync(path, "utf-8")) as { claudeAiOauth?: { accessToken?: string; refreshToken?: string; expiresAt?: number } };
     const oauth = raw?.claudeAiOauth;
     if (!oauth?.accessToken) return { present: false, expiresAt: null, expired: true };
     const expiresAt = typeof oauth.expiresAt === "number" ? oauth.expiresAt : null;
     const expired = expiresAt != null ? Date.now() >= expiresAt : false;
-    return { present: true, expiresAt, expired };
+    return { present: true, expiresAt, expired, canRefresh: Boolean(oauth.refreshToken) };
   } catch {
     return { present: false, expiresAt: null, expired: true };
   }

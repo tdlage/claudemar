@@ -91,6 +91,7 @@ export function OrchestratorPage() {
         planMode: opts.planMode,
         permissionMode: opts.permissionMode,
         effort: opts.effort,
+        model: opts.model,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);

@@ -104,8 +104,7 @@ export function filterExistingSessions<T extends { sessionId: string; runtime?: 
 }
 
 // Cache pode estar defasado para sessões recém-criadas; num miss, re-escaneia antes de condenar.
-export function sessionFileExists(sessionId: string): boolean {
-  const runtime = activeRuntime();
+export function sessionFileExists(sessionId: string, runtime: AgentRuntime = activeRuntime()): boolean {
   const id = normalizeId(runtime, sessionId);
   const cached = existingSessionIds(runtime);
   if (!cached) return true;

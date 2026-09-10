@@ -42,9 +42,8 @@ import {
 } from "../../github-actions.js";
 import { executionManager } from "../../execution-manager.js";
 import { purgeProjectData } from "../../target-cleanup.js";
-import { projectSettingsManager } from "../../project-settings.js";
-import { isSelectableProjectModel } from "../../models-discovery.js";
-import { settingsManager } from "../../settings-manager.js";
+import { resolveTargetModel, targetModelSettings } from "../../target-model-settings.js";
+import { refreshProviderCatalog } from "../../provider-catalog.js";
 
 export const projectsRouter = Router();
 
@@ -202,7 +201,7 @@ projectsRouter.get("/:name", asyncHandler(async (req, res) => {
   const projectName = String(req.params.name);
   const repos = await discoverRepos(projectPath, true);
   const inputFiles = listFiles(inputDir(projectPath));
-  res.json({ name: projectName, repos, inputFiles, model: projectSettingsManager.getModel(projectName, settingsManager.getActiveProfile()) });
+  res.json({ name: projectName, repos, inputFiles, model: targetModelSettings.get("project", projectName) });
 }));
 
 projectsRouter.put("/:name/model", asyncHandler(async (req, res) => {
@@ -214,13 +213,10 @@ projectsRouter.put("/:name/model", asyncHandler(async (req, res) => {
   if (!projectPath) return;
 
   const { model } = req.body;
-  const activeProfile = settingsManager.getActiveProfile();
-  if (!isSelectableProjectModel(model, activeProfile)) {
-    res.status(400).json({ error: "Invalid model" });
-    return;
-  }
-
-  projectSettingsManager.setModel(String(req.params.name), model, activeProfile);
+  await refreshProviderCatalog();
+  if (typeof model !== "string" || !model) { res.status(400).json({ error: "Invalid model" }); return; }
+  const selected = resolveTargetModel("project", String(req.params.name), model);
+  targetModelSettings.set("project", String(req.params.name), selected.selection);
   res.json({ model });
 }));
 
@@ -724,6 +720,7 @@ projectsRouter.post("/:name/repos/:repo/commit-push", asyncHandler(async (req, r
     source: "web",
     targetType: "project",
     targetName,
+    model: resolveTargetModel("project", String(req.params.name)).selection,
     prompt,
     cwd: resolved.workPath,
     noResume: true,

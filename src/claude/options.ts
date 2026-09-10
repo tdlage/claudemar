@@ -1,5 +1,4 @@
 import type { CanUseTool, Options } from "@anthropic-ai/claude-agent-sdk";
-import { settingsManager } from "../settings-manager.js";
 import { applyProfile } from "../providers/llm.js";
 import { DEFAULT_PROJECT_MODEL, normalizeModel } from "../models-discovery.js";
 import { buildSystemAppend } from "../runtime/system-append.js";
@@ -8,7 +7,7 @@ import { resolveInitialPermissionMode } from "../runtime/permission-mode.js";
 import type { AgentSessionInit, Effort } from "../runtime/types.js";
 
 export type SdkEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
-export type SdkFlagEffortLevel = "low" | "medium" | "high" | "xhigh";
+export type SdkFlagEffortLevel = SdkEffortLevel;
 
 const EFFORT_SDK: Record<Effort, SdkEffortLevel> = {
   minimal: "low",
@@ -24,11 +23,8 @@ export function effortToSdk(effort: Effort): SdkEffortLevel {
   return EFFORT_SDK[effort];
 }
 
-// The live flag layer (applyFlagSettings) only accepts up to "xhigh"; "max" is
-// reachable solely at session start through Options.effort.
 export function effortToFlagLevel(effort: Effort): SdkFlagEffortLevel {
-  const level = EFFORT_SDK[effort];
-  return level === "max" ? "xhigh" : level;
+  return EFFORT_SDK[effort];
 }
 
 export function isUltracode(effort: Effort | undefined): boolean {
@@ -41,7 +37,7 @@ export interface BuildOptionsParams extends AgentSessionInit {
 }
 
 export function buildOptions(params: BuildOptionsParams): Options {
-  const env = applyProfile(process.env, settingsManager.getActiveProfile());
+  const env = applyProfile(process.env, params.profile);
   delete env.CLAUDECODE;
 
   const permissionMode = resolveInitialPermissionMode(params);

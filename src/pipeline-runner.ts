@@ -7,8 +7,6 @@ import { pipelineManager, type PipelineCard, type RunStatus, type StageArtifacts
 import { cardWorktreeRoot, PIPELINE_WORKTREES_ROOT } from "./pipeline-worktree.js";
 import { signUploadUrl } from "./upload-signer.js";
 import { config } from "./config.js";
-import { settingsManager } from "./settings-manager.js";
-import { isNativeAnthropic } from "./providers/llm.js";
 import { query, execute } from "./database.js";
 import { createPipelineMcpServer } from "./pipeline-mcp.js";
 import { buildPlanReposInstruction } from "./pipeline-prompt.js";
@@ -154,9 +152,7 @@ class PipelineRunner {
 
     const mcp = createPipelineMcpServer({ runId: run.id, cardId, pipelineId: pipeline.id, stage });
 
-    // Modelo por card: só se aplica ao Anthropic nativo (mesmo gating do modelo por projeto);
-    // nos demais perfis o modelo é resolvido pelo perfil ativo.
-    const model = card.model && isNativeAnthropic(settingsManager.getActiveProfile()) ? card.model : undefined;
+    const model = card.model || undefined;
 
     const execId = executionManager.startExecution({
       source: "pipeline",

@@ -12,17 +12,15 @@ settingsRouter.get("/", (_req, res) => {
 });
 
 settingsRouter.put("/", (req, res) => {
-  const { sesFrom, adminEmail, llmProfiles, activeProfileId } = req.body;
+  const { sesFrom, adminEmail, llmProfiles } = req.body;
   const before = settingsManager.get();
   settingsManager.update({
     sesFrom: typeof sesFrom === "string" ? sesFrom : undefined,
     adminEmail: typeof adminEmail === "string" ? adminEmail : undefined,
     llmProfiles: Array.isArray(llmProfiles) ? llmProfiles : undefined,
-    activeProfileId: typeof activeProfileId === "string" ? activeProfileId : undefined,
   });
   const after = settingsManager.get();
   const llmChanged =
-    before.activeProfileId !== after.activeProfileId ||
     JSON.stringify(before.llmProfiles) !== JSON.stringify(after.llmProfiles);
   if (llmChanged) {
     executionManager.invalidateLlmSessions();

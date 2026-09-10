@@ -210,7 +210,10 @@ export function applyProfile(baseEnv: NodeJS.ProcessEnv, profile: LlmProfile): N
 
   if (baseUrl) {
     env.ANTHROPIC_BASE_URL = baseUrl;
-    const token = profile.tokenEnv ? (process.env[profile.tokenEnv] ?? "").trim() : "";
+    const profileEnv = { ...process.env, ...baseEnv, ...Object.fromEntries(parseExtraEnv(profile.extraEnv)) };
+    const token = profile.tokenEnv ? (profileEnv[profile.tokenEnv] ?? "").trim() : "";
+    delete env.ANTHROPIC_AUTH_TOKEN;
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
     if (token) env.ANTHROPIC_AUTH_TOKEN = token;
     delete env.ANTHROPIC_API_KEY;
 

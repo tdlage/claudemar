@@ -153,11 +153,6 @@ export function SettingsPage() {
     setLlmDirty(true);
   };
 
-  const setActiveProfile = (id: string) => {
-    setSettings((s) => ({ ...s, activeProfileId: id }));
-    setLlmDirty(true);
-  };
-
   const handleSaveSettings = async () => {
     setSettingsSaving(true);
     setSettingsMsg(null);
@@ -259,31 +254,19 @@ export function SettingsPage() {
           <Cpu size={14} className="text-text-muted" /> Provedores de LLM
         </h2>
         <p className="text-sm text-text-muted">
-          Cada perfil define o runtime das execuções — <strong>Claude Agent SDK</strong> para APIs compatíveis com a Anthropic ou <strong>Codex SDK</strong> para os modelos OpenAI — além do endpoint, do token e dos modelos. O perfil <strong>ativo</strong> vale para todas as novas execuções. Com a Base URL vazia, o runtime Claude usa a subscription do Claude e o runtime Codex usa a assinatura do ChatGPT (conta acima). As chaves dos demais provedores ficam em <strong>Chaves de API</strong>.
+          Cada perfil define o runtime das execuções — <strong>Claude Agent SDK</strong> para APIs compatíveis com a Anthropic ou <strong>Codex SDK</strong> para os modelos OpenAI — além do endpoint, do token e dos modelos. Todos os perfis autenticados ficam disponíveis. Escolha o modelo no terminal do projeto ou do agente para definir o provider de cada execução. Com a Base URL vazia, o runtime Claude usa a subscription do Claude e o runtime Codex usa a assinatura do ChatGPT (conta acima). As chaves dos demais provedores ficam em <strong>Chaves de API</strong>.
         </p>
 
         <div className="space-y-2">
           {settings.llmProfiles.map((p) => {
-            const isActive = p.id === settings.activeProfileId;
             const isEditing = editingProfileId === p.id;
             return (
               <div key={p.id} className="bg-surface border border-border rounded-lg overflow-hidden">
                 <div className="flex items-center gap-3 px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => setActiveProfile(p.id)}
-                    title={isActive ? "Perfil ativo" : "Tornar ativo"}
-                    className="shrink-0"
-                  >
-                    <span className={`flex h-4 w-4 items-center justify-center rounded-full border ${isActive ? "border-accent" : "border-border"}`}>
-                      {isActive && <span className="h-2 w-2 rounded-full bg-accent" />}
-                    </span>
-                  </button>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-text-primary truncate">{p.label || p.id}</span>
                       <span className="text-xs px-1.5 py-0.5 rounded bg-surface-hover text-text-muted">{p.runtime === "codex" ? "Codex SDK" : "Claude SDK"}</span>
-                      {isActive && <span className="text-xs text-success">ativo</span>}
                     </div>
                     <div className="text-xs text-text-muted font-mono truncate">
                       {p.opusModel || "—"}{p.baseUrl ? "" : p.runtime === "codex" ? " · ChatGPT" : " · nativo"}

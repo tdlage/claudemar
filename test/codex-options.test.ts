@@ -56,7 +56,7 @@ test("buildThreadOptions nunca pede aprovação e mapeia o effort", () => {
   assert.equal(options.skipGitRepoCheck, true);
   assert.equal(options.workingDirectory, "/tmp/p");
   assert.equal(options.sandboxMode, "danger-full-access");
-  assert.equal(options.modelReasoningEffort, "xhigh");
+  assert.equal(options.modelReasoningEffort, "max");
   assert.equal(buildThreadOptions({ model: "m", permissionMode: "default", effort: "minimal", cwd: "/" }).modelReasoningEffort, "minimal");
   assert.equal(buildThreadOptions({ model: "m", permissionMode: "default", effort: "low", cwd: "/" }).modelReasoningEffort, "low");
 });
@@ -99,4 +99,11 @@ test("buildCodexConfig configura provedor OpenAI-compatible customizado, janela 
   assert.deepEqual(config.model_providers, { custom: { name: "Custom", base_url: "https://api.custom.ai/v1", wire_api: "responses", env_key: "CUSTOM_KEY" } });
   assert.equal(config.model_context_window, 128000);
   assert.deepEqual(config.mcp_servers, { memory: { url: "http://127.0.0.1:1/memory" } });
+});
+
+
+test("GPT Max reaches the SDK without being reduced to xhigh", () => {
+  const state = { model: "gpt-6-astra", permissionMode: "default" as const, cwd: "/" };
+  assert.equal(buildThreadOptions({ ...state, effort: "max" }).modelReasoningEffort, "max");
+  assert.equal(buildThreadOptions({ ...state, effort: "extra" }).modelReasoningEffort, "xhigh");
 });

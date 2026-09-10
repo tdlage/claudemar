@@ -113,6 +113,7 @@ export function AgentDetailPage() {
         planMode: opts.planMode,
         permissionMode: opts.permissionMode,
         effort: opts.effort,
+        model: opts.model,
         forceQueue: sequential || undefined,
         skipSystemPrompt: !sendSystemPrompt || undefined,
         schedulerMode: schedulerMode || undefined,

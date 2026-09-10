@@ -1,3 +1,4 @@
+import { resolveTargetModel, sessionModelSettings } from "./target-model-settings.js";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
@@ -14,9 +15,7 @@ import { buildAgentDefinitions } from "./agents/subagents.js";
 import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
 import { config } from "./config.js";
 import { safeProjectPath } from "./session.js";
-import { settingsManager } from "./settings-manager.js";
-import { projectSettingsManager } from "./project-settings.js";
-import { inferRuntimeFromModel, resolveExecutionModel, DEFAULT_PROJECT_MODEL } from "./models-discovery.js";
+import { inferRuntimeFromModel, DEFAULT_PROJECT_MODEL } from "./models-discovery.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { sessionFileExists } from "./session-validator.js";
 import { query } from "./database.js";
@@ -40,6 +39,9 @@ export interface ExecutionInfo {
   agentName?: string;
   model?: string;
   runtime: AgentRuntime;
+  slashCommands?: string[];
+  providerId?: string;
+  modelSelection?: string;
   username?: string;
   prompt: string;
   cwd: string;
@@ -130,6 +132,7 @@ interface ActiveEntry {
 }
 
 class ExecutionManager extends EventEmitter {
+  private sessionProfiles = new Map<string, string>();
   private active = new Map<string, ActiveEntry>();
   private draining = false;
   private recent: ExecutionInfo[] = [];
@@ -235,10 +238,10 @@ class ExecutionManager extends EventEmitter {
     this.sessionHistoryMap.set(key, filtered.slice(0, MAX_SESSION_HISTORY));
   }
 
-  private buildSystemSuffix(opts: StartExecutionOpts): string {
+  private buildSystemSuffix(opts: StartExecutionOpts, profile: LlmProfile): string {
     if (opts.skipSystemPrompt) return "";
     let suffix = "";
-    if (opts.targetType === "orchestrator" && settingsManager.getActiveProfile().runtime === "claude") {
+    if (opts.targetType === "orchestrator" && profile.runtime === "claude") {
       suffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions. To delegate a task to another agent, invoke it as a subagent via the Agent tool (the available agents are exposed automatically).]`;
     } else if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
       suffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions.]`;
@@ -273,21 +276,12 @@ class ExecutionManager extends EventEmitter {
   }
 
   // Só o orquestrador (runtime claude) delega a subagentes; agentes executam isolados.
-  private buildSubagents(opts: StartExecutionOpts): Record<string, AgentDefinition> | undefined {
-    if (opts.targetType === "orchestrator" && settingsManager.getActiveProfile().runtime === "claude") return buildAgentDefinitions();
+  private buildSubagents(opts: StartExecutionOpts, profile: LlmProfile): Record<string, AgentDefinition> | undefined {
+    if (opts.targetType === "orchestrator" && profile.runtime === "claude") return buildAgentDefinitions();
     return undefined;
   }
 
-  private resolveModel(opts: StartExecutionOpts, activeProfile: LlmProfile): string {
-    return resolveExecutionModel({
-      explicitModel: opts.model,
-      targetType: opts.targetType,
-      activeProfile,
-      projectModel: projectSettingsManager.getModel(opts.targetName, activeProfile),
-    });
-  }
-
-  private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined, model: string): { session: AgentSession; isNew: boolean } {
+  private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined, model: string, profile: LlmProfile): { session: AgentSession; isNew: boolean } {
     const existing = this.sessions.get(sessionKey);
     if (existing) {
       const planChanged = Boolean(opts.planMode) !== existing.planMode;
@@ -295,7 +289,7 @@ class ExecutionManager extends EventEmitter {
       const schedulerChanged = Boolean(opts.schedulerMode) !== existing.schedulerMode;
       const resumeChanged = Boolean(resumeId) && resumeId !== existing.getSessionId();
       const llmChanged = this.sessionGen.get(sessionKey) !== this.llmConfigGen;
-      const modelChanged = model !== existing.getRequestedModel();
+      const modelChanged = model !== existing.getRequestedModel() || this.sessionProfiles.get(sessionKey) !== profile.id;
       // Per-call MCP servers/skills (ex.: pipeline) só se aplicam na criação da sessão; se um caller
       // não-agent traz extraMcpServers, recria para não herdar o MCP/skill da etapa anterior.
       const mcpChanged = opts.targetType !== "agent" && opts.extraMcpServers !== undefined;
@@ -308,6 +302,7 @@ class ExecutionManager extends EventEmitter {
 
     const bypass = resolveBypass(opts);
     const session = createAgentSession({
+      profile,
       cwd: opts.cwd,
       model,
       target: { targetType: opts.targetType, targetName: opts.targetName },
@@ -317,8 +312,8 @@ class ExecutionManager extends EventEmitter {
       bypassPermissions: bypass,
       resumeSessionId: resumeId ?? null,
       effort: opts.effort,
-      systemAppend: this.buildSystemSuffix(opts),
-      subagents: this.buildSubagents(opts),
+      systemAppend: this.buildSystemSuffix(opts, profile),
+      subagents: this.buildSubagents(opts, profile),
       extraMcpServers: opts.extraMcpServers,
       skills: opts.skills,
       schedulerMode: opts.schedulerMode,
@@ -327,6 +322,7 @@ class ExecutionManager extends EventEmitter {
       pendingTasksGraceMs: config.pendingTasksGraceMs,
     });
     this.sessions.set(sessionKey, session);
+    this.sessionProfiles.set(sessionKey, profile.id);
     this.sessionGen.set(sessionKey, this.llmConfigGen);
     return { session, isNew: true };
   }
@@ -379,8 +375,7 @@ class ExecutionManager extends EventEmitter {
       throw new Error("Serviço em reinício para atualização — novas execuções estão bloqueadas. Tente novamente em instantes.");
     }
     const id = randomUUID();
-    const activeProfile = settingsManager.getActiveProfile();
-    const model = this.resolveModel(opts, activeProfile);
+    const { profile, model, selection } = resolveTargetModel(opts.targetType, opts.targetName, opts.model);
     const info: ExecutionInfo = {
       id,
       source: opts.source,
@@ -388,7 +383,9 @@ class ExecutionManager extends EventEmitter {
       targetName: opts.targetName,
       agentName: opts.agentName,
       model,
-      runtime: activeProfile.runtime,
+      runtime: profile.runtime,
+      providerId: profile.id,
+      modelSelection: selection,
       username: opts.username,
       prompt: opts.prompt,
       cwd: opts.cwd,
@@ -411,9 +408,15 @@ class ExecutionManager extends EventEmitter {
         ? undefined
         : (opts.resumeSessionId ?? this.getLastSessionId(opts.targetType, opts.targetName, opts.username));
 
+    const previousRuntime = this.lastSessionRuntimeMap.get(sessionKey);
+    const previousProfile = resumeId ? sessionModelSettings.get(resumeId)?.split("::")[0] : this.sessionProfiles.get(sessionKey);
+    if (previousProfile ? previousProfile !== encodeURIComponent(profile.id) : previousRuntime && previousRuntime !== profile.runtime) {
+      resumeId = undefined;
+    }
+
     // Transcript que não existe no runtime ativo (ex.: sessão criada em outro runtime) não é
     // retomado: evita um turno inteiro falhando só para cair na retentativa sem resume.
-    if (resumeId && !this.isSessionActive(opts.targetType, opts.targetName, opts.username) && !sessionFileExists(resumeId)) {
+    if (resumeId && !this.isSessionActive(opts.targetType, opts.targetName, opts.username) && !sessionFileExists(resumeId, profile.runtime)) {
       console.log(`[execution] Resume session ${resumeId} not found on disk for ${opts.targetType}:${opts.targetName}, starting fresh`);
       this.lastSessionMap.delete(sessionKey);
       this.lastSessionModelMap.delete(sessionKey);
@@ -423,7 +426,7 @@ class ExecutionManager extends EventEmitter {
 
     info.resumeSessionId = resumeId ?? null;
 
-    const { session, isNew } = this.getOrCreateSession(opts, sessionKey, resumeId, model);
+    const { session, isNew } = this.getOrCreateSession(opts, sessionKey, resumeId, model, profile);
 
     const entry: ActiveEntry = { info, session, opts, sessionKey };
     this.active.set(id, entry);
@@ -439,9 +442,7 @@ class ExecutionManager extends EventEmitter {
     }
 
     const dispatch = async () => {
-      // New sessions get effort from buildOptions (Options.effort), which also
-      // covers "max". Ultracode additionally needs its session flags applied,
-      // and resumed sessions need any effort change pushed to the live runner.
+      // Ultracode also needs workflow flags; reused sessions receive effort updates here.
       if (opts.effort && (!isNew || isUltracode(opts.effort))) {
         await session.setEffort(opts.effort).catch(() => {});
       }
@@ -491,6 +492,7 @@ class ExecutionManager extends EventEmitter {
     };
     const onSessionId = (sessionId: string, model: string) => {
       info.model = model || info.model;
+      if (info.modelSelection) sessionModelSettings.set(sessionId, info.modelSelection);
       const key = entry.sessionKey;
       this.lastSessionMap.set(key, sessionId);
       this.lastSessionModelMap.set(key, info.model ?? DEFAULT_MODEL);
@@ -507,7 +509,10 @@ class ExecutionManager extends EventEmitter {
     const onCompact = (trigger: string) => this.emit("compact", info.id, trigger);
     const onCheckpoint = (uuid: string) => this.emit("checkpoint", info.id, uuid);
     const onMode = (mode: PermissionMode) => this.emit("mode", info.id, mode);
-    const onSlash = (commands: string[]) => this.emit("slash-commands", info.id, commands);
+    const onSlash = (commands: string[]) => {
+      info.slashCommands = commands;
+      this.emit("slash-commands", info.id, commands);
+    };
     const onMcp = (servers: { name: string; status: string }[]) => this.emit("mcp-status", info.id, servers);
 
     session.on("chunk", onChunk);

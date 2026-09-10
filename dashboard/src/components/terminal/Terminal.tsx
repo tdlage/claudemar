@@ -1,3 +1,5 @@
+import { useModelSelection } from "../../hooks/useModelSelection";
+import { ModelSelector } from "./ModelSelector";
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   Send, Square, Brain, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
@@ -12,7 +14,7 @@ import { useToast } from "../shared/Toast";
 import { formatToolDetail } from "../../lib/toolDetail";
 import { formatTokens, formatDuration } from "../../lib/format";
 import { fileToImageBlock, imageBlocksFromClipboard, type ImageBlock } from "../../lib/imageBlock";
-import { getSlashCache, setSlashCache } from "../../lib/slashCache";
+import { getSlashCache, setSlashCache, slashCacheKey } from "../../lib/slashCache";
 import { MdLinksBar } from "./MdLinksBar";
 import { PermissionPrompt, type PermissionRequest } from "./PermissionPrompt";
 import { SelectionSafeHtml } from "../shared/SelectionSafeHtml";
@@ -78,6 +80,7 @@ interface TaskEventPayload {
 
 
 export interface StartOpts {
+  model?: string;
   planMode: boolean;
   permissionMode: PermissionMode;
   effort: Effort;
@@ -110,7 +113,8 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const currentModel = useCurrentModel();
-  const activeRuntime = runtime ?? currentModel.runtime;
+  const modelSelection = useModelSelection(base);
+  const [executionRuntime, setExecutionRuntime] = useState<{ id: string; runtime: AgentRuntime } | null>(null);
   const { addToast } = useToast();
   const cacheKey = base ?? "default";
 
@@ -123,6 +127,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const [messages, setMessages] = useState<UserMessage[]>([]);
 
   const live = isLive ?? running;
+  const activeRuntime = live && executionRuntime?.id === executionId ? executionRuntime.runtime : modelSelection.selected?.runtime ?? runtime ?? currentModel.runtime;
 
   const onStartRef = useRef<TerminalProps["onStart"]>(onStart);
   const modeRef = useRef<PermissionMode>("default");
@@ -137,12 +142,26 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const [claudeEffort, setClaudeEffort] = useCachedState<Effort>(`term:${cacheKey}:effort:claude`, defaultEffortFor("claude"));
   const [codexEffort, setCodexEffort] = useCachedState<Effort>(`term:${cacheKey}:effort:codex`, defaultEffortFor("codex"));
   const effort = normalizeEffortFor(activeRuntime, activeRuntime === "codex" ? codexEffort : claudeEffort);
-  const slashCacheKey = base ?? "default";
-  const [slashCommands, setSlashCommands] = useState<string[]>(() => getSlashCache(slashCacheKey));
+  const slashRuntime = live && executionRuntime?.id === executionId ? executionRuntime.runtime : activeRuntime;
+  const slashKey = slashCacheKey(cacheKey, slashRuntime);
+  const [receivedCommands, setReceivedCommands] = useState<{ key: string; commands: string[] } | null>(null);
+  const slashCommands = receivedCommands?.key === slashKey ? receivedCommands.commands : getSlashCache(cacheKey, slashRuntime);
+  const receiveSlashCommands = useCallback((data: { id: string; runtime?: AgentRuntime; commands?: string[] }) => {
+    if (data.runtime !== "claude" && data.runtime !== "codex") return;
+    setExecutionRuntime({ id: data.id, runtime: data.runtime });
+    if (!data.commands) return;
+    setSlashCache(cacheKey, data.runtime, data.commands);
+    setReceivedCommands({ key: slashCacheKey(cacheKey, data.runtime), commands: data.commands });
+  }, [cacheKey]);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const slashInputRef = useRef<HTMLTextAreaElement>(null);
   const [compactNotice, setCompactNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSlashIndex(0);
+    setSlashDismissed(false);
+  }, [slashKey]);
 
   const counterRef = useRef(0);
   const prevExecIdRef = useRef<string | null>(null);
@@ -209,8 +228,9 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     const matches = (id: string) => id === executionId;
     let allowGap = false;
 
-    const catchupHandler = (data: { id: string; output: string; running?: boolean; truncated?: boolean }) => {
+    const catchupHandler = (data: { id: string; output: string; running?: boolean; truncated?: boolean; runtime?: AgentRuntime; slashCommands?: string[] }) => {
       if (!matches(data.id)) return;
+      receiveSlashCommands({ id: data.id, runtime: data.runtime, commands: data.slashCommands });
       allowGap = data.truncated === true;
       const current = getOutput(executionId);
       if (data.output.length > current.length) {
@@ -287,10 +307,9 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       setMode(data.mode);
     };
 
-    const slashHandler = (data: { id: string; commands: string[] }) => {
+    const slashHandler = (data: { id: string; commands: string[]; runtime?: AgentRuntime }) => {
       if (!matches(data.id)) return;
-      setSlashCommands(data.commands);
-      setSlashCache(slashCacheKey, data.commands);
+      receiveSlashCommands(data);
     };
 
     const compactHandler = (data: { id: string; trigger: string }) => {
@@ -363,7 +382,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       socket.off("execution:cancel", stopHandler);
       socket.emit("unsubscribe:execution", executionId);
     };
-  }, [executionId, render]);
+  }, [executionId, render, receiveSlashCommands]);
 
   const execIdRef = useRef<string | null>(executionId);
   useEffect(() => {
@@ -401,6 +420,10 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
 
     const injectIntoRunning = live && executionId !== null && !queueMode;
     const willQueue = live && executionId !== null && queueMode;
+    if (!injectIntoRunning && modelSelection.supported && (!modelSelection.selected || !modelSelection.ready || modelSelection.saving)) {
+      addToast("error", modelSelection.saving ? "Aguarde salvar o modelo." : "Escolha um modelo de um provider autenticado.");
+      return;
+    }
 
     if (!willQueue) {
       const msgId = counterRef.current++;
@@ -416,13 +439,13 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       }
     } else if (onStartRef.current) {
       const m = modeRef.current;
-      void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), effort });
+      void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), effort, model: modelSelection.selected?.model });
       if (m === "plan") setMode("default");
     }
 
     setInput("");
     setPendingImages([]);
-  }, [input, pendingImages, live, executionId, queueMode, effort]);
+  }, [input, pendingImages, live, executionId, queueMode, effort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, addToast]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -589,7 +612,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
         {inputControls}
         <div className="flex-1" />
         {controls}
-        {showModelBadge && (
+        {showModelBadge && !modelSelection.supported && (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
             {currentModel.displayName}
           </span>
@@ -625,6 +648,12 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
         </div>
       </div>
 
+      {onStart && modelSelection.supported && (
+        <div className="flex items-center gap-2 px-3 py-2 border-t border-border">
+          <ModelSelector models={modelSelection.models} value={modelSelection.model} disabled={live || modelSelection.saving || !modelSelection.ready}
+            onChange={(model) => { void modelSelection.select(model).catch((err) => addToast("error", err instanceof Error ? err.message : "Falha ao salvar modelo")); }} />
+        </div>
+      )}
       {onStart && (
         <div className="shrink-0 space-y-1.5">
           {messages.length > 0 && (
@@ -730,7 +759,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
             <button
               type="button"
               onClick={submit}
-              disabled={!input.trim() && pendingImages.length === 0}
+              disabled={(!input.trim() && pendingImages.length === 0) || (modelSelection.supported && modelSelection.saving)}
               className="inline-flex items-center justify-center p-1.5 rounded-md bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
               <Send size={14} />

@@ -1,3 +1,4 @@
+import { refreshProviderCatalog } from "./provider-catalog.js";
 import { existsSync } from "node:fs";
 import { config } from "./config.js";
 import { executionManager, type ExecutionInfo } from "./execution-manager.js";
@@ -6,6 +7,7 @@ import { getAgentPaths } from "./agents/manager.js";
 import { closePool } from "./database.js";
 
 async function main(): Promise<number> {
+  await refreshProviderCatalog();
   const id = process.argv[2];
   if (!id) {
     console.error("usage: schedule-run <schedule-id>");

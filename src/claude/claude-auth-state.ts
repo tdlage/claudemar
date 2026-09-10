@@ -1,5 +1,5 @@
 import { executionManager } from "../execution-manager.js";
-import { settingsManager } from "../settings-manager.js";
+import type { ExecutionInfo } from "../execution-manager.js";
 
 // Sinaliza que uma execução falhou por autenticação (subscription do Claude expirada/revogada,
 // tipicamente HTTP 401 quando o refresh_token também falha). O banner do dashboard consulta este
@@ -13,14 +13,14 @@ function looksLikeAuthError(message: string): boolean {
 }
 
 export function initClaudeAuthWatch(): void {
-  executionManager.on("error", (_id: string, _info: unknown, message: string) => {
-    if (settingsManager.getActiveProfile().runtime !== "claude") return;
+  executionManager.on("error", (_id: string, info: ExecutionInfo, message: string) => {
+    if (info.runtime !== "claude") return;
     if (looksLikeAuthError(String(message ?? ""))) {
       lastAuthError = { at: Date.now(), message: String(message).slice(0, 300) };
     }
   });
-  executionManager.on("complete", () => {
-    lastAuthError = null;
+  executionManager.on("complete", (_id: string, info: ExecutionInfo) => {
+    if (info.runtime === "claude") lastAuthError = null;
   });
 }
 

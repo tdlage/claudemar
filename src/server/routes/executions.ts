@@ -13,8 +13,9 @@ import { safeProjectPath } from "../../session.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
 import { loadHistory, loadSessionRefs } from "../../history.js";
 import { filterExistingSessions, sessionFileExists } from "../../session-validator.js";
-import { inferRuntimeFromModel, isSelectableProjectModel } from "../../models-discovery.js";
-import { settingsManager } from "../../settings-manager.js";
+import { inferRuntimeFromModel } from "../../models-discovery.js";
+import { refreshProviderCatalog } from "../../provider-catalog.js";
+import { resolveTargetModel, targetModelSettings } from "../../target-model-settings.js";
 
 export const executionsRouter = Router();
 
@@ -26,6 +27,36 @@ function filterExecutionsByAccess(executions: ReturnType<typeof executionManager
     return false;
   });
 }
+
+executionsRouter.route("/model-preference")
+  .all((req, res, next) => {
+    const { targetType, targetName } = req.query;
+    if (typeof targetName !== "string" || !["project", "agent", "orchestrator"].includes(String(targetType))) {
+      res.status(400).json({ error: "Alvo inválido" }); return;
+    }
+    if (req.ctx?.role === "user" && (targetType === "orchestrator" || !(targetType === "project" ? req.ctx.projects : req.ctx.agents).includes(targetName))) {
+      res.status(403).json({ error: "Forbidden" }); return;
+    }
+    const path = targetType === "project" ? safeProjectPath(targetName) : targetType === "agent" ? getAgentPaths(targetName)?.root : config.orchestratorPath;
+    if (!path || !existsSync(path)) { res.status(404).json({ error: "Alvo não encontrado" }); return; }
+    next();
+  })
+  .get(async (req, res) => {
+    await refreshProviderCatalog();
+    const type = String(req.query.targetType), name = String(req.query.targetName);
+    try { res.json({ model: resolveTargetModel(type, name).selection }); }
+    catch { res.json({ model: targetModelSettings.get(type, name) ?? "" }); }
+  })
+  .put(async (req, res) => {
+    if (typeof req.body?.model !== "string" || !req.body.model) { res.status(400).json({ error: "Modelo obrigatório" }); return; }
+    await refreshProviderCatalog();
+    const type = String(req.query.targetType), name = String(req.query.targetName);
+    try {
+      const resolved = resolveTargetModel(type, name, req.body.model);
+      targetModelSettings.set(type, name, resolved.selection);
+      res.json({ model: resolved.selection });
+    } catch (err) { res.status(400).json({ error: err instanceof Error ? err.message : String(err) }); }
+  });
 
 executionsRouter.get("/", (req, res) => {
   const status = req.query.status as string | undefined;
@@ -116,6 +147,14 @@ executionsRouter.post("/", async (req, res) => {
   const resolvedEffort = typeof effort === "string" && EFFORTS.includes(effort as Effort) ? (effort as Effort) : undefined;
   const validModes = ["default", "acceptEdits", "bypassPermissions", "plan"];
   const requestedMode = typeof permissionMode === "string" && validModes.includes(permissionMode) ? (permissionMode as PermissionMode) : undefined;
+  let selectedModel: string;
+  try {
+    if (model !== undefined && (typeof model !== "string" || !model)) throw new Error("Modelo inválido");
+    await refreshProviderCatalog();
+    selectedModel = resolveTargetModel(targetType, effectiveTargetName, model).selection;
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) }); return;
+  }
   const queuePayload = {
     targetType,
     targetName: effectiveTargetName,
@@ -129,7 +168,7 @@ executionsRouter.post("/", async (req, res) => {
     username,
     skipSystemPrompt: skipSystemPrompt || false,
     effort: resolvedEffort,
-    model: isSelectableProjectModel(model, settingsManager.getActiveProfile()) ? model : undefined,
+    model: selectedModel,
   };
 
   const targetActive = executionManager.isTargetActive(targetType, effectiveTargetName);
@@ -242,7 +281,7 @@ executionsRouter.get("/session/:targetType/:targetName", async (req, res) => {
   let currentSessionId = executionManager.getLastSessionId(targetType, targetName, user);
   const currentModel = executionManager.getLastSessionModel(targetType, targetName, user);
   const currentRuntime = executionManager.getLastSessionRuntime(targetType, targetName, user);
-  if (currentSessionId && !executionManager.isSessionActive(targetType, targetName, user) && !sessionFileExists(currentSessionId)) {
+  if (currentSessionId && !executionManager.isSessionActive(targetType, targetName, user) && !sessionFileExists(currentSessionId, currentRuntime ?? inferRuntimeFromModel(currentModel))) {
     executionManager.clearSessionId(targetType, targetName, user);
     currentSessionId = undefined;
   }

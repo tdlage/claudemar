@@ -1,7 +1,9 @@
+import { refreshProviderCatalog } from "./provider-catalog.js";
 import { runIntake } from "./pipeline-intake.js";
 import { closePool } from "./database.js";
 
 async function main(): Promise<number> {
+  await refreshProviderCatalog();
   const pluginId = process.argv[2];
   if (!pluginId) {
     console.error("usage: pipeline-intake-run <plugin-id>");

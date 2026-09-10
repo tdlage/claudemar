@@ -26,6 +26,10 @@ export const PROJECT_SELECTABLE_MODELS = [
   { model: "claude-fable-5-1", displayName: "Fable 5.1" },
 ] as const;
 
+export function getNativeClaudeModels(): SelectableProjectModel[] {
+  return CLAUDE_DEFAULT_MODELS.map(({ id, displayName }) => ({ model: id, displayName }));
+}
+
 export const DEFAULT_PROJECT_MODEL = "claude-opus-5";
 
 const CODEX_CHATGPT_MODELS = ["gpt-6-astra"] as const;

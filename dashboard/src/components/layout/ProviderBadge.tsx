@@ -25,12 +25,13 @@ export function ProviderBadge() {
 
   const needsKey = !info.configured;
   const color = needsKey ? "text-red-400" : "text-text-muted";
-  const title = `Provedor LLM: ${info.label} · ${info.model}${needsKey ? (info.runtime === "codex" ? " (sem login do ChatGPT)" : " (sem credencial)") : ""}`;
+  const label = needsKey ? "Nenhum provider autenticado" : `${info.providers.length} providers disponíveis`;
+  const title = info.providers.map((provider) => provider.label).join(", ") || label;
 
   return (
     <span className={`flex items-center gap-1 text-xs font-mono ${color}`} title={title}>
       <Bot size={12} />
-      <span>{info.label} · {info.model}</span>
+      <span>{label}</span>
     </span>
   );
 }
