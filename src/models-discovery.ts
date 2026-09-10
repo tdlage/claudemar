@@ -50,7 +50,7 @@ export function normalizeModel(model: string): string {
 }
 
 export function inferRuntimeFromModel(model?: string | null): "claude" | "codex" {
-  return /^(?:gpt-|chatgpt-|codex-|o\d)/i.test(model?.trim() ?? "") ? "codex" : "claude";
+  return /^(?:gpt-|chatgpt-|codex(?:-|$)|o\d)/i.test(model?.trim() ?? "") ? "codex" : "claude";
 }
 
 export function getSelectableProjectModels(profile?: LlmProfile): SelectableProjectModel[] {

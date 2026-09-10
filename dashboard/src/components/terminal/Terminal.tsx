@@ -113,7 +113,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const currentModel = useCurrentModel();
-  const modelSelection = useModelSelection(base);
+  const modelSelection = useModelSelection(base, executionId);
   const [executionRuntime, setExecutionRuntime] = useState<{ id: string; runtime: AgentRuntime } | null>(null);
   const { addToast } = useToast();
   const cacheKey = base ?? "default";
@@ -611,6 +611,10 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       <div className="flex items-center gap-2 flex-wrap text-xs shrink-0">
         {inputControls}
         <div className="flex-1" />
+        {onStart && modelSelection.supported && (
+          <ModelSelector models={modelSelection.models} value={modelSelection.model} disabled={live || modelSelection.saving || !modelSelection.ready}
+            onChange={(model) => { void modelSelection.select(model).catch((err) => addToast("error", err instanceof Error ? err.message : "Falha ao salvar modelo")); }} />
+        )}
         {controls}
         {showModelBadge && !modelSelection.supported && (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
@@ -648,12 +652,6 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
         </div>
       </div>
 
-      {onStart && modelSelection.supported && (
-        <div className="flex items-center gap-2 px-3 py-2 border-t border-border">
-          <ModelSelector models={modelSelection.models} value={modelSelection.model} disabled={live || modelSelection.saving || !modelSelection.ready}
-            onChange={(model) => { void modelSelection.select(model).catch((err) => addToast("error", err instanceof Error ? err.message : "Falha ao salvar modelo")); }} />
-        </div>
-      )}
       {onStart && (
         <div className="shrink-0 space-y-1.5">
           {messages.length > 0 && (

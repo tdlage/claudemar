@@ -59,7 +59,7 @@ it("lists all providers, saves the selected model and sends it with matching run
   const start = vi.fn();
   render(<Terminal base="agent:worker" executionId={null} onStart={start} />);
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Modelo" })).toHaveValue(models[0].model));
-  expect(screen.getByRole("option", { name: "K3 · Kimi" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "K3" })).toBeInTheDocument();
   fireEvent.change(screen.getByRole("combobox", { name: "Modelo" }), { target: { value: models[1].model } });
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Modelo" })).toHaveValue(models[1].model));
   expect(api.put).toHaveBeenCalledWith("/executions/model-preference?targetType=agent&targetName=worker", { model: models[1].model });

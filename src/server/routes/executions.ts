@@ -1,3 +1,4 @@
+import { latestModelActivity, modelFromActivity } from "../../activity-model.js";
 import { existsSync } from "node:fs";
 import type { Request } from "express";
 import { Router } from "express";
@@ -15,7 +16,7 @@ import { loadHistory, loadSessionRefs } from "../../history.js";
 import { filterExistingSessions, sessionFileExists } from "../../session-validator.js";
 import { inferRuntimeFromModel } from "../../models-discovery.js";
 import { refreshProviderCatalog } from "../../provider-catalog.js";
-import { resolveTargetModel, targetModelSettings } from "../../target-model-settings.js";
+import { resolveTargetModel, targetModelSettings, sessionModelSettings } from "../../target-model-settings.js";
 
 export const executionsRouter = Router();
 
@@ -42,10 +43,22 @@ executionsRouter.route("/model-preference")
     next();
   })
   .get(async (req, res) => {
-    await refreshProviderCatalog();
+    const models = await refreshProviderCatalog();
     const type = String(req.query.targetType), name = String(req.query.targetName);
-    try { res.json({ model: resolveTargetModel(type, name).selection }); }
-    catch { res.json({ model: targetModelSettings.get(type, name) ?? "" }); }
+    const history = await loadHistory(1, type, name);
+    const latest = latestModelActivity([
+      ...executionManager.getActiveExecutions(),
+      ...executionManager.getRecentExecutions(100).map((entry) => ({ ...entry, sessionId: entry.result?.sessionId })),
+      ...history,
+    ], type, name);
+    if (latest?.sessionId && !latest.modelSelection) {
+      latest.modelSelection = sessionModelSettings.get(latest.sessionId);
+    }
+    let fallbackRuntime = models[0]?.runtime ?? "claude";
+    if (!latest) {
+      try { fallbackRuntime = resolveTargetModel(type, name).profile.runtime; } catch {}
+    }
+    res.json({ model: modelFromActivity(latest, models, fallbackRuntime), activityId: latest?.id ?? null });
   })
   .put(async (req, res) => {
     if (typeof req.body?.model !== "string" || !req.body.model) { res.status(400).json({ error: "Modelo obrigatório" }); return; }
