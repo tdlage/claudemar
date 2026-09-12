@@ -1,3 +1,4 @@
+import { getMe } from "../../hooks/useAuth";
 import { useModelSelection } from "../../hooks/useModelSelection";
 import { ModelSelector } from "./ModelSelector";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -80,6 +81,7 @@ interface TaskEventPayload {
 
 
 export interface StartOpts {
+  skipIsolationInstruction?: boolean;
   model?: string;
   planMode: boolean;
   permissionMode: PermissionMode;
@@ -110,6 +112,9 @@ function startPermissionMode(mode: PermissionMode): PermissionMode {
 }
 
 export function Terminal({ executionId, base, controls, inputControls, startPlaceholder, queueMode, isLive, runtime, showModelBadge = true, onStart }: TerminalProps) {
+  const admin = getMe()?.role === "admin";
+  const [skipIsolationInstruction, setSkipIsolationInstruction] = useState(false);
+  useEffect(() => { setSkipIsolationInstruction(false); }, [base]);
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const currentModel = useCurrentModel();
@@ -439,13 +444,14 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
       }
     } else if (onStartRef.current) {
       const m = modeRef.current;
-      void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), effort, model: modelSelection.selected?.model });
+      void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), effort, model: modelSelection.selected?.model, skipIsolationInstruction: admin && skipIsolationInstruction });
+      setSkipIsolationInstruction(false);
       if (m === "plan") setMode("default");
     }
 
     setInput("");
     setPendingImages([]);
-  }, [input, pendingImages, live, executionId, queueMode, effort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, addToast]);
+  }, [admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, addToast]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -734,6 +740,12 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
               className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 160 }}
             />
+            {admin && (!live || queueMode) && (
+              <label className="flex items-center gap-1.5 text-xs text-text-muted" title="Omite a instrução que limita o acesso à pasta do projeto neste envio">
+                <input type="checkbox" checked={skipIsolationInstruction} onChange={(e) => setSkipIsolationInstruction(e.target.checked)} />
+                Não enviar isolamento
+              </label>
+            )}
             <EffortSelector runtime={activeRuntime} value={effort} onChange={handleSetEffort} />
             <label
               title="Anexar imagem"

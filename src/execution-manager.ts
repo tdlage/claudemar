@@ -72,6 +72,7 @@ export interface StartExecutionOpts {
   agentName?: string;
   username?: string;
   skipSystemPrompt?: boolean;
+  skipIsolationInstruction?: boolean;
   blocks?: MessageBlock[];
   effort?: Effort;
   autoApprove?: boolean;
@@ -132,6 +133,7 @@ interface ActiveEntry {
 }
 
 class ExecutionManager extends EventEmitter {
+  private sessionIsolation = new Map<string, boolean>();
   private sessionProfiles = new Map<string, string>();
   private active = new Map<string, ActiveEntry>();
   private draining = false;
@@ -283,6 +285,8 @@ class ExecutionManager extends EventEmitter {
 
   private getOrCreateSession(opts: StartExecutionOpts, sessionKey: string, resumeId: string | undefined, model: string, profile: LlmProfile): { session: AgentSession; isNew: boolean } {
     const existing = this.sessions.get(sessionKey);
+    const skipIsolationInstruction = opts.skipIsolationInstruction === true && opts.username === "admin";
+    const isolationChanged = (this.sessionIsolation.get(sessionKey) ?? false) !== skipIsolationInstruction;
     if (existing) {
       const planChanged = Boolean(opts.planMode) !== existing.planMode;
       const agentChanged = (opts.agentName ?? "") !== (existing.agentName ?? "");
@@ -293,7 +297,7 @@ class ExecutionManager extends EventEmitter {
       // Per-call MCP servers/skills (ex.: pipeline) só se aplicam na criação da sessão; se um caller
       // não-agent traz extraMcpServers, recria para não herdar o MCP/skill da etapa anterior.
       const mcpChanged = opts.targetType !== "agent" && opts.extraMcpServers !== undefined;
-      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged) {
+      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged && !isolationChanged) {
         return { session: existing, isNew: false };
       }
       this.retireSession(existing);
@@ -313,6 +317,7 @@ class ExecutionManager extends EventEmitter {
       resumeSessionId: resumeId ?? null,
       effort: opts.effort,
       systemAppend: this.buildSystemSuffix(opts, profile),
+      skipIsolationInstruction,
       subagents: this.buildSubagents(opts, profile),
       extraMcpServers: opts.extraMcpServers,
       skills: opts.skills,
@@ -323,6 +328,7 @@ class ExecutionManager extends EventEmitter {
     });
     this.sessions.set(sessionKey, session);
     this.sessionProfiles.set(sessionKey, profile.id);
+    this.sessionIsolation.set(sessionKey, skipIsolationInstruction);
     this.sessionGen.set(sessionKey, this.llmConfigGen);
     return { session, isNew: true };
   }

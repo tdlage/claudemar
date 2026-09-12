@@ -102,3 +102,31 @@ it("keeps Claude Ultracode and GPT Max when switching models and submitting", as
   fireEvent.change(screen.getByRole("combobox", { name: "Modelo" }), { target: { value: models[1].model } });
   await waitFor(() => expect(screen.getByTitle("ChatGPT thinking: Max")).toBeInTheDocument());
 });
+
+it("only exposes isolation omission to an authenticated admin and resets it after sending", () => {
+  localStorage.setItem("dashboard_me", JSON.stringify({ role: "admin" }));
+  const start = vi.fn();
+  render(<Terminal executionId={null} onStart={start} />);
+  const checkbox = screen.getByRole("checkbox", { name: "Não enviar isolamento" });
+  expect(checkbox).not.toBeChecked();
+  fireEvent.click(checkbox);
+  const input = screen.getByRole("textbox");
+  fireEvent.change(input, { target: { value: "test" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(start).toHaveBeenCalledWith("test", [], expect.objectContaining({ skipIsolationInstruction: true }));
+  expect(checkbox).not.toBeChecked();
+});
+
+it("hides isolation omission from regular users and unknown identities", () => {
+  const { rerender } = render(<Terminal executionId={null} onStart={vi.fn()} />);
+  expect(screen.queryByRole("checkbox", { name: "Não enviar isolamento" })).not.toBeInTheDocument();
+  localStorage.setItem("dashboard_me", JSON.stringify({ role: "user" }));
+  rerender(<Terminal executionId={null} onStart={vi.fn()} />);
+  expect(screen.queryByRole("checkbox", { name: "Não enviar isolamento" })).not.toBeInTheDocument();
+});
+
+it("does not offer a prompt change during live message injection", () => {
+  localStorage.setItem("dashboard_me", JSON.stringify({ role: "admin" }));
+  render(<Terminal executionId="running" isLive onStart={vi.fn()} />);
+  expect(screen.queryByRole("checkbox", { name: "Não enviar isolamento" })).not.toBeInTheDocument();
+});

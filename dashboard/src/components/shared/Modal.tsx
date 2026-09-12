@@ -30,10 +30,10 @@ export function Modal({ open, onClose, title, size = "default", children }: Moda
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-black/60" onClick={onClose} />
-      <div className={`relative bg-surface border border-border rounded-lg shadow-2xl ${SIZE_CLASSES[size]} w-full mx-4 max-h-[85vh] overflow-auto`}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={`relative bg-surface border border-border rounded-lg shadow-2xl ${SIZE_CLASSES[size]} w-full mx-4 max-h-[85vh] overflow-auto`}>
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h3 className="text-sm font-medium">{title}</h3>
-          <button onClick={onClose} className="text-text-muted hover:text-text-primary">
+          <button onClick={onClose} aria-label="Close" className="text-text-muted hover:text-text-primary">
             <X size={16} />
           </button>
         </div>

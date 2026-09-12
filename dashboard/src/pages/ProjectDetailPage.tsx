@@ -108,6 +108,7 @@ export function ProjectDetailPage() {
         resumeSessionId: sessionData.sessionId,
         planMode: opts.planMode,
         permissionMode: opts.permissionMode,
+        skipIsolationInstruction: opts.skipIsolationInstruction,
         effort: opts.effort,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
@@ -313,11 +314,11 @@ export function ProjectDetailPage() {
       )}
 
       {activeTab === "input" && (
-        <InputBrowser apiBasePath={`/projects/${project.name}`} base={`project:${project.name}`} files={inputFiles} onRefresh={loadInputs} />
+        <InputBrowser apiBasePath={`/projects/${project.name}`} files={inputFiles} onRefresh={loadInputs} />
       )}
 
       {activeTab === "output" && (
-        <OutputBrowser apiBasePath={`/projects/${project.name}`} base={`project:${project.name}`} outputDir=".output" files={outputFiles} onRefresh={loadOutputs} />
+        <OutputBrowser apiBasePath={`/projects/${project.name}`} files={outputFiles} onRefresh={loadOutputs} />
       )}
 
       {activeTab === "repositories" && (

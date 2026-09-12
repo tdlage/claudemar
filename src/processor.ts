@@ -15,6 +15,7 @@ export function processQueueItem(item: QueueItem): string {
     agentName: item.agentName,
     username: item.username,
     skipSystemPrompt: item.skipSystemPrompt,
+    skipIsolationInstruction: item.skipIsolationInstruction,
     effort: item.effort,
   });
 }

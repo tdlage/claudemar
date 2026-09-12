@@ -1,3 +1,4 @@
+import { validateIsolationInstruction } from "../isolation-instruction.js";
 import { latestModelActivity, modelFromActivity } from "../../activity-model.js";
 import { existsSync } from "node:fs";
 import type { Request } from "express";
@@ -84,12 +85,12 @@ executionsRouter.get("/", (req, res) => {
   res.json({ active, recent });
 });
 
-executionsRouter.post("/", async (req, res) => {
+executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
   if (executionManager.isDraining()) {
     res.status(409).json({ error: "Serviço em reinício para atualização — tente novamente em instantes" });
     return;
   }
-  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, agentName, forceQueue, skipSystemPrompt, schedulerMode, model } = req.body;
+  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, agentName, forceQueue, skipSystemPrompt, skipIsolationInstruction, schedulerMode, model } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -180,6 +181,7 @@ executionsRouter.post("/", async (req, res) => {
     agentName,
     username,
     skipSystemPrompt: skipSystemPrompt || false,
+    skipIsolationInstruction: skipIsolationInstruction === true,
     effort: resolvedEffort,
     model: selectedModel,
   };

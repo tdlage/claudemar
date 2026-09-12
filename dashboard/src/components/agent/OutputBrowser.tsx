@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
-import { ArrowLeft, Download, FileText, Folder, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Eye, FileText, Folder, Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { Card } from "../shared/Card";
 import { useToast } from "../shared/Toast";
-import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
+import { FilePreviewModal } from "../shared/FilePreviewModal";
 
 export interface OutputFile {
   name: string;
@@ -14,8 +14,6 @@ export interface OutputFile {
 
 interface OutputBrowserProps {
   apiBasePath: string;
-  base: string;
-  outputDir: string;
   files: OutputFile[];
   onRefresh: () => void;
 }
@@ -26,10 +24,10 @@ function formatSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-export function OutputBrowser({ apiBasePath, base, outputDir, files, onRefresh }: OutputBrowserProps) {
+export function OutputBrowser({ apiBasePath, files, onRefresh }: OutputBrowserProps) {
   const { addToast } = useToast();
   const [currentPath, setCurrentPath] = useState("");
-  const [viewerFile, setViewerFile] = useState<string | null>(null);
+  const [viewerFile, setViewerFile] = useState<{ name: string; size: number } | null>(null);
   const [subFiles, setSubFiles] = useState<OutputFile[] | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -152,9 +150,9 @@ export function OutputBrowser({ apiBasePath, base, outputDir, files, onRefresh }
             >
               {file.name}
             </button>
-          ) : file.name.endsWith(".md") ? (
+          ) : /\.(md|markdown|mdown|mdx)$/i.test(file.name) ? (
             <button
-              onClick={() => setViewerFile(currentPath ? `${currentPath}/${file.name}` : file.name)}
+              onClick={() => setViewerFile({ name: currentPath ? `${currentPath}/${file.name}` : file.name, size: file.size })}
               className="text-sm text-accent hover:underline truncate flex-1 text-left cursor-pointer"
             >
               {file.name}
@@ -170,6 +168,15 @@ export function OutputBrowser({ apiBasePath, base, outputDir, files, onRefresh }
           <span className="text-xs text-text-muted whitespace-nowrap">
             {new Date(file.mtime).toLocaleString()}
           </span>
+          {file.type === "file" && (
+            <button
+              onClick={() => setViewerFile({ name: currentPath ? `${currentPath}/${file.name}` : file.name, size: file.size })}
+              className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-accent transition-colors cursor-pointer"
+              title="Preview" aria-label={`Preview ${file.name}`}
+            >
+              <Eye size={14} />
+            </button>
+          )}
           <button
             onClick={() => handleDownload(file.name, file.type === "directory")}
             className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-accent transition-colors cursor-pointer"
@@ -187,11 +194,11 @@ export function OutputBrowser({ apiBasePath, base, outputDir, files, onRefresh }
         </Card>
       ))}
       {viewerFile && (
-        <MarkdownViewerModal
-          open
+        <FilePreviewModal
           onClose={() => setViewerFile(null)}
-          filePath={`${outputDir}/${viewerFile}`}
-          base={base}
+          fileName={viewerFile.name}
+          size={viewerFile.size}
+          url={`/api${apiBasePath}/output-dl/${viewerFile.name.split("/").map(encodeURIComponent).join("/")}`}
         />
       )}
     </div>

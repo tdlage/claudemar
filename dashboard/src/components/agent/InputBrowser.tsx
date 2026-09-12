@@ -1,10 +1,10 @@
 import { useRef, useState } from "react";
-import { Download, FileText, Trash2, Upload } from "lucide-react";
+import { Download, Eye, FileText, Trash2, Upload } from "lucide-react";
 import { api } from "../../lib/api";
 import { Card } from "../shared/Card";
 import { Button } from "../shared/Button";
 import { useToast } from "../shared/Toast";
-import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
+import { FilePreviewModal } from "../shared/FilePreviewModal";
 
 export interface InputFile {
   name: string;
@@ -14,18 +14,17 @@ export interface InputFile {
 
 interface InputBrowserProps {
   apiBasePath: string;
-  base: string;
   files: InputFile[];
   onRefresh: () => void;
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-export function InputBrowser({ apiBasePath, base, files, onRefresh }: InputBrowserProps) {
+export function InputBrowser({ apiBasePath, files, onRefresh }: InputBrowserProps) {
   const { addToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [viewerFile, setViewerFile] = useState<string | null>(null);
+  const [viewerFile, setViewerFile] = useState<InputFile | null>(null);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -57,7 +56,7 @@ export function InputBrowser({ apiBasePath, base, files, onRefresh }: InputBrows
   const handleDownload = async (fileName: string) => {
     try {
       const token = localStorage.getItem("dashboard_token") || "";
-      const res = await fetch(`/api${apiBasePath}/input/${fileName}/download`, {
+      const res = await fetch(`/api${apiBasePath}/input/${encodeURIComponent(fileName)}/download`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error();
@@ -105,9 +104,9 @@ export function InputBrowser({ apiBasePath, base, files, onRefresh }: InputBrows
           {files.map((file) => (
             <Card key={file.name} className="px-4 py-3 flex items-center gap-2">
               <FileText size={14} className="text-text-muted shrink-0" />
-              {file.name.endsWith(".md") ? (
+              {/\.(md|markdown|mdown|mdx)$/i.test(file.name) ? (
                 <button
-                  onClick={() => setViewerFile(file.name)}
+                  onClick={() => setViewerFile(file)}
                   className="text-sm text-accent hover:underline truncate flex-1 text-left"
                 >
                   {file.name}
@@ -121,6 +120,13 @@ export function InputBrowser({ apiBasePath, base, files, onRefresh }: InputBrows
               <span className="text-xs text-text-muted whitespace-nowrap">
                 {new Date(file.mtime).toLocaleString()}
               </span>
+              <button
+                onClick={() => setViewerFile(file)}
+                className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-accent transition-colors cursor-pointer"
+                title="Preview" aria-label={`Preview ${file.name}`}
+              >
+                <Eye size={14} />
+              </button>
               <button
                 onClick={() => handleDownload(file.name)}
                 className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-accent transition-colors cursor-pointer"
@@ -140,11 +146,11 @@ export function InputBrowser({ apiBasePath, base, files, onRefresh }: InputBrows
         </div>
       )}
       {viewerFile && (
-        <MarkdownViewerModal
-          open
+        <FilePreviewModal
           onClose={() => setViewerFile(null)}
-          filePath={`.input/${viewerFile}`}
-          base={base}
+          fileName={viewerFile.name}
+          size={viewerFile.size}
+          url={`/api${apiBasePath}/input/${encodeURIComponent(viewerFile.name)}/download`}
         />
       )}
     </div>

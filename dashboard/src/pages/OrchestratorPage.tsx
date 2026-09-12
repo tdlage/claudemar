@@ -90,6 +90,7 @@ export function OrchestratorPage() {
         resumeSessionId: sessionData.sessionId,
         planMode: opts.planMode,
         permissionMode: opts.permissionMode,
+        skipIsolationInstruction: opts.skipIsolationInstruction,
         effort: opts.effort,
         model: opts.model,
       });

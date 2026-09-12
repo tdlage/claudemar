@@ -5,11 +5,12 @@ export interface SystemAppendParams {
   cwd: string;
   target: MemoryTarget;
   systemAppend?: string;
+  skipIsolationInstruction?: boolean;
 }
 
 export function buildSystemAppend(params: SystemAppendParams): string {
   const parts: string[] = [];
-  parts.push(
+  if (!params.skipIsolationInstruction) parts.push(
     `Você está confinado ao diretório ${params.cwd}. NÃO leia, liste ou acesse arquivos fora deste diretório ou de seus subdiretórios, e nunca navegue para diretórios pai.`,
   );
   if (memoryEnabled()) {

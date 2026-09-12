@@ -112,6 +112,7 @@ export function AgentDetailPage() {
         resumeSessionId: sessionData.sessionId,
         planMode: opts.planMode,
         permissionMode: opts.permissionMode,
+        skipIsolationInstruction: opts.skipIsolationInstruction,
         effort: opts.effort,
         model: opts.model,
         forceQueue: sequential || undefined,
@@ -328,11 +329,11 @@ export function AgentDetailPage() {
       )}
 
       {tab === "input" && (
-        <InputBrowser apiBasePath={`/agents/${agent.name}`} base={`agent:${agent.name}`} files={inputFiles} onRefresh={loadInputs} />
+        <InputBrowser apiBasePath={`/agents/${agent.name}`} files={inputFiles} onRefresh={loadInputs} />
       )}
 
       {tab === "output" && (
-        <OutputBrowser apiBasePath={`/agents/${agent.name}`} base={`agent:${agent.name}`} outputDir="output" files={outputFiles} onRefresh={loadOutputs} />
+        <OutputBrowser apiBasePath={`/agents/${agent.name}`} files={outputFiles} onRefresh={loadOutputs} />
       )}
 
       {tab === "config" && (

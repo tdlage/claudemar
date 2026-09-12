@@ -58,6 +58,7 @@ export interface AgentSessionInit {
   forkSession?: boolean;
   effort?: Effort;
   systemAppend?: string;
+  skipIsolationInstruction?: boolean;
   subagents?: Record<string, AgentDefinition>;
   schedulerMode?: boolean;
   extraMcpServers?: Record<string, McpServerConfig>;

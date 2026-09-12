@@ -74,6 +74,7 @@ const TABLE_DEFINITIONS: string[] = [
     enqueued_at DATETIME NOT NULL,
     telegram_chat_id BIGINT DEFAULT NULL,
     skip_system_prompt TINYINT(1) NOT NULL DEFAULT 0,
+    skip_isolation_instruction TINYINT(1) NOT NULL DEFAULT 0,
     effort VARCHAR(20) DEFAULT NULL,
     UNIQUE KEY uk_id (id),
     INDEX idx_target (target_type, target_name)
@@ -513,6 +514,13 @@ async function ensureScheduleColumns(pool: ReturnType<typeof getPool>): Promise<
 }
 
 async function ensureQueueColumns(pool: ReturnType<typeof getPool>): Promise<void> {
+  const [isolationRows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'queue_items' AND COLUMN_NAME = 'skip_isolation_instruction'",
+  );
+  if ((isolationRows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE queue_items ADD COLUMN skip_isolation_instruction TINYINT(1) NOT NULL DEFAULT 0");
+  }
+
   const [rows] = await pool.execute(
     "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'queue_items' AND COLUMN_NAME = 'skip_system_prompt'",
   );
