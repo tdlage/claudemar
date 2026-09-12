@@ -40,9 +40,27 @@ it("previews files inside Output subdirectories with encoded paths", async () =>
   expect(fetchMock).toHaveBeenCalledWith("/api/projects/app/output-dl/reports/result%20%231.txt", expect.anything());
 });
 
-it("displays text as text without executing HTML", async () => {
+it.each(["html", "HTML", "htm", "HTM"])("previews .%s pages in an isolated frame", async (extension) => {
+  const content = '<!doctype html><html><head><style>h1 { color: red }</style></head><body><h1>Report</h1><script>document.body.dataset.ready = "true"</script></body></html>';
+  fetchMock.mockResolvedValue(new Response(content));
+  const fileName = `report.${extension}`;
+  const { container } = render(<FilePreviewModal fileName={fileName} size={content.length} url="/api/report" onClose={() => {}} />);
+  const frame = await screen.findByTitle<HTMLIFrameElement>(`HTML preview: ${fileName}`);
+  expect(frame).toHaveAttribute("src", "/html-preview.html");
+  expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+  expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
+  const postMessage = vi.spyOn(frame.contentWindow!, "postMessage");
+  fireEvent.load(frame);
+  expect(postMessage).toHaveBeenCalledWith({ type: "html-preview", content }, "*");
+  fireEvent.load(frame);
+  expect(postMessage).toHaveBeenCalledTimes(1);
+  expect(container.querySelector("pre")).toBeNull();
+  expect(container.querySelector("script")).toBeNull();
+});
+
+it("displays text files as text without executing HTML", async () => {
   fetchMock.mockResolvedValue(new Response('<script>alert(1)</script>\n**literal**'));
-  const { container } = render(<FilePreviewModal fileName="example.html" size={100} url="/api/example" onClose={() => {}} />);
+  const { container } = render(<FilePreviewModal fileName="example.txt" size={100} url="/api/example" onClose={() => {}} />);
   await waitFor(() => expect(container.querySelector("pre")?.textContent).toContain("<script>alert(1)</script>"));
   expect(container.querySelector("script")).toBeNull();
   expect(container.querySelector("strong")).toBeNull();

@@ -61,12 +61,19 @@ export function validateSocketToken(token: string): boolean {
   return !!resolveContext(token);
 }
 
-export function securityHeaders(_req: Request, res: Response, next: NextFunction): void {
+export function securityHeaders(req: Request, res: Response, next: NextFunction): void {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(self), geolocation=()");
   res.setHeader("X-XSS-Protection", "0");
+  if (req.path === "/html-preview.html") {
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Content-Security-Policy", "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' https:; style-src 'unsafe-inline' https:; img-src data: blob: https:; font-src data: https:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
+    next();
+    return;
+  }
   res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' wss: ws:; img-src 'self' data:; font-src 'self' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net");
   next();
 }

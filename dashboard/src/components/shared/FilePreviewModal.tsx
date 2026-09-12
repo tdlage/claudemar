@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Modal } from "./Modal";
 import { MarkdownViewer } from "./MarkdownViewer";
@@ -10,12 +10,13 @@ interface FilePreviewModalProps {
   size: number;
 }
 
-type Preview = { type: "text" | "markdown"; content: string } | { type: "image"; url: string };
+type Preview = { type: "text" | "markdown" | "html"; content: string } | { type: "image"; url: string };
 const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", avif: "image/avif", bmp: "image/bmp" };
 
 export function FilePreviewModal({ onClose, fileName, url, size }: FilePreviewModalProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const initializedFrame = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -54,7 +55,9 @@ export function FilePreviewModal({ onClose, fileName, url, size }: FilePreviewMo
       } catch {
         throw new Error("Preview unavailable for this file format. Use Download to open it.");
       }
-      setPreview({ type: /^(md|markdown|mdown|mdx)$/.test(extension) ? "markdown" : "text", content });
+      const type = /^(html|htm)$/.test(extension) ? "html"
+        : /^(md|markdown|mdown|mdx)$/.test(extension) ? "markdown" : "text";
+      setPreview({ type, content });
     };
     void load().catch((err) => {
       if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load preview.");
@@ -73,6 +76,22 @@ export function FilePreviewModal({ onClose, fileName, url, size }: FilePreviewMo
       {!error && preview?.type === "image" && <img src={preview.url} alt={fileName} className="max-w-full max-h-[65vh] mx-auto object-contain" onError={() => setError("Unable to display this image. Use Download to open it.")} />}
       {!error && preview && preview.type !== "image" && (
         preview.content === "" ? <p className="text-sm text-text-muted">Empty file.</p>
+          : preview.type === "html" ? (
+            <iframe
+              key={url}
+              title={`HTML preview: ${fileName}`}
+              src="/html-preview.html"
+              sandbox="allow-scripts"
+              referrerPolicy="no-referrer"
+              className="block h-[65vh] w-full rounded border-0 bg-white"
+              onLoad={(event) => {
+                const frame = event.currentTarget;
+                if (initializedFrame.current === frame) return;
+                initializedFrame.current = frame;
+                frame.contentWindow?.postMessage({ type: "html-preview", content: preview.content }, "*");
+              }}
+            />
+          )
           : preview.type === "markdown" ? <MarkdownViewer content={preview.content} />
             : <pre className="text-sm font-mono text-text-primary whitespace-pre-wrap break-words">{preview.content}</pre>
       )}
