@@ -27,8 +27,18 @@ const markedInstance = new Marked({
 });
 
 export function renderOutputHtml(text: string): string {
-  const plain = stripAnsi(text);
-  const raw = markedInstance.parse(plain) as string;
+  const toolPattern = /\x1b\[36m\x1b\[1m> [^\r\n]*?\x1b\[0m [\s\S]*?\x1b\[0m(?:\r?\n|$)/g;
+  const parts: string[] = [];
+  let offset = 0;
+  for (const match of text.matchAll(toolPattern)) {
+    parts.push(markedInstance.parse(stripAnsi(text.slice(offset, match.index))) as string);
+    const tool = stripAnsi(match[0]).replace(/^> /, "").trimEnd();
+    const escaped = tool.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    parts.push(`<blockquote><p>${escaped.replace(/\r?\n/g, "<br>")}</p></blockquote>`);
+    offset = match.index + match[0].length;
+  }
+  parts.push(markedInstance.parse(stripAnsi(text.slice(offset))) as string);
+  const raw = parts.join("");
   const clean = DOMPurify.sanitize(raw, { ADD_ATTR: ["data-md-path"] });
   return linkifyMdPaths(clean);
 }
