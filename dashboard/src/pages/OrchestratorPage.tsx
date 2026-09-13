@@ -13,6 +13,7 @@ import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { useCurrentModel } from "../hooks/useCurrentModel";
 import { SessionSelector } from "../components/shared/SessionSelector";
+import { FilesBrowser } from "../components/project/FilesBrowser";
 
 interface OrchestratorSettings {
   prependPrompt: string;
@@ -28,7 +29,7 @@ interface UpdateInfo {
 }
 
 
-type TabKey = "terminal" | "agents-md" | "settings";
+type TabKey = "terminal" | "code" | "agents-md" | "settings";
 
 export function OrchestratorPage() {
   const currentModel = useCurrentModel();
@@ -173,12 +174,13 @@ export function OrchestratorPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "terminal", label: "Terminal" },
+    { key: "code", label: "Code" },
     { key: "agents-md", label: "AGENTS.md" },
     { key: "settings", label: "Settings" },
   ];
 
   return (
-    <div className="space-y-4">
+    <div className={`flex flex-col gap-4 ${tab === "code" ? "h-full" : ""}`}>
       <div className="flex items-center gap-3">
         <Crown size={20} className="text-amber-400" />
         <h1 className="text-lg font-semibold">Claudemar</h1>
@@ -233,6 +235,12 @@ export function OrchestratorPage() {
             searchQuery={searchQuery}
             handleSearchChange={handleSearchChange}
           />
+        </div>
+      )}
+
+      {tab === "code" && (
+        <div className="flex-1 min-h-0">
+          <FilesBrowser base="orchestrator" />
         </div>
       )}
 
