@@ -75,6 +75,8 @@ export function setupWebSocket(io: SocketServer): void {
           id,
           output,
           running: isActive,
+          status: exec.status,
+          error: exec.error,
           runtime: exec.runtime,
           slashCommands: exec.slashCommands,
           streamOffset: exec.streamOffset,

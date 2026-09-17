@@ -10,7 +10,7 @@ import { GitDiffViewer } from "./GitDiffViewer";
 import { GitLog } from "./GitLog";
 import { useToast } from "../shared/Toast";
 import { TrackerItemSelector } from "./TrackerItemSelector";
-import type { RepoInfo, RepoBranches, GitCommit, ExecutionInfo, CIWorkflowRun, WorktreeInfo } from "../../lib/types";
+import type { RepoInfo, RepoBranches, GitCommit, CIWorkflowRun, WorktreeInfo } from "../../lib/types";
 
 interface CIStatusSummary {
   conclusion: string | null;
@@ -131,32 +131,41 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
     const execToRepo = new Map<string, string>();
     for (const [repoName, state] of runningEntries) {
       execToRepo.set(state.execId, repoName);
-      socket.emit("subscribe:execution", state.execId);
     }
 
-    const onComplete = (data: { id: string; info: ExecutionInfo }) => {
+    const onComplete = (data: { id: string }) => {
       const repoName = execToRepo.get(data.id);
-      if (repoName) handleCommitPushDone(repoName, "completed");
+      if (repoName) { execToRepo.delete(data.id); handleCommitPushDone(repoName, "completed"); }
     };
-    const onError = (data: { id: string; info: ExecutionInfo; error?: string }) => {
+    const onError = (data: { id: string; error?: string }) => {
       const repoName = execToRepo.get(data.id);
-      if (repoName) handleCommitPushDone(repoName, "error", data.error);
+      if (repoName) { execToRepo.delete(data.id); handleCommitPushDone(repoName, "error", data.error); }
     };
-    const onCancel = (data: { id: string; info: ExecutionInfo }) => {
+    const onCancel = (data: { id: string }) => {
       const repoName = execToRepo.get(data.id);
-      if (repoName) handleCommitPushDone(repoName, "error", "Cancelled");
+      if (repoName) { execToRepo.delete(data.id); handleCommitPushDone(repoName, "error", "Cancelled"); }
     };
 
+    const onCatchup = (data: { id: string; status?: string; error?: string }) => {
+      if (data.status === "completed") onComplete({ id: data.id });
+      else if (data.status === "error" || data.status === "cancelled") onError({ id: data.id, error: data.error });
+    };
+    const subscribe = () => { for (const id of execToRepo.keys()) socket.emit("subscribe:execution", id); };
+    socket.on("execution:catchup", onCatchup);
+    socket.on("connect", subscribe);
     socket.on("execution:complete", onComplete);
     socket.on("execution:error", onError);
     socket.on("execution:cancel", onCancel);
+    subscribe();
 
     return () => {
+      socket.off("execution:catchup", onCatchup);
+      socket.off("connect", subscribe);
       socket.off("execution:complete", onComplete);
       socket.off("execution:error", onError);
       socket.off("execution:cancel", onCancel);
-      for (const execId of execToRepo.keys()) {
-        socket.emit("unsubscribe:execution", execId);
+      for (const [, state] of runningEntries) {
+        socket.emit("unsubscribe:execution", state.execId);
       }
     };
   }, [commitPush, handleCommitPushDone]);

@@ -708,13 +708,12 @@ projectsRouter.post("/:name/repos/:repo/commit-push", asyncHandler(async (req, r
     ? `:wt-${resolved.worktreeBranch || "detached"}`
     : "";
   const targetName = `__commitpush:${req.params.name}:${req.params.repo}${worktreeSuffix}`;
-  const trackerItems: string[] = req.body?.trackerItems || [];
-
-  let prompt = "Analyze all uncommitted changes (staged and unstaged), write a clear and concise commit message following conventional commits style, stage all changes, commit, and push to origin. If the current branch has no upstream, push with -u origin <branch>. If there are merge conflicts, resolve them. Show the final commit message and push result.";
-
-  if (trackerItems.length > 0) {
-    prompt += `\n\nIMPORTANT: Include these tracker item references in the commit message footer as "Refs: ${trackerItems.join(", ")}".`;
+  const trackerItems = req.body?.trackerItems ?? [];
+  if (!Array.isArray(trackerItems) || trackerItems.length > 100 || trackerItems.some((item) => typeof item !== "string" || !item.trim() || item.length > 200 || /[\r\n\0]/.test(item))) {
+    res.status(400).json({ error: "Referências de tracker inválidas" });
+    return;
   }
+  const prompt = "Gerar mensagem com z.ai, fazer commit das alterações e push para origin.";
 
   const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
   const id = executionManager.startExecution({
@@ -723,6 +722,7 @@ projectsRouter.post("/:name/repos/:repo/commit-push", asyncHandler(async (req, r
     targetName,
     model: COMMIT_PUSH_MODEL,
     taskMode: "commit-push",
+    commitPushRefs: trackerItems,
     effort: "low",
     skipSystemPrompt: true,
     prompt,

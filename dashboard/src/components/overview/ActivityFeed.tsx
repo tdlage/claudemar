@@ -150,7 +150,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
         const isExpanded = expandedId === exec.id;
         const clickable = !!onToggle;
 
-        const sanitizedOutput = renderOutputHtml(exec.output || "(sem output)");
+        const sanitizedOutput = renderOutputHtml(exec.output || exec.result?.output || exec.error || "(sem output)");
         const sessionId = exec.result?.sessionId ?? exec.resumeSessionId;
         const runtime = resolveRuntime(exec.runtime, exec.model);
 

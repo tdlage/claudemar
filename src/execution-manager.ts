@@ -56,6 +56,7 @@ export interface ExecutionInfo {
 
 export interface StartExecutionOpts {
   taskMode?: "commit-push";
+  commitPushRefs?: string[];
   source: ExecutionSource;
   targetType: ExecutionTargetType;
   targetName: string;
@@ -307,6 +308,7 @@ export class ExecutionManager extends EventEmitter {
     const bypass = resolveBypass(opts);
     const session = createAgentSession({
       taskMode: opts.taskMode,
+      commitPushRefs: opts.commitPushRefs,
       profile,
       cwd: opts.cwd,
       model,
@@ -512,7 +514,16 @@ export class ExecutionManager extends EventEmitter {
     };
     const onPermission = (p: PendingPermission) => this.emit("permission", info.id, p.reqId, p.toolName, p.input);
     const onPermissionResolved = (reqId: string) => this.emit("permission-resolved", info.id, reqId);
-    const onTask = (payload: TaskEvent) => this.emit("task", info.id, payload);
+    const taskErrors = new Set<string>();
+    const onTask = (payload: TaskEvent) => {
+      this.emit("task", info.id, payload);
+      const detail = payload.error || (payload.status === "failed" ? payload.summary : undefined);
+      const key = `${payload.taskId}:${detail}`;
+      if (detail && !taskErrors.has(key)) {
+        taskErrors.add(key);
+        onChunk(`\n[Subagente ${payload.description || payload.taskId}] ${detail}\n`);
+      }
+    };
     const onUsage = (u: UsageInfo) => this.emit("usage", info.id, u.costUsd, u.tokens, u.contextPct);
     const onCompact = (trigger: string) => this.emit("compact", info.id, trigger);
     const onCheckpoint = (uuid: string) => this.emit("checkpoint", info.id, uuid);
@@ -585,6 +596,7 @@ export class ExecutionManager extends EventEmitter {
   private handleResult(entry: ActiveEntry, result: AgentResult): void {
     const { info, opts } = entry;
     if (info.status === "cancelled") return;
+    if (!info.output) info.output = result.output;
 
     const resumeId = info.resumeSessionId ?? undefined;
 
@@ -636,7 +648,6 @@ export class ExecutionManager extends EventEmitter {
 
     info.completedAt = new Date();
     info.result = result;
-    if (!info.output) info.output = result.output;
 
     if (result.sessionId) {
       const key = entry.sessionKey;

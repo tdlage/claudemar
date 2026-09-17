@@ -129,3 +129,15 @@ test("o limite de execução pausa durante a pergunta e retoma com o tempo resta
   t.mock.timers.tick(1);
   assert.equal(interrupt.mock.callCount(), 1);
 });
+
+test("erros com texto apenas no resultado preservam o output para o histórico", async (t) => {
+  t.mock.method(getPool(), "execute", async () => [{ affectedRows: 1 }, []]);
+  t.after(() => closePool());
+  const { manager, internals, entry } = setup();
+  manager.on("error", () => {});
+  internals.handleResult(entry, { output: "API overloaded", sessionId: "", costUsd: 0, totalTokens: 0, durationMs: 1, isError: true, errorMessages: ["API overloaded"], permissionDenials: [] });
+  assert.equal(entry.info.status, "error");
+  assert.equal(entry.info.error, "API overloaded");
+  assert.equal(entry.info.output, "API overloaded");
+  assert.equal(manager.isExecutionActive(entry.info.id), false);
+});

@@ -65,6 +65,7 @@ interface SubagentTask {
   durationMs?: number;
   lastToolName?: string;
   summary?: string;
+  error?: string;
 }
 
 interface TaskEventPayload {
@@ -79,6 +80,7 @@ interface TaskEventPayload {
   durationMs?: number;
   lastToolName?: string;
   summary?: string;
+  error?: string;
 }
 
 
@@ -300,6 +302,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
           durationMs: data.durationMs ?? existing?.durationMs,
           lastToolName: data.lastToolName ?? existing?.lastToolName,
           summary: data.summary ?? existing?.summary,
+          error: data.error ?? existing?.error,
         };
         next.set(data.taskId, merged);
         return next;
@@ -641,7 +644,14 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
                     <XCircle size={12} className="text-red-500 mt-0.5 shrink-0" />
                   )}
                   {t.subagentType && <span className="font-mono text-accent shrink-0">{t.subagentType}</span>}
-                  <span className="text-text-secondary truncate" title={t.summary || t.description}>{t.description}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-text-secondary break-words">{t.description}</div>
+                    {(t.status === "failed" || t.status === "killed" || t.status === "stopped") && (
+                      <div className="text-red-400 whitespace-pre-wrap break-words mt-1">
+                        {t.status === "failed" ? "Falhou" : "Interrompido"}: {t.error || t.summary || `O provedor não enviou detalhes (tarefa ${t.taskId}).`}
+                      </div>
+                    )}
+                  </div>
                   {t.status === "running" && t.lastToolName && (
                     <span className="font-mono text-text-muted shrink-0">{t.lastToolName}</span>
                   )}

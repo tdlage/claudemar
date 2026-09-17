@@ -47,6 +47,7 @@ export interface TaskEvent {
 
 export interface AgentSessionInit {
   taskMode?: "commit-push";
+  commitPushRefs?: string[];
   profile: LlmProfile;
   cwd: string;
   target: MemoryTarget;

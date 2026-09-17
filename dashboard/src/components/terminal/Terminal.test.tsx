@@ -148,3 +148,18 @@ it("does not offer a prompt change during live message injection", () => {
   render(<Terminal executionId="running" isLive onStart={vi.fn()} />);
   expect(screen.queryByRole("checkbox", { name: "Não enviar isolamento" })).not.toBeInTheDocument();
 });
+
+it("shows subagent errors inline and retains them when completion omits the error", () => {
+  render(<Terminal base="a" executionId="exec" onStart={() => {}} />);
+  act(() => handlers.get("execution:task")?.({ id: "exec", phase: "started", taskId: "task", description: "Revisar site", status: "running" }));
+  act(() => handlers.get("execution:task")?.({ id: "exec", phase: "updated", taskId: "task", status: "failed", error: "Modelo indisponível" }));
+  act(() => handlers.get("execution:task")?.({ id: "exec", phase: "done", taskId: "task", status: "failed" }));
+  expect(screen.getByText("Revisar site")).toBeVisible();
+  expect(screen.getByText("Falhou: Modelo indisponível")).toBeVisible();
+});
+
+it("shows a failed task summary without requiring hover", () => {
+  render(<Terminal base="a" executionId="exec" onStart={() => {}} />);
+  act(() => handlers.get("execution:task")?.({ id: "exec", phase: "done", taskId: "task", status: "failed", summary: "Credenciais inválidas" }));
+  expect(screen.getByText("Falhou: Credenciais inválidas")).toBeVisible();
+});
