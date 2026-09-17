@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "react-router-dom";
-import { Menu, RefreshCw, Search } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { ArrowLeft, Menu, RefreshCw, Search } from "lucide-react";
 import { api } from "../../lib/api";
 import { SystemResources } from "./SystemResources";
 import { ProviderBadge } from "./ProviderBadge";
@@ -19,9 +19,11 @@ export function Header() {
   const breadcrumbs = buildBreadcrumbs(location.pathname, trackerNames);
 
   return (
-    <header className="h-12 border-b border-border bg-surface/50 backdrop-blur-sm flex items-center justify-between px-3 md:px-6 sticky top-0 z-10">
+    <header className="app-header min-h-14 md:min-h-12 shrink-0 border-b border-border bg-surface/95 flex items-center justify-between gap-2 px-3 md:px-6 z-10">
       <div className="flex items-center gap-2 min-w-0">
-        {isMobile && (
+        {isMobile && /^\/(projects|agents)\//.test(location.pathname) ? (
+          <Link to={location.pathname.startsWith("/projects/") ? "/workspaces/projects" : "/workspaces/agents"} aria-label="Voltar à lista" className="flex items-center justify-center h-11 w-11 shrink-0 rounded-xl text-text-secondary"><ArrowLeft size={21} /></Link>
+        ) : isMobile && (
           <button
             onClick={() => setMobileOpen(true)}
             className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors shrink-0"
@@ -30,18 +32,18 @@ export function Header() {
             <Menu size={18} />
           </button>
         )}
-        <nav className="flex items-center gap-1.5 text-sm min-w-0 truncate">
-          {breadcrumbs.map((crumb, i) => (
-            <span key={i} className="flex items-center gap-1.5">
+        <nav aria-label="Localização atual" className="flex items-center gap-1.5 text-sm min-w-0 truncate">
+          {(isMobile ? breadcrumbs.slice(-1) : breadcrumbs).map((crumb, i, list) => (
+            <span key={i} className="flex items-center gap-1.5 min-w-0">
               {i > 0 && <span className="text-text-muted">/</span>}
               <span
                 className={
-                  i === breadcrumbs.length - 1
+                  i === list.length - 1
                     ? "text-text-primary truncate"
                     : "text-text-muted"
                 }
               >
-                {crumb}
+                {safeDecode(crumb)}
               </span>
             </span>
           ))}
@@ -61,7 +63,7 @@ export function Header() {
               setTimeout(() => setReloading(false), 600);
             }}
             title="Reload configs from disk"
-            className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+            className="hidden md:block p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
           >
             <RefreshCw size={14} className={reloading ? "animate-spin" : ""} />
           </button>
@@ -91,6 +93,10 @@ export function Header() {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function safeDecode(value: string) {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
 
 function useTrackerBreadcrumbs(pathname: string) {
   const [names, setNames] = useState<Record<string, string>>({});

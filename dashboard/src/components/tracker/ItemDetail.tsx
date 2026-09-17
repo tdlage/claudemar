@@ -159,7 +159,7 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 text-xs text-text-muted">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted break-words">
         <Link to="/tracker" className="hover:text-text-primary transition-colors">Tracker</Link>
         <span>/</span>
         <Link to={`/tracker/${projectId}`} className="hover:text-text-primary transition-colors">Project</Link>
@@ -169,8 +169,8 @@ export function ItemDetail({ projectId, cycleId, itemId }: Props) {
         <span className="text-text-primary">{item?.title ?? "Item"}</span>
       </div>
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-3">
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-3 min-w-0">
           <Link to={`/tracker/${projectId}/cycles/${cycleId}`} className="text-text-muted hover:text-text-primary transition-colors">
             <ArrowLeft size={16} />
           </Link>

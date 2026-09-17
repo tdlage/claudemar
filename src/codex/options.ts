@@ -109,6 +109,7 @@ export function bridgedMcpConfig(urls: Record<string, string>): Record<string, C
   const config: Record<string, CodexConfigObject> = {};
   for (const [name, url] of Object.entries(urls)) {
     config[name] = { url, bearer_token_env_var: MCP_TOKEN_ENV, ...MCP_AUTO_APPROVE };
+    if (name === "user_input") config[name].tool_timeout_sec = 86400;
   }
   return config;
 }

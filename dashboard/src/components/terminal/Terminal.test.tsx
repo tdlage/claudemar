@@ -12,12 +12,30 @@ const { handlers, socket } = vi.hoisted(() => {
     emit: vi.fn(),
   } };
 });
+const mobile = vi.hoisted(() => ({ value: false }));
+vi.mock("../../hooks/useMobile", () => ({ useMobile: () => mobile.value }));
 vi.mock("../../lib/api", () => ({ api: { get: vi.fn(), put: vi.fn() } }));
 vi.mock("../../lib/socket", () => ({ getSocket: () => socket }));
 vi.mock("../../hooks/useCurrentModel", () => ({ useCurrentModel: () => ({ runtime: "claude", displayName: "Claude" }) }));
 vi.mock("../shared/Toast", () => ({ useToast: () => ({ addToast: vi.fn() }) }));
 
-beforeEach(() => { handlers.clear(); localStorage.clear(); });
+beforeEach(() => { handlers.clear(); localStorage.clear(); mobile.value = false; });
+
+it("keeps a mobile draft while changing options and sends only with the send button", () => {
+  mobile.value = true;
+  const start = vi.fn();
+  render(<Terminal base="mobile" executionId={null} onStart={start} />);
+  const field = screen.getByRole("textbox", { name: "Mensagem" });
+  fireEvent.change(field, { target: { value: "Primeira linha\nSegunda linha" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(start).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Opções da conversa" }));
+  expect(screen.getByRole("dialog", { name: "Opções da conversa" })).toBeInTheDocument();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(field).toHaveValue("Primeira linha\nSegunda linha");
+  fireEvent.click(screen.getByRole("button", { name: "Enviar mensagem" }));
+  expect(start).toHaveBeenCalledWith("Primeira linha\nSegunda linha", [], expect.any(Object));
+});
 
 it("switches suggestions when runtime or project changes", () => {
   setSlashCache("a", "claude", ["cost"]);

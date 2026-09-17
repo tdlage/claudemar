@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { api } from "../lib/api";
 import { useSocketEvent } from "./useSocket";
 import { seedOutput, clearOutput } from "../lib/outputBuffer";
@@ -22,8 +22,11 @@ export function useExecutions() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestionEntry[]>([]);
   const [usageById, setUsageById] = useState<Record<string, ExecutionUsage>>({});
+  const questionRevision = useRef(0);
+  const questionChanges = useRef(new Map<string, number>());
 
   const refresh = useCallback(async () => {
+    const revision = questionRevision.current;
     const data = await api.get<{ active: ExecutionInfo[]; recent: ExecutionInfo[] }>(
       "/executions",
     );
@@ -39,15 +42,16 @@ export function useExecutions() {
     const pqData = await api.get<Array<{ execId: string; info: ExecutionInfo }>>(
       "/executions/pending-questions",
     );
-    setPendingQuestions(
-      pqData
-        .filter((pq) => pq.info.pendingQuestion)
+    setPendingQuestions((prev) => [
+      ...pqData
+        .filter((pq) => pq.info.pendingQuestion && !isInternalExec(pq.info) && (questionChanges.current.get(pq.execId) ?? 0) <= revision)
         .map((pq) => ({
           execId: pq.execId,
           question: pq.info.pendingQuestion!,
           info: pq.info,
         })),
-    );
+      ...prev.filter((pq) => (questionChanges.current.get(pq.execId) ?? 0) > revision),
+    ]);
   }, []);
 
   useEffect(() => {
@@ -92,15 +96,17 @@ export function useExecutions() {
   useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:cancel", ({ id, info }) => moveToRecent(id, info));
 
   useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:question", ({ id, info }) => {
-    if (!info.pendingQuestion) return;
+    if (!info.pendingQuestion || isInternalExec(info)) return;
+    questionChanges.current.set(id, ++questionRevision.current);
     setPendingQuestions((prev) => [
       ...prev.filter((pq) => pq.execId !== id),
       { execId: id, question: info.pendingQuestion!, info },
     ]);
   });
 
-  useSocketEvent<{ id: string; info: ExecutionInfo }>("execution:question:answered", ({ id }) => {
-    setPendingQuestions((prev) => prev.filter((pq) => pq.execId !== id));
+  useSocketEvent<{ id: string; info: ExecutionInfo; toolUseId?: string }>("execution:question:answered", ({ id, toolUseId }) => {
+    questionChanges.current.set(id, ++questionRevision.current);
+    setPendingQuestions((prev) => prev.filter((pq) => pq.execId !== id || (toolUseId && pq.question.toolUseId !== toolUseId)));
   });
 
   useSocketEvent<{ id: string; costUsd: number; tokens: number; contextPct: number }>(
@@ -118,9 +124,10 @@ export function useExecutions() {
     setQueue((prev) => prev.filter((q) => q.id !== item.id));
   });
 
-  const submitAnswer = useCallback(async (execId: string, answer: string) => {
-    const result = await api.post<{ id: string }>(`/executions/${execId}/answer`, { answer });
-    setPendingQuestions((prev) => prev.filter((pq) => pq.execId !== execId));
+  const submitAnswer = useCallback(async (execId: string, answer: string, toolUseId?: string, answers?: Record<string, string>) => {
+    const result = await api.post<{ id: string }>(`/executions/${execId}/answer`, { answer, toolUseId, answers });
+    questionChanges.current.set(execId, ++questionRevision.current);
+    setPendingQuestions((prev) => prev.filter((pq) => pq.execId !== execId || (toolUseId && pq.question.toolUseId !== toolUseId)));
     return result.id;
   }, []);
 

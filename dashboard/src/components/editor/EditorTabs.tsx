@@ -53,28 +53,31 @@ export function EditorTabs({
       className="flex items-stretch border-b border-border bg-surface overflow-x-auto scrollbar-thin"
     >
       {tabs.map((tab) => (
-        <button
+        <div
           key={tab.path}
           data-tab={tab.path}
-          onClick={() => onSelect(tab.path)}
           onMouseDown={(e) => handleMiddleClick(e, tab.path)}
-          className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs border-r border-border shrink-0 ${
+          className={`group flex items-stretch text-xs border-r border-border shrink-0 ${
             activeTab === tab.path
               ? "bg-bg text-text-primary"
               : "text-text-muted hover:bg-surface-hover"
           }`}
         >
+          <button type="button" onClick={() => onSelect(tab.path)} className="flex items-center gap-1.5 px-3 py-1.5 min-w-0">
           {tab.dirty && (
             <span className="w-2 h-2 rounded-full bg-yellow-400 shrink-0" />
           )}
           <span className="truncate max-w-[120px]">{basename(tab.path)}</span>
-          <span
+          </button>
+          <button
+            type="button"
+            aria-label={`Fechar ${basename(tab.path)}`}
             onClick={(e) => handleCloseClick(e, tab.path)}
-            className="ml-1 p-0.5 rounded hover:bg-border opacity-0 group-hover:opacity-100 transition-opacity"
+            className="flex items-center justify-center px-1.5 rounded hover:bg-border opacity-100 md:opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
           >
             <X size={12} />
-          </span>
-        </button>
+          </button>
+        </div>
       ))}
     </div>
   );

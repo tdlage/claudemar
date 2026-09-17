@@ -1,3 +1,4 @@
+import { BoardLanes } from "../shared/BoardLanes";
 import { useState, useEffect } from "react";
 import { Plus, Settings, Workflow } from "lucide-react";
 import { api } from "../../lib/api";
@@ -167,7 +168,7 @@ export function PipelineBoard({ projectName }: Props) {
         <span className="text-xs text-text-muted ml-auto">base: {pipeline.defaultBaseBranch}</span>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-2">
+      <BoardLanes lanes={PIPELINE_STAGES.map((stage) => ({ id: stage.key, label: stage.label, count: cards.filter((card) => card.stage === stage.key).length }))}>
         {PIPELINE_STAGES.map((stage) => {
           const stageCards = cards.filter((c) => c.stage === stage.key);
           const isImplTarget = stage.key === "implementation" && dragCard !== null;
@@ -203,7 +204,7 @@ export function PipelineBoard({ projectName }: Props) {
             </div>
           );
         })}
-      </div>
+      </BoardLanes>
 
       {showNewCard && <NewCardModal pipelineId={pipeline.id} repos={bundle.repos} onClose={() => setShowNewCard(false)} onCreated={refresh} />}
       {showStages && <StageConfigEditor pipelineId={pipeline.id} stageConfigs={bundle.stageConfigs} onClose={() => setShowStages(false)} onSaved={refresh} />}

@@ -4,6 +4,7 @@ import { ingestTurn, type MemoryTarget } from "../memory/session-memory.js";
 import { DEFAULT_PROJECT_MODEL } from "../models-discovery.js";
 import type { AgentSession, AgentSessionInit, MessageBlock, PendingPermission, PermissionDecision, Effort } from "./types.js";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import { SessionQuestions, type QuestionAnswers } from "./questions.js";
 
 // Janela de contexto usada como fallback quando o runtime não expõe o máximo do modelo —
 // sobrescrevível por CONTEXT_WINDOW_TOKENS.
@@ -35,6 +36,16 @@ export abstract class BaseAgentSession extends EventEmitter implements AgentSess
   protected inactivityExpired = false;
   private inactivityTimeoutMs: number;
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+  protected readonly questions = new SessionQuestions(
+    (question) => {
+      this.clearInactivityTimer();
+      this.emit("question", question);
+    },
+    (id) => {
+      this.emit("questionResolved", id);
+      this.startInactivityTimer();
+    },
+  );
 
   constructor(init: AgentSessionInit) {
     super();
@@ -50,7 +61,7 @@ export abstract class BaseAgentSession extends EventEmitter implements AgentSess
   protected abstract onInactivity(): void;
 
   protected startInactivityTimer(): void {
-    if (this.inactivityTimeoutMs <= 0 || this.inactivityExpired || this.dead || this.settled) return;
+    if (this.questions.waiting || this.inactivityTimeoutMs <= 0 || this.inactivityExpired || this.dead || this.settled) return;
     this.clearInactivityTimer();
     this.inactivityTimer = setTimeout(() => {
       this.inactivityExpired = true;
@@ -84,6 +95,7 @@ export abstract class BaseAgentSession extends EventEmitter implements AgentSess
     this.clearInactivityTimer();
     this.result = result;
     this.settled = true;
+    this.questions.cancelAll("Execução encerrada.");
     this.assistantBuffer = "";
     this.emit("result", result);
   }
@@ -104,6 +116,13 @@ export abstract class BaseAgentSession extends EventEmitter implements AgentSess
 
   isAlive(): boolean {
     return !this.dead;
+  }
+
+  respondQuestion(id: string, text: string, answers?: QuestionAnswers): boolean {
+    if (!this.questions.answer(id, text, answers)) return false;
+    const stored = text.trim();
+    if (stored) this.pendingUserText = this.pendingUserText ? `${this.pendingUserText}\n\n${stored}` : stored;
+    return true;
   }
 
   getSessionId(): string {

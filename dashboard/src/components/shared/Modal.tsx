@@ -1,5 +1,7 @@
-import { useEffect } from "react";
+import { useRef } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { useDialogFocus } from "../../hooks/useDialogFocus";
 
 interface ModalProps {
   open: boolean;
@@ -16,29 +18,23 @@ const SIZE_CLASSES = {
 };
 
 export function Modal({ open, onClose, title, size = "default", children }: ModalProps) {
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  const ref = useRef<HTMLDivElement>(null);
+  useDialogFocus(ref, open, onClose);
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  return createPortal(
+    <div className="modal-layer fixed inset-0 z-50 flex items-end md:items-center justify-center">
       <div className="fixed inset-0 bg-black/60" onClick={onClose} />
-      <div role="dialog" aria-modal="true" aria-label={title} className={`relative bg-surface border border-border rounded-lg shadow-2xl ${SIZE_CLASSES[size]} w-full mx-4 max-h-[85vh] overflow-auto`}>
-        <div className="flex items-center justify-between p-4 border-b border-border">
+      <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`modal-panel relative bg-surface border border-border rounded-t-2xl md:rounded-lg shadow-2xl ${SIZE_CLASSES[size]} w-full md:mx-4 flex flex-col outline-none`}>
+        <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-3 border-b border-border">
           <h3 className="text-sm font-medium">{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="text-text-muted hover:text-text-primary">
+          <button type="button" onClick={onClose} aria-label="Close" className="flex items-center justify-center w-11 h-11 md:w-7 md:h-7 rounded-xl text-text-muted hover:text-text-primary">
             <X size={16} />
           </button>
         </div>
-        <div className="p-4">{children}</div>
+        <div className="modal-content p-4 min-h-0 overflow-y-auto overscroll-contain">{children}</div>
       </div>
-    </div>
+    </div>, document.body,
   );
 }

@@ -1,3 +1,4 @@
+import { BoardLanes } from "../shared/BoardLanes";
 import { useState, useMemo, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, Bug, Plus } from "lucide-react";
@@ -105,7 +106,7 @@ export function ProjectBoard({ projectId }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 text-xs text-text-muted">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted break-words">
         <Link to="/tracker" className="hover:text-text-primary transition-colors">Tracker</Link>
         <span>/</span>
         <Link to={`/tracker/${projectId}`} className="hover:text-text-primary transition-colors">{project?.name ?? "Project"}</Link>
@@ -113,8 +114,8 @@ export function ProjectBoard({ projectId }: Props) {
         <span className="text-text-primary">Board</span>
       </div>
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-3">
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-3 min-w-0">
           <Link to={`/tracker/${projectId}`} className="text-text-muted hover:text-text-primary transition-colors">
             <ArrowLeft size={16} />
           </Link>
@@ -159,7 +160,7 @@ export function ProjectBoard({ projectId }: Props) {
 
       {loading && <p className="text-sm text-text-muted">Loading...</p>}
 
-      <div className="flex gap-3 overflow-x-auto pb-4">
+      <BoardLanes lanes={referenceColumns.map((col) => ({ id: String(col.position), label: col.name, count: itemsByPosition(col.position).length }))}>
         {referenceColumns.map((col) => {
           const colItems = itemsByPosition(col.position);
           return (
@@ -192,13 +193,14 @@ export function ProjectBoard({ projectId }: Props) {
                     cycleId={item.cycleId}
                     onClick={() => navigate(`/tracker/${projectId}/cycles/${item.cycleId}/items/${item.id}`)}
                     onDelete={canEdit ? handleDeleteItem : undefined}
+                    moveColumns={canEdit ? cycles.find((cycle) => cycle.id === item.cycleId)?.columns : undefined}
                   />
                 ))}
               </div>
             </div>
           );
         })}
-      </div>
+      </BoardLanes>
 
       <CreateItemModal
         open={createModalOpen}

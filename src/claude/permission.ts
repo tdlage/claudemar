@@ -40,7 +40,7 @@ export interface PermissionContext {
 }
 
 // Decisão síncrona de permissão. Retorna o resultado quando a chamada pode ser resolvida na hora
-// (auto-aprovação em bypass, AskUserQuestion sem humano); retorna null quando é preciso pedir
+// (auto-aprovação em bypass); retorna null quando é preciso pedir
 // aprovação a um humano.
 export function decideImmediatePermission(
   toolName: string,
@@ -48,7 +48,7 @@ export function decideImmediatePermission(
   ctx: PermissionContext,
 ): PermissionResult | null {
   if (toolName === "AskUserQuestion") {
-    return { behavior: "deny", message: "Pergunta encaminhada ao usuário." };
+    return null;
   }
   if (autoApprovesTool(toolName, ctx.bypass, ctx.currentPermissionMode)) {
     return { behavior: "allow", updatedInput: input };

@@ -1,17 +1,20 @@
+import { lazy } from "react";
 import { createBrowserRouter, Navigate, useParams } from "react-router-dom";
 import { Layout } from "./components/layout/Layout";
 import { LoginPage } from "./pages/LoginPage";
-import { OverviewPage } from "./pages/OverviewPage";
-import { OrchestratorPage } from "./pages/OrchestratorPage";
-import { AgentDetailPage } from "./pages/AgentDetailPage";
-import { ProjectDetailPage } from "./pages/ProjectDetailPage";
-import { LogsPage } from "./pages/LogsPage";
-import { ChangelogPage } from "./pages/ChangelogPage";
-import { UsersPage } from "./pages/UsersPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { TrackerPage } from "./pages/TrackerPage";
-import { SecondBrainPage } from "./pages/SecondBrainPage";
 import { getMe } from "./hooks/useAuth";
+
+const OverviewPage = lazy(() => import("./pages/OverviewPage").then((module) => ({ default: module.OverviewPage })));
+const OrchestratorPage = lazy(() => import("./pages/OrchestratorPage").then((module) => ({ default: module.OrchestratorPage })));
+const AgentDetailPage = lazy(() => import("./pages/AgentDetailPage").then((module) => ({ default: module.AgentDetailPage })));
+const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage").then((module) => ({ default: module.ProjectDetailPage })));
+const LogsPage = lazy(() => import("./pages/LogsPage").then((module) => ({ default: module.LogsPage })));
+const ChangelogPage = lazy(() => import("./pages/ChangelogPage").then((module) => ({ default: module.ChangelogPage })));
+const UsersPage = lazy(() => import("./pages/UsersPage").then((module) => ({ default: module.UsersPage })));
+const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+const TrackerPage = lazy(() => import("./pages/TrackerPage").then((module) => ({ default: module.TrackerPage })));
+const SecondBrainPage = lazy(() => import("./pages/SecondBrainPage").then((module) => ({ default: module.SecondBrainPage })));
+const WorkspacesPage = lazy(() => import("./pages/WorkspacesPage").then((module) => ({ default: module.WorkspacesPage })));
 
 function KeyedBrainPage() {
   const { tab } = useParams();
@@ -79,6 +82,8 @@ export const router = createBrowserRouter([
       { path: "second-brain/:tab", element: <AdminGuard><KeyedBrainPage /></AdminGuard> },
       { path: "second-brain/:tab/*", element: <AdminGuard><KeyedBrainPage /></AdminGuard> },
       { path: "agents/:name", element: <KeyedAgentPage /> },
+      { path: "workspaces", element: <WorkspacesPage /> },
+      { path: "workspaces/:kind", element: <WorkspacesPage /> },
       { path: "projects/:name", element: <KeyedProjectPage /> },
       { path: "logs", element: <AdminGuard><LogsPage /></AdminGuard> },
       { path: "changelog", element: <AdminGuard><ChangelogPage /></AdminGuard> },

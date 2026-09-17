@@ -45,11 +45,11 @@ export function CodexAccountSection() {
         nunca de API key. O login é por código: abra a URL no navegador, entre na conta e digite o código exibido.
       </p>
 
-      <div className="bg-surface border border-border rounded-lg px-4 py-3 flex items-center gap-3">
+      <div className="bg-surface border border-border rounded-lg px-4 py-3 flex flex-wrap sm:flex-nowrap items-center gap-3">
         {connected
           ? <CheckCircle2 size={16} className="shrink-0 text-success" />
           : <AlertTriangle size={16} className="shrink-0 text-warning" />}
-        <div className="flex-1 min-w-0 text-sm text-text-secondary">{label()}</div>
+        <div className="flex-1 min-w-[160px] text-sm text-text-secondary">{label()}</div>
         {status?.loggedIn && (
           <button
             onClick={disconnect}

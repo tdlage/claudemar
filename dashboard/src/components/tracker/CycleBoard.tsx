@@ -1,3 +1,4 @@
+import { BoardLanes } from "../shared/BoardLanes";
 import { useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Plus, ArrowLeft, Trash2, Settings, X } from "lucide-react";
@@ -86,7 +87,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 text-xs text-text-muted">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted break-words">
         <Link to="/tracker" className="hover:text-text-primary transition-colors">Tracker</Link>
         <span>/</span>
         <Link to={`/tracker/${projectId}`} className="hover:text-text-primary transition-colors">Project</Link>
@@ -94,8 +95,8 @@ export function CycleBoard({ projectId, cycleId }: Props) {
         <span className="text-text-primary">{cycle?.name ?? "Cycle"}</span>
       </div>
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-3">
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-3 min-w-0">
           <Link to={`/tracker/${projectId}`} className="text-text-muted hover:text-text-primary transition-colors">
             <ArrowLeft size={16} />
           </Link>
@@ -141,7 +142,7 @@ export function CycleBoard({ projectId, cycleId }: Props) {
         />
       )}
 
-      <div className="flex gap-3 overflow-x-auto pb-4">
+      <BoardLanes lanes={columns.map((col) => ({ id: col.id, label: col.name, count: itemsByColumn(col.id).length }))}>
         {columns.map((col) => {
           const colItems = itemsByColumn(col.id);
           return (
@@ -172,13 +173,14 @@ export function CycleBoard({ projectId, cycleId }: Props) {
                     projectCode={project?.code ?? ""}
                     onClick={() => navigate(`/tracker/${projectId}/cycles/${cycleId}/items/${item.id}`)}
                     onDelete={canEdit ? handleDeleteItem : undefined}
+                    moveColumns={canEdit ? columns : undefined}
                   />
                 ))}
               </div>
             </div>
           );
         })}
-      </div>
+      </BoardLanes>
 
       <CreateItemModal open={createOpen} onClose={() => setCreateOpen(false)} cycleId={cycleId} cycleType={cycle?.type} projectId={projectId} />
     </div>
@@ -235,7 +237,7 @@ function ColumnManager({ cycleId, columns, cycleType, cycleStatus, onTypeChange,
 
   return (
     <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-3">
         <h3 className="text-sm font-medium text-text-primary">Manage Columns</h3>
         <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={14} /></button>
       </div>

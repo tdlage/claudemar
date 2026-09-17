@@ -1,3 +1,4 @@
+import { useMobile } from "../../hooks/useMobile";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Send } from "lucide-react";
@@ -6,6 +7,7 @@ import { useToast } from "../shared/Toast";
 import type { AgentInfo, ProjectInfo } from "../../lib/types";
 
 export function QuickCommand() {
+  const mobile = useMobile();
   const { addToast } = useToast();
   const navigate = useNavigate();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -42,7 +44,7 @@ export function QuickCommand() {
         navigate(`/agents/${targetName}`);
       } else if (targetType === "project") {
         navigate(`/projects/${targetName}`);
-      }
+      } else { navigate("/orchestrator"); }
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed to start execution");
     } finally {
@@ -51,8 +53,9 @@ export function QuickCommand() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2 items-end">
+    <form onSubmit={handleSubmit} className="quick-command flex gap-2 items-end">
       <select
+        aria-label="Onde executar"
         value={target}
         onChange={(e) => setTarget(e.target.value)}
         className="bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
@@ -70,6 +73,7 @@ export function QuickCommand() {
         </optgroup>
       </select>
       <textarea
+        aria-label="Comando"
         value={prompt}
         onChange={(e) => {
           setPrompt(e.target.value);
@@ -77,12 +81,12 @@ export function QuickCommand() {
           e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
+          if (e.key === "Enter" && !e.shiftKey && !mobile && !e.nativeEvent.isComposing) {
             e.preventDefault();
             if (prompt.trim()) handleSubmit(e);
           }
         }}
-        placeholder="Type a command... (Shift+Enter for new line)"
+        placeholder={mobile ? "O que você quer fazer?" : "Type a command... (Shift+Enter for new line)"}
         rows={1}
         className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
         style={{ maxHeight: 200 }}

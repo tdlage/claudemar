@@ -53,7 +53,7 @@ export function buildOptions(params: BuildOptionsParams): Options {
     settingSources: ["project"],
     includePartialMessages: true,
     enableFileCheckpointing: true,
-    systemPrompt: { type: "preset", preset: "claude_code", append: buildSystemAppend(params) },
+    systemPrompt: { type: "preset", preset: "claude_code", append: `${buildSystemAppend(params)}\n\nQuando precisar de uma resposta do usuário, use AskUserQuestion durante a execução. A pergunta será exibida imediatamente e a chamada aguardará as respostas. Continue o trabalho dependente dessas respostas somente após recebê-las. Não deixe perguntas apenas no texto final e não presuma escolhas ou aprovações.` },
     effort: effortToSdk(effort),
     stderr: params.stderr,
   };

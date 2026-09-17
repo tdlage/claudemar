@@ -3,6 +3,7 @@ import { Send, Wrench, Trash2 } from "lucide-react";
 import { Button } from "../shared/Button";
 import { useToast } from "../shared/Toast";
 import { api } from "../../lib/api";
+import { useMobile } from "../../hooks/useMobile";
 import type { BrainChatMessage, BrainChatResponse } from "../../lib/types";
 
 const STORAGE_KEY = "brain_chat_history";
@@ -24,6 +25,7 @@ function loadHistory(): BrainChatMessage[] {
 }
 
 export function ChatTab() {
+  const mobile = useMobile();
   const { addToast } = useToast();
   const [messages, setMessages] = useState<BrainChatMessage[]>(loadHistory);
   const [input, setInput] = useState("");
@@ -58,7 +60,7 @@ export function ChatTab() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-16rem)] min-h-[28rem]">
+    <div className="brain-chat flex flex-col h-[calc(100vh-16rem)] min-h-[28rem]">
       <div className="flex-1 overflow-y-auto space-y-3 pr-1">
         {messages.length === 0 && (
           <div className="text-sm text-text-muted space-y-3 py-6">
@@ -108,29 +110,30 @@ export function ChatTab() {
       </div>
 
       {lastTools.length > 0 && !busy && (
-        <p className="text-[11px] text-text-muted flex items-center gap-1.5 pt-2">
+        <p className="text-[11px] text-text-muted flex items-center gap-1.5 pt-2 break-words">
           <Wrench size={11} />
           consultou: {lastTools.join(" · ")}
         </p>
       )}
 
-      <div className="flex items-end gap-2 pt-3">
+      <div className="flex flex-wrap items-end gap-2 pt-3 shrink-0">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && !e.shiftKey && !mobile && !e.nativeEvent.isComposing) {
               e.preventDefault();
               void send(input);
             }
           }}
           rows={2}
-          placeholder="Pergunte ao seu Second Brain… (Enter envia, Shift+Enter quebra linha)"
-          className="flex-1 bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary resize-none focus:outline-none focus:border-accent"
+          aria-label="Mensagem ao Second Brain"
+          placeholder={mobile ? "Pergunte ao seu Second Brain…" : "Pergunte ao seu Second Brain… (Enter envia, Shift+Enter quebra linha)"}
+          className="min-w-0 flex-1 bg-surface border border-border rounded-xl md:rounded-md px-3 py-2 text-sm text-text-primary resize-none focus:outline-none focus:border-accent"
         />
-        <Button onClick={() => void send(input)} disabled={busy || !input.trim()} className="flex items-center gap-1.5">
-          <Send size={14} />
-          Enviar
+        <Button aria-label="Enviar ao Second Brain" onClick={() => void send(input)} disabled={busy || !input.trim()} className="flex items-center justify-center gap-1.5">
+          <Send size={mobile ? 20 : 14} />
+          {!mobile && "Enviar"}
         </Button>
         {messages.length > 0 && (
           <Button

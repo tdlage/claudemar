@@ -46,21 +46,19 @@ export function OverviewPage() {
       </div>
 
       {pendingQuestions.length > 0 && (
-        <div>
+        <div className="sticky top-0 z-20 max-h-[65dvh] overflow-y-auto bg-bg rounded-lg">
           <h2 className="text-sm font-medium text-text-muted mb-3 uppercase tracking-wider">
             Pending Questions ({pendingQuestions.length})
           </h2>
           <div className="space-y-3">
             {pendingQuestions.map((pq) => (
               <QuestionPanel
-                key={pq.execId}
+                key={`${pq.execId}:${pq.question.toolUseId}`}
                 execId={pq.execId}
                 question={pq.question}
+                runtime={pq.info.runtime}
                 targetName={pq.info.targetName}
                 onSubmit={submitAnswer}
-                onDismiss={(id) => {
-                  api.post(`/executions/${id}/stop`).catch(() => {});
-                }}
               />
             ))}
           </div>

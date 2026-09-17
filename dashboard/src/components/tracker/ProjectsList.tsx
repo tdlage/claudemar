@@ -60,7 +60,7 @@ export function ProjectsList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-text-primary">Tracker</h2>
         {admin && (
           <button
@@ -85,8 +85,8 @@ export function ProjectsList() {
             onClick={() => navigate(`/tracker/${project.id}`)}
             className="bg-surface border border-border rounded-lg p-4 cursor-pointer hover:border-accent/40 transition-colors"
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 min-w-0">
+            <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
                 {editingId === project.id ? (
                   <input
                     value={editName}
@@ -103,11 +103,11 @@ export function ProjectsList() {
                 ) : (
                   <>
                     <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent">{project.code}</span>
-                    <span className="font-medium text-text-primary">{project.name}</span>
+                    <span className="font-medium text-text-primary break-words">{project.name}</span>
                   </>
                 )}
                 {project.description && (
-                  <span className="text-xs text-text-muted truncate">{project.description}</span>
+                  <span className="text-sm sm:text-xs text-text-muted w-full sm:w-auto break-words">{project.description}</span>
                 )}
               </div>
               {admin && (
@@ -133,7 +133,7 @@ export function ProjectsList() {
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New Project">
         <div className="space-y-3">
-          <div className="grid grid-cols-[1fr_auto] gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
             <div>
               <label className="block text-xs text-text-muted mb-1">Name</label>
               <input

@@ -23,8 +23,8 @@ export function CyclesList({ projectId }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-3">
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-3 min-w-0">
           <Link to="/tracker" className="text-text-muted hover:text-text-primary transition-colors">
             <ArrowLeft size={16} />
           </Link>
@@ -69,7 +69,7 @@ export function CyclesList({ projectId }: Props) {
               onClick={() => navigate(`/tracker/${projectId}/cycles/${cycle.id}`)}
               className="bg-surface border border-border rounded-lg p-4 cursor-pointer hover:border-accent/40 transition-colors space-y-3"
             >
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-text-primary">{cycle.name}</span>
                   <Badge variant={cycle.type === "bugs" ? "danger" : "info"}>

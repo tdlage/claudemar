@@ -55,7 +55,7 @@ install.sh             # Full installer (Node, repo, build, env, cron, systemd)
 - Events: `executionManager` extends EventEmitter (output, complete, error, cancel)
 - No comments unless critical. Code must be self-explanatory
 - Production-ready only. No mocks, no hardcoded values
-- Provider resolution: model `codex` → Codex CLI, `claude-*` → Claude CLI, none → `AGENT_PROVIDER` (default codex). Codex reports tokens (no USD cost) and never asks interactive questions; Claude reports USD cost and supports the question flow
+- Provider resolution: model `codex` → Codex CLI, `claude-*` → Claude CLI, none → `AGENT_PROVIDER` (default codex). Codex reports tokens (no USD cost) and asks questions through `mcp__user_input__request_user_input`; Claude reports USD cost and uses `AskUserQuestion`. Both publish questions during execution and wait for the user's answers in the tool call before continuing
 - Agent instructions live in AGENTS.md (CLAUDE.md is legacy, auto-migrated on startup)
 - NUNCA reiniciar o serviço local do claudemar (systemctl restart claudemar). O deploy e restart são feitos externamente
 

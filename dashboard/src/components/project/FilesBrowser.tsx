@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useMobile } from "../../hooks/useMobile";
 import { ChevronRight, Download, Eye, EyeOff, File, Folder, Save, SaveAll } from "lucide-react";
 import { api } from "../../lib/api";
 import { getCached, setCached } from "../../lib/stateCache";
 import { useToast } from "../shared/Toast";
+import { Modal } from "../shared/Modal";
 import { EditorTabs, type OpenFile } from "../editor/EditorTabs";
 import { MonacoEditorWrapper, detectLanguage } from "../editor/MonacoEditor";
 import { ActivityBar, type ActivityView } from "../editor/ActivityBar";
@@ -52,6 +54,8 @@ const defaultSearch: SearchState = {
 };
 
 export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps) {
+  const mobile = useMobile();
+  const [mobilePane, setMobilePane] = useState<ActivityView | "editor">("files");
   const { addToast } = useToast();
   const base = baseProp ?? `project:${projectName}`;
   const cacheKey = `filebrowser:${base}`;
@@ -159,6 +163,7 @@ export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps)
   const openFile = useCallback(async (path: string, line?: number) => {
     if (openFiles.has(path)) {
       setActiveTab(path);
+      setMobilePane("editor");
       if (line) setGoToLine(line);
       return;
     }
@@ -175,6 +180,7 @@ export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps)
         const content = result.content || "";
         setOpenFiles((prev) => new Map(prev).set(path, { original: content, current: content }));
         setActiveTab(path);
+        setMobilePane("editor");
         if (line) setGoToLine(line);
       }
     } catch {
@@ -274,12 +280,16 @@ export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps)
   }, [openFiles, forceCloseTab]);
 
   const handleConfirmSaveAndClose = useCallback(async () => {
-    if (!confirmClose) return;
+    if (!confirmClose || savingRef.current) return;
     const path = confirmClose;
-    setConfirmClose(null);
-    await saveFile(path);
-    forceCloseTab(path);
-    addToast("success", `Saved and closed ${path.split("/").pop()}`);
+    savingRef.current = true;
+    try {
+      if (await saveFile(path)) {
+        forceCloseTab(path);
+        setConfirmClose(null);
+        addToast("success", `Saved and closed ${path.split("/").pop()}`);
+      }
+    } finally { savingRef.current = false; }
   }, [confirmClose, saveFile, forceCloseTab, addToast]);
 
   const handleConfirmDiscard = useCallback(() => {
@@ -352,7 +362,7 @@ export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps)
     switch (activeView) {
       case "files":
         return (
-          <div className="w-64 bg-surface border-r border-border overflow-y-auto shrink-0 flex flex-col">
+          <div className="file-side-panel w-64 bg-surface border-r border-border overflow-y-auto shrink-0 flex flex-col">
             <div className="flex items-center justify-between px-2 py-1 border-b border-border shrink-0">
               <span className="text-[10px] uppercase tracking-wider text-text-muted font-medium">Explorer</span>
               <button
@@ -380,13 +390,13 @@ export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps)
         );
       case "search":
         return (
-          <div className="w-64 bg-surface border-r border-border shrink-0">
+          <div className="file-side-panel w-64 bg-surface border-r border-border shrink-0">
             <SearchPanel base={base} onResultClick={handleSearchResultClick} state={searchState} onStateChange={setSearchState} />
           </div>
         );
       case "run":
         return (
-          <div className="w-64 bg-surface border-r border-border shrink-0">
+          <div className="file-side-panel w-64 bg-surface border-r border-border shrink-0">
             <RunPanel base={base} />
           </div>
         );
@@ -394,14 +404,19 @@ export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps)
   }
 
   return (
-    <div className="flex border border-border rounded-lg overflow-hidden h-full relative">
-      <ActivityBar activeView={activeView} onViewChange={setActiveView} />
+    <div className="file-browser flex border border-border rounded-lg overflow-hidden h-full relative">
+      {mobile ? <div className="grid grid-cols-4 shrink-0 border-b border-border bg-surface p-1 gap-1">
+        {([['files', 'Arquivos'], ['search', 'Busca'], ['run', 'Executar'], ['editor', 'Editor']] as const).map(([key, label]) => <button
+          key={key} onClick={() => { setMobilePane(key); if (key !== "editor") setActiveView(key); }}
+          aria-pressed={mobilePane === key} className={`text-xs rounded-lg ${mobilePane === key ? "bg-accent/15 text-accent" : "text-text-muted"}`}
+        >{label}</button>)}
+      </div> : <ActivityBar activeView={activeView} onViewChange={setActiveView} />}
 
-      {renderSidePanel()}
+      {(!mobile || mobilePane !== "editor") && renderSidePanel()}
 
-      <div className="flex-1 flex flex-col bg-bg min-w-0">
-        <div className="flex items-center border-b border-border shrink-0">
-          <div className="flex-1 overflow-x-auto">
+      <div className={`${mobile && mobilePane !== "editor" ? "hidden" : "flex"} file-editor flex-1 flex-col bg-bg min-w-0 min-h-0`}>
+        <div className="file-editor-toolbar flex items-center border-b border-border shrink-0">
+          <div className="flex-1 min-w-0 overflow-x-auto">
             <EditorTabs
               tabs={tabs}
               activeTab={activeTab}
@@ -452,36 +467,31 @@ export function FilesBrowser({ projectName, base: baseProp }: FilesBrowserProps)
         )}
       </div>
 
-      {confirmClose && (
-        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-surface border border-border rounded-lg p-4 shadow-xl max-w-sm mx-4">
-            <p className="text-sm text-text-primary mb-1 font-medium">Unsaved changes</p>
+      <Modal open={!!confirmClose} onClose={() => setConfirmClose(null)} title="Alterações não salvas">
             <p className="text-xs text-text-muted mb-4">
-              <span className="font-mono">{confirmClose.split("/").pop()}</span> has unsaved changes. Save before closing?
+              <span className="font-mono">{confirmClose?.split("/").pop()}</span> tem alterações não salvas. Salvar antes de fechar?
             </p>
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setConfirmClose(null)}
                 className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
               >
-                Cancel
+                Cancelar
               </button>
               <button
                 onClick={handleConfirmDiscard}
                 className="px-3 py-1.5 text-xs rounded-md bg-danger/15 text-danger hover:bg-danger/25 border border-danger/30 transition-colors"
               >
-                Discard
+                Descartar
               </button>
               <button
                 onClick={handleConfirmSaveAndClose}
                 className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
               >
-                Save
+                Salvar
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

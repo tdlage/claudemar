@@ -10,6 +10,11 @@ export interface AskQuestion {
   multiSelect: boolean;
 }
 
+export interface PendingQuestion {
+  toolUseId: string;
+  questions: AskQuestion[];
+}
+
 export interface PermissionDenial {
   tool_name: string;
   tool_use_id: string;
@@ -26,4 +31,3 @@ export interface AgentResult {
   errorMessages: string[];
   permissionDenials: PermissionDenial[];
 }
-

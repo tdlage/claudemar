@@ -18,9 +18,11 @@ import {
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth, getMe } from "../../hooks/useAuth";
+import { Modal } from "../shared/Modal";
 import { TokenUsage } from "./TokenUsage";
 import { useSocketEvent, useSocketRoom } from "../../hooks/useSocket";
 import type { AgentInfo, ProjectInfo, ExecutionInfo } from "../../lib/types";
+import { useDialogFocus } from "../../hooks/useDialogFocus";
 
 interface SidebarContextValue {
   collapsed: boolean;
@@ -88,6 +90,8 @@ function StatusDot({ targetKey, statusMap }: { targetKey: string; statusMap: Tar
 export function Sidebar() {
   const { logout } = useAuth();
   const { collapsed, setCollapsed, mobileOpen, setMobileOpen, isMobile } = useSidebar();
+  const sidebarRef = useRef<HTMLElement>(null);
+  useDialogFocus(sidebarRef, isMobile && mobileOpen, () => setMobileOpen(false));
   const me = getMe();
   const admin = !me || me.role === "admin";
   const navigate = useNavigate();
@@ -206,13 +210,19 @@ export function Sidebar() {
     <>
       {isMobile && mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-30"
+          className="fixed inset-0 bg-black/70 z-40"
           onClick={() => setMobileOpen(false)}
         />
       )}
       <aside
-        className={`h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-40 transition-[width] duration-200 ${
-          isMobile ? "w-64" : collapsed ? "w-14" : "w-56"
+        ref={sidebarRef}
+        id="app-sidebar"
+        role={isMobile ? "dialog" : undefined}
+        aria-modal={isMobile ? true : undefined}
+        aria-label="Menu de navegação"
+        tabIndex={-1}
+        className={`app-sidebar bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-50 outline-none transition-[width] duration-200 ${
+          isMobile ? "w-[min(88vw,360px)]" : collapsed ? "w-14" : "w-56"
         }`}
       >
         <div className="px-3 py-4 border-b border-border flex items-center justify-between min-h-[57px]">
@@ -399,7 +409,7 @@ export function Sidebar() {
         </nav>
 
         <div className="border-t border-border">
-          {admin && <TokenUsage collapsed={!isMobile && collapsed} />}
+          {admin && !isMobile && <TokenUsage collapsed={collapsed} />}
           <div className="px-2 pb-3">
             <button
               onClick={logout}
@@ -411,84 +421,66 @@ export function Sidebar() {
             </button>
           </div>
         </div>
-        {createAgentOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="fixed inset-0 bg-black/60" onClick={() => setCreateAgentOpen(false)} />
-            <div className="relative bg-surface border border-border rounded-lg shadow-2xl w-80 mx-4">
-              <div className="p-4 border-b border-border">
-                <h3 className="text-sm font-medium text-text-primary">Create Agent</h3>
-              </div>
-              <div className="p-4 space-y-3">
-                <input
-                  type="text"
-                  value={newAgentName}
-                  onChange={(e) => setNewAgentName(e.target.value.replace(/[^a-zA-Z0-9.-]/g, ""))}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCreateAgent();
-                    if (e.key === "Escape") setCreateAgentOpen(false);
-                  }}
-                  placeholder="Agent name"
-                  autoFocus
-                  className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-                />
-                <div className="flex justify-end gap-2">
-                  <button
-                    onClick={() => setCreateAgentOpen(false)}
-                    className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleCreateAgent}
-                    disabled={!newAgentName.trim() || creatingAgent}
-                    className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
-                  >
-                    {creatingAgent ? "Creating..." : "Create"}
-                  </button>
-                </div>
-              </div>
+        <Modal open={createAgentOpen} onClose={() => setCreateAgentOpen(false)} title="Create Agent">
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={newAgentName}
+              onChange={(e) => setNewAgentName(e.target.value.replace(/[^a-zA-Z0-9.-]/g, ""))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateAgent();
+              }}
+              placeholder="Agent name"
+              autoFocus
+              className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setCreateAgentOpen(false)}
+                className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateAgent}
+                disabled={!newAgentName.trim() || creatingAgent}
+                className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
+              >
+                {creatingAgent ? "Creating..." : "Create"}
+              </button>
             </div>
           </div>
-        )}
-        {createProjectOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="fixed inset-0 bg-black/60" onClick={() => setCreateProjectOpen(false)} />
-            <div className="relative bg-surface border border-border rounded-lg shadow-2xl w-80 mx-4">
-              <div className="p-4 border-b border-border">
-                <h3 className="text-sm font-medium text-text-primary">Create Project</h3>
-              </div>
-              <div className="p-4 space-y-3">
-                <input
-                  type="text"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value.replace(/[^a-zA-Z0-9._-]/g, ""))}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCreateProject();
-                    if (e.key === "Escape") setCreateProjectOpen(false);
-                  }}
-                  placeholder="Project name"
-                  autoFocus
-                  className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-                />
-                <div className="flex justify-end gap-2">
-                  <button
-                    onClick={() => setCreateProjectOpen(false)}
-                    className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleCreateProject}
-                    disabled={!newProjectName.trim() || creatingProject}
-                    className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
-                  >
-                    {creatingProject ? "Creating..." : "Create"}
-                  </button>
-                </div>
-              </div>
+        </Modal>
+        <Modal open={createProjectOpen} onClose={() => setCreateProjectOpen(false)} title="Create Project">
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value.replace(/[^a-zA-Z0-9._-]/g, ""))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateProject();
+              }}
+              placeholder="Project name"
+              autoFocus
+              className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setCreateProjectOpen(false)}
+                className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateProject}
+                disabled={!newProjectName.trim() || creatingProject}
+                className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
+              >
+                {creatingProject ? "Creating..." : "Create"}
+              </button>
             </div>
           </div>
-        )}
+        </Modal>
       </aside>
     </>
   );

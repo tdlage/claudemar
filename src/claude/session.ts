@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { query, type Query, type SDKMessage, type SDKUserMessage, type PermissionMode, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import { query, type Query, type SDKMessage, type SDKUserMessage, type PermissionMode, type PermissionResult, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentResult, AskQuestion, PermissionDenial } from "../providers/types.js";
 import { buildOptions, effortToFlagLevel, isUltracode } from "./options.js";
 import { decideImmediatePermission } from "./permission.js";
@@ -64,6 +64,7 @@ export class ClaudeSession extends BaseAgentSession {
   private abortController = new AbortController();
   private runner: Query | null = null;
   private permissionResolvers = new Map<string, { settle: (result: PermissionResult) => void; toolName: string; input: Record<string, unknown> }>();
+  private handledQuestions = new Set<string>();
   private permissionTimeoutMs: number;
   private bypass: boolean;
   private currentPermissionMode: PermissionMode;
@@ -82,7 +83,7 @@ export class ClaudeSession extends BaseAgentSession {
     const options = buildOptions({
       ...init,
       abortController: this.abortController,
-      canUseTool: (toolName, input) => this.handlePermission(toolName, input),
+      canUseTool: (toolName, input, context) => this.handlePermission(toolName, input, context),
       stderr: init.stderr ?? ((data: string) => this.emit("stderr", data)),
     });
 
@@ -103,7 +104,7 @@ export class ClaudeSession extends BaseAgentSession {
   // morrer sem nunca emitir task_notification (ex.: falha de spawn em provider third-party).
   // Sem este grace timer a execução ficaria "running" até o watchdog de inatividade.
   private startPendingTasksTimer(): void {
-    if (this.pendingTasksGraceMs <= 0) return;
+    if (this.questions.waiting || this.pendingTasksGraceMs <= 0) return;
     this.clearPendingTasksTimer();
     this.pendingTasksTimer = setTimeout(() => {
       if (this.pendingResult) this.drainPendingResult("");
@@ -131,7 +132,21 @@ export class ClaudeSession extends BaseAgentSession {
     this.activeTasks.clear();
   }
 
-  private handlePermission(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
+  private async handlePermission(toolName: string, input: Record<string, unknown>, context: Parameters<CanUseTool>[2]): Promise<PermissionResult> {
+    if (toolName === "AskUserQuestion") {
+      const questions = input.questions as AskQuestion[] | undefined;
+      if (!Array.isArray(questions) || !questions.length) return { behavior: "deny", message: "Perguntas inválidas." };
+      this.handledQuestions.add(context.toolUseID);
+      this.clearPendingTasksTimer();
+      try {
+        const answers = await this.questions.request({ toolUseId: context.toolUseID, questions }, context.signal);
+        return { behavior: "allow", updatedInput: { ...input, answers } };
+      } catch (err) {
+        return { behavior: "deny", message: err instanceof Error ? err.message : "Pergunta cancelada.", interrupt: true };
+      } finally {
+        if (this.pendingResult && !this.questions.waiting) this.startPendingTasksTimer();
+      }
+    }
     const immediate = decideImmediatePermission(toolName, input, {
       bypass: this.bypass,
       currentPermissionMode: this.currentPermissionMode,
@@ -379,7 +394,7 @@ export class ClaudeSession extends BaseAgentSession {
 
     const denials: PermissionDenial[] = [];
     for (const d of message.permission_denials ?? []) {
-      if (d.tool_name === "AskUserQuestion") {
+      if (d.tool_name === "AskUserQuestion" && !this.handledQuestions.has(d.tool_use_id)) {
         const input = d.tool_input as { questions?: AskQuestion[] };
         if (input?.questions) {
           denials.push({ tool_name: d.tool_name, tool_use_id: d.tool_use_id, tool_input: { questions: input.questions } });
@@ -443,6 +458,7 @@ export class ClaudeSession extends BaseAgentSession {
   }
 
   async interrupt(): Promise<void> {
+    this.questions.cancelAll();
     try {
       await this.runner?.interrupt();
     } catch {
@@ -492,6 +508,8 @@ export class ClaudeSession extends BaseAgentSession {
   }
 
   end(): void {
+    this.dead = true;
+    this.questions.cancelAll("Sessão encerrada.");
     this.clearInactivityTimer();
     this.clearPendingTasksTimer();
     for (const { settle } of this.permissionResolvers.values()) {

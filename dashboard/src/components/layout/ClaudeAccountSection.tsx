@@ -40,11 +40,11 @@ export function ClaudeAccountSection() {
         abra a URL no navegador, autorize e cole o código de volta. Não depende de nenhuma execução de IA.
       </p>
 
-      <div className="bg-surface border border-border rounded-lg px-4 py-3 flex items-center gap-3">
+      <div className="bg-surface border border-border rounded-lg px-4 py-3 flex flex-wrap sm:flex-nowrap items-center gap-3">
         {connected
           ? <CheckCircle2 size={16} className="shrink-0 text-success" />
           : <AlertTriangle size={16} className="shrink-0 text-warning" />}
-        <div className="flex-1 min-w-0 text-sm text-text-secondary">{label()}</div>
+        <div className="flex-1 min-w-[160px] text-sm text-text-secondary">{label()}</div>
         <button
           onClick={() => setOpen(true)}
           className="shrink-0 px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"

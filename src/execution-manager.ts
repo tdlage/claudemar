@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import type { AgentDefinition, McpServerConfig, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentResult, AskQuestion } from "./providers/types.js";
+import type { AgentResult, PendingQuestion } from "./providers/types.js";
 import type { AgentSession, Effort, MessageBlock, PendingPermission, PermissionDecision, UsageInfo, TaskEvent } from "./runtime/types.js";
 import { createAgentSession } from "./runtime/create-session.js";
 import { isUltracode } from "./claude/options.js";
@@ -26,10 +26,7 @@ export type ExecutionSource = "telegram" | "web" | "schedule" | "pipeline";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
 export type ExecutionStatus = "running" | "completed" | "error" | "cancelled";
 
-export interface PendingQuestion {
-  toolUseId: string;
-  questions: AskQuestion[];
-}
+export type { PendingQuestion } from "./providers/types.js";
 
 export interface ExecutionInfo {
   id: string;
@@ -128,11 +125,13 @@ interface ActiveEntry {
   sessionKey: string;
   detach?: () => void;
   timer?: ReturnType<typeof setTimeout>;
+  timeoutDeadline?: number;
+  timeoutRemainingMs?: number;
   timedOut?: boolean;
   userInterrupted?: boolean;
 }
 
-class ExecutionManager extends EventEmitter {
+export class ExecutionManager extends EventEmitter {
   private sessionIsolation = new Map<string, boolean>();
   private sessionProfiles = new Map<string, string>();
   private active = new Map<string, ActiveEntry>();
@@ -441,6 +440,7 @@ class ExecutionManager extends EventEmitter {
 
     const timeout = opts.timeoutMs ?? config.agentTimeoutMs;
     if (timeout > 0) {
+      entry.timeoutDeadline = Date.now() + timeout;
       entry.timer = setTimeout(() => {
         entry.timedOut = true;
         entry.session.interrupt().catch(() => {});
@@ -520,6 +520,30 @@ class ExecutionManager extends EventEmitter {
       this.emit("slash-commands", info.id, commands);
     };
     const onMcp = (servers: { name: string; status: string }[]) => this.emit("mcp-status", info.id, servers);
+    const onQuestion = (question: PendingQuestion) => {
+      if (entry.timer) {
+        clearTimeout(entry.timer);
+        entry.timer = undefined;
+        entry.timeoutRemainingMs = Math.max(1, (entry.timeoutDeadline ?? Date.now()) - Date.now());
+      }
+      info.pendingQuestion = question;
+      this.pendingQuestions.set(info.id, { info, opts: entry.opts });
+      this.emit("question", info.id, info);
+    };
+    const onQuestionResolved = (questionId: string) => {
+      if (info.pendingQuestion?.toolUseId !== questionId) return;
+      this.pendingQuestions.delete(info.id);
+      info.pendingQuestion = null;
+      this.emit("question:answered", info.id, info, questionId);
+      if (info.status === "running" && entry.timeoutRemainingMs !== undefined) {
+        entry.timeoutDeadline = Date.now() + entry.timeoutRemainingMs;
+        entry.timer = setTimeout(() => {
+          entry.timedOut = true;
+          entry.session.interrupt().catch(() => {});
+        }, entry.timeoutRemainingMs);
+        entry.timeoutRemainingMs = undefined;
+      }
+    };
 
     session.on("chunk", onChunk);
     session.on("thinking", onThinking);
@@ -534,6 +558,8 @@ class ExecutionManager extends EventEmitter {
     session.on("mode", onMode);
     session.on("slashCommands", onSlash);
     session.on("mcpStatus", onMcp);
+    session.on("question", onQuestion);
+    session.on("questionResolved", onQuestionResolved);
 
     entry.detach = () => {
       session.off("chunk", onChunk);
@@ -549,6 +575,8 @@ class ExecutionManager extends EventEmitter {
       session.off("mode", onMode);
       session.off("slashCommands", onSlash);
       session.off("mcpStatus", onMcp);
+      session.off("question", onQuestion);
+      session.off("questionResolved", onQuestionResolved);
     };
   }
 
@@ -621,19 +649,14 @@ class ExecutionManager extends EventEmitter {
 
     const askDenial = result.permissionDenials.find((d) => d.tool_name === "AskUserQuestion");
 
-    if (askDenial) {
-      info.status = "completed";
+    if (askDenial && !info.pendingQuestion) {
       info.pendingQuestion = { toolUseId: askDenial.tool_use_id, questions: askDenial.tool_input.questions };
-      this.finalize(entry);
       this.pendingQuestions.set(info.id, { info, opts });
-      this.emit("complete", info.id, info);
-      this.emit("question", info.id, info);
-    } else {
-      info.status = "completed";
-      info.pendingQuestion = null;
-      this.finalize(entry);
-      this.emit("complete", info.id, info);
     }
+    info.status = "completed";
+    this.finalize(entry);
+    this.emit("complete", info.id, info);
+    if (info.pendingQuestion) this.emit("question", info.id, info);
 
     appendHistory(buildHistoryEntry(info, { costUsd: result.costUsd, totalTokens: result.totalTokens, durationMs: result.durationMs }));
   }
@@ -728,19 +751,37 @@ class ExecutionManager extends EventEmitter {
     return true;
   }
 
-  submitAnswer(execId: string, answer: string): string | null {
+  submitAnswer(execId: string, answer: string, toolUseId?: string, answers?: Record<string, string>): string | null {
     const pending = this.pendingQuestions.get(execId);
-    if (!pending) return null;
+    if (!pending || !answer.trim()) return null;
 
     const { info, opts } = pending;
-    const sessionId = info.result?.sessionId;
-    if (!sessionId) return null;
+    const questionId = info.pendingQuestion?.toolUseId;
+    if (toolUseId && toolUseId !== questionId) return null;
+
+    let nextExecId: string;
+    const active = this.active.get(execId);
+    if (active) {
+      return questionId && active.session.respondQuestion(questionId, answer.trim(), answers) ? execId : null;
+    } else {
+      const sessionId = info.result?.sessionId;
+      if (!sessionId) return null;
+      nextExecId = this.startExecution({
+        ...opts,
+        model: info.modelSelection ?? opts.model,
+        prompt: answer.trim(),
+        rawPrompt: answer.trim(),
+        blocks: undefined,
+        resumeSessionId: sessionId,
+        noResume: false,
+        continueDuringDrain: true,
+      });
+    }
 
     this.pendingQuestions.delete(execId);
     info.pendingQuestion = null;
-    this.emit("question:answered", execId, info);
-
-    return this.startExecution({ ...opts, prompt: answer, blocks: undefined, resumeSessionId: sessionId, continueDuringDrain: true });
+    this.emit("question:answered", execId, info, questionId);
+    return nextExecId;
   }
 
   getPendingQuestion(execId: string): PendingQuestion | null {
@@ -782,6 +823,12 @@ class ExecutionManager extends EventEmitter {
       }
 
       entry.session.interrupt().catch(() => {});
+      if (entry.info.pendingQuestion) {
+        const questionId = entry.info.pendingQuestion.toolUseId;
+        this.pendingQuestions.delete(id);
+        entry.info.pendingQuestion = null;
+        this.emit("question:answered", id, entry.info, questionId);
+      }
       this.finalize(entry);
       this.emit("cancel", id, entry.info);
       appendHistory(buildHistoryEntry(entry.info));

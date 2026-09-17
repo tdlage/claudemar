@@ -368,9 +368,9 @@ export function setupWebSocket(io: SocketServer): void {
     emitActivity(id, info, "waiting");
   });
 
-  executionManager.on("question:answered", (id, info) => {
-    emitToExecutions("execution:question:answered", info, { id, info });
-    io.to(`exec:${id}`).emit("execution:question:answered", { id, info });
+  executionManager.on("question:answered", (id, info, toolUseId) => {
+    emitToExecutions("execution:question:answered", info, { id, info, toolUseId });
+    io.to(`exec:${id}`).emit("execution:question:answered", { id, info, toolUseId });
   });
 
   commandQueue.on("queue:add", (item) => {

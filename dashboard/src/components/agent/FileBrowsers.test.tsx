@@ -60,10 +60,11 @@ it.each(["html", "HTML", "htm", "HTM"])("previews .%s pages in an isolated frame
 
 it("displays text files as text without executing HTML", async () => {
   fetchMock.mockResolvedValue(new Response('<script>alert(1)</script>\n**literal**'));
-  const { container } = render(<FilePreviewModal fileName="example.txt" size={100} url="/api/example" onClose={() => {}} />);
-  await waitFor(() => expect(container.querySelector("pre")?.textContent).toContain("<script>alert(1)</script>"));
-  expect(container.querySelector("script")).toBeNull();
-  expect(container.querySelector("strong")).toBeNull();
+  render(<FilePreviewModal fileName="example.txt" size={100} url="/api/example" onClose={() => {}} />);
+  const dialog = screen.getByRole("dialog");
+  await waitFor(() => expect(dialog.querySelector("pre")?.textContent).toContain("<script>alert(1)</script>"));
+  expect(dialog.querySelector("script")).toBeNull();
+  expect(dialog.querySelector("strong")).toBeNull();
 });
 
 it("handles empty files and binary formats", async () => {

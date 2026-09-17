@@ -14,6 +14,7 @@ import type { AgentSessionInit, Effort, MessageBlock, PendingPermission, UsageIn
 import { bridgedMcpConfig, buildCodexConfig, buildCodexEnv, buildThreadOptions, splitMcpServers, type CodexConfigObject } from "./options.js";
 import { mcpHttpHost } from "./mcp-host.js";
 import { noteCodexFailure, noteCodexSuccess } from "./codex-auth-state.js";
+import { CODEX_QUESTION_INSTRUCTIONS, createUserInputMcpServer } from "./questions.js";
 
 export interface ToolUseEvent {
   name: string;
@@ -87,7 +88,7 @@ async function prepareInput(blocksOrText: string | MessageBlock[]): Promise<Prep
 
 // O runtime Codex não expõe subagentes: o orquestrador precisa executar sozinho.
 function buildDeveloperInstructions(init: AgentSessionInit): string {
-  const base = buildSystemAppend(init);
+  const base = `${buildSystemAppend(init)}\n\n${CODEX_QUESTION_INSTRUCTIONS}`;
   if (init.target.targetType !== "orchestrator") return base;
   return `${base}\n\nNeste runtime não existe a tool Agent nem subagentes: não tente delegar a outros agentes, execute a tarefa você mesmo.`;
 }
@@ -142,7 +143,13 @@ export class CodexSession extends BaseAgentSession {
 
     const split = splitMcpServers(collectSessionMcpServers(init));
     for (const name of split.skipped) console.warn(`[codex] MCP "${name}" (SSE) não é suportado pelo Codex e foi ignorado.`);
-    this.mcpInstances = split.instances;
+    this.mcpInstances = {
+      ...split.instances,
+      user_input: createUserInputMcpServer((question, signal) => {
+        if (!this.currentTurn || this.currentTurn.done) return Promise.reject(new Error("Turno encerrado."));
+        return this.questions.request(question, AbortSignal.any([this.currentTurn.abort.signal, signal]));
+      }),
+    };
     this.externalMcp = split.external;
     this.mcpToken = mcpHttpHost.register(this.mcpInstances);
     this.startInactivityTimer();
@@ -340,6 +347,7 @@ export class CodexSession extends BaseAgentSession {
 
   async interrupt(): Promise<void> {
     this.currentTurn?.abort.abort();
+    this.questions.cancelAll();
   }
 
   async setPermissionMode(mode: PermissionMode): Promise<void> {
@@ -371,6 +379,7 @@ export class CodexSession extends BaseAgentSession {
 
   end(): void {
     this.dead = true;
+    this.questions.cancelAll("Sessão encerrada.");
     this.clearInactivityTimer();
     this.abortCurrentTurn();
     if (!this.settled) this.failTurn("Sessão encerrada.");

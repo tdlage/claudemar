@@ -46,7 +46,7 @@ export function SecondBrainPage() {
   }));
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-4">
+    <div className={`brain-page ${active === "chat" ? "is-chat" : ""} p-4 md:p-6 max-w-6xl mx-auto space-y-4`}>
       <div className="flex items-center gap-3">
         <Brain size={20} className="text-text-muted" />
         <h1 className="text-lg font-semibold text-text-primary">Second Brain</h1>

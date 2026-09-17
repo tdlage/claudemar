@@ -1,4 +1,6 @@
 import { useState, type ReactNode } from "react";
+import { useMobile } from "../../hooks/useMobile";
+import { Modal } from "./Modal";
 
 interface DropdownProps {
   triggerContent: ReactNode;
@@ -20,14 +22,17 @@ export function Dropdown({
   children,
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
+  const mobile = useMobile();
   const close = () => setOpen(false);
 
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen((v) => !v)} title={triggerTitle} className={triggerClassName}>
+      <button type="button" onClick={() => setOpen((v) => !v)} title={triggerTitle} aria-expanded={open} className={triggerClassName}>
         {triggerContent}
       </button>
-      {open && (
+      {mobile ? <Modal open={open} onClose={close} title={triggerTitle ?? "Selecionar opção"}>
+        <div className="mobile-dropdown">{typeof children === "function" ? children(close) : children}</div>
+      </Modal> : open && (
         <>
           <div className="fixed inset-0 z-10" onClick={close} />
           <div

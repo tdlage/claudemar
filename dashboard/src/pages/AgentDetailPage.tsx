@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { Modal } from "../components/shared/Modal";
 import { Button } from "../components/shared/Button";
 import { Terminal, type StartOpts } from "../components/terminal/Terminal";
-import { QuestionPanel } from "../components/terminal/QuestionPanel";
+import { ConversationWorkspace } from "../components/terminal/ConversationWorkspace";
 import type { ImageBlock } from "../lib/imageBlock";
 import { ExecutionActivity } from "../components/terminal/ExecutionActivity";
 import { Tabs } from "../components/shared/Tabs";
@@ -145,8 +145,8 @@ export function AgentDetailPage() {
   ];
 
   return (
-    <div className={`flex flex-col gap-4 ${tab === "code" ? "h-full" : ""}`}>
-      <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+    <div className={`execution-page flex flex-col gap-4 ${tab === "terminal" ? "is-conversation" : ""} ${tab === "code" ? "h-full" : ""}`}>
+      <div className="execution-page-header flex items-center gap-2 md:gap-3 flex-wrap">
         <button
           onClick={() => admin && setEditingAvatar(true)}
           disabled={!admin}
@@ -224,20 +224,21 @@ export function AgentDetailPage() {
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
       {tab === "terminal" && (
-        <div className="space-y-3">
-          {filteredQuestions.map((pq) => (
-            <QuestionPanel
-              key={pq.execId}
-              execId={pq.execId}
-              question={pq.question}
-              targetName={name!}
-              onSubmit={submitAnswer}
-              onDismiss={(id) => {
-                api.post(`/executions/${id}/stop`).catch(() => {});
-              }}
-            />
-          ))}
-          <div className="h-[300px] md:h-[500px]">
+        <ConversationWorkspace questions={filteredQuestions} onAnswer={submitAnswer} history={
+          <ExecutionActivity
+            activity={activity}
+            filteredQueue={filteredQueue}
+            expandedExecId={expandedExecId}
+            toggleExpanded={toggleExpanded}
+            sessionData={sessionData}
+            sessionFilter={sessionFilter}
+            setSessionFilter={setSessionFilter}
+            historyLimit={historyLimit}
+            setHistoryLimit={setHistoryLimit}
+            searchQuery={searchQuery}
+            handleSearchChange={handleSearchChange}
+          />
+        }>
             <Terminal
               key={name}
               executionId={execId}
@@ -304,22 +305,7 @@ export function AgentDetailPage() {
                 </>
               }
             />
-          </div>
-
-          <ExecutionActivity
-            activity={activity}
-            filteredQueue={filteredQueue}
-            expandedExecId={expandedExecId}
-            toggleExpanded={toggleExpanded}
-            sessionData={sessionData}
-            sessionFilter={sessionFilter}
-            setSessionFilter={setSessionFilter}
-            historyLimit={historyLimit}
-            setHistoryLimit={setHistoryLimit}
-            searchQuery={searchQuery}
-            handleSearchChange={handleSearchChange}
-          />
-        </div>
+        </ConversationWorkspace>
       )}
 
       {tab === "code" && name && (

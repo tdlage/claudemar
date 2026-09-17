@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { Modal } from "../components/shared/Modal";
 import { Button } from "../components/shared/Button";
 import { Terminal, type StartOpts } from "../components/terminal/Terminal";
-import { QuestionPanel } from "../components/terminal/QuestionPanel";
+import { ConversationWorkspace } from "../components/terminal/ConversationWorkspace";
 import type { ImageBlock } from "../lib/imageBlock";
 import { ExecutionActivity } from "../components/terminal/ExecutionActivity";
 import { Tabs } from "../components/shared/Tabs";
@@ -143,8 +143,8 @@ export function ProjectDetailPage() {
   const activeTab = tabs.some((t) => t.key === tab) ? tab : (tabs[0]?.key ?? "terminal");
 
   return (
-    <div className={`flex flex-col gap-4 ${activeTab === "files" ? "h-full" : ""}`}>
-      <div className="flex items-center gap-2 md:gap-3 shrink-0 flex-wrap">
+    <div className={`execution-page flex flex-col gap-4 ${activeTab === "terminal" ? "is-conversation" : ""} ${activeTab === "files" ? "h-full" : ""}`}>
+      <div className="execution-page-header flex items-center gap-2 md:gap-3 shrink-0 flex-wrap">
         <h1 className="text-base md:text-lg font-semibold">{project.name}</h1>
         <Badge variant="default">{project.repos.length} repos</Badge>
         {admin && (
@@ -212,20 +212,21 @@ export function ProjectDetailPage() {
       <Tabs tabs={tabs} active={activeTab} onChange={setTab} />
 
       {activeTab === "terminal" && (
-        <div className="space-y-3">
-          {filteredQuestions.map((pq) => (
-            <QuestionPanel
-              key={pq.execId}
-              execId={pq.execId}
-              question={pq.question}
-              targetName={name!}
-              onSubmit={submitAnswer}
-              onDismiss={(id) => {
-                api.post(`/executions/${id}/stop`).catch(() => {});
-              }}
-            />
-          ))}
-          <div className="h-[300px] md:h-[500px]">
+        <ConversationWorkspace questions={filteredQuestions} onAnswer={submitAnswer} history={
+          <ExecutionActivity
+            activity={activity}
+            filteredQueue={filteredQueue}
+            expandedExecId={expandedExecId}
+            toggleExpanded={toggleExpanded}
+            sessionData={sessionData}
+            sessionFilter={sessionFilter}
+            setSessionFilter={setSessionFilter}
+            historyLimit={historyLimit}
+            setHistoryLimit={setHistoryLimit}
+            searchQuery={searchQuery}
+            handleSearchChange={handleSearchChange}
+          />
+        }>
             <Terminal
               key={name}
               executionId={execId}
@@ -295,22 +296,7 @@ export function ProjectDetailPage() {
                 </>
               }
             />
-          </div>
-
-          <ExecutionActivity
-            activity={activity}
-            filteredQueue={filteredQueue}
-            expandedExecId={expandedExecId}
-            toggleExpanded={toggleExpanded}
-            sessionData={sessionData}
-            sessionFilter={sessionFilter}
-            setSessionFilter={setSessionFilter}
-            historyLimit={historyLimit}
-            setHistoryLimit={setHistoryLimit}
-            searchQuery={searchQuery}
-            handleSearchChange={handleSearchChange}
-          />
-        </div>
+        </ConversationWorkspace>
       )}
 
       {activeTab === "input" && (

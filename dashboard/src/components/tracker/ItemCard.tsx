@@ -1,5 +1,9 @@
 import { AlertTriangle, CheckCircle2, XCircle, Clock, Bug, Trash2 } from "lucide-react";
-import type { TrackerItem } from "../../lib/types";
+import { useState } from "react";
+import type { TrackerItem, CycleColumn } from "../../lib/types";
+import { useMobile } from "../../hooks/useMobile";
+import { api } from "../../lib/api";
+import { useToast } from "../shared/Toast";
 import { getDaysSpent, getPriorityConfig, getCycleColor } from "./constants";
 
 interface Props {
@@ -9,6 +13,7 @@ interface Props {
   cycleName?: string;
   cycleId?: string;
   onDelete?: (id: string) => void;
+  moveColumns?: CycleColumn[];
 }
 
 function AppetiteBadge({ item }: { item: TrackerItem }) {
@@ -83,7 +88,16 @@ function TestStatusBadge({ item }: { item: TrackerItem }) {
   );
 }
 
-export function ItemCard({ item, projectCode, onClick, cycleName, cycleId, onDelete }: Props) {
+export function ItemCard({ item, projectCode, onClick, cycleName, cycleId, onDelete, moveColumns }: Props) {
+  const mobile = useMobile();
+  const [moving, setMoving] = useState(false);
+  const { addToast } = useToast();
+  const move = async (columnId: string) => {
+    setMoving(true);
+    try { await api.patch(`/tracker/items/${item.id}/move`, { columnId, position: 0 }); }
+    catch (error) { addToast("error", error instanceof Error ? error.message : "Não foi possível mover o item."); }
+    finally { setMoving(false); }
+  };
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("text/plain", item.id);
     e.dataTransfer.effectAllowed = "move";
@@ -91,13 +105,13 @@ export function ItemCard({ item, projectCode, onClick, cycleName, cycleId, onDel
 
   return (
     <div
-      draggable
+      draggable={!mobile}
       onDragStart={handleDragStart}
       onClick={onClick}
-      className="group bg-surface border border-border rounded-md p-3 cursor-grab active:cursor-grabbing hover:border-accent/30 transition-colors"
+      className="tracker-item group bg-surface border border-border rounded-md p-3 md:cursor-grab md:active:cursor-grabbing hover:border-accent/30 transition-colors"
     >
       <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {projectCode && item.seqNumber > 0 && (
             <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-accent/10 text-accent shrink-0">
               {projectCode}-{item.seqNumber}
@@ -123,7 +137,7 @@ export function ItemCard({ item, projectCode, onClick, cycleName, cycleId, onDel
             {onDelete && (
               <button
                 onClick={(e) => { e.stopPropagation(); if (confirm("Delete this item?")) onDelete(item.id); }}
-                className="text-text-muted hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"
+                className="text-text-muted hover:text-danger opacity-100 md:opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                 title="Delete item"
               >
                 <Trash2 size={11} />
@@ -131,7 +145,7 @@ export function ItemCard({ item, projectCode, onClick, cycleName, cycleId, onDel
             )}
           </div>
         </div>
-        <p className="text-sm font-medium text-text-primary leading-snug">{item.title}</p>
+        <button type="button" onClick={(event) => { event.stopPropagation(); onClick(); }} className="w-full text-left text-sm font-medium text-text-primary leading-snug break-words">{item.title}</button>
       </div>
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
         {cycleName && (() => {
@@ -162,6 +176,12 @@ export function ItemCard({ item, projectCode, onClick, cycleName, cycleId, onDel
           ))}
         </div>
       )}
+      {mobile && moveColumns && <label onClick={(event) => event.stopPropagation()} className="flex flex-col gap-1.5 mt-3 pt-3 border-t border-border text-xs text-text-muted">
+        Mover para outra etapa
+        <select aria-label={`Mover ${item.title}`} disabled={moving} value={item.columnId} onChange={(event) => void move(event.target.value)} className="w-full bg-bg border border-border rounded-lg px-2 text-text-primary">
+          {moveColumns.map((column) => <option key={column.id} value={column.id}>{column.name}</option>)}
+        </select>
+      </label>}
     </div>
   );
 }

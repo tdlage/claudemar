@@ -25,6 +25,31 @@ const INSTALL_DIR = config.installDir;
 
 export const systemRouter = Router();
 
+// Catálogo de modelos: qualquer usuário autenticado precisa dele para escolher o
+// modelo dos próprios projetos/agentes, então fica fora do bloqueio de admin.
+export const systemCatalogRouter = Router();
+
+systemCatalogRouter.get("/model", async (_req, res) => {
+  const models = await refreshProviderCatalog();
+  const first = models[0];
+  res.json({ id: first?.modelId ?? "", displayName: first?.displayName ?? "Sem modelo", runtime: first?.runtime ?? "claude" });
+});
+
+systemCatalogRouter.get("/provider", async (_req, res) => {
+  const selectableModels = await refreshProviderCatalog();
+  const profiles = availableProfiles();
+  const first = selectableModels[0];
+  res.json({
+    provider: first?.providerId ?? "", label: first?.providerLabel ?? "Nenhum provider",
+    runtime: first?.runtime ?? "claude", model: first?.modelId ?? "",
+    nativeAnthropic: profiles.some(isNativeAnthropic),
+    defaultModel: first?.model ?? "", selectableModels,
+    providers: profiles.map(({ id, label, runtime }) => ({ id, label, runtime })),
+    configured: selectableModels.length > 0,
+  });
+});
+
+
 systemRouter.get("/status", (_req, res) => {
   res.json({
     activeExecutions: executionManager.getActiveExecutions().length,
@@ -263,26 +288,6 @@ systemRouter.post("/claude-login/complete", async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Falha ao concluir login" });
   }
-});
-
-systemRouter.get("/model", async (_req, res) => {
-  const models = await refreshProviderCatalog();
-  const first = models[0];
-  res.json({ id: first?.modelId ?? "", displayName: first?.displayName ?? "Sem modelo", runtime: first?.runtime ?? "claude" });
-});
-
-systemRouter.get("/provider", async (_req, res) => {
-  const selectableModels = await refreshProviderCatalog();
-  const profiles = availableProfiles();
-  const first = selectableModels[0];
-  res.json({
-    provider: first?.providerId ?? "", label: first?.providerLabel ?? "Nenhum provider",
-    runtime: first?.runtime ?? "claude", model: first?.modelId ?? "",
-    nativeAnthropic: profiles.some(isNativeAnthropic),
-    defaultModel: first?.model ?? "", selectableModels,
-    providers: profiles.map(({ id, label, runtime }) => ({ id, label, runtime })),
-    configured: selectableModels.length > 0,
-  });
 });
 
 systemRouter.get("/codex-auth", async (req, res) => {

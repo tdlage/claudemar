@@ -71,7 +71,7 @@ export interface AgentSessionInit {
 
 // Contrato comum dos runtimes (Claude Agent SDK e Codex SDK). Eventos emitidos:
 // chunk, thinking, toolUse, sessionId, usage, result, failure, stderr, mode, slashCommands,
-// mcpStatus, compact, checkpoint, task, tasksPending, permission, permissionResolved.
+// mcpStatus, compact, checkpoint, task, tasksPending, permission, permissionResolved, question, questionResolved.
 export interface AgentSession extends EventEmitter {
   readonly target: MemoryTarget;
   readonly planMode: boolean;
@@ -84,6 +84,7 @@ export interface AgentSession extends EventEmitter {
   setEffort(effort: Effort): Promise<void>;
   rewind(uuid: string): Promise<void>;
   respondPermission(reqId: string, decision: PermissionDecision): boolean;
+  respondQuestion(id: string, text: string, answers?: Record<string, string>): boolean;
   getPendingPermissions(): PendingPermission[];
   getSessionId(): string;
   getModel(): string;

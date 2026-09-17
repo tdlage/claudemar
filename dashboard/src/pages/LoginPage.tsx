@@ -3,8 +3,11 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Button } from "../components/shared/Button";
 import { isPasskeySupported, loginWithPasskey, getPasskeyStatus } from "../lib/passkey";
+import { useMobile, useMobileViewport } from "../hooks/useMobile";
 
 export function LoginPage() {
+  useMobileViewport();
+  const mobile = useMobile();
   const { login, isAuthenticated } = useAuth();
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
@@ -59,7 +62,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg">
+    <div className="login-page flex items-center justify-center bg-bg p-4 overflow-y-auto" style={{ height: "var(--app-height, 100dvh)" }}>
       <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-sm">
         <h1 className="text-lg font-semibold text-text-primary mb-1">Claudemar</h1>
         <p className="text-sm text-text-muted mb-6">
@@ -74,8 +77,9 @@ export function LoginPage() {
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="Dashboard token"
-            autoFocus
-            className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+            autoFocus={!mobile}
+            aria-label="Token de acesso"
+            className="w-full bg-bg border border-border rounded-md px-3 py-2 text-base md:text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
           />
           {error && <p className="text-xs text-danger">{error}</p>}
           <Button type="submit" disabled={loading} className="w-full">

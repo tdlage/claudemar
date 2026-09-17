@@ -370,15 +370,24 @@ executionsRouter.post("/:id/stop", (req, res) => {
 });
 
 executionsRouter.post("/:id/answer", (req, res) => {
-  const { id } = req.params;
-  const { answer } = req.body;
+  const id = String(req.params.id);
+  const { answer, toolUseId, answers } = req.body;
 
-  if (!answer || typeof answer !== "string") {
+  if (typeof answer !== "string" || !answer.trim() || (toolUseId !== undefined && typeof toolUseId !== "string")) {
     res.status(400).json({ error: "answer (string) required" });
     return;
   }
+  if (answers !== undefined && (!answers || typeof answers !== "object" || Array.isArray(answers) || Object.values(answers).some((value) => typeof value !== "string"))) {
+    res.status(400).json({ error: "answers must map each question to a string" });
+    return;
+  }
 
-  const newExecId = executionManager.submitAnswer(id, answer);
+  const pending = executionManager.getAllPendingQuestions().find((q) => q.execId === id);
+  if (pending && filterExecutionsByAccess([pending.info], req.ctx).length === 0) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const newExecId = executionManager.submitAnswer(id, answer, toolUseId, answers);
   if (!newExecId) {
     res.status(404).json({ error: "No pending question for this execution" });
     return;
@@ -387,7 +396,8 @@ executionsRouter.post("/:id/answer", (req, res) => {
   res.status(201).json({ id: newExecId });
 });
 
-executionsRouter.get("/pending-questions", (_req, res) => {
-  const questions = executionManager.getAllPendingQuestions();
+executionsRouter.get("/pending-questions", (req, res) => {
+  const questions = executionManager.getAllPendingQuestions()
+    .filter(({ info }) => filterExecutionsByAccess([info], req.ctx).length > 0);
   res.json(questions);
 });

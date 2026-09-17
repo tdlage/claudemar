@@ -74,13 +74,13 @@ test("em bypass, Bash é resolvido imediatamente com allow (criterios 1 e 2)", (
   assert.deepEqual(result, { behavior: "allow", updatedInput: { command: "git status" } });
 });
 
-test("AskUserQuestion é negada imediatamente sem ficar pendente (criterio 5)", () => {
+test("AskUserQuestion aguarda o usuário mesmo em bypass", () => {
   const result = decideImmediatePermission(
     "AskUserQuestion",
     { questions: [] },
     { bypass: true, currentPermissionMode: "bypassPermissions" },
   );
-  assert.equal(result?.behavior, "deny");
+  assert.equal(result, null);
 });
 
 test("sem bypass e sem acceptEdits, decisão é adiada (null = pedir a humano, criterio 6)", () => {

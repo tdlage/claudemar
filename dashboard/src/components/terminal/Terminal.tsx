@@ -1,10 +1,12 @@
+import { useMobile } from "../../hooks/useMobile";
+import { Modal } from "../shared/Modal";
 import { getMe } from "../../hooks/useAuth";
 import { useModelSelection } from "../../hooks/useModelSelection";
 import { ModelSelector } from "./ModelSelector";
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   Send, Square, Brain, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
-  Loader2, CheckCircle2, XCircle, Users,
+  Loader2, CheckCircle2, XCircle, Users, SlidersHorizontal, MessageCircle,
 } from "lucide-react";
 import { getSocket } from "../../lib/socket";
 import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
@@ -112,6 +114,8 @@ function startPermissionMode(mode: PermissionMode): PermissionMode {
 }
 
 export function Terminal({ executionId, base, controls, inputControls, startPlaceholder, queueMode, isLive, runtime, showModelBadge = true, onStart }: TerminalProps) {
+  const mobile = useMobile();
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const admin = getMe()?.role === "admin";
   const [skipIsolationInstruction, setSkipIsolationInstruction] = useState(false);
   useEffect(() => { setSkipIsolationInstruction(false); }, [base]);
@@ -500,8 +504,65 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     : [];
   const slashSel = Math.min(slashIndex, Math.max(0, slashMatches.length - 1));
 
+  const conversationOptions = (
+      <div className="terminal-options flex items-center gap-2 flex-wrap text-xs shrink-0">
+        {inputControls && <div className="terminal-option-group"><span className="terminal-option-label">Sessão e envio</span>{inputControls}</div>}
+        <div className="flex-1" />
+        {onStart && modelSelection.supported && (
+          <div className="terminal-option-group"><span className="terminal-option-label">Modelo</span>
+            <ModelSelector models={modelSelection.models} value={modelSelection.model} disabled={live || modelSelection.saving || !modelSelection.ready}
+              onChange={(model) => { void modelSelection.select(model).catch((err) => addToast("error", err instanceof Error ? err.message : "Falha ao salvar modelo")); }} />
+          </div>
+        )}
+        {controls && <div className="terminal-option-group"><span className="terminal-option-label">Agente e habilidades</span>{controls}</div>}
+        {showModelBadge && !modelSelection.supported && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
+            {currentModel.displayName}
+          </span>
+        )}
+        <div className="w-px h-4 bg-border" />
+        <div className="terminal-option-group"><span className="terminal-option-label">Permissões de execução</span>
+        <button
+          type="button"
+          onClick={() => handleSetMode(mode === "bypassPermissions" ? "default" : "bypassPermissions")}
+          title="Permissões automáticas: executa tudo sem pedir aprovação. Pode ligar/desligar durante o processamento (equivalente ao Shift+Tab do CLI)."
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
+            mode === "bypassPermissions"
+              ? "bg-warning/20 text-warning border-warning/40"
+              : "text-text-muted border-border hover:text-text-secondary"
+          }`}
+        >
+          <Zap size={12} /> {mobile ? `Aprovação automática ${mode === "bypassPermissions" ? "ligada" : "desligada"}` : `Auto ${mode === "bypassPermissions" ? "ON" : "OFF"}`}
+        </button>
+        <div className="flex items-center gap-1">
+          {MODE_ORDER.map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => handleSetMode(m)}
+              className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                mode === m
+                  ? "bg-accent/20 text-accent border border-accent/40"
+                  : "text-text-muted hover:text-text-secondary border border-transparent"
+              }`}
+            >
+              {MODE_LABELS[m]}
+            </button>
+          ))}
+        </div>
+        </div>
+            {admin && (!live || queueMode) && (
+              <label className="flex items-center gap-1.5 text-xs text-text-muted" title="Omite a instrução que limita o acesso à pasta do projeto neste envio">
+                <input type="checkbox" checked={skipIsolationInstruction} onChange={(e) => setSkipIsolationInstruction(e.target.checked)} />
+                Não enviar isolamento
+              </label>
+            )}
+        <div className="terminal-option-group"><span className="terminal-option-label">Esforço do modelo</span><EffortSelector runtime={activeRuntime} value={effort} onChange={handleSetEffort} /></div>
+      </div>
+  );
+
   return (
-    <div className="flex flex-col w-full h-full min-h-[300px] gap-2">
+    <div className="terminal flex flex-col w-full h-full min-h-0 md:min-h-[300px] gap-2">
       {compactNotice && (
         <div className="flex items-center gap-1.5 text-xs text-warning bg-warning/10 border border-warning/30 rounded-md px-2 py-1 shrink-0">
           <AlertTriangle size={12} />
@@ -511,8 +572,13 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
 
       <div
         ref={containerRef}
-        className="activity-output flex-1 rounded-md overflow-auto bg-bg p-3 md:p-4 text-sm text-text-primary min-h-0 space-y-2"
+        className="terminal-output activity-output flex-1 rounded-md overflow-auto bg-bg p-3 md:p-4 text-sm text-text-primary min-h-0 space-y-2"
       >
+        {!html && !live && !messages.length && onStart && <div className="terminal-empty flex h-full flex-col justify-center items-start gap-3 p-2 md:p-6">
+          <MessageCircle size={28} className="text-accent" />
+          <h2 className="text-xl font-semibold">O que vamos fazer?</h2>
+          <p className="text-sm text-text-secondary max-w-sm">Envie uma mensagem para começar ou abra o histórico para consultar o trabalho anterior.</p>
+        </div>}
         <SelectionSafeHtml html={html} />
 
         {thinking.length > 0 && (
@@ -602,6 +668,20 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
             ))}
           </div>
         )}
+          {messages.length > 0 && (
+            <div className="space-y-2 pt-3">
+              {messages.slice(-6).map((m) => (
+                <div key={m.id} className="flex items-start gap-2 text-sm bg-surface rounded-xl p-3 ml-6">
+                  <span className="text-text-muted shrink-0">›</span>
+                  <span className="flex-1 text-text-secondary whitespace-pre-wrap break-words min-w-0 max-h-20 overflow-y-auto">
+                    {m.text || (m.imageCount > 0 ? `(${m.imageCount} imagem${m.imageCount > 1 ? "s" : ""})` : "")}
+                    {m.text && m.imageCount > 0 ? ` (+${m.imageCount} img)` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
       </div>
 
       {permissions.length > 0 && (
@@ -614,65 +694,16 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
 
       {base && <MdLinksBar paths={mdPaths} base={base} />}
 
-      <div className="flex items-center gap-2 flex-wrap text-xs shrink-0">
-        {inputControls}
-        <div className="flex-1" />
-        {onStart && modelSelection.supported && (
-          <ModelSelector models={modelSelection.models} value={modelSelection.model} disabled={live || modelSelection.saving || !modelSelection.ready}
-            onChange={(model) => { void modelSelection.select(model).catch((err) => addToast("error", err instanceof Error ? err.message : "Falha ao salvar modelo")); }} />
-        )}
-        {controls}
-        {showModelBadge && !modelSelection.supported && (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
-            {currentModel.displayName}
-          </span>
-        )}
-        <div className="w-px h-4 bg-border" />
-        <button
-          type="button"
-          onClick={() => handleSetMode(mode === "bypassPermissions" ? "default" : "bypassPermissions")}
-          title="Permissões automáticas: executa tudo sem pedir aprovação. Pode ligar/desligar durante o processamento (equivalente ao Shift+Tab do CLI)."
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
-            mode === "bypassPermissions"
-              ? "bg-warning/20 text-warning border-warning/40"
-              : "text-text-muted border-border hover:text-text-secondary"
-          }`}
-        >
-          <Zap size={12} /> Auto {mode === "bypassPermissions" ? "ON" : "OFF"}
-        </button>
-        <div className="flex items-center gap-1">
-          {MODE_ORDER.map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => handleSetMode(m)}
-              className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                mode === m
-                  ? "bg-accent/20 text-accent border border-accent/40"
-                  : "text-text-muted hover:text-text-secondary border border-transparent"
-              }`}
-            >
-              {MODE_LABELS[m]}
-            </button>
-          ))}
+      {mobile ? (
+        <div className="terminal-mobile-options flex items-center justify-between gap-2 px-1">
+          <span className="text-xs text-text-secondary truncate">{modelSelection.selected?.displayName ?? currentModel.displayName} · {mode === "bypassPermissions" ? "Automático" : MODE_LABELS[mode]}</span>
+          <button type="button" onClick={() => setOptionsOpen(true)} aria-label="Opções da conversa" className="flex shrink-0 items-center gap-2 text-sm text-text-secondary"><SlidersHorizontal size={18} />Opções</button>
+          <Modal open={optionsOpen} onClose={() => setOptionsOpen(false)} title="Opções da conversa">{conversationOptions}</Modal>
         </div>
-      </div>
+      ) : conversationOptions}
 
       {onStart && (
-        <div className="shrink-0 space-y-1.5">
-          {messages.length > 0 && (
-            <div className="space-y-1">
-              {messages.slice(-6).map((m) => (
-                <div key={m.id} className="flex items-start gap-1.5 text-xs">
-                  <span className="text-text-muted shrink-0">›</span>
-                  <span className="flex-1 text-text-secondary whitespace-pre-wrap break-words min-w-0 max-h-20 overflow-y-auto">
-                    {m.text || (m.imageCount > 0 ? `(${m.imageCount} imagem${m.imageCount > 1 ? "s" : ""})` : "")}
-                    {m.text && m.imageCount > 0 ? ` (+${m.imageCount} img)` : ""}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="terminal-composer shrink-0 space-y-1.5">
           {pendingImages.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {pendingImages.map((img, idx) => (
@@ -693,9 +724,9 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
               ))}
             </div>
           )}
-          <div className="relative flex items-end gap-2">
+          <div className="composer-row relative flex items-end gap-2">
             {slashMatches.length > 0 && (
-              <div className="absolute bottom-full left-0 mb-1 w-72 max-h-56 overflow-auto rounded-md border border-border bg-surface shadow-lg z-20 py-1">
+              <div className="absolute bottom-full left-0 mb-1 w-72 max-w-full max-h-56 overflow-auto rounded-md border border-border bg-surface shadow-lg z-20 py-1">
                 {slashMatches.map((cmd, i) => (
                   <button
                     key={cmd}
@@ -714,6 +745,7 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
             )}
             <textarea
               ref={slashInputRef}
+              aria-label="Mensagem"
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
@@ -729,29 +761,24 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
                   if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); selectSlash(slashMatches[slashSel]); return; }
                   if (e.key === "Escape") { e.preventDefault(); setSlashDismissed(true); return; }
                 }
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !mobile && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   submit();
                 }
               }}
               onPaste={handlePaste}
-              placeholder={live ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, / para comandos, cole imagens)")}
+              placeholder={mobile ? (live && queueMode ? "Na fila…" : "Mensagem…") : live ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, / para comandos, cole imagens)")}
               rows={1}
-              className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
+              className="composer-input min-w-0 flex-1 bg-surface border border-border rounded-xl md:rounded-md px-3 py-2 md:py-1.5 text-base md:text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 160 }}
             />
-            {admin && (!live || queueMode) && (
-              <label className="flex items-center gap-1.5 text-xs text-text-muted" title="Omite a instrução que limita o acesso à pasta do projeto neste envio">
-                <input type="checkbox" checked={skipIsolationInstruction} onChange={(e) => setSkipIsolationInstruction(e.target.checked)} />
-                Não enviar isolamento
-              </label>
-            )}
-            <EffortSelector runtime={activeRuntime} value={effort} onChange={handleSetEffort} />
+
             <label
               title="Anexar imagem"
-              className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+              aria-label="Anexar imagem"
+              className="composer-attachment flex items-center justify-center h-11 w-11 md:h-auto md:w-auto shrink-0 p-1.5 rounded-xl text-text-muted hover:text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
             >
-              <ImagePlus size={14} />
+              <ImagePlus size={mobile ? 20 : 14} />
               <input
                 type="file"
                 accept="image/*"
@@ -769,17 +796,18 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
             <button
               type="button"
               onClick={submit}
+              aria-label="Enviar mensagem"
               disabled={(!input.trim() && pendingImages.length === 0) || (modelSelection.supported && modelSelection.saving)}
-              className="inline-flex items-center justify-center p-1.5 rounded-md bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              className="inline-flex items-center justify-center shrink-0 h-11 w-11 md:h-auto md:w-auto p-1.5 rounded-xl md:rounded-md bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
-              <Send size={14} />
+              <Send size={mobile ? 20 : 14} />
             </button>
             {live && (
               <button
                 type="button"
                 onClick={handleInterrupt}
                 title="Interromper"
-                className="inline-flex items-center justify-center p-1.5 rounded-md bg-danger/15 text-danger hover:bg-danger/25 transition-colors"
+                className="inline-flex items-center justify-center shrink-0 h-11 w-11 md:h-auto md:w-auto p-1.5 rounded-xl md:rounded-md bg-danger/15 text-danger hover:bg-danger/25 transition-colors"
               >
                 <Square size={14} />
               </button>
