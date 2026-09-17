@@ -41,6 +41,7 @@ import {
   rerunWorkflow,
 } from "../../github-actions.js";
 import { executionManager } from "../../execution-manager.js";
+import { COMMIT_PUSH_MODEL } from "../../providers/llm.js";
 import { purgeProjectData } from "../../target-cleanup.js";
 import { resolveTargetModel, targetModelSettings } from "../../target-model-settings.js";
 import { refreshProviderCatalog } from "../../provider-catalog.js";
@@ -720,7 +721,10 @@ projectsRouter.post("/:name/repos/:repo/commit-push", asyncHandler(async (req, r
     source: "web",
     targetType: "project",
     targetName,
-    model: resolveTargetModel("project", String(req.params.name)).selection,
+    model: COMMIT_PUSH_MODEL,
+    taskMode: "commit-push",
+    effort: "low",
+    skipSystemPrompt: true,
     prompt,
     cwd: resolved.workPath,
     noResume: true,

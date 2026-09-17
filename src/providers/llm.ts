@@ -1,5 +1,7 @@
 export type AgentRuntime = "claude" | "codex";
 
+export const COMMIT_PUSH_MODEL = "zai::glm-5.3-flash";
+
 // Cada perfil escolhe o runtime das execuções e o parametriza por completo.
 // - claude: Claude Agent SDK. baseUrl vazio = Anthropic nativo (subscription do Claude);
 //   preenchido = qualquer endpoint compatível com a API da Anthropic (kimi, z.ai, ...).

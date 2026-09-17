@@ -55,6 +55,7 @@ export interface ExecutionInfo {
 }
 
 export interface StartExecutionOpts {
+  taskMode?: "commit-push";
   source: ExecutionSource;
   targetType: ExecutionTargetType;
   targetName: string;
@@ -296,7 +297,7 @@ export class ExecutionManager extends EventEmitter {
       // Per-call MCP servers/skills (ex.: pipeline) só se aplicam na criação da sessão; se um caller
       // não-agent traz extraMcpServers, recria para não herdar o MCP/skill da etapa anterior.
       const mcpChanged = opts.targetType !== "agent" && opts.extraMcpServers !== undefined;
-      if (existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged && !isolationChanged) {
+      if (!opts.taskMode && existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged && !isolationChanged) {
         return { session: existing, isNew: false };
       }
       this.retireSession(existing);
@@ -305,6 +306,7 @@ export class ExecutionManager extends EventEmitter {
 
     const bypass = resolveBypass(opts);
     const session = createAgentSession({
+      taskMode: opts.taskMode,
       profile,
       cwd: opts.cwd,
       model,
