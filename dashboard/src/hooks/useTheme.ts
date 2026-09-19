@@ -27,7 +27,7 @@ function applyTheme(theme: "bridge" | "paper") {
   document.documentElement.dataset.theme = theme;
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute("content", theme === "paper" ? "#f2f7ef" : "#1f352d");
+    ?.setAttribute("content", theme === "paper" ? "#f2f7ef" : "#0b1511");
   window.dispatchEvent(new Event(eventName));
 }
 

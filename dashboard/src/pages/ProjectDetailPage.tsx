@@ -1,5 +1,7 @@
+import { createPortal } from "react-dom";
+import type { LayoutOutletContext } from "../components/layout/Layout";
 import { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useOutletContext } from "react-router-dom";
 import { Bot, ListOrdered, Zap, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { ErrorState, LoadingState } from "../components/shared/PageState";
@@ -30,6 +32,7 @@ type TabKey = ProjectTabKey;
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
+  const { projectActions } = useOutletContext<LayoutOutletContext>();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -147,24 +150,25 @@ export function ProjectDetailPage() {
   const activeTab = tabs.some((t) => t.key === tab) ? tab : (tabs[0]?.key ?? "terminal");
 
   return (
-    <div className={`execution-page flex flex-col gap-4 ${activeTab === "terminal" ? "is-conversation" : ""} ${activeTab === "files" ? "h-full" : ""}`}>
-      <div className="execution-page-header flex items-center gap-2 md:gap-3 shrink-0 flex-wrap">
-        <h1 className="text-base md:text-lg font-semibold">{project.name}</h1>
-        <Badge variant="default">{project.repos.length} repos</Badge>
+    <div className={`execution-page project-detail-page flex flex-col gap-4 ${activeTab === "terminal" ? "is-conversation" : ""} ${activeTab === "files" ? "h-full" : ""}`}>
+      {projectActions && createPortal(<>
+        <span className="project-repo-count"><Badge variant="default">{project.repos.length} repos</Badge></span>
         {admin && (
           <Button
             size="sm"
             variant="danger"
-            className="ml-auto"
+            className="project-delete-button"
+            aria-label="Excluir projeto"
+            title="Excluir projeto"
             onClick={() => {
               setDeleteConfirmName("");
               setDeleteOpen(true);
             }}
           >
-            <Trash2 size={13} className="mr-1" /> Excluir
+            <Trash2 size={14} /> <span className="hidden md:inline">Excluir</span>
           </Button>
         )}
-      </div>
+      </>, projectActions)}
 
       <Modal dismissible={!deleting} open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Excluir projeto">
         <div className="space-y-3">

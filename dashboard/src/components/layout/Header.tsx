@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type Ref } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ArrowLeft,
@@ -24,7 +24,7 @@ import type {
   TrackerItem,
 } from "../../lib/types";
 
-export function Header() {
+export function Header({ projectActionsRef }: { projectActionsRef: Ref<HTMLDivElement> }) {
   const location = useLocation();
   const { isMobile, setMobileOpen } = useSidebar();
   const admin = isAdmin();
@@ -33,7 +33,8 @@ export function Header() {
   const { addToast } = useToast();
   const trackerNames = useTrackerBreadcrumbs(location.pathname);
   const breadcrumbs = buildBreadcrumbs(location.pathname, trackerNames);
-  const title = safeDecode(breadcrumbs[breadcrumbs.length - 1]);
+  const projectName = /^\/projects\/([^/]+)\/?$/.exec(location.pathname)?.[1];
+  const title = safeDecode(projectName ?? breadcrumbs[breadcrumbs.length - 1]);
   useEffect(() => {
     document.title = `${title} · Claudemar`;
   }, [title]);
@@ -102,16 +103,21 @@ export function Header() {
                     className="shrink-0 text-text-muted"
                   />
                 )}
-                <span
-                  aria-current={i === list.length - 1 ? "page" : undefined}
-                  className={`truncate ${i === list.length - 1 ? "text-text-primary" : "text-text-muted"}`}
-                >
-                  {safeDecode(crumb)}
-                </span>
+                {projectName && i === list.length - 1 ? (
+                  <h1 aria-current="page" className="project-breadcrumb-title truncate" title={title}>{title}</h1>
+                ) : (
+                  <span
+                    aria-current={i === list.length - 1 ? "page" : undefined}
+                    className={`truncate ${i === list.length - 1 ? "text-text-primary" : "text-text-muted"}`}
+                  >
+                    {safeDecode(crumb)}
+                  </span>
+                )}
               </span>
             ),
           )}
         </nav>
+        {projectName && <div ref={projectActionsRef} className="project-header-actions" />}
       </div>
       <div className="header-actions">
         <button

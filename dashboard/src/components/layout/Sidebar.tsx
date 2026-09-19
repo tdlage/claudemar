@@ -130,7 +130,7 @@ function StatusDot({ status }: { status?: TargetStatus[string] }) {
       role="img"
       aria-label={label}
       title={label}
-      className={`status-dot ${status?.running ? "bg-warning animate-pulse" : status?.lastStatus === "error" ? "bg-danger" : "bg-border-hover"}`}
+      className={`status-dot ${status?.running ? "is-running" : status?.lastStatus === "error" ? "bg-danger" : "bg-border-hover"}`}
     />
   );
 }
