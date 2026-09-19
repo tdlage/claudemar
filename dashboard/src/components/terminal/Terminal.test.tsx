@@ -99,6 +99,7 @@ it("keeps Claude Ultracode and GPT Max when switching models and submitting", as
   const start = vi.fn();
   const { unmount } = render(<Terminal base="agent:thinking" executionId={null} onStart={start} />);
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Modelo" })).toHaveValue(models[0].model));
+  fireEvent.click(screen.getByRole("button", { name: "Opções da conversa" }));
   fireEvent.click(screen.getByTitle("Claude effort: High"));
   fireEvent.click(screen.getByRole("button", { name: /^Ultracode/ }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "Claude task" } });
@@ -116,6 +117,7 @@ it("keeps Claude Ultracode and GPT Max when switching models and submitting", as
   await waitFor(() => expect(screen.getByTitle("Claude effort: Ultracode")).toBeInTheDocument());
   unmount();
   render(<Terminal base="agent:thinking" executionId={null} onStart={start} />);
+  fireEvent.click(screen.getByRole("button", { name: "Opções da conversa" }));
   await waitFor(() => expect(screen.getByTitle("Claude effort: Ultracode")).toBeInTheDocument());
   fireEvent.change(screen.getByRole("combobox", { name: "Modelo" }), { target: { value: models[1].model } });
   await waitFor(() => expect(screen.getByTitle("ChatGPT thinking: Max")).toBeInTheDocument());
@@ -125,6 +127,7 @@ it("only exposes isolation omission to an authenticated admin and resets it afte
   localStorage.setItem("dashboard_me", JSON.stringify({ role: "admin" }));
   const start = vi.fn();
   render(<Terminal executionId={null} onStart={start} />);
+  fireEvent.click(screen.getByRole("button", { name: "Opções da conversa" }));
   const checkbox = screen.getByRole("checkbox", { name: "Não enviar isolamento" });
   expect(checkbox).not.toBeChecked();
   fireEvent.click(checkbox);
@@ -162,4 +165,20 @@ it("shows a failed task summary without requiring hover", () => {
   render(<Terminal base="a" executionId="exec" onStart={() => {}} />);
   act(() => handlers.get("execution:task")?.({ id: "exec", phase: "done", taskId: "task", status: "failed", summary: "Credenciais inválidas" }));
   expect(screen.getByText("Falhou: Credenciais inválidas")).toBeVisible();
+});
+
+it("keeps secondary controls collapsed and preserves the draft while configuring", () => {
+  render(<Terminal executionId={null} onStart={() => {}} controls={<select aria-label="Agente"><option>Sem agente</option></select>} />);
+  const field = screen.getByRole("textbox", { name: "Mensagem" });
+  fireEvent.change(field, { target: { value: "Minha tarefa" } });
+  expect(screen.queryByRole("combobox", { name: "Agente" })).not.toBeInTheDocument();
+  const toggle = screen.getByRole("button", { name: "Opções da conversa" });
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(toggle);
+  expect(screen.getByRole("region", { name: "Configurações da conversa" })).toBeVisible();
+  expect(screen.getByRole("combobox", { name: "Agente" })).toBeVisible();
+  expect(field).toHaveValue("Minha tarefa");
+  fireEvent.click(toggle);
+  expect(screen.queryByRole("combobox", { name: "Agente" })).not.toBeInTheDocument();
+  expect(field).toHaveValue("Minha tarefa");
 });

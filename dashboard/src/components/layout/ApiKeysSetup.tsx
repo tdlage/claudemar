@@ -31,7 +31,7 @@ export function ApiKeysSetup() {
     try {
       const data = await api.get<EnvKeyStatus[]>("/system/env");
       setStatus(data);
-      if (autoOpen && data.some((k) => !k.present) && !sessionStorage.getItem(DISMISS_KEY)) {
+      if (autoOpen && data.some((k) => k.required && !k.present) && !sessionStorage.getItem(DISMISS_KEY)) {
         setOpen(true);
       }
     } catch {

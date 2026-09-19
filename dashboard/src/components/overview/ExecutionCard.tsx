@@ -5,6 +5,7 @@ import { Badge } from "../shared/Badge";
 import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { api } from "../../lib/api";
+import { formatActivityTime } from "../../lib/format";
 import { formatUsage } from "../../lib/types";
 import type { ExecutionInfo } from "../../lib/types";
 
@@ -39,7 +40,7 @@ export function ExecutionCard({ execution, expanded, onViewOutput }: ExecutionCa
       onClick={clickable ? () => onViewOutput(execution.id) : undefined}
     >
       <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           <Badge variant={sourceVariant}>{execution.source}</Badge>
           <Badge>{execution.targetType}:{execution.targetName}</Badge>
           {execution.status === "running" && (
@@ -64,6 +65,12 @@ export function ExecutionCard({ execution, expanded, onViewOutput }: ExecutionCa
         </div>
       </div>
       <p className="text-sm text-text-primary truncate">{execution.prompt}</p>
+      <p className="text-xs text-text-muted mt-1">
+        Início: <time dateTime={execution.startedAt} title={new Date(execution.startedAt).toLocaleString("pt-BR")}>
+          {formatActivityTime(execution.startedAt)}
+          {formatActivityTime(execution.startedAt).includes("/") && ` às ${new Date(execution.startedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}`}
+        </time>
+      </p>
       {execution.result && (
         <p className="text-xs text-text-muted mt-1">
           {(execution.result.durationMs / 1000).toFixed(1)}s · {formatUsage(execution.result.costUsd, execution.result.totalTokens)}

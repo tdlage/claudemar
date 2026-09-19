@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Bot, ListOrdered, Zap, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
+import { ErrorState, LoadingState } from "../components/shared/PageState";
+import { WORKSPACES_CHANGED_EVENT } from "../lib/workspaceEvents";
 import { Modal } from "../components/shared/Modal";
 import { Button } from "../components/shared/Button";
 import { Terminal, type StartOpts } from "../components/terminal/Terminal";
@@ -29,6 +31,7 @@ export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const [project, setProject] = useState<ProjectDetail | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -55,8 +58,9 @@ export function ProjectDetailPage() {
     if (!name) return;
     api.get<ProjectDetail>(`/projects/${name}`).then((data) => {
       setProject(data);
+      setLoadError(false);
       setInputFiles(data.inputFiles ?? []);
-    }).catch(() => {});
+    }).catch(() => setLoadError(true));
   }, [name]);
 
   const loadInputs = useCallback(() => {
@@ -125,18 +129,18 @@ export function ProjectDetailPage() {
   };
 
   if (!project) {
-    return <p className="text-text-muted">Loading...</p>;
+    return loadError ? <ErrorState message="Não foi possível abrir este projeto. Verifique seu acesso ou tente novamente." onRetry={() => { setLoadError(false); loadProject(); }} /> : <LoadingState label="Carregando projeto…" />;
   }
 
   const changedRepoCount = project.repos.filter((r) => r.hasChanges).length;
   const hasGithubRepos = project.repos.some((r) => r.remoteUrl.includes("github.com"));
 
   const tabs: { key: TabKey; label: string; badge?: number; badgeVariant?: "warning" }[] = [
-    ...(tabEnabled("terminal") ? [{ key: "terminal" as const, label: "Terminal" }] : []),
-    ...(tabEnabled("input") ? [{ key: "input" as const, label: `Input (${inputFiles.length})` }] : []),
-    ...(tabEnabled("output") ? [{ key: "output" as const, label: `Output (${outputFiles.length})` }] : []),
-    ...(tabEnabled("repositories") ? [{ key: "repositories" as const, label: "Repositories", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) }] : []),
-    ...(tabEnabled("files") ? [{ key: "files" as const, label: "Code" }] : []),
+    ...(tabEnabled("terminal") ? [{ key: "terminal" as const, label: "Conversa" }] : []),
+    ...(tabEnabled("input") ? [{ key: "input" as const, label: `Entradas (${inputFiles.length})` }] : []),
+    ...(tabEnabled("output") ? [{ key: "output" as const, label: `Saídas (${outputFiles.length})` }] : []),
+    ...(tabEnabled("repositories") ? [{ key: "repositories" as const, label: "Repositórios", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) }] : []),
+    ...(tabEnabled("files") ? [{ key: "files" as const, label: "Código" }] : []),
     ...(tabEnabled("ci") && hasGithubRepos ? [{ key: "ci" as const, label: "CI" }] : []),
     ...(tabEnabled("pipeline") && project.repos.length > 0 ? [{ key: "pipeline" as const, label: "Pipeline" }] : []),
   ];
@@ -157,25 +161,26 @@ export function ProjectDetailPage() {
               setDeleteOpen(true);
             }}
           >
-            <Trash2 size={13} className="mr-1" /> Delete
+            <Trash2 size={13} className="mr-1" /> Excluir
           </Button>
         )}
       </div>
 
-      <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete Project">
+      <Modal dismissible={!deleting} open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Excluir projeto">
         <div className="space-y-3">
           <p className="text-sm text-text-secondary">
-            This will permanently delete <strong className="text-text-primary">{project.name}</strong> and
-            everything related to it: the project folder with all repositories and files, worktrees,
-            pipeline (cards, runs, intake crons), run configs, execution history, queued commands and
-            long-term memory. This cannot be undone.
+            Você vai excluir permanentemente <strong className="text-text-primary">{project.name}</strong>,
+            incluindo arquivos e repositórios, worktrees, pipeline e agendamentos, configurações,
+            histórico de execuções, pedidos na fila e memória. Esta ação não pode ser desfeita.
           </p>
           <div>
-            <label className="block text-xs text-text-muted mb-1">
-              Type <strong className="text-text-primary">{project.name}</strong> to confirm
+            <label htmlFor="confirm-workspace-deletion" className="block text-xs text-text-muted mb-1">
+              Digite <strong className="text-text-primary">{project.name}</strong> para confirmar
             </label>
             <input
               type="text"
+              id="confirm-workspace-deletion"
+              disabled={deleting}
               value={deleteConfirmName}
               onChange={(e) => setDeleteConfirmName(e.target.value)}
               placeholder={project.name}
@@ -184,8 +189,8 @@ export function ProjectDetailPage() {
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" size="sm" onClick={() => setDeleteOpen(false)}>
-              Cancel
+            <Button variant="secondary" size="sm" disabled={deleting} onClick={() => setDeleteOpen(false)}>
+              Cancelar
             </Button>
             <Button
               variant="danger"
@@ -196,14 +201,15 @@ export function ProjectDetailPage() {
                 try {
                   await api.delete(`/projects/${project.name}`);
                   addToast("success", `Project "${project.name}" deleted`);
-                  navigate("/");
+                  window.dispatchEvent(new Event(WORKSPACES_CHANGED_EVENT));
+                  navigate("/workspaces/projects");
                 } catch (err) {
                   addToast("error", err instanceof Error ? err.message : "Delete failed");
                   setDeleting(false);
                 }
               }}
             >
-              {deleting ? "Deleting..." : "Delete Project"}
+              {deleting ? "Excluindo…" : "Excluir projeto"}
             </Button>
           </div>
         </div>
@@ -235,11 +241,13 @@ export function ProjectDetailPage() {
               queueMode={sequential}
               isLive={isRunning}
               onStart={handleStart}
+              configurationSummary={[selectedAgent && `Agente: ${selectedAgent}`, selectedSkill && `Habilidade: ${selectedSkill}`].filter(Boolean).join(" · ")}
               controls={
                 <>
                   <div className="flex items-center gap-1">
-                    <Bot size={13} className={selectedAgent ? "text-accent" : "text-text-muted"} />
+                    <span className="inline-flex items-center gap-1.5 text-text-secondary"><Bot size={13} />Agente</span>
                     <select
+                      aria-label="Agente"
                       value={selectedAgent}
                       onChange={(e) => setSelectedAgent(e.target.value)}
                       className={`text-xs bg-transparent border rounded-md px-1 py-1 focus:outline-none focus:border-accent ${
@@ -248,7 +256,7 @@ export function ProjectDetailPage() {
                           : "border-border text-text-muted"
                       }`}
                     >
-                      <option value="">No agent</option>
+                      <option value="">Sem agente adicional</option>
                       {agents.map((a) => (
                         <option key={a} value={a}>{a}</option>
                       ))}
@@ -256,8 +264,9 @@ export function ProjectDetailPage() {
                   </div>
                   {skills.length > 0 && (
                     <div className="flex items-center gap-1">
-                      <Zap size={13} className={selectedSkill ? "text-accent" : "text-text-muted"} />
+                      <span className="inline-flex items-center gap-1.5 text-text-secondary"><Zap size={13} />Habilidade</span>
                       <select
+                        aria-label="Habilidade"
                         value={selectedSkill}
                         onChange={(e) => setSelectedSkill(e.target.value)}
                         title={selectedSkill ? skills.find((s) => s.name === selectedSkill)?.description : ""}
@@ -267,7 +276,7 @@ export function ProjectDetailPage() {
                             : "border-border text-text-muted"
                         }`}
                       >
-                        <option value="">No skill</option>
+                        <option value="">Nenhuma habilidade</option>
                         {skills.map((s) => (
                           <option key={s.name} value={s.name}>{s.name}</option>
                         ))}
@@ -290,7 +299,7 @@ export function ProjectDetailPage() {
                     active={sequential}
                     onToggle={() => setSequential(!sequential)}
                     icon={ListOrdered}
-                    label="Queue"
+                    label="Fila"
                     title={sequential ? "Sequential mode ON (commands queue in order)" : "Sequential mode OFF (parallel execution)"}
                   />
                 </>

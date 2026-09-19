@@ -17,6 +17,8 @@ export interface PendingQuestionEntry {
 }
 
 export function useExecutions() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<ExecutionInfo[]>([]);
   const [recent, setRecent] = useState<ExecutionInfo[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -26,6 +28,7 @@ export function useExecutions() {
   const questionChanges = useRef(new Map<string, number>());
 
   const refresh = useCallback(async () => {
+    try {
     const revision = questionRevision.current;
     const data = await api.get<{ active: ExecutionInfo[]; recent: ExecutionInfo[] }>(
       "/executions",
@@ -52,6 +55,10 @@ export function useExecutions() {
         })),
       ...prev.filter((pq) => (questionChanges.current.get(pq.execId) ?? 0) > revision),
     ]);
+    setError(null);
+    } catch {
+      setError("Não foi possível atualizar as execuções. Os dados podem estar desatualizados.");
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -131,5 +138,5 @@ export function useExecutions() {
     return result.id;
   }, []);
 
-  return { active, recent, queue, pendingQuestions, usageById, submitAnswer, refresh };
+  return { active, recent, queue, pendingQuestions, usageById, submitAnswer, refresh, loading, error };
 }

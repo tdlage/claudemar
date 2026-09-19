@@ -14,7 +14,7 @@ import type { AgentSessionInit, Effort, MessageBlock, PendingPermission, UsageIn
 import { bridgedMcpConfig, buildCodexConfig, buildCodexEnv, buildThreadOptions, splitMcpServers, type CodexConfigObject } from "./options.js";
 import { mcpHttpHost } from "./mcp-host.js";
 import { noteCodexFailure, noteCodexSuccess } from "./codex-auth-state.js";
-import { CODEX_QUESTION_INSTRUCTIONS, createUserInputMcpServer } from "./questions.js";
+import { CODEX_QUESTION_INSTRUCTIONS, createUserInputMcpServer, nativePendingQuestion } from "./questions.js";
 
 export interface ToolUseEvent {
   name: string;
@@ -130,6 +130,8 @@ export class CodexSession extends BaseAgentSession {
   private skipTurns = 0;
   private pending: PendingResult | null = null;
   private announced = false;
+  private nativeQuestionResponses: Promise<void>[] = [];
+  private nativeQuestionIds = new Set<string>();
 
   constructor(init: AgentSessionInit, profile: LlmProfile) {
     super(init);
@@ -197,6 +199,8 @@ export class CodexSession extends BaseAgentSession {
     }
     const turn: TurnHandle = { abort: new AbortController(), done: false };
     this.currentTurn = turn;
+    this.nativeQuestionResponses = [];
+    this.nativeQuestionIds.clear();
     const pending = this.pending ?? { startedAt: Date.now(), totalTokens: 0, contextTokens: 0, output: "" };
     this.pending = pending;
     let usage: Usage | null = null;
@@ -236,6 +240,7 @@ export class CodexSession extends BaseAgentSession {
           break;
         }
       }
+      if (failure === null) await Promise.all(this.nativeQuestionResponses);
     } catch (err) {
       if (failure === null) {
         failure = turn.abort.signal.aborted ? "Interrompido pelo usuário." : err instanceof Error ? err.message : String(err);
@@ -317,7 +322,20 @@ export class CodexSession extends BaseAgentSession {
 
   private handleItem(item: ThreadItem, phase: "started" | "updated" | "completed"): TurnOutcome {
     if (item.type === "agent_message") {
-      if (phase !== "completed" || !item.text) return {};
+      if (phase !== "completed") return {};
+      const question = nativePendingQuestion(item);
+      if (question && this.currentTurn && !this.currentTurn.done) {
+        if (!this.nativeQuestionIds.has(question.toolUseId)) {
+          this.nativeQuestionIds.add(question.toolUseId);
+          const response = this.questions.request(question, this.currentTurn.abort.signal).then((answers) => {
+            this.sendUserMessage(`Respostas do usuário às perguntas pendentes:\n${JSON.stringify(answers)}`, "");
+          });
+          void response.catch(() => {});
+          this.nativeQuestionResponses.push(response);
+        }
+        return {};
+      }
+      if (!item.text) return {};
       this.assistantBuffer += item.text;
       this.emit("chunk", item.text);
       return { message: item.text };

@@ -173,10 +173,10 @@ export function OrchestratorPage() {
   };
 
   const tabs: { key: TabKey; label: string }[] = [
-    { key: "terminal", label: "Terminal" },
-    { key: "code", label: "Code" },
+    { key: "terminal", label: "Conversa" },
+    { key: "code", label: "Código" },
     { key: "agents-md", label: "AGENTS.md" },
-    { key: "settings", label: "Settings" },
+    { key: "settings", label: "Configurações" },
   ];
 
   return (

@@ -65,6 +65,7 @@ export function SessionSelector({ sessionData, onChange, onRename, onDelete, onF
   return (
     <div className="flex items-center gap-1">
       <select
+        aria-label="Sessão"
         value={sessionData.sessionId ?? "__new"}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}

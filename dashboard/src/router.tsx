@@ -3,6 +3,7 @@ import { createBrowserRouter, Navigate, useParams } from "react-router-dom";
 import { Layout } from "./components/layout/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { getMe } from "./hooks/useAuth";
+import { RouteError } from "./components/shared/RouteError";
 
 const OverviewPage = lazy(() => import("./pages/OverviewPage").then((module) => ({ default: module.OverviewPage })));
 const OrchestratorPage = lazy(() => import("./pages/OrchestratorPage").then((module) => ({ default: module.OrchestratorPage })));
@@ -45,7 +46,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 function NoAccessPage() {
   return (
     <div className="flex items-center justify-center h-64">
-      <p className="text-text-muted text-sm">No projects or agents assigned. Contact your admin.</p>
+      <p className="text-text-muted text-sm">Você ainda não tem projetos ou agentes disponíveis. Peça ao administrador para liberar seu acesso.</p>
     </div>
   );
 }
@@ -67,6 +68,7 @@ export const router = createBrowserRouter([
   {
     path: "/login",
     element: <LoginPage />,
+    errorElement: <RouteError />,
   },
   {
     path: "/",
@@ -75,7 +77,8 @@ export const router = createBrowserRouter([
         <Layout />
       </AuthGuard>
     ),
-    children: [
+    errorElement: <RouteError />,
+    children: [{ errorElement: <RouteError />, children: [
       { index: true, element: <AdminGuard><OverviewPage /></AdminGuard> },
       { path: "orchestrator", element: <AdminGuard><OrchestratorPage /></AdminGuard> },
       { path: "second-brain", element: <AdminGuard><SecondBrainPage /></AdminGuard> },
@@ -94,6 +97,7 @@ export const router = createBrowserRouter([
       { path: "tracker/:projectId/board", element: <KeyedTrackerPage /> },
       { path: "tracker/:projectId/cycles/:cycleId", element: <KeyedTrackerPage /> },
       { path: "tracker/:projectId/cycles/:cycleId/items/:itemId", element: <KeyedTrackerPage /> },
-    ],
+      { path: "*", element: <RouteError notFound /> },
+    ] }],
   },
 ]);

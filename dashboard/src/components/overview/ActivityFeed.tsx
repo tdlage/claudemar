@@ -1,13 +1,11 @@
 import { useState, useCallback } from "react";
-import { formatDistanceToNow } from "date-fns";
 import { Bot, ChevronDown, Search, Square, User, X } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
 import { renderOutputHtml } from "../../lib/ansi";
 import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
 import { SelectionSafeHtml } from "../shared/SelectionSafeHtml";
-import { formatUsage } from "../../lib/types";
-import { formatDuration } from "../../lib/format";
+import { formatActivityTime, formatExecutionDateTime } from "../../lib/format";
 import type { AgentRuntime, ExecutionInfo, QueueItem } from "../../lib/types";
 import { inferRuntime, resolveRuntime, runtimeLabel } from "../../lib/runtime";
 
@@ -127,7 +125,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
             #{item.seqId}
           </span>
           <span className="text-xs text-text-muted text-right">
-            {formatDistanceToNow(new Date(item.enqueuedAt), { addSuffix: true })}
+            {formatActivityTime(item.enqueuedAt)}
           </span>
           <button
             onClick={() => {
@@ -164,9 +162,6 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
               <span title={`${runtimeLabel(runtime)}${exec.model ? ` · ${exec.model}` : ""}`}>
                 <Badge variant={runtime === "codex" ? "info" : "accent"}>{runtimeLabel(runtime)}</Badge>
               </span>
-              <span className="text-text-muted text-xs hidden md:inline">
-                {exec.targetName}
-              </span>
               {exec.username && (
                 <span className="inline-flex items-center gap-0.5 text-xs text-text-muted bg-surface-hover rounded px-1 py-0.5">
                   <User size={10} />
@@ -190,35 +185,16 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
                   {sessionNames[sessionId] ?? sessionId.slice(0, 8)}
                 </span>
               )}
-              {exec.result && (
-                <span className="text-xs text-text-muted whitespace-nowrap">
-                  {formatDuration(exec.result.durationMs)} · {formatUsage(exec.result.costUsd, exec.result.totalTokens)}
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-text-muted tabular-nums">
+                <span className="whitespace-nowrap">
+                  Início: <time dateTime={exec.startedAt}>{formatExecutionDateTime(exec.startedAt)}</time>
                 </span>
-              )}
-              {exec.liveUsage && (
-                <span className="flex items-center gap-1.5 text-xs whitespace-nowrap">
-                  {!exec.result && (
-                    <span className="text-text-muted">{formatUsage(exec.liveUsage.costUsd, exec.liveUsage.tokens)}</span>
-                  )}
-                  <span
-                    className="h-1.5 w-12 rounded-full bg-border overflow-hidden"
-                    title={`${exec.liveUsage.contextPct}% do limite de contexto do modelo`}
-                  >
-                    <span
-                      className={`block h-full rounded-full ${exec.liveUsage.contextPct >= 80 ? "bg-warning" : "bg-accent"}`}
-                      style={{ width: `${Math.min(100, Math.max(0, exec.liveUsage.contextPct))}%` }}
-                    />
-                  </span>
-                  <span className={exec.liveUsage.contextPct >= 80 ? "text-warning" : "text-text-muted"}>
-                    {exec.liveUsage.contextPct}% ctx
-                  </span>
+                <span className="whitespace-nowrap">
+                  Fim: {exec.completedAt
+                    ? <time dateTime={exec.completedAt}>{formatExecutionDateTime(exec.completedAt)}</time>
+                    : exec.status === "running" ? "Em andamento" : "—"}
                 </span>
-              )}
-              <span className="text-xs text-text-muted text-right hidden sm:inline">
-                {exec.completedAt
-                  ? formatDistanceToNow(new Date(exec.completedAt), { addSuffix: true })
-                  : "running"}
-              </span>
+              </div>
               {exec.status === "running" && (
                 <button
                   onClick={(e) => {

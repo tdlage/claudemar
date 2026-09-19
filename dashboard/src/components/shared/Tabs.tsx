@@ -18,24 +18,62 @@ const badgeColors = {
   warning: "bg-amber-500/20 text-amber-400",
 };
 
-export function Tabs<K extends string>({ tabs, active, onChange }: TabsProps<K>) {
+export function Tabs<K extends string>({
+  tabs,
+  active,
+  onChange,
+}: TabsProps<K>) {
   const mobile = useMobile();
-  if (mobile && tabs.length > 4) return (
-    <label className="section-picker flex items-center gap-3 shrink-0 border border-border rounded-xl bg-surface px-3">
-      <span className="text-xs text-text-secondary">Seção</span>
-      <select aria-label="Seção da página" value={active} onChange={(e) => onChange(e.target.value as K)} className="min-w-0 flex-1 bg-surface text-text-primary py-2 outline-none">
-        {tabs.map((t) => <option key={t.key} value={t.key}>{t.label === "Terminal" ? "Conversa" : t.label}{t.badge ? ` (${t.badge})` : ""}</option>)}
-      </select>
-    </label>
-  );
+  if (mobile && tabs.length > 4)
+    return (
+      <label className="section-picker flex items-center gap-3 shrink-0 border border-border rounded-xl bg-surface px-3">
+        <span className="text-xs text-text-secondary">Seção</span>
+        <select
+          aria-label="Seção da página"
+          value={active}
+          onChange={(e) => onChange(e.target.value as K)}
+          className="min-w-0 flex-1 bg-surface text-text-primary py-2 outline-none"
+        >
+          {tabs.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.label === "Terminal" ? "Conversa" : t.label}
+              {t.badge ? ` (${t.badge})` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
   return (
-    <div className="page-tabs flex gap-1 border-b border-border overflow-x-auto scrollbar-none shrink-0 min-w-0" role="tablist" aria-label="Seções da página">
+    <div
+      className="page-tabs flex gap-1 border-b border-border overflow-x-auto scrollbar-none shrink-0 min-w-0"
+      role="tablist"
+      aria-label="Seções da página"
+    >
       {tabs.map((t) => (
         <button
           key={t.key}
           type="button"
           role="tab"
           aria-selected={active === t.key}
+          tabIndex={active === t.key ? 0 : -1}
+          onKeyDown={(event) => {
+            const index = tabs.findIndex((tab) => tab.key === t.key);
+            const next =
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? tabs.length - 1
+                  : event.key === "ArrowRight"
+                    ? (index + 1) % tabs.length
+                    : event.key === "ArrowLeft"
+                      ? (index - 1 + tabs.length) % tabs.length
+                      : -1;
+            if (next < 0) return;
+            event.preventDefault();
+            onChange(tabs[next].key);
+            const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+            buttons?.[next]?.focus();
+          }}
           onClick={() => onChange(t.key)}
           className={`px-3 py-2 text-sm border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
             active === t.key
@@ -45,7 +83,9 @@ export function Tabs<K extends string>({ tabs, active, onChange }: TabsProps<K>)
         >
           {mobile && t.label === "Terminal" ? "Conversa" : t.label}
           {t.badge != null && t.badge > 0 && (
-            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none ${badgeColors[t.badgeVariant ?? "default"]}`}>
+            <span
+              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none ${badgeColors[t.badgeVariant ?? "default"]}`}
+            >
               {t.badge}
             </span>
           )}

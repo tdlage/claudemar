@@ -3,7 +3,7 @@ import { Modal } from "../shared/Modal";
 import { getMe } from "../../hooks/useAuth";
 import { useModelSelection } from "../../hooks/useModelSelection";
 import { ModelSelector } from "./ModelSelector";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useId } from "react";
 import {
   Send, Square, Brain, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
   Loader2, CheckCircle2, XCircle, Users, SlidersHorizontal, MessageCircle,
@@ -102,6 +102,7 @@ interface TerminalProps {
   executionId: string | null;
   base?: string;
   controls?: React.ReactNode;
+  configurationSummary?: string;
   inputControls?: React.ReactNode;
   startPlaceholder?: string;
   queueMode?: boolean;
@@ -115,8 +116,9 @@ function startPermissionMode(mode: PermissionMode): PermissionMode {
   return mode === "plan" ? "default" : mode;
 }
 
-export function Terminal({ executionId, base, controls, inputControls, startPlaceholder, queueMode, isLive, runtime, showModelBadge = true, onStart }: TerminalProps) {
+export function Terminal({ executionId, base, controls, configurationSummary, inputControls, startPlaceholder, queueMode, isLive, runtime, showModelBadge = true, onStart }: TerminalProps) {
   const mobile = useMobile();
+  const optionsId = useId();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const admin = getMe()?.role === "admin";
   const [skipIsolationInstruction, setSkipIsolationInstruction] = useState(false);
@@ -507,26 +509,20 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
     : [];
   const slashSel = Math.min(slashIndex, Math.max(0, slashMatches.length - 1));
 
+  const modelControl = onStart && modelSelection.supported ? (
+    <ModelSelector models={modelSelection.models} value={modelSelection.model} disabled={live || modelSelection.saving || !modelSelection.ready}
+      onChange={(model) => { void modelSelection.select(model).catch((err) => addToast("error", err instanceof Error ? err.message : "Falha ao salvar modelo")); }} />
+  ) : showModelBadge ? <span className="text-sm text-text-secondary">{currentModel.displayName}</span> : null;
+
   const conversationOptions = (
       <div className="terminal-options flex items-center gap-2 flex-wrap text-xs shrink-0">
-        {inputControls && <div className="terminal-option-group"><span className="terminal-option-label">Sessão e envio</span>{inputControls}</div>}
-        <div className="flex-1" />
-        {onStart && modelSelection.supported && (
-          <div className="terminal-option-group"><span className="terminal-option-label">Modelo</span>
-            <ModelSelector models={modelSelection.models} value={modelSelection.model} disabled={live || modelSelection.saving || !modelSelection.ready}
-              onChange={(model) => { void modelSelection.select(model).catch((err) => addToast("error", err instanceof Error ? err.message : "Falha ao salvar modelo")); }} />
-          </div>
-        )}
-        {controls && <div className="terminal-option-group"><span className="terminal-option-label">Agente e habilidades</span>{controls}</div>}
-        {showModelBadge && !modelSelection.supported && (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-border text-text-secondary font-medium">
-            {currentModel.displayName}
-          </span>
-        )}
-        <div className="w-px h-4 bg-border" />
+        {mobile && inputControls && <div className="terminal-option-group"><span className="terminal-option-label">Sessão e envio</span>{inputControls}</div>}
+        {mobile && modelControl && <div className="terminal-option-group"><span className="terminal-option-label">Modelo</span>{modelControl}</div>}
+        {controls && <div className="terminal-option-group"><span className="terminal-option-label">Personalizar a execução</span>{controls}</div>}
         <div className="terminal-option-group"><span className="terminal-option-label">Permissões de execução</span>
         <button
           type="button"
+          aria-pressed={mode === "bypassPermissions"}
           onClick={() => handleSetMode(mode === "bypassPermissions" ? "default" : "bypassPermissions")}
           title="Permissões automáticas: executa tudo sem pedir aprovação. Pode ligar/desligar durante o processamento (equivalente ao Shift+Tab do CLI)."
           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
@@ -535,13 +531,14 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
               : "text-text-muted border-border hover:text-text-secondary"
           }`}
         >
-          <Zap size={12} /> {mobile ? `Aprovação automática ${mode === "bypassPermissions" ? "ligada" : "desligada"}` : `Auto ${mode === "bypassPermissions" ? "ON" : "OFF"}`}
+          <Zap size={12} /> {`Aprovação automática ${mode === "bypassPermissions" ? "ligada" : "desligada"}`}
         </button>
         <div className="flex items-center gap-1">
           {MODE_ORDER.map((m) => (
             <button
               key={m}
               type="button"
+              aria-pressed={mode === m}
               onClick={() => handleSetMode(m)}
               className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
                 mode === m
@@ -553,13 +550,13 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
             </button>
           ))}
         </div>
-        </div>
             {admin && (!live || queueMode) && (
               <label className="flex items-center gap-1.5 text-xs text-text-muted" title="Omite a instrução que limita o acesso à pasta do projeto neste envio">
                 <input type="checkbox" checked={skipIsolationInstruction} onChange={(e) => setSkipIsolationInstruction(e.target.checked)} />
                 Não enviar isolamento
               </label>
             )}
+        </div>
         <div className="terminal-option-group"><span className="terminal-option-label">Esforço do modelo</span><EffortSelector runtime={activeRuntime} value={effort} onChange={handleSetEffort} /></div>
       </div>
   );
@@ -710,7 +707,24 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
           <button type="button" onClick={() => setOptionsOpen(true)} aria-label="Opções da conversa" className="flex shrink-0 items-center gap-2 text-sm text-text-secondary"><SlidersHorizontal size={18} />Opções</button>
           <Modal open={optionsOpen} onClose={() => setOptionsOpen(false)} title="Opções da conversa">{conversationOptions}</Modal>
         </div>
-      ) : conversationOptions}
+      ) : (
+        <div className="conversation-toolbar">
+          <div className="conversation-toolbar-main">
+            {inputControls && <div className="conversation-session"><span className="terminal-option-label">Sessão</span><div className="conversation-session-controls">{inputControls}</div></div>}
+            <div className="conversation-model"><span className="terminal-option-label">Modelo</span>{modelControl}</div>
+            <button type="button" aria-label="Opções da conversa" aria-expanded={optionsOpen} aria-controls={optionsId}
+              onClick={() => setOptionsOpen((open) => !open)} className={`conversation-configure ${optionsOpen ? "text-accent border-accent/50" : "text-text-secondary border-border"}`}>
+              <SlidersHorizontal size={16} />Configurar<ChevronDown size={14} className={optionsOpen ? "rotate-180" : ""} />
+            </button>
+          </div>
+          <div className="conversation-summary">
+            <span className={mode === "bypassPermissions" ? "text-warning" : ""}>{mode === "bypassPermissions" ? "Aprovação automática ligada" : MODE_LABELS[mode]}</span>
+            <span>Esforço: <span className="capitalize">{effort}</span></span>
+            {configurationSummary && <span>{configurationSummary}</span>}
+          </div>
+          {optionsOpen && <div id={optionsId} role="region" aria-label="Configurações da conversa" className="conversation-settings">{conversationOptions}</div>}
+        </div>
+      )}
 
       {onStart && (
         <div className="terminal-composer shrink-0 space-y-1.5">
@@ -785,15 +799,15 @@ export function Terminal({ executionId, base, controls, inputControls, startPlac
 
             <label
               title="Anexar imagem"
-              aria-label="Anexar imagem"
               className="composer-attachment flex items-center justify-center h-11 w-11 md:h-auto md:w-auto shrink-0 p-1.5 rounded-xl text-text-muted hover:text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
             >
-              <ImagePlus size={mobile ? 20 : 14} />
+              <ImagePlus size={mobile ? 20 : 14} aria-hidden="true" />
+              <span className="sr-only">Anexar imagem</span>
               <input
                 type="file"
                 accept="image/*"
                 multiple
-                className="hidden"
+                className="sr-only"
                 onChange={async (e) => {
                   const files = Array.from(e.target.files ?? []);
                   if (files.length === 0) return;

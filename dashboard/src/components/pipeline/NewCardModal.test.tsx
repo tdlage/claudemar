@@ -55,9 +55,9 @@ describe("NewCardModal — seleção de repositórios (claudemar#7 critérios 6,
   });
 
   it("mantém 'Criar card' desabilitado sem título", () => {
-    const { getByText } = render(
+    const { getByRole } = render(
       <NewCardModal pipelineId="pipe-1" repos={["claudemar"]} onClose={() => {}} onCreated={() => {}} />,
     );
-    expect(getByText("Criar card")).toBeDisabled();
+    expect(getByRole("button", { name: "Criar card" })).toBeDisabled();
   });
 });

@@ -242,7 +242,7 @@ export function SettingsPage() {
     <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-8">
       <div className="flex items-center gap-3">
         <Settings size={20} className="text-text-muted" />
-        <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
+        <h1 className="text-lg font-semibold text-text-primary">Configurações</h1>
       </div>
 
       <ClaudeAccountSection />

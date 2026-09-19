@@ -38,7 +38,7 @@ it("closes only the top dialog and restores focus to its opener", () => {
   fireEvent.keyDown(window, { key: "Escape" });
   expect(screen.queryByRole("dialog", { name: "Esforço" })).not.toBeInTheDocument();
   expect(effort).toHaveFocus();
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Fechar" }));
   expect(opener).toHaveFocus();
 });
 

@@ -1,13 +1,13 @@
-import { useMobile } from "../../hooks/useMobile";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Send } from "lucide-react";
+import { ArrowUpRight, Send } from "lucide-react";
 import { api } from "../../lib/api";
 import { useToast } from "../shared/Toast";
+import { Button } from "../shared/Button";
+import { WORKSPACES_CHANGED_EVENT } from "../../lib/workspaceEvents";
 import type { AgentInfo, ProjectInfo } from "../../lib/types";
 
 export function QuickCommand() {
-  const mobile = useMobile();
   const { addToast } = useToast();
   const navigate = useNavigate();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -15,90 +15,163 @@ export function QuickCommand() {
   const [target, setTarget] = useState("orchestrator:orchestrator");
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
-
+  const [error, setError] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  const submitting = useRef(false);
   useEffect(() => {
-    api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
-    api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
+    const load = () => {
+      api
+        .get<AgentInfo[]>("/agents")
+        .then(setAgents)
+        .catch(() => {});
+      api
+        .get<ProjectInfo[]>("/projects")
+        .then(setProjects)
+        .catch(() => {});
+    };
+    load();
+    window.addEventListener(WORKSPACES_CHANGED_EVENT, load);
+    return () => window.removeEventListener(WORKSPACES_CHANGED_EVENT, load);
   }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim() || sending) return;
-
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!prompt.trim() || submitting.current) return;
     const [targetType, targetName] = target.split(":");
+    submitting.current = true;
     setSending(true);
-
+    setError("");
     try {
-      const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>(
-        "/executions",
-        { targetType, targetName, prompt: prompt.trim() },
+      const result = await api.post<{
+        queued?: boolean;
+        queueItem?: { seqId: number };
+      }>("/executions", { targetType, targetName, prompt: prompt.trim() });
+      addToast(
+        "success",
+        result.queued
+          ? "Pedido adicionado à fila. Você pode acompanhar na conversa."
+          : "Conversa iniciada.",
       );
-      if (result.queued) {
-        addToast("success", `Queued (#${result.queueItem?.seqId})`);
-      } else {
-        addToast("success", "Execution started");
-      }
       setPrompt("");
-
-      if (targetType === "agent") {
-        navigate(`/agents/${targetName}`);
-      } else if (targetType === "project") {
-        navigate(`/projects/${targetName}`);
-      } else { navigate("/orchestrator"); }
-    } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Failed to start execution");
+      navigate(
+        targetType === "orchestrator"
+          ? "/orchestrator"
+          : `/${targetType === "agent" ? "agents" : "projects"}/${encodeURIComponent(targetName)}`,
+      );
+    } catch {
+      setError(
+        "Não foi possível enviar. Seu texto foi preservado; tente novamente.",
+      );
     } finally {
+      submitting.current = false;
       setSending(false);
     }
   };
-
+  const suggestions = [
+    "Planeje os próximos passos do meu projeto",
+    "Revise meu código e sugira melhorias",
+    "Organize minhas tarefas por prioridade",
+  ];
   return (
-    <form onSubmit={handleSubmit} className="quick-command flex gap-2 items-end">
-      <select
-        aria-label="Onde executar"
-        value={target}
-        onChange={(e) => setTarget(e.target.value)}
-        className="bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-      >
-        <option value="orchestrator:orchestrator">Orchestrator</option>
-        <optgroup label="Agents">
-          {agents.map((a) => (
-            <option key={a.name} value={`agent:${a.name}`}>{a.name}</option>
-          ))}
-        </optgroup>
-        <optgroup label="Projects">
-          {projects.map((p) => (
-            <option key={p.name} value={`project:${p.name}`}>{p.name}</option>
-          ))}
-        </optgroup>
-      </select>
+    <form onSubmit={submit} className="quick-command">
+      <label htmlFor="quick-prompt" className="sr-only">
+        O que você quer fazer?
+      </label>
       <textarea
-        aria-label="Comando"
+        id="quick-prompt"
+        ref={input}
         value={prompt}
         onChange={(e) => {
           setPrompt(e.target.value);
-          e.target.style.height = "auto";
-          e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
+          setError("");
         }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !mobile && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            if (prompt.trim()) handleSubmit(e);
+        disabled={sending}
+        aria-describedby={error ? "quick-error" : "quick-hint"}
+        aria-invalid={!!error}
+        onKeyDown={(event) => {
+          if (
+            event.key === "Enter" &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            void submit(event);
           }
         }}
-        placeholder={mobile ? "O que você quer fazer?" : "Type a command... (Shift+Enter for new line)"}
-        rows={1}
-        className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
-        style={{ maxHeight: 200 }}
+        placeholder="Descreva uma ideia, faça uma pergunta ou peça ajuda com uma tarefa…"
+        rows={3}
+        className="quick-prompt"
       />
-      <button
-        type="submit"
-        disabled={sending || !prompt.trim()}
-        className="bg-accent hover:bg-accent-hover text-white px-3.5 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:pointer-events-none transition-colors flex items-center gap-1.5"
-      >
-        <Send size={14} />
-        Send
-      </button>
+      <div className="quick-command-footer">
+        <label className="command-target">
+          <span>Conversar com</span>
+          <select
+            aria-label="Onde executar"
+            value={target}
+            disabled={sending}
+            onChange={(e) => setTarget(e.target.value)}
+          >
+            <option value="orchestrator:orchestrator">
+              Assistente Claudemar
+            </option>
+            {agents.length > 0 && (
+              <optgroup label="Agentes">
+                {agents.map((a) => (
+                  <option key={a.name} value={`agent:${a.name}`}>
+                    {a.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {projects.length > 0 && (
+              <optgroup label="Projetos">
+                {projects.map((p) => (
+                  <option key={p.name} value={`project:${p.name}`}>
+                    {p.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </label>
+        <div className="flex items-center gap-4">
+          <span
+            id="quick-hint"
+            className="text-xs text-text-muted hidden lg:inline"
+          >
+            Ctrl / ⌘ + Enter para enviar
+          </span>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={sending}
+            disabled={!prompt.trim()}
+          >
+            <Send size={15} /> Enviar
+          </Button>
+        </div>
+      </div>
+      {error && (
+        <p id="quick-error" role="alert" className="quick-error">
+          {error}
+        </p>
+      )}
+      <div className="command-suggestions">
+        <span>Experimente</span>
+        {suggestions.map((text) => (
+          <button
+            key={text}
+            type="button"
+            disabled={sending}
+            onClick={() => {
+              setPrompt(text);
+              input.current?.focus();
+            }}
+          >
+            <span>{text}</span>
+            <ArrowUpRight size={12} />
+          </button>
+        ))}
+      </div>
     </form>
   );
 }

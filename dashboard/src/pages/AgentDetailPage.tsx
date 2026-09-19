@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ListOrdered, Zap, FileText, CalendarClock, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
+import { ErrorState, LoadingState } from "../components/shared/PageState";
+import { WORKSPACES_CHANGED_EVENT } from "../lib/workspaceEvents";
 import { Modal } from "../components/shared/Modal";
 import { Button } from "../components/shared/Button";
 import { Terminal, type StartOpts } from "../components/terminal/Terminal";
@@ -32,6 +34,7 @@ export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -65,9 +68,10 @@ export function AgentDetailPage() {
     if (!name) return;
     api.get<AgentDetail>(`/agents/${name}`).then((data) => {
       setAgent(data);
+      setLoadError(false);
       setOutputFiles(data.outputFiles);
       setInputFiles(data.inputFiles);
-    }).catch(() => {});
+    }).catch(() => setLoadError(true));
   }, [name]);
 
   const {
@@ -130,18 +134,18 @@ export function AgentDetailPage() {
   };
 
   if (!agent) {
-    return <p className="text-text-muted">Loading...</p>;
+    return loadError ? <ErrorState message="Não foi possível abrir este agente. Verifique seu acesso ou tente novamente." onRetry={() => { setLoadError(false); loadAgent(); }} /> : <LoadingState label="Carregando agente…" />;
   }
 
   const tabs: { key: TabKey; label: string }[] = [
-    { key: "terminal", label: "Terminal" },
-    { key: "code", label: "Code" },
-    { key: "input", label: `Input (${inputFiles.length})` },
-    { key: "output", label: `Output (${outputFiles.length})` },
-    { key: "config", label: "Config" },
-    { key: "scheduler", label: `Scheduler (${agent.schedules.length})` },
-    { key: "context", label: `Context (${agent.contextFiles.length})` },
-    { key: "secrets", label: `Secrets (${agent.secrets.length})` },
+    { key: "terminal", label: "Conversa" },
+    { key: "code", label: "Código" },
+    { key: "input", label: `Entradas (${inputFiles.length})` },
+    { key: "output", label: `Saídas (${outputFiles.length})` },
+    { key: "config", label: "Configurações" },
+    { key: "scheduler", label: `Agendamentos (${agent.schedules.length})` },
+    { key: "context", label: `Contexto (${agent.contextFiles.length})` },
+    { key: "secrets", label: `Credenciais (${agent.secrets.length})` },
   ];
 
   return (
@@ -169,25 +173,26 @@ export function AgentDetailPage() {
               setDeleteOpen(true);
             }}
           >
-            <Trash2 size={13} className="mr-1" /> Delete
+            <Trash2 size={13} className="mr-1" /> Excluir
           </Button>
         )}
       </div>
 
-      <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete Agent">
+      <Modal dismissible={!deleting} open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Excluir agente">
         <div className="space-y-3">
           <p className="text-sm text-text-secondary">
-            This will permanently delete <strong className="text-text-primary">{agent.name}</strong> and
-            everything related to it: the agent folder (context, input, output), schedules and crons,
-            secrets, execution history, queued commands and long-term memory.
-            This cannot be undone.
+            Você vai excluir permanentemente <strong className="text-text-primary">{agent.name}</strong>,
+            incluindo contexto, arquivos de entrada e saída, agendamentos, credenciais,
+            histórico de execuções, pedidos na fila e memória. Esta ação não pode ser desfeita.
           </p>
           <div>
-            <label className="block text-xs text-text-muted mb-1">
-              Type <strong className="text-text-primary">{agent.name}</strong> to confirm
+            <label htmlFor="confirm-workspace-deletion" className="block text-xs text-text-muted mb-1">
+              Digite <strong className="text-text-primary">{agent.name}</strong> para confirmar
             </label>
             <input
               type="text"
+              id="confirm-workspace-deletion"
+              disabled={deleting}
               value={deleteConfirmName}
               onChange={(e) => setDeleteConfirmName(e.target.value)}
               placeholder={agent.name}
@@ -196,8 +201,8 @@ export function AgentDetailPage() {
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" size="sm" onClick={() => setDeleteOpen(false)}>
-              Cancel
+            <Button variant="secondary" size="sm" disabled={deleting} onClick={() => setDeleteOpen(false)}>
+              Cancelar
             </Button>
             <Button
               variant="danger"
@@ -208,14 +213,15 @@ export function AgentDetailPage() {
                 try {
                   await api.delete(`/agents/${agent.name}`);
                   addToast("success", `Agent "${agent.name}" deleted`);
-                  navigate("/");
+                  window.dispatchEvent(new Event(WORKSPACES_CHANGED_EVENT));
+                  navigate("/workspaces/agents");
                 } catch (err) {
                   addToast("error", err instanceof Error ? err.message : "Delete failed");
                   setDeleting(false);
                 }
               }}
             >
-              {deleting ? "Deleting..." : "Delete Agent"}
+              {deleting ? "Excluindo…" : "Excluir agente"}
             </Button>
           </div>
         </div>
@@ -261,7 +267,7 @@ export function AgentDetailPage() {
                     active={sequential}
                     onToggle={() => setSequential(!sequential)}
                     icon={ListOrdered}
-                    label="Queue"
+                    label="Fila"
                     title={sequential ? "Sequential mode ON (commands queue in order)" : "Sequential mode OFF (parallel execution)"}
                   />
                 </>
@@ -286,6 +292,7 @@ export function AgentDetailPage() {
                     <div className="flex items-center gap-1">
                       <Zap size={13} className={selectedSkill ? "text-accent" : "text-text-muted"} />
                       <select
+                        aria-label="Habilidade"
                         value={selectedSkill}
                         onChange={(e) => setSelectedSkill(e.target.value)}
                         title={selectedSkill ? skills.find((s) => s.name === selectedSkill)?.description : ""}
@@ -295,7 +302,7 @@ export function AgentDetailPage() {
                             : "border-border text-text-muted"
                         }`}
                       >
-                        <option value="">No skill</option>
+                        <option value="">Nenhuma habilidade</option>
                         {skills.map((s) => (
                           <option key={s.name} value={s.name}>{s.name}</option>
                         ))}

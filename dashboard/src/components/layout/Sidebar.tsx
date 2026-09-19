@@ -1,5 +1,12 @@
-import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
-import { NavLink, useNavigate, useLocation } from "react-router-dom";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  createContext,
+  useContext,
+} from "react";
+import { NavLink, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Crown,
@@ -15,14 +22,19 @@ import {
   PanelLeftOpen,
   Plus,
   KanbanSquare,
+  ArrowUpRight,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth, getMe } from "../../hooks/useAuth";
-import { Modal } from "../shared/Modal";
 import { TokenUsage } from "./TokenUsage";
 import { useSocketEvent, useSocketRoom } from "../../hooks/useSocket";
 import type { AgentInfo, ProjectInfo, ExecutionInfo } from "../../lib/types";
 import { useDialogFocus } from "../../hooks/useDialogFocus";
+import { Brand } from "../shared/Brand";
+import {
+  WORKSPACES_CHANGED_EVENT,
+  openCreateWorkspace,
+} from "../../lib/workspaceEvents";
 
 interface SidebarContextValue {
   collapsed: boolean;
@@ -47,6 +59,12 @@ export function useSidebar() {
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
+    try {
+      const saved = localStorage.getItem("claudemar_sidebar");
+      if (saved !== null) return saved === "collapsed";
+    } catch {
+      /* Storage may be unavailable. */
+    }
     return window.innerWidth < 1200;
   });
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -72,145 +90,141 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <SidebarContext.Provider value={{ collapsed, setCollapsed, mobileOpen, setMobileOpen, isMobile }}>
+    <SidebarContext.Provider
+      value={{
+        collapsed,
+        setCollapsed: (value) => {
+          setCollapsed(value);
+          try {
+            localStorage.setItem(
+              "claudemar_sidebar",
+              value ? "collapsed" : "expanded",
+            );
+          } catch {
+            /* Keep navigation usable without storage. */
+          }
+        },
+        mobileOpen,
+        setMobileOpen,
+        isMobile,
+      }}
+    >
       {children}
     </SidebarContext.Provider>
   );
 }
 
-type TargetStatus = Record<string, { running: boolean; lastStatus: "completed" | "error" | "cancelled" | null }>;
+type TargetStatus = Record<
+  string,
+  { running: boolean; lastStatus: "completed" | "error" | "cancelled" | null }
+>;
 
-function StatusDot({ targetKey, statusMap }: { targetKey: string; statusMap: TargetStatus }) {
-  const entry = statusMap[targetKey];
-  if (entry?.running) return <span className="w-2 h-2 rounded-full bg-warning animate-pulse shrink-0" />;
-  if (entry?.lastStatus === "error") return <span className="w-2 h-2 rounded-full bg-danger shrink-0" />;
-  return <span className="w-2 h-2 rounded-full bg-success shrink-0" />;
+function StatusDot({ status }: { status?: TargetStatus[string] }) {
+  const label = status?.running
+    ? "Em execução"
+    : status?.lastStatus === "error"
+      ? "Última execução falhou"
+      : "Sem execução em andamento";
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      className={`status-dot ${status?.running ? "bg-warning" : status?.lastStatus === "error" ? "bg-danger" : "bg-border-hover"}`}
+    />
+  );
 }
 
 export function Sidebar() {
   const { logout } = useAuth();
-  const { collapsed, setCollapsed, mobileOpen, setMobileOpen, isMobile } = useSidebar();
+  const { collapsed, setCollapsed, mobileOpen, setMobileOpen, isMobile } =
+    useSidebar();
   const sidebarRef = useRef<HTMLElement>(null);
-  useDialogFocus(sidebarRef, isMobile && mobileOpen, () => setMobileOpen(false));
+  useDialogFocus(sidebarRef, isMobile && mobileOpen, () =>
+    setMobileOpen(false),
+  );
   const me = getMe();
   const admin = !me || me.role === "admin";
-  const navigate = useNavigate();
   const location = useLocation();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [targetStatus, setTargetStatus] = useState<TargetStatus>({});
-  const [createAgentOpen, setCreateAgentOpen] = useState(false);
-  const [newAgentName, setNewAgentName] = useState("");
-  const [creatingAgent, setCreatingAgent] = useState(false);
-  const [createProjectOpen, setCreateProjectOpen] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
-  const [creatingProject, setCreatingProject] = useState(false);
-
-  const loadAgents = useCallback(() => {
-    api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
+  const [loadError, setLoadError] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => {
+    try {
+      const [a, p] = await Promise.all([
+        api.get<AgentInfo[]>("/agents"),
+        api.get<ProjectInfo[]>("/projects"),
+      ]);
+      setAgents(a);
+      setProjects(p);
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
-
   useEffect(() => {
-    loadAgents();
-    api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
-    api.get<TargetStatus>("/executions/target-status").then(setTargetStatus).catch(() => {});
-  }, [loadAgents]);
-
+    void load();
+    api
+      .get<TargetStatus>("/executions/target-status")
+      .then(setTargetStatus)
+      .catch(() => {});
+    window.addEventListener(WORKSPACES_CHANGED_EVENT, load);
+    return () => window.removeEventListener(WORKSPACES_CHANGED_EVENT, load);
+  }, [load]);
   useEffect(() => {
     if (isMobile) setMobileOpen(false);
   }, [location.pathname, isMobile, setMobileOpen]);
-
-  const handleCreateAgent = async () => {
-    if (!newAgentName.trim() || creatingAgent) return;
-    setCreatingAgent(true);
-    try {
-      await api.post("/agents", { name: newAgentName.trim() });
-      setCreateAgentOpen(false);
-      setNewAgentName("");
-      loadAgents();
-      navigate(`/agents/${newAgentName.trim()}`);
-    } catch {
-    } finally {
-      setCreatingAgent(false);
-    }
-  };
-
-  const handleCreateProject = async () => {
-    if (!newProjectName.trim() || creatingProject) return;
-    setCreatingProject(true);
-    try {
-      await api.post("/projects", { name: newProjectName.trim() });
-      setCreateProjectOpen(false);
-      setNewProjectName("");
-      loadProjects();
-      navigate(`/projects/${newProjectName.trim()}`);
-    } catch {
-    } finally {
-      setCreatingProject(false);
-    }
-  };
-
-  const markRunning = useCallback((info: ExecutionInfo) => {
-    const key = `${info.targetType}:${info.targetName}`;
-    setTargetStatus((prev) => ({
-      ...prev,
-      [key]: { running: true, lastStatus: prev[key]?.lastStatus ?? null },
-    }));
-  }, []);
-
-  const loadProjects = useCallback(() => {
-    api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
-  }, []);
-
-  const markDone = useCallback((info: ExecutionInfo, hasQueued?: boolean) => {
+  const update = useCallback((info: ExecutionInfo, running: boolean) => {
     const key = `${info.targetType}:${info.targetName}`;
     setTargetStatus((prev) => ({
       ...prev,
       [key]: {
-        running: hasQueued ?? false,
-        lastStatus: hasQueued ? (prev[key]?.lastStatus ?? null) : (info.status as "completed" | "error" | "cancelled"),
+        running,
+        lastStatus: running
+          ? (prev[key]?.lastStatus ?? null)
+          : (info.status as "completed" | "error" | "cancelled"),
       },
     }));
-    if (info.targetType === "project") {
-      loadProjects();
-    }
-  }, [loadProjects]);
-
-  useSocketEvent<{ info: ExecutionInfo }>("execution:start", ({ info }) => markRunning(info));
-  useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>("execution:complete", ({ info, hasQueued }) => markDone(info, hasQueued));
-  useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>("execution:error", ({ info, hasQueued }) => markDone(info, hasQueued));
-  useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>("execution:cancel", ({ info, hasQueued }) => markDone(info, hasQueued));
-
-  useSocketRoom("files");
-
-  const fileChangeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useSocketEvent<{ event: string; base: string; path: string }>(
-    "file:changed",
-    useCallback(({ base }) => {
-      if (!base.startsWith("project:")) return;
-      if (fileChangeTimer.current) clearTimeout(fileChangeTimer.current);
-      fileChangeTimer.current = setTimeout(loadProjects, 2000);
-    }, [loadProjects]),
+  }, []);
+  useSocketEvent<{ info: ExecutionInfo }>("execution:start", ({ info }) =>
+    update(info, true),
   );
-
-  const showExpanded = isMobile ? true : !collapsed;
-
+  useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>(
+    "execution:complete",
+    ({ info, hasQueued }) => {
+      update(info, !!hasQueued);
+      void load();
+    },
+  );
+  useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>(
+    "execution:error",
+    ({ info, hasQueued }) => update(info, !!hasQueued),
+  );
+  useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>(
+    "execution:cancel",
+    ({ info, hasQueued }) => update(info, !!hasQueued),
+  );
+  useSocketRoom("files");
+  const fileChangeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(fileChangeTimer.current), []);
+  useSocketEvent<{ base: string }>("file:changed", ({ base }) => {
+    if (!base.startsWith("project:")) return;
+    clearTimeout(fileChangeTimer.current);
+    fileChangeTimer.current = setTimeout(load, 2000);
+  });
+  const expanded = isMobile || !collapsed;
   const linkClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
-      !isMobile && collapsed ? "justify-center" : ""
-    } ${
-      isActive
-        ? "bg-accent/15 text-accent"
-        : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
-    }`;
-
+    `sidebar-link ${isActive ? "is-active" : ""} ${expanded ? "" : "is-compact"}`;
   if (isMobile && !mobileOpen) return null;
-
   return (
     <>
-      {isMobile && mobileOpen && (
+      {isMobile && (
         <div
-          className="fixed inset-0 bg-black/70 z-40"
+          className="fixed inset-0 bg-black/60 z-40"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -221,266 +235,284 @@ export function Sidebar() {
         aria-modal={isMobile ? true : undefined}
         aria-label="Menu de navegação"
         tabIndex={-1}
-        className={`app-sidebar bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-50 outline-none transition-[width] duration-200 ${
-          isMobile ? "w-[min(88vw,360px)]" : collapsed ? "w-14" : "w-56"
-        }`}
+        className={`app-sidebar ${expanded ? "is-expanded" : "is-collapsed"}`}
       >
-        <div className="px-3 py-4 border-b border-border flex items-center justify-between min-h-[57px]">
-          {showExpanded && (
-            <div>
-              <h1 className="text-sm font-semibold text-text-primary tracking-tight">
-                Claudemar
-              </h1>
-              <p className="text-xs text-text-muted mt-0.5">Dashboard</p>
-            </div>
-          )}
-          {isMobile ? (
-            <button
-              onClick={() => setMobileOpen(false)}
-              className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-              title="Close sidebar"
+        <div className="sidebar-brand">
+          {expanded && (
+            <Link
+              to={admin ? "/" : "/workspaces"}
+              aria-label="Claudemar — início"
             >
-              <PanelLeftClose size={16} />
-            </button>
-          ) : (
-            <button
-              onClick={() => setCollapsed(!collapsed)}
-              className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-            </button>
+              <Brand />
+            </Link>
           )}
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() =>
+              isMobile ? setMobileOpen(false) : setCollapsed(!collapsed)
+            }
+            title={
+              isMobile
+                ? "Fechar menu"
+                : collapsed
+                  ? "Expandir menu"
+                  : "Recolher menu"
+            }
+            aria-label={
+              isMobile
+                ? "Fechar menu"
+                : collapsed
+                  ? "Expandir menu"
+                  : "Recolher menu"
+            }
+          >
+            {collapsed && !isMobile ? (
+              <PanelLeftOpen size={18} />
+            ) : (
+              <PanelLeftClose size={18} />
+            )}
+          </button>
         </div>
-
-        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-5">
-          {admin && (
-            <div className="space-y-0.5">
-              <NavLink to="/" end className={linkClass} title="Overview">
-                <LayoutDashboard size={16} />
-                {showExpanded && "Overview"}
-              </NavLink>
-              <NavLink to="/orchestrator" className={linkClass} title="Claudemar">
-                <Crown size={16} className={targetStatus["orchestrator:orchestrator"]?.running ? "text-warning animate-pulse" : "text-success"} />
-                {showExpanded && "Claudemar"}
-              </NavLink>
-              <NavLink to="/second-brain" className={linkClass} title="Second Brain">
-                <Brain size={16} />
-                {showExpanded && "Second Brain"}
-              </NavLink>
-            </div>
-          )}
-
-          <div>
-            {showExpanded && (
-              <div className="flex items-center justify-between px-3 mb-1.5">
-                <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                  Agents
-                </p>
-                {admin && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setCreateAgentOpen(true)}
-                      className="text-text-muted hover:text-accent transition-colors"
-                      title="Create agent"
-                    >
-                      <Plus size={14} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-            {admin && !isMobile && collapsed && (
-              <button
-                onClick={() => setCreateAgentOpen(true)}
-                className="flex items-center justify-center w-full h-8 text-text-muted hover:text-accent transition-colors"
-                title="Create agent"
-              >
-                <Plus size={14} />
-              </button>
-            )}
-            <div className="space-y-0.5">
-              {agents.map((a) => (
-                <NavLink
-                  key={a.name}
-                  to={`/agents/${a.name}`}
-                  className={linkClass}
-                  title={a.name}
-                >
-                  <StatusDot targetKey={`agent:${a.name}`} statusMap={targetStatus} />
-                  <Bot size={14} />
-                  {showExpanded && (
-                    <span className="flex-1 truncate">{a.name}</span>
-                  )}
-                </NavLink>
-              ))}
-              {agents.length === 0 && showExpanded && (
-                <p className="px-3 text-xs text-text-muted">No agents</p>
-              )}
-            </div>
-          </div>
-
-          <div>
-            {showExpanded && (
-              <div className="flex items-center justify-between px-3 mb-1.5">
-                <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                  Projects
-                </p>
-                {admin && (
-                  <button
-                    onClick={() => setCreateProjectOpen(true)}
-                    className="text-text-muted hover:text-accent transition-colors"
-                    title="Create project"
-                  >
-                    <Plus size={14} />
-                  </button>
-                )}
-              </div>
-            )}
-            {admin && !isMobile && collapsed && (
-              <button
-                onClick={() => setCreateProjectOpen(true)}
-                className="flex items-center justify-center w-full h-8 text-text-muted hover:text-accent transition-colors"
-                title="Create project"
-              >
-                <Plus size={14} />
-              </button>
-            )}
-            <div className="space-y-0.5">
-              {projects.map((p) => (
-                <NavLink
-                  key={p.name}
-                  to={`/projects/${p.name}`}
-                  className={linkClass}
-                  title={p.name}
-                >
-                  <StatusDot targetKey={`project:${p.name}`} statusMap={targetStatus} />
-                  <Folder size={14} />
-                  {showExpanded && (
-                    <>
-                      <span className="flex-1 truncate">{p.name}</span>
-                      {p.repoCount > 0 && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${p.hasChanges ? "bg-warning/20 text-warning" : "bg-success/20 text-success"}`}>
-                          {p.repoCount}
-                        </span>
-                      )}
-                    </>
-                  )}
-                </NavLink>
-              ))}
-              {projects.length === 0 && showExpanded && (
-                <p className="px-3 text-xs text-text-muted">No projects</p>
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-0.5">
-            <NavLink to="/tracker" className={linkClass} title="Tracker">
-              <KanbanSquare size={16} />
-              {showExpanded && "Tracker"}
+        <nav className="sidebar-nav" aria-label="Navegação principal">
+          <div className="sidebar-group">
+            {expanded && <p className="sidebar-label">Workspace</p>}
+            <NavLink
+              to={admin ? "/" : "/workspaces"}
+              end
+              className={linkClass}
+              title="Visão geral"
+            >
+              <LayoutDashboard size={18} />
+              {expanded && "Visão geral"}
             </NavLink>
-          </div>
-
-          {admin && (
-            <div>
-              {showExpanded && (
-                <p className="px-3 mb-1.5 text-xs font-medium text-text-muted uppercase tracking-wider">
-                  Tools
-                </p>
+            {admin && (
+              <NavLink
+                to="/orchestrator"
+                className={linkClass}
+                title="Assistente"
+              >
+                <Crown size={18} />
+                {expanded && (
+                  <>
+                    <span className="flex-1">Assistente</span>
+                    <StatusDot
+                      status={targetStatus["orchestrator:orchestrator"]}
+                    />
+                  </>
+                )}
+              </NavLink>
+            )}
+            <NavLink
+              to="/workspaces/projects"
+              className={linkClass}
+              title="Projetos"
+            >
+              <Folder size={18} />
+              {expanded && (
+                <>
+                  <span className="flex-1">Projetos</span>
+                  <span className="nav-count">
+                    {loading ? "–" : projects.length}
+                  </span>
+                </>
               )}
-              <NavLink to="/logs" className={linkClass} title="Logs">
-                <ScrollText size={16} />
-                {showExpanded && "Logs"}
+            </NavLink>
+            <NavLink
+              to="/workspaces/agents"
+              className={linkClass}
+              title="Agentes"
+            >
+              <Bot size={18} />
+              {expanded && (
+                <>
+                  <span className="flex-1">Agentes</span>
+                  <span className="nav-count">
+                    {loading ? "–" : agents.length}
+                  </span>
+                </>
+              )}
+            </NavLink>
+            <NavLink to="/tracker" className={linkClass} title="Tarefas">
+              <KanbanSquare size={18} />
+              {expanded && "Tarefas"}
+            </NavLink>
+            {admin && (
+              <NavLink
+                to="/second-brain"
+                className={linkClass}
+                title="Second Brain"
+              >
+                <Brain size={18} />
+                {expanded && "Second Brain"}
               </NavLink>
-              <NavLink to="/changelog" className={linkClass} title="Changelog">
-                <GitCommitHorizontal size={16} />
-                {showExpanded && "Changelog"}
+            )}
+          </div>
+          {expanded && (
+            <>
+              <div className="sidebar-group">
+                <div className="sidebar-section-heading">
+                  <span className="sidebar-label">Seus projetos</span>
+                  {admin && (
+                    <button
+                      type="button"
+                      className="icon-button small"
+                      onClick={() => openCreateWorkspace("projects")}
+                      aria-label="Novo projeto"
+                      title="Novo projeto"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  )}
+                </div>
+                {projects.slice(0, 6).map((p) => (
+                  <NavLink
+                    key={p.name}
+                    to={`/projects/${encodeURIComponent(p.name)}`}
+                    className={linkClass}
+                    title={p.name}
+                  >
+                    <span className="workspace-initial">
+                      {p.name.slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="truncate flex-1">{p.name}</span>
+                    <StatusDot status={targetStatus[`project:${p.name}`]} />
+                  </NavLink>
+                ))}
+                {!projects.length && (
+                  <p className="sidebar-hint">
+                    {loading
+                      ? "Carregando…"
+                      : loadError
+                        ? "Projetos indisponíveis."
+                        : "Seus projetos aparecerão aqui."}
+                  </p>
+                )}
+                {projects.length > 6 && (
+                  <Link className="sidebar-more" to="/workspaces/projects">
+                    Ver todos os projetos <ArrowUpRight size={13} />
+                  </Link>
+                )}
+              </div>
+              <div className="sidebar-group">
+                <div className="sidebar-section-heading">
+                  <span className="sidebar-label">Seus agentes</span>
+                  {admin && (
+                    <button
+                      type="button"
+                      className="icon-button small"
+                      onClick={() => openCreateWorkspace("agents")}
+                      aria-label="Novo agente"
+                      title="Novo agente"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  )}
+                </div>
+                {agents.slice(0, 4).map((a) => (
+                  <NavLink
+                    key={a.name}
+                    to={`/agents/${encodeURIComponent(a.name)}`}
+                    className={linkClass}
+                    title={a.name}
+                  >
+                    <Bot size={16} />
+                    <span className="truncate flex-1">{a.name}</span>
+                    <StatusDot status={targetStatus[`agent:${a.name}`]} />
+                  </NavLink>
+                ))}
+                {!agents.length && (
+                  <p className="sidebar-hint">
+                    {loading
+                      ? "Carregando…"
+                      : loadError
+                        ? "Agentes indisponíveis."
+                        : "Crie agentes para tarefas recorrentes."}
+                  </p>
+                )}
+                {agents.length > 4 && (
+                  <Link className="sidebar-more" to="/workspaces/agents">
+                    Ver todos os agentes <ArrowUpRight size={13} />
+                  </Link>
+                )}
+              </div>
+              {loadError && (
+                <button
+                  type="button"
+                  className="sidebar-more text-warning"
+                  onClick={() => void load()}
+                >
+                  Não foi possível carregar. Tentar novamente
+                </button>
+              )}
+            </>
+          )}
+          {admin && (
+            <div className="sidebar-group sidebar-admin">
+              {expanded && <p className="sidebar-label">Administração</p>}
+              <NavLink
+                to="/users"
+                className={linkClass}
+                title="Pessoas e acessos"
+              >
+                <Users size={17} />
+                {expanded && "Pessoas e acessos"}
               </NavLink>
-              <NavLink to="/users" className={linkClass} title="Users">
-                <Users size={16} />
-                {showExpanded && "Users"}
+              <NavLink
+                to="/settings"
+                className={linkClass}
+                title="Configurações"
+              >
+                <Settings size={17} />
+                {expanded && "Configurações"}
               </NavLink>
-              <NavLink to="/settings" className={linkClass} title="Settings">
-                <Settings size={16} />
-                {showExpanded && "Settings"}
+              <NavLink to="/logs" className={linkClass} title="Logs do sistema">
+                <ScrollText size={17} />
+                {expanded && "Logs do sistema"}
+              </NavLink>
+              <NavLink to="/changelog" className={linkClass} title="Novidades">
+                <GitCommitHorizontal size={17} />
+                {expanded && "Novidades"}
               </NavLink>
             </div>
           )}
         </nav>
-
-        <div className="border-t border-border">
-          {admin && !isMobile && <TokenUsage collapsed={collapsed} />}
-          <div className="px-2 pb-3">
+        <div className="sidebar-footer">
+          {admin && expanded && (
+            <details className="usage-disclosure">
+              <summary>Uso de recursos</summary>
+              <TokenUsage collapsed={false} />
+            </details>
+          )}
+          <div className="sidebar-account">
+            {expanded && (
+              <>
+                <span className="account-avatar">
+                  {me?.role === "user"
+                    ? me.name.slice(0, 1).toUpperCase()
+                    : "C"}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs text-text-primary">
+                    {me?.role === "user" ? me.name : "Administrador"}
+                  </span>
+                  <span className="block text-[11px] text-text-muted">
+                    {admin ? "Acesso completo" : "Conta pessoal"}
+                  </span>
+                </span>
+              </>
+            )}
             <button
+              type="button"
+              className="icon-button"
               onClick={logout}
-              className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors w-full ${!isMobile && collapsed ? "justify-center" : ""}`}
-              title="Logout"
+              aria-label="Sair da conta"
+              title="Sair da conta"
             >
-              <LogOut size={16} />
-              {showExpanded && "Logout"}
+              <LogOut size={17} />
             </button>
           </div>
         </div>
-        <Modal open={createAgentOpen} onClose={() => setCreateAgentOpen(false)} title="Create Agent">
-          <div className="space-y-3">
-            <input
-              type="text"
-              value={newAgentName}
-              onChange={(e) => setNewAgentName(e.target.value.replace(/[^a-zA-Z0-9.-]/g, ""))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreateAgent();
-              }}
-              placeholder="Agent name"
-              autoFocus
-              className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setCreateAgentOpen(false)}
-                className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateAgent}
-                disabled={!newAgentName.trim() || creatingAgent}
-                className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
-              >
-                {creatingAgent ? "Creating..." : "Create"}
-              </button>
-            </div>
-          </div>
-        </Modal>
-        <Modal open={createProjectOpen} onClose={() => setCreateProjectOpen(false)} title="Create Project">
-          <div className="space-y-3">
-            <input
-              type="text"
-              value={newProjectName}
-              onChange={(e) => setNewProjectName(e.target.value.replace(/[^a-zA-Z0-9._-]/g, ""))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreateProject();
-              }}
-              placeholder="Project name"
-              autoFocus
-              className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setCreateProjectOpen(false)}
-                className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateProject}
-                disabled={!newProjectName.trim() || creatingProject}
-                className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:pointer-events-none transition-colors"
-              >
-                {creatingProject ? "Creating..." : "Create"}
-              </button>
-            </div>
-          </div>
-        </Modal>
       </aside>
     </>
   );

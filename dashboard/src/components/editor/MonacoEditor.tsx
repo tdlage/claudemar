@@ -1,4 +1,5 @@
 import { useRef, useCallback, useEffect } from "react";
+import { useTheme } from "../../hooks/useTheme";
 import { useMobile } from "../../hooks/useMobile";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
@@ -47,6 +48,7 @@ export function MonacoEditorWrapper({
   goToLine,
 }: MonacoEditorProps) {
   const mobile = useMobile();
+  const { theme } = useTheme();
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const mobileEditorRef = useRef<HTMLTextAreaElement>(null);
 
@@ -97,13 +99,14 @@ export function MonacoEditorWrapper({
       height="100%"
       language={language}
       value={content}
-      theme="vs-dark"
+      theme={theme === "paper" ? "light" : "vs-dark"}
       onChange={handleChange}
       onMount={handleMount}
       options={{
         readOnly,
         minimap: { enabled: false },
         fontSize: 13,
+        fontFamily: "Plex Mono, monospace",
         lineNumbers: "on",
         scrollBeyondLastLine: false,
         wordWrap: "on",
@@ -114,7 +117,7 @@ export function MonacoEditorWrapper({
       }}
       loading={
         <div className="flex items-center justify-center h-full text-text-muted text-sm">
-          Loading editor...
+          Carregando editor…
         </div>
       }
     />

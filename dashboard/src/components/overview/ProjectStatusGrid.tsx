@@ -1,34 +1,37 @@
-import { useNavigate } from "react-router-dom";
-import { FolderGit2 } from "lucide-react";
-import { Card } from "../shared/Card";
+import { Link } from "react-router-dom";
+import { FolderGit2, ArrowUpRight } from "lucide-react";
 import { Badge } from "../shared/Badge";
 import type { ProjectInfo } from "../../lib/types";
 
-interface ProjectStatusGridProps {
-  projects: ProjectInfo[];
-}
-
-export function ProjectStatusGrid({ projects }: ProjectStatusGridProps) {
-  const navigate = useNavigate();
-
-  if (projects.length === 0) {
-    return <p className="text-sm text-text-muted">No projects configured.</p>;
-  }
-
+export function ProjectStatusGrid({ projects }: { projects: ProjectInfo[] }) {
+  if (!projects.length)
+    return (
+      <p className="p-4 text-sm text-text-muted">Nenhum projeto criado.</p>
+    );
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    <div className="workspace-rows">
       {projects.map((project) => (
-        <Card key={project.name} onClick={() => navigate(`/projects/${project.name}`)}>
-          <div className="flex items-center gap-2">
-            <FolderGit2 size={16} className="text-accent" />
-            <span className="text-sm font-medium">{project.name}</span>
-            {project.repoCount > 0 && (
-              <Badge variant={project.hasChanges ? "warning" : "success"}>
-                {project.repoCount} repo{project.repoCount !== 1 ? "s" : ""}
-              </Badge>
-            )}
-          </div>
-        </Card>
+        <Link
+          key={project.name}
+          className="workspace-row"
+          to={`/projects/${encodeURIComponent(project.name)}`}
+        >
+          <span className="workspace-row-icon">
+            <FolderGit2 size={20} strokeWidth={1.6} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-semibold text-sm">
+              {project.name}
+            </span>
+            <span className="block mt-1 text-xs text-text-secondary">
+              {project.repoCount
+                ? `${project.repoCount} ${project.repoCount === 1 ? "repositório" : "repositórios"}`
+                : "Conversas e arquivos do projeto"}
+            </span>
+          </span>
+          {project.hasChanges && <Badge variant="warning">Alterações</Badge>}
+          <ArrowUpRight size={16} className="text-text-muted shrink-0" />
+        </Link>
       ))}
     </div>
   );

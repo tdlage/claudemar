@@ -76,3 +76,16 @@ describe("perguntas pendentes", () => {
     expect(result.current.pendingQuestions.map((q) => q.execId).sort()).toEqual(["exec-1", "exec-2"]);
   });
 });
+
+it("reports a failed refresh, keeps the last known activity and recovers on retry", async () => {
+  const { result } = renderHook(() => useExecutions());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.recent).toHaveLength(1);
+  vi.mocked(api.get).mockRejectedValueOnce(new Error("offline"));
+  await act(async () => { await result.current.refresh(); });
+  expect(result.current.error).toContain("Não foi possível atualizar");
+  expect(result.current.recent).toHaveLength(1);
+  await act(async () => { await result.current.refresh(); });
+  expect(result.current.error).toBeNull();
+  expect(result.current.pendingQuestions).toHaveLength(1);
+});
