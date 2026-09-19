@@ -3,13 +3,6 @@ export interface ImageBlock {
   source: { type: "base64"; media_type: string; data: string };
 }
 
-export interface TextBlock {
-  type: "text";
-  text: string;
-}
-
-export type MessageBlock = ImageBlock | TextBlock;
-
 export function fileToImageBlock(file: File): Promise<ImageBlock> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

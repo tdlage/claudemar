@@ -1,0 +1,32 @@
+{
+  "workspaces": {
+    ".": {
+      "entry": [
+        "src/schedule-run.ts",
+        "src/pipeline-intake-run.ts",
+        "test/**/*.test.ts",
+        "src/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+      ]
+    },
+    "dashboard": {
+      "entry": [
+        "src/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,css}",
+        "*.config.{ts,js}"
+      ]
+    }
+  },
+  "ignore": [
+    "dashboard/src/vendor/dantui/**"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": [
+    "crontab"
+  ]
+}

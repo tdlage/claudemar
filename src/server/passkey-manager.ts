@@ -105,7 +105,7 @@ class PasskeyManager {
     return [...this.credentials];
   }
 
-  async generateRegistrationOptions(name: string, host?: string): Promise<{ options: PublicKeyCredentialCreationOptionsJSON; challenge: string; rpId: string; origin: string }> {
+  async generateRegistrationOptions(host?: string): Promise<{ options: PublicKeyCredentialCreationOptionsJSON; challenge: string; rpId: string; origin: string }> {
     const rpId = this.resolveHost(host);
     const options = await generateRegistrationOptions({
       rpName: config.webAuthnRpName,

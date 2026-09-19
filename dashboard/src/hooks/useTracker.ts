@@ -244,9 +244,6 @@ export function useItemPlan(itemId: string | undefined) {
   useSocketEvent<TrackerItemPlan>("tracker:plan:update", (plan) => {
     if (plan.itemId === itemId) setData(plan);
   });
-  useSocketEvent<{ id: string; itemId: string }>("tracker:plan:delete", (ev) => {
-    if (ev.itemId === itemId) setData(null);
-  });
 
   return { plan: data ?? null, loading, refresh };
 }

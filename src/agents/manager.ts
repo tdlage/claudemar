@@ -1,13 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { config } from "../config.js";
 import type { AgentInfo, AgentPaths } from "./types.js";
 
 const AGENT_NAME_RE = /^[a-zA-Z0-9.-]+$/;
 
-export function isValidAgentName(name: string): boolean {
-  return AGENT_NAME_RE.test(name);
+export function isValidAgentName(name: unknown): name is string {
+  return typeof name === "string" && AGENT_NAME_RE.test(name);
 }
 
 export function safeAgentPath(name: string): string | null {
@@ -135,20 +135,4 @@ export function summarizeAgentsMd(content: string): string | null {
   if (!title) return null;
   const desc = descLines.slice(0, 3).join(" ");
   return desc ? `**${title}**\n${desc}` : `**${title}**`;
-}
-
-export function extractAgentSummary(name: string): string | null {
-  const agentsMdPath = resolve(config.agentsPath, name, "AGENTS.md");
-  if (!existsSync(agentsMdPath)) return null;
-  return summarizeAgentsMd(readFileSync(agentsMdPath, "utf-8"));
-}
-
-export function readAgentsMd(name: string): string | null {
-  const agentsMdPath = resolve(config.agentsPath, name, "AGENTS.md");
-  if (!existsSync(agentsMdPath)) return null;
-  try {
-    return readFileSync(agentsMdPath, "utf-8").trim() || null;
-  } catch {
-    return null;
-  }
 }

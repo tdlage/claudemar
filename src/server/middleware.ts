@@ -57,10 +57,6 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
-export function validateSocketToken(token: string): boolean {
-  return !!resolveContext(token);
-}
-
 export function securityHeaders(req: Request, res: Response, next: NextFunction): void {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");

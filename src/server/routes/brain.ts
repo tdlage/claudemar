@@ -52,7 +52,7 @@ import {
 import { exportToEvents } from "../../brain/whatsapp-export.js";
 import { slackManager } from "../../brain/connectors/slack.js";
 import { emitCanonicalEvent } from "../../brain/canonical.js";
-import type { BrainSchedulerName, BrainTenant, RawFrontmatter } from "../../brain/types.js";
+import type { BrainSchedulerName, RawFrontmatter } from "../../brain/types.js";
 
 export const brainRouter = Router();
 export const brainPublicRouter = Router();

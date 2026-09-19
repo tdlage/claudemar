@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -14,7 +14,6 @@ interface Registration {
 // bearer token próprio; cada turno do Codex é um processo novo (um cliente MCP por servidor),
 // então os transportes são recriados a cada turno.
 class McpHttpHost {
-  private server: Server | null = null;
   private port = 0;
   private starting: Promise<number> | null = null;
   private registrations = new Map<string, Registration>();
@@ -32,7 +31,6 @@ class McpHttpHost {
       server.on("error", reject);
       server.listen(0, "127.0.0.1", () => {
         server.unref();
-        this.server = server;
         this.port = (server.address() as AddressInfo).port;
         resolve(this.port);
       });

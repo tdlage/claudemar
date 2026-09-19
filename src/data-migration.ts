@@ -70,7 +70,6 @@ const TABLE_DEFINITIONS: string[] = [
     permission_mode VARCHAR(20) DEFAULT NULL,
     agent_name VARCHAR(255) DEFAULT NULL,
     username VARCHAR(255) DEFAULT NULL,
-    use_docker TINYINT(1) NOT NULL DEFAULT 0,
     enqueued_at DATETIME NOT NULL,
     telegram_chat_id BIGINT DEFAULT NULL,
     skip_system_prompt TINYINT(1) NOT NULL DEFAULT 0,
@@ -257,7 +256,7 @@ async function migrateQueue(pool: ReturnType<typeof getPool>): Promise<void> {
     id: string; seqId: number; targetType: string; targetName: string;
     prompt: string; source: string; cwd: string; resumeSessionId?: string;
     model?: string; planMode?: boolean; agentName?: string; username?: string;
-    useDocker?: boolean; enqueuedAt: string; telegramChatId?: number;
+    enqueuedAt: string; telegramChatId?: number;
   }> } | null;
   if (!data || !(await tableIsEmpty(pool, "queue_items"))) {
     if (data) backupFile(filePath);
@@ -268,11 +267,11 @@ async function migrateQueue(pool: ReturnType<typeof getPool>): Promise<void> {
   let maxSeqId = 0;
   for (const item of items) {
     await pool.execute(
-      `INSERT INTO queue_items (seq_id, id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, agent_name, username, use_docker, enqueued_at, telegram_chat_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO queue_items (seq_id, id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, agent_name, username, enqueued_at, telegram_chat_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [item.seqId, item.id, item.targetType, item.targetName, item.prompt, item.source, item.cwd,
        item.resumeSessionId ?? null, item.model ?? null, item.planMode ? 1 : 0,
-       item.agentName ?? null, item.username ?? null, item.useDocker ? 1 : 0,
+       item.agentName ?? null, item.username ?? null,
        toMySQLDatetime(item.enqueuedAt), item.telegramChatId ?? null],
     );
     if (item.seqId > maxSeqId) maxSeqId = item.seqId;

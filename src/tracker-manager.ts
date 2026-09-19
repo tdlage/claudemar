@@ -964,13 +964,6 @@ class TrackerManager extends EventEmitter {
     return false;
   }
 
-  getUploadPath(filename: string): string | null {
-    const path = resolve(UPLOADS_DIR, filename);
-    if (!path.startsWith(UPLOADS_DIR)) return null;
-    if (!existsSync(path)) return null;
-    return path;
-  }
-
   // ── Test Cases ──
 
   async getTestCases(targetType: string, targetId: string): Promise<TrackerTestCase[]> {
@@ -1278,15 +1271,6 @@ class TrackerManager extends EventEmitter {
     const plan = await this.getItemPlanById(id);
     if (plan) this.emit("plan:update", plan);
     return plan;
-  }
-
-  async deleteItemPlan(id: string): Promise<boolean> {
-    const result = await execute("DELETE FROM tracker_item_plans WHERE id = ?", [id]);
-    if (result.affectedRows > 0) {
-      this.emit("plan:delete", { id });
-      return true;
-    }
-    return false;
   }
 
   private async getItemPlanById(id: string): Promise<TrackerItemPlan | null> {

@@ -22,7 +22,7 @@ import { safeFilename, listFiles, listDirEntries } from "../route-utils.js";
 export const agentsRouter = Router();
 
 agentsRouter.param("name", (req, res, next) => {
-  if (req.ctx?.role === "user" && !req.ctx.agents.includes(req.params.name)) {
+  if (req.ctx?.role === "user" && (typeof req.params.name !== "string" || !req.ctx.agents.includes(req.params.name))) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }

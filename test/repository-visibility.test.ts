@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const output = resolve(import.meta.dirname, "../.localfiles");
+const output = resolve(import.meta.dirname, "../../.output/repository-visibility");
 mkdirSync(output, { recursive: true });
 const root = mkdtempSync(resolve(output, "repo-visibility-"));
 process.env.TELEGRAM_BOT_TOKEN = "test-token";

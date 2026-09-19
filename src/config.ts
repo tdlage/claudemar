@@ -66,7 +66,6 @@ export const config = Object.freeze({
   // e assentar o turno com o resultado retido (subagentes podem morrer sem emitir
   // task_notification, ex.: falha de spawn em providers third-party).
   pendingTasksGraceMs: numericEnv("PENDING_TASKS_GRACE_MS", 3 * 60 * 1000),
-  maxOutputLength: numericEnv("MAX_OUTPUT_LENGTH", 4096),
   maxBufferSize: numericEnv("MAX_BUFFER_SIZE", 10 * 1024 * 1024),
   orchestratorPath: resolve(basePath, "orchestrator"),
   projectsPath: resolve(basePath, "projects"),
@@ -76,7 +75,6 @@ export const config = Object.freeze({
   publicBaseUrl,
   dashboardToken: process.env.DASHBOARD_TOKEN || "",
   tokenRotationHours: numericEnv("TOKEN_ROTATION_HOURS", 24),
-  claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || resolve(homedir(), ".claude"),
   qdrantUrl: stringEnv("QDRANT_URL", ""),
   qdrantApiKey: stringEnv("QDRANT_API_KEY", ""),
   qdrantCollection: stringEnv("QDRANT_COLLECTION", "claudemar_sessions"),
@@ -88,7 +86,6 @@ export const config = Object.freeze({
   retrieveCandidates: numericEnv("RETRIEVE_CANDIDATES", 40),
   rerankTopK: numericEnv("RERANK_TOP_K", 8),
   hybridBm25: booleanEnv("HYBRID_BM25", true),
-  memoryReconcile: booleanEnv("MEMORY_RECONCILE", false),
   sesFrom: process.env.AWS_SES_FROM || "",
   adminEmail: process.env.ADMIN_EMAIL || "",
   mysqlHost: process.env.MYSQL_HOST || "localhost",
@@ -107,7 +104,6 @@ export const config = Object.freeze({
   webAuthnRpName: stringEnv("WEBAUTHN_RP_NAME", "Claudemar"),
   redisUrl: stringEnv("REDIS_URL", "redis://127.0.0.1:6379"),
   brainRoot: process.env.BRAIN_ROOT ? resolve(process.env.BRAIN_ROOT) : resolve(basePath, "brain"),
-  brainAnthropicApiKey: stringEnv("BRAIN_ANTHROPIC_API_KEY", ""),
   brainTz: stringEnv("BRAIN_TZ", "Europe/Madrid"),
   googleClientId: stringEnv("GOOGLE_CLIENT_ID", ""),
   googleClientSecret: stringEnv("GOOGLE_CLIENT_SECRET", ""),

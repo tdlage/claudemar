@@ -17,13 +17,6 @@ export async function getAppearance(agentName: string): Promise<AgentAppearance>
   return rows[0] ? { color: rows[0].color, emoji: rows[0].emoji } : { color: null, emoji: null };
 }
 
-export async function getAllAppearances(): Promise<Record<string, AgentAppearance>> {
-  const rows = await query<AppearanceRow[]>("SELECT agent_name, color, emoji FROM agent_appearance");
-  const result: Record<string, AgentAppearance> = {};
-  for (const row of rows) result[row.agent_name] = { color: row.color, emoji: row.emoji };
-  return result;
-}
-
 export async function setAppearance(agentName: string, appearance: AgentAppearance): Promise<void> {
   await execute(
     `INSERT INTO agent_appearance (agent_name, color, emoji) VALUES (?, ?, ?)

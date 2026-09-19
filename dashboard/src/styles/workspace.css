@@ -1,9 +1,35 @@
 :root {
   color-scheme: dark;
   --sidebar-width: 256px;
+  --dt-bg: #1f352d;
+  --dt-surface: #263f36;
+  --dt-alt: #2e4a3f;
+  --dt-text: #edf5eb;
+  --dt-muted: #b7cdc0;
+  --dt-border: #83a393;
+  --dt-rail: #466658;
+  --dt-brand: #b8dca6;
+  --dt-success: #a3d5b5;
+  --dt-warning: #ead49a;
+  --dt-danger: #f1b3a8;
+  --dt-info: #afd4ce;
+  --dt-on-solid: #1f352d;
 }
 :root[data-theme="paper"] {
   color-scheme: light;
+  --dt-bg: #f2f7ef;
+  --dt-surface: #fbfdf8;
+  --dt-alt: #e4ede0;
+  --dt-text: #243d31;
+  --dt-muted: #526956;
+  --dt-border: #77916f;
+  --dt-rail: #cddcc6;
+  --dt-brand: #446638;
+  --dt-success: #346a4b;
+  --dt-warning: #7c5f22;
+  --dt-danger: #a34e43;
+  --dt-info: #396b64;
+  --dt-on-solid: #fbfdf8;
 }
 ::selection {
   background: color-mix(in srgb, var(--dt-brand) 30%, transparent);

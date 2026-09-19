@@ -15,6 +15,8 @@ npm run build          # backend (tsup → dist/main.js)
 npm run build:all      # dashboard + backend
 npm run dev            # dev mode (tsx watch)
 npm start              # production
+npm run typecheck      # backend types and unused locals
+npm run check:unused   # unused files, exports and dependencies across backend + dashboard
 ```
 
 ## Structure
@@ -22,18 +24,19 @@ npm start              # production
 ```
 src/                   # Backend
   main.ts              # Entry point, wiring
-  bot.ts               # Telegram bot setup, message handlers
+  bot.ts               # Telegram authentication, token and update commands
   commands.ts          # All /commands and callback handlers
   config.ts            # Environment config (frozen object)
   execution-manager.ts # Agent CLI process lifecycle
-  executor.ts          # Spawn/exec wrappers, output formatting
-  providers/           # Provider adapters: claude.ts, codex.ts, types.ts, format.ts
+  executor.ts          # Shell execution wrappers
+  providers/           # LLM profiles, shared types and output formatting
+  runtime/             # Shared session lifecycle and MCP wiring
+  claude/, codex/       # Runtime implementations
   processor.ts         # Message → execution orchestration
   queue.ts             # Command queue (persisted, per-target)
   updater.ts           # Auto-update check and perform
-  session.ts           # Per-chat state (project, agent, mode)
-  telegram-format.ts   # Markdown→HTML, ANSI strip for Telegram
-  agents/              # Agent management, scheduler, council, messenger
+  session.ts           # Project names and workspace paths
+  agents/              # Agent management, scheduler, subagent definitions
   server/              # Express routes, WebSocket, middleware, token manager
 scripts/
   check-update.sh      # Cron script: fetch + notify Telegram
@@ -55,10 +58,10 @@ install.sh             # Full installer (Node, repo, build, env, cron, systemd)
 - Events: `executionManager` extends EventEmitter (output, complete, error, cancel)
 - No comments unless critical. Code must be self-explanatory
 - Production-ready only. No mocks, no hardcoded values
-- Provider resolution: model `codex` → Codex CLI, `claude-*` → Claude CLI, none → `AGENT_PROVIDER` (default codex). Codex reports tokens (no USD cost) and asks questions through `mcp__user_input__request_user_input`; Claude reports USD cost and uses `AskUserQuestion`. Both publish questions during execution and wait for the user's answers in the tool call before continuing
+- Provider resolution: model selection and persisted target/session preferences resolve a configured LLM profile and its Claude or Codex runtime. Codex reports tokens (no USD cost) and asks questions through `mcp__user_input__request_user_input`; Claude reports USD cost and uses `AskUserQuestion`. Both publish questions during execution and wait for the user's answers in the tool call before continuing
 - Agent instructions live in AGENTS.md (CLAUDE.md is legacy, auto-migrated on startup)
 - NUNCA reiniciar o serviço local do claudemar (systemctl restart claudemar). O deploy e restart são feitos externamente
 
-## Pre-existing Issues
+## Static Analysis
 
-- `src/server/routes/agents.ts` and `src/server/routes/projects.ts` have TypeScript errors (`string | string[]` not assignable to `string`) — pre-existing, not blocking tsup build
+`knip.json` includes the main application, standalone schedule/pipeline runners and tests. The supplied DANTUI source is intentionally excluded from unused-export cleanup to keep the vendor kit unchanged; `crontab` is a system executable, not an npm dependency. Internally used exports remain valid.

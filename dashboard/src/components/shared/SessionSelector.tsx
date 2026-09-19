@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil, Trash2, Check, X, GitFork } from "lucide-react";
+import { Pencil, Trash2, Check, X } from "lucide-react";
 import type { SessionData } from "../../lib/types";
 import { inferRuntime, runtimeLabel } from "../../lib/runtime";
 
@@ -8,14 +8,11 @@ interface SessionSelectorProps {
   onChange: (value: string) => Promise<void>;
   onRename: (sessionId: string, name: string) => Promise<void>;
   onDelete?: (sessionId: string) => Promise<void>;
-  // TODO: backend fork route/event ausente. Quando existir (forkSession do SDK),
-  // ligar onFork nas paginas para criar uma sessao bifurcada a partir da atual.
-  onFork?: (sessionId: string) => Promise<void>;
   disabled?: boolean;
   disabledTitle?: string;
 }
 
-export function SessionSelector({ sessionData, onChange, onRename, onDelete, onFork, disabled, disabledTitle }: SessionSelectorProps) {
+export function SessionSelector({ sessionData, onChange, onRename, onDelete, disabled, disabledTitle }: SessionSelectorProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
 
@@ -91,15 +88,6 @@ export function SessionSelector({ sessionData, onChange, onRename, onDelete, onF
           >
             <Pencil size={12} />
           </button>
-          {onFork && (
-            <button
-              onClick={() => onFork(sessionData.sessionId!)}
-              title="Bifurcar sessão (fork)"
-              className="p-0.5 text-text-muted hover:text-accent transition-colors"
-            >
-              <GitFork size={12} />
-            </button>
-          )}
           {onDelete && (
             <button
               onClick={() => onDelete(sessionData.sessionId!)}

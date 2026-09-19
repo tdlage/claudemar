@@ -15,8 +15,8 @@ export function asyncHandler(
 
 const SAFE_FILENAME_RE = /^[a-zA-Z0-9._-]+$/;
 
-export function safeFilename(filename: string): boolean {
-  return SAFE_FILENAME_RE.test(filename) && !filename.includes("..");
+export function safeFilename(filename: unknown): filename is string {
+  return typeof filename === "string" && SAFE_FILENAME_RE.test(filename) && !filename.includes("..");
 }
 
 export interface FileStat {

@@ -453,8 +453,6 @@ setup_env() {
         printf 'ALLOWED_CHAT_ID=%s\n' "$chat_id" >> "$env_file"
         printf 'OPENAI_API_KEY=%s\n' "$openai_key" >> "$env_file"
         printf 'AGENT_TIMEOUT_MS=0\n' >> "$env_file"
-        printf 'AGENT_PROVIDER=codex\n' >> "$env_file"
-        printf 'MAX_OUTPUT_LENGTH=4096\n' >> "$env_file"
         printf 'DASHBOARD_TOKEN=%s\n' "$dashboard_token" >> "$env_file"
         printf 'DASHBOARD_PORT=%s\n' "${dashboard_port:-3000}" >> "$env_file"
         printf 'CLAUDEMAR_DATA=%s\n' "$DATA_DIR" >> "$env_file"
@@ -475,8 +473,6 @@ TELEGRAM_BOT_TOKEN=
 ALLOWED_CHAT_ID=
 OPENAI_API_KEY=
 AGENT_TIMEOUT_MS=0
-AGENT_PROVIDER=codex
-MAX_OUTPUT_LENGTH=4096
 DASHBOARD_TOKEN=
 DASHBOARD_PORT=3000
 CLAUDEMAR_DATA=${DATA_DIR}

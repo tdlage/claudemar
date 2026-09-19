@@ -20,7 +20,6 @@ export interface QueueItem {
   permissionMode?: PermissionMode;
   agentName?: string;
   username?: string;
-  useDocker?: boolean;
   skipSystemPrompt?: boolean;
   skipIsolationInstruction?: boolean;
   effort?: Effort;
@@ -42,7 +41,6 @@ interface QueueRow extends RowDataPacket {
   permission_mode: string | null;
   agent_name: string | null;
   username: string | null;
-  use_docker: number;
   skip_system_prompt: number;
   skip_isolation_instruction: number;
   effort: string | null;
@@ -66,7 +64,6 @@ function rowToItem(row: QueueRow): QueueItem {
     permissionMode: (row.permission_mode as PermissionMode) ?? undefined,
     agentName: row.agent_name ?? undefined,
     username: row.username ?? undefined,
-    useDocker: row.use_docker === 1 ? true : undefined,
     skipSystemPrompt: row.skip_system_prompt === 1 ? true : undefined,
     skipIsolationInstruction: row.skip_isolation_instruction === 1,
     effort: (row.effort as Effort) ?? undefined,
@@ -102,12 +99,12 @@ class CommandQueue extends EventEmitter {
     const enqueuedAt = new Date().toISOString();
 
     const result = await execute(
-      `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, permission_mode, agent_name, username, use_docker, skip_system_prompt, skip_isolation_instruction, effort, enqueued_at, telegram_chat_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, permission_mode, agent_name, username, skip_system_prompt, skip_isolation_instruction, effort, enqueued_at, telegram_chat_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, opts.targetType, opts.targetName, opts.prompt, opts.source, opts.cwd,
        opts.resumeSessionId ?? null, opts.model ?? null, opts.planMode ? 1 : 0,
        opts.permissionMode ?? null,
-       opts.agentName ?? null, opts.username ?? null, opts.useDocker ? 1 : 0,
+       opts.agentName ?? null, opts.username ?? null,
        opts.skipSystemPrompt ? 1 : 0, opts.skipIsolationInstruction === true && opts.username === "admin" ? 1 : 0, opts.effort ?? null,
        toMySQLDatetime(enqueuedAt), opts.telegramChatId ?? null],
     );
@@ -180,16 +177,6 @@ class CommandQueue extends EventEmitter {
   getByTarget(targetType: string, targetName: string): QueueItem[] {
     const key = this.targetKey(targetType, targetName);
     return this.queues.get(key) ?? [];
-  }
-
-  getGrouped(): Map<string, QueueItem[]> {
-    return new Map(this.queues);
-  }
-
-  peek(targetType: string, targetName: string): QueueItem | undefined {
-    const key = this.targetKey(targetType, targetName);
-    const queue = this.queues.get(key);
-    return queue?.[0];
   }
 }
 

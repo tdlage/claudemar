@@ -34,13 +34,13 @@ settingsRouter.get("/email/profiles", (_req, res) => {
 });
 
 settingsRouter.post("/email/profiles", (req, res) => {
-  const { name, awsAccessKeyId, awsSecretAccessKey, region, from } = req.body;
+  const { name, awsAccessKeyId, awsSecretAccessKey, region, from, senderName } = req.body;
   if (!name || !awsAccessKeyId || !awsSecretAccessKey || !region || !from) {
     res.status(400).json({ error: "All profile fields are required" });
     return;
   }
   try {
-    const profile = emailSettingsManager.createProfile({ name, awsAccessKeyId, awsSecretAccessKey, region, from });
+    const profile = emailSettingsManager.createProfile({ name, awsAccessKeyId, awsSecretAccessKey, region, from, senderName: typeof senderName === "string" ? senderName : "" });
     generateSendEmailScript();
     res.status(201).json(profile);
   } catch (err) {

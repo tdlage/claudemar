@@ -161,7 +161,6 @@ export class ClaudeSession extends BaseAgentSession {
       const settle = (result: PermissionResult) => {
         if (timer) clearTimeout(timer);
         this.permissionResolvers.delete(reqId);
-        this.emit("permissionResolved", reqId);
         resolve(result);
       };
       this.permissionResolvers.set(reqId, { settle, toolName, input });

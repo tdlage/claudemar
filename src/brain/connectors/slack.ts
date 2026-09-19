@@ -129,10 +129,6 @@ class SlackManager {
     return this.socket?.websocket?.isActive() === true;
   }
 
-  workspaceName(): string {
-    return this.teamName;
-  }
-
   async ensureStarted(): Promise<void> {
     if (this.starting) return;
     if (this.connected && this.socketAlive()) return;

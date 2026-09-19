@@ -129,10 +129,6 @@ export abstract class BaseAgentSession extends EventEmitter implements AgentSess
     return this.sessionId;
   }
 
-  getModel(): string {
-    return this.model;
-  }
-
   getRequestedModel(): string {
     return this.requestedModel;
   }

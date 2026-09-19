@@ -50,7 +50,7 @@ import { refreshProviderCatalog } from "../../provider-catalog.js";
 export const projectsRouter = Router();
 
 projectsRouter.param("name", (req, res, next) => {
-  if (req.ctx?.role === "user" && !req.ctx.projects.includes(req.params.name)) {
+  if (req.ctx?.role === "user" && (typeof req.params.name !== "string" || !req.ctx.projects.includes(req.params.name))) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
@@ -59,7 +59,7 @@ projectsRouter.param("name", (req, res, next) => {
 
 function resolveProject(req: Request, res: Response): string | null {
   const { name } = req.params;
-  const projectPath = safeProjectPath(name);
+  const projectPath = typeof name === "string" ? safeProjectPath(name) : null;
   if (!projectPath || !existsSync(projectPath)) {
     res.status(404).json({ error: "Project not found" });
     return null;
@@ -72,7 +72,7 @@ function resolveProjectAndRepo(req: Request, res: Response): { projectPath: stri
   if (!projectPath) return null;
 
   const { repo } = req.params;
-  const repoPath = resolveRepoPath(projectPath, repo);
+  const repoPath = typeof repo === "string" ? resolveRepoPath(projectPath, repo) : null;
   if (!repoPath) {
     res.status(404).json({ error: "Repository not found" });
     return null;

@@ -285,10 +285,6 @@ class RunProcessManager extends EventEmitter {
     }
   }
 
-  isRunning(configId: string): boolean {
-    return this.active.has(configId);
-  }
-
   getOutput(configId: string): string {
     return this.active.get(configId)?.output ?? this.lastOutput.get(configId) ?? "";
   }

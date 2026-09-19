@@ -66,7 +66,7 @@ authRouter.get("/me", (req, res) => {
 
 authRouter.post("/passkey/register-options", requireAdmin, async (req, res) => {
   try {
-    const { options, challenge } = await passkeyManager.generateRegistrationOptions("", requestHost(req));
+    const { options, challenge } = await passkeyManager.generateRegistrationOptions(requestHost(req));
     res.json({ options, challenge });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to generate registration options" });
@@ -97,7 +97,7 @@ authRouter.get("/passkey/credentials", requireAdmin, (_req, res) => {
 });
 
 authRouter.delete("/passkey/credentials/:id", requireAdmin, (req, res) => {
-  const deleted = passkeyManager.deleteCredential(req.params.id);
+  const deleted = typeof req.params.id === "string" && passkeyManager.deleteCredential(req.params.id);
   if (!deleted) {
     res.status(404).json({ error: "Credential not found" });
     return;

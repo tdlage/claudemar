@@ -1,6 +1,6 @@
 # Claudemar
 
-Telegram bot that gives you full access to AI agent CLIs (OpenAI Codex CLI and Claude CLI) from your phone. Manage projects, orchestrate AI agents, schedule tasks, and monitor everything through a web dashboard.
+Web workspace for AI agents using the Codex and Claude runtimes, with Telegram access for authentication tokens and updates. Manage projects, orchestrate AI agents, schedule tasks, and monitor everything through a web dashboard.
 
 ## Providers
 
@@ -12,32 +12,26 @@ Claudemar supports two agent CLIs behind a provider layer:
 | Auth | `codex login` (ChatGPT account) | `claude auth` |
 | Model selection | `codex` (account default) | `claude-*` models |
 | Usage reporting | tokens | USD cost |
-| Interactive questions | — | supported |
+| Interactive questions | supported | supported |
 
-The provider is resolved from the selected model: `codex` runs via Codex CLI, `claude-*` models run via Claude CLI. `AGENT_PROVIDER` sets the default when no model is selected.
+The selected model and provider profile determine the runtime. Configure provider profiles in Settings; project, agent and session preferences retain the chosen model.
 
 ## Features
 
 ### Telegram Bot
-- **Agent CLI via Telegram** — send messages, get AI responses with streaming
-- **Voice messages** — transcribed via OpenAI Whisper, then processed by the agent
-- **Project management** — create project folders, clone multiple repos per project, switch between projects
-- **Multi-agent system** — create specialized agents with personas, context files, and inboxes
-- **Agent-to-agent messaging** — outbox/inbox routing, broadcast, delegation
-- **Council meetings** — simulate multi-agent discussions on a topic
-- **Cron scheduling** — natural language schedules ("every day at 9am review PRs")
-- **Execution metrics** — track cost/tokens, duration, and execution count per agent
+- **Access token** — retrieve the current dashboard token with `/token`
+- **Updates** — check for updates with `/update` and apply them from the confirmation message
 
 ### Web Dashboard
 - **Overview** — active executions, agent/project status, activity feed, quick command
-- **Agent management** — inbox, outbox, output files, context, config, schedules
+- **Agent management** — input/output files, context, configuration, subagents and schedules
 - **Project management** — repository browser with branches, log, git operations, file browser
 - **Code editor** — Monaco Editor with syntax highlighting, multi-file tabs, Ctrl+S save
 - **File watching** — real-time updates when files change on disk
 - **Execution logs** — search, filter by status/target, pagination
 - **Command palette** — Ctrl+K to quickly navigate anywhere
 - **Responsive layout** — collapsible sidebar, works on tablet
-- **Authentication** — token-based with rate limiting (120 req/min)
+- **Authentication** — rotating tokens, passkeys and access permissions
 
 ## Requirements
 
@@ -79,7 +73,15 @@ cp .env.example .env   # edit with your credentials
 docker compose up -d
 ```
 
-The Dockerfile uses a multi-stage build (dashboard → backend → runtime) with `node:22-slim`. Data is persisted in `./data/` via volumes.
+The Dockerfile builds the dashboard and all backend entry points with `node:22-slim`. Data is persisted in `./data/` via volumes. This is an optional application deployment; agent execution no longer uses a separate Docker image or a rebuild action.
+
+For installations running Claudemar through systemd, the supporting services can be started separately:
+
+```bash
+docker compose up -d mysql redis whatsapp-bridge
+```
+
+Configure the host application to use the published MySQL port (`MYSQL_PORT=3307` for this Compose file), Redis and WhatsApp bridge endpoints.
 
 For HTTPS, a `Caddyfile` is included:
 
@@ -100,8 +102,6 @@ ALLOWED_CHAT_ID=your-telegram-chat-id
 # Optional
 OPENAI_API_KEY=your-openai-key           # for voice message transcription
 AGENT_TIMEOUT_MS=300000                   # agent execution timeout (0 = no timeout)
-AGENT_PROVIDER=codex                      # default provider: codex | claude
-MAX_OUTPUT_LENGTH=4096                    # max inline output before sending as file
 MAX_BUFFER_SIZE=10485760                  # max process buffer (10MB)
 DASHBOARD_TOKEN=your-secret-token        # dashboard auth token (empty = localhost only)
 DASHBOARD_PORT=3000                       # dashboard port (default: 3000)
@@ -110,52 +110,16 @@ BASE_PATH=/path/to/data                   # base directory for agents/projects/o
 
 **Getting your chat ID:** send any message to the bot, check the logs for `ALLOWED_CHAT_ID`.
 
-**Dashboard access:** when `DASHBOARD_TOKEN` is set, the dashboard binds to `0.0.0.0` and requires the token to access. When empty, it binds to `127.0.0.1` (localhost only, no auth).
+**Dashboard access:** the API requires authentication. Use `/token` in Telegram to obtain the rotating administrator token; `DASHBOARD_TOKEN` optionally provides a permanent master token. Users can also have individual access tokens, and administrators can register passkeys.
 
 ## Telegram Commands
 
-### Projects
 | Command | Description |
 |---------|-------------|
-| `/project` | Select active project (shows inline keyboard) |
-| `/project add <name>` | Create a new project folder |
-| `/project remove <name>` | Delete a project and all its repos |
-| `/repository add <url> [name]` | Clone a repo into the active project |
-| `/repository list` | List repos in the active project |
-| `/repository remove <name>` | Remove a repo from the active project |
-| `/exec <cmd>` | Run a shell command in the active project |
+| `/token` | Get the current dashboard access token |
+| `/update` | Check for updates and confirm installation |
 
-### Agents
-| Command | Description |
-|---------|-------------|
-| `/agent` | List agents (shows inline keyboard for selection) |
-| `/agent create <name>` | Create a new agent with directory structure |
-| `/agent remove <name>` | Delete an agent and its schedules |
-| `/agent info <name>` | Show agent details (context, inbox, output, schedules) |
-| `/agent context <name> add <text\|url>` | Add context (text or URL) to an agent |
-| `/delegate <agent> <prompt>` | Execute a prompt on a specific agent |
-| `/inbox [agent]` | Check inbox messages for an agent |
-| `/broadcast <msg>` | Send a message to all agents |
-| `/council <topic>` | Simulate a multi-agent discussion |
-
-### Scheduling
-| Command | Description |
-|---------|-------------|
-| `/schedule <agent> <instruction>` | Create a cron schedule from natural language |
-| `/schedule list` | List all active schedules |
-| `/schedule remove <id>` | Remove a schedule |
-
-### General
-| Command | Description |
-|---------|-------------|
-| `/mode` | Toggle between projects and agents mode |
-| `/current` | Show current session state |
-| `/metrics [agent]` | View execution metrics (cost, duration, count) |
-| `/clear` | Reset session state |
-| `/help` | Show all commands |
-
-### Text & Voice Messages
-Send any text message to get an AI response in the active project/agent context. Send a voice message and it will be transcribed via Whisper and processed by the agent.
+Projects, conversations, agents and schedules are managed through the dashboard. Audio transcription is available in the conversation input.
 
 ## Dashboard API
 
@@ -171,15 +135,9 @@ All endpoints require `Authorization: Bearer <DASHBOARD_TOKEN>` header.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/agents` | List all agents |
-| GET | `/api/agents/:name` | Agent detail (inbox, outbox, output, context, schedules) |
+| GET | `/api/agents/:name` | Agent detail (input, output, context and schedules) |
 | POST | `/api/agents` | Create agent (`{ name }`) |
 | DELETE | `/api/agents/:name` | Delete agent |
-| GET | `/api/agents/:name/inbox/:file` | Read inbox file |
-| POST | `/api/agents/:name/inbox/:file/archive` | Archive inbox file |
-| DELETE | `/api/agents/:name/inbox/:file` | Delete inbox file |
-| POST | `/api/agents/:name/outbox` | Send message (`{ recipient, content }`) |
-| GET | `/api/agents/:name/outbox/:file` | Read outbox file |
-| DELETE | `/api/agents/:name/outbox/:file` | Delete outbox file |
 | GET | `/api/agents/:name/output/:file` | Read output file |
 | GET | `/api/agents/:name/context/:file` | Read context file |
 | POST | `/api/agents/:name/context` | Add context (`{ filename, content }`) |
@@ -240,9 +198,9 @@ agents/
   my-agent/
     AGENTS.md         # Agent persona/instructions
     context/          # Reference materials
-    inbox/            # Incoming messages from other agents
-    outbox/           # Outgoing messages (routed automatically)
+    input/            # Files supplied to the agent
     output/           # Execution outputs and scheduled task results
+    schedules/        # Generated cron scripts and logs
 ```
 
 ## Development
@@ -255,8 +213,11 @@ npm run dev
 npm run dev:dashboard
 
 # Type check
-npx tsc --noEmit                          # backend
-cd dashboard && npx tsc --noEmit          # dashboard
+npm run typecheck                        # backend, including unused locals
+(cd dashboard && npx tsc -b)             # dashboard
+
+# Unused files, exports and dependencies (backend + dashboard)
+npm run check:unused
 
 # Full build
 npm run build:all
@@ -269,20 +230,22 @@ src/
   main.ts                  # Entry point: starts bot + dashboard server
   bot.ts                   # Grammy bot instance
   commands.ts              # All Telegram command handlers
-  processor.ts             # Message processing + delegation
+  processor.ts             # Queue processing and execution orchestration
   executor.ts              # Agent CLI spawning, shell execution
-  providers/               # Provider adapters (claude, codex)
+  providers/               # Provider profiles and shared types
+  runtime/                 # Shared session lifecycle
+  claude/                  # Claude runtime
+  codex/                   # Codex runtime
   execution-manager.ts     # Singleton execution tracker (EventEmitter)
   repositories.ts          # Git repository discovery and operations
-  session.ts               # Per-chat session state
+  session.ts               # Project names and workspace paths
   config.ts                # Environment configuration
   metrics.ts               # Agent execution metrics
   transcription.ts         # OpenAI Whisper voice transcription
   agents/
     manager.ts             # Agent CRUD operations
-    messenger.ts           # Outbox → inbox message routing
-    council.ts             # Multi-agent council simulation
-    scheduler.ts           # Cron scheduling via agent CLI
+    subagents.ts           # Agent definitions for delegation
+    scheduler.ts           # Scheduler tools, MySQL records and cron scripts
     types.ts               # Agent type definitions
   server/
     index.ts               # Express + Socket.IO setup

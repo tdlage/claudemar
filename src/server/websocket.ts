@@ -251,28 +251,8 @@ export function setupWebSocket(io: SocketServer): void {
     }
   };
 
-  const lastActivity = new Map<string, string>();
-  const emitActivity = (id: string, info: ExecutionInfo, activity: string) => {
-    if (lastActivity.get(id) === activity) return;
-    lastActivity.set(id, activity);
-    emitToExecutions("execution:activity", info, { id, targetType: info.targetType, targetName: info.targetName, activity });
-  };
-  const finalActivity = (info: ExecutionInfo): string => {
-    if (info.pendingQuestion) return "waiting";
-    return executionManager.isTargetActive(info.targetType, info.targetName) ? "working" : "idle";
-  };
-
-  const FILE_TOOLS = new Set(["Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Update"]);
-  const classifyTool = (name: string): string => {
-    if (name.startsWith("mcp__")) return "mcp";
-    if (name === "Skill") return "skill";
-    if (FILE_TOOLS.has(name)) return "file";
-    return "working";
-  };
-
   executionManager.on("start", (id, info) => {
     emitToExecutions("execution:start", info, { id, info });
-    emitActivity(id, info, "working");
   });
 
   executionManager.on("output", (id, chunk, offset) => {
@@ -284,8 +264,6 @@ export function setupWebSocket(io: SocketServer): void {
     const finalInfo = { ...info, output: info.output || info.result?.output || "" };
     emitToExecutions("execution:complete", finalInfo, { id, info: finalInfo, hasQueued });
     io.to(`exec:${id}`).emit("execution:complete", { id, info: finalInfo, hasQueued });
-    emitActivity(id, info, finalActivity(info));
-    lastActivity.delete(id);
   });
 
   executionManager.prependListener("error", (id, info, message) => {
@@ -293,8 +271,6 @@ export function setupWebSocket(io: SocketServer): void {
     const finalInfo = { ...info, output: info.output || info.result?.output || "" };
     emitToExecutions("execution:error", finalInfo, { id, info: finalInfo, error: message, hasQueued });
     io.to(`exec:${id}`).emit("execution:error", { id, info: finalInfo, error: message, hasQueued });
-    emitActivity(id, info, finalActivity(info));
-    lastActivity.delete(id);
   });
 
   executionManager.prependListener("cancel", (id, info) => {
@@ -302,8 +278,6 @@ export function setupWebSocket(io: SocketServer): void {
     const finalInfo = { ...info, output: info.output || info.result?.output || "" };
     emitToExecutions("execution:cancel", finalInfo, { id, info: finalInfo, hasQueued });
     io.to(`exec:${id}`).emit("execution:cancel", { id, info: finalInfo, hasQueued });
-    emitActivity(id, info, finalActivity(info));
-    lastActivity.delete(id);
   });
 
   executionManager.on("thinking", (id, chunk) => {
@@ -312,30 +286,14 @@ export function setupWebSocket(io: SocketServer): void {
 
   executionManager.on("tool", (id, name, input, kind) => {
     io.to(`exec:${id}`).emit("execution:tool", { id, name, input, kind });
-    const info = executionManager.getExecution(id);
-    if (!info) return;
-    emitActivity(id, info, classifyTool(name));
   });
 
   executionManager.on("permission", (id, reqId, toolName, input) => {
     io.to(`exec:${id}`).emit("execution:permission", { id, reqId, toolName, input });
-    const info = executionManager.getExecution(id);
-    if (info && info.targetType === "agent") {
-      emitToExecutions("agent:permission", info, { id, targetName: info.targetName, reqId, toolName, input });
-    }
-  });
-
-  executionManager.on("permission-resolved", (id, reqId) => {
-    const info = executionManager.getExecution(id);
-    if (info && info.targetType === "agent") {
-      emitToExecutions("agent:permission:resolved", info, { id, targetName: info.targetName, reqId });
-    }
   });
 
   executionManager.on("task", (id, payload) => {
     io.to(`exec:${id}`).emit("execution:task", { id, ...payload });
-    const info = executionManager.getExecution(id);
-    if (info && payload.phase !== "done") emitActivity(id, info, "working");
   });
 
   executionManager.on("mode", (id, mode) => {
@@ -367,7 +325,6 @@ export function setupWebSocket(io: SocketServer): void {
   executionManager.on("question", (id, info) => {
     emitToExecutions("execution:question", info, { id, info });
     io.to(`exec:${id}`).emit("execution:question", { id, info });
-    emitActivity(id, info, "waiting");
   });
 
   executionManager.on("question:answered", (id, info, toolUseId) => {
@@ -408,7 +365,7 @@ export function setupWebSocket(io: SocketServer): void {
     "comment:add", "comment:delete",
     "testcase:create", "testcase:update", "testcase:delete", "testcase:reorder",
     "testrun:create", "testrun:update", "testrun:delete", "testrun:attachment", "testrun:comment",
-    "plan:create", "plan:update", "plan:delete",
+    "plan:create", "plan:update",
   ];
   for (const event of trackerEvents) {
     trackerManager.on(event, (data) => {

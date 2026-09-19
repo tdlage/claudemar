@@ -131,8 +131,6 @@ export const PROJECT_SELECTABLE_MODELS: { model: string; displayName: string }[]
   { model: "claude-fable-5-1", displayName: "Fable 5.1" },
 ];
 
-export const DEFAULT_PROJECT_MODEL = "claude-opus-5";
-
 export interface RepoInfo {
   hidden?: boolean;
   name: string;
@@ -299,15 +297,6 @@ export interface ProviderInfo {
   selectableModels: ModelOption[];
   providers: { id: string; label: string; runtime: AgentRuntime }[];
   configured: boolean;
-}
-
-export interface EnvKeyStatus {
-  key: string;
-  label: string;
-  group: string;
-  help: string;
-  required: boolean;
-  present: boolean;
 }
 
 export interface EmailProfileMasked {
@@ -942,14 +931,6 @@ export interface BrainActivityItem {
     | "alert";
   label: string;
   path?: string;
-}
-
-export interface BrainChatterSample {
-  ts: string;
-  channel: string;
-  threadKey: string;
-  text: string;
-  rule: string;
 }
 
 export interface WikiPageSummary {

@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 process.env.TELEGRAM_BOT_TOKEN = "test-token";
 process.env.ALLOWED_CHAT_ID = "1";
-process.env.CLAUDEMAR_DATA = resolve(import.meta.dirname, "../.output/isolation-validation/data");
+process.env.CLAUDEMAR_DATA = resolve(import.meta.dirname, "../../.output/isolation-validation/data");
 process.env.BRAIN_ROOT = resolve(process.env.CLAUDEMAR_DATA, "brain");
 const { buildSystemAppend } = await import("../src/runtime/system-append.js");
 

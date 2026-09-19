@@ -175,22 +175,6 @@ export class ExecutionManager extends EventEmitter {
     return this.lastSessionRuntimeMap.get(this.userTargetKey(targetType, targetName, username));
   }
 
-  getResolvedModelId(): string | undefined {
-    for (const entry of this.active.values()) {
-      const model = entry.session.getModel();
-      if (model && model !== DEFAULT_MODEL) return model;
-    }
-    let latest: string | undefined;
-    for (const model of this.lastSessionModelMap.values()) {
-      if (model && model !== DEFAULT_MODEL) latest = model;
-    }
-    return latest;
-  }
-
-  getSessionHistory(targetType: string, targetName: string): string[] {
-    return this.sessionHistoryMap.get(this.targetKey(targetType, targetName)) ?? [];
-  }
-
   setActiveSessionId(targetType: string, targetName: string, username: string, sessionId: string): void {
     this.lastSessionMap.set(this.userTargetKey(targetType, targetName, username), sessionId);
   }
@@ -513,7 +497,6 @@ export class ExecutionManager extends EventEmitter {
       }
     };
     const onPermission = (p: PendingPermission) => this.emit("permission", info.id, p.reqId, p.toolName, p.input);
-    const onPermissionResolved = (reqId: string) => this.emit("permission-resolved", info.id, reqId);
     const taskErrors = new Set<string>();
     const onTask = (payload: TaskEvent) => {
       this.emit("task", info.id, payload);
@@ -563,7 +546,6 @@ export class ExecutionManager extends EventEmitter {
     session.on("toolUse", onToolUse);
     session.on("sessionId", onSessionId);
     session.on("permission", onPermission);
-    session.on("permissionResolved", onPermissionResolved);
     session.on("task", onTask);
     session.on("usage", onUsage);
     session.on("compact", onCompact);
@@ -580,7 +562,6 @@ export class ExecutionManager extends EventEmitter {
       session.off("toolUse", onToolUse);
       session.off("sessionId", onSessionId);
       session.off("permission", onPermission);
-      session.off("permissionResolved", onPermissionResolved);
       session.off("task", onTask);
       session.off("usage", onUsage);
       session.off("compact", onCompact);

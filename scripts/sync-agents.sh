@@ -33,30 +33,13 @@ distribute_agents_md() {
     HEADER="# Agents Directory
 
 This file is auto-generated. It lists all agents in the system and their roles.
-Use this to know who to delegate tasks to via the messaging system.
+Use this directory to choose an agent whose expertise fits the task.
 
-## When to communicate with other agents
+## Delegating work
 
-- **Delegate tasks outside your expertise**: if a task fits another agent's role better, send it to them instead of doing it yourself
-- **Request information**: if another agent has context or expertise you need, ask them via a message
-- **Report results**: when you finish a task delegated by the orchestrator or another agent, respond via outbox
-- **Escalate to orchestrator**: if you receive a task you can't handle or need broader coordination, message \`orchestrator\`
-
-## How to send a message
-
-Create a file in your outbox/ folder with this naming:
-\`PARA-<agent-name>_<timestamp>_<subject>.md\`
-
-Example: \`PARA-Xandao_2025-02-10T18-30-45-123Z_review-task.md\`
-
-The system will automatically route it to the agent's inbox as:
-\`DE-<your-name>_<timestamp>_<subject>.md\`
-
-To message the orchestrator, use \`PARA-orchestrator_<timestamp>_<subject>.md\`
-
-## How to check for incoming messages
-
-Read your inbox/ folder. Files named \`DE-<sender>_<timestamp>_<subject>.md\` are messages from other agents or the orchestrator.
+Use the subagent tools exposed by the current runtime, with the agent name and a clear task.
+The subagent returns its result in the current conversation. Use context/ for reference
+material, input/ for supplied files, and output/ for results.
 
 ---
 

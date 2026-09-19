@@ -9,9 +9,9 @@ FROM node:22-slim AS backend-build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
-COPY tsconfig.json tsup.config.* ./
+COPY tsconfig.json ./
 COPY src/ src/
-RUN npx tsup src/main.ts --format esm
+RUN npm run build
 
 FROM node:22-slim
 WORKDIR /app
