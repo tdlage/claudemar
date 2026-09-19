@@ -121,6 +121,15 @@ export interface SessionRef {
   runtime: AgentRuntime;
 }
 
+export async function loadTargetLastUsed(targetType: string): Promise<Map<string, string>> {
+  const rows = await query<(RowDataPacket & { target_name: string; last_used_at: string })[]>(
+    `SELECT target_name, DATE_FORMAT(MAX(started_at), '%Y-%m-%dT%H:%i:%s.%fZ') AS last_used_at
+     FROM execution_history WHERE target_type = ? GROUP BY target_name`,
+    [targetType],
+  );
+  return new Map(rows.map((row) => [row.target_name, new Date(row.last_used_at).toISOString()]));
+}
+
 export async function loadSessionRefs(targetType: string, targetName: string): Promise<SessionRef[]> {
   const rows = await query<(RowDataPacket & { session_id: string; model: string | null; runtime: string | null })[]>(
     `SELECT session_id, model, runtime FROM (

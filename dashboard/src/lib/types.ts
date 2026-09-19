@@ -114,6 +114,7 @@ export interface AgentFileContent {
 
 export interface ProjectInfo {
   name: string;
+  lastUsedAt?: string | null;
   repoCount: number;
   hasChanges: boolean;
 }

@@ -41,6 +41,7 @@ import {
   rerunWorkflow,
 } from "../../github-actions.js";
 import { executionManager } from "../../execution-manager.js";
+import { loadTargetLastUsed } from "../../history.js";
 import { COMMIT_PUSH_MODEL } from "../../providers/llm.js";
 import { purgeProjectData } from "../../target-cleanup.js";
 import { resolveTargetModel, targetModelSettings } from "../../target-model-settings.js";
@@ -133,6 +134,17 @@ projectsRouter.get("/", async (req, res) => {
     const allowed = req.ctx.projects;
     projects = projects.filter((name) => allowed.includes(name));
   }
+  const lastUsed = await loadTargetLastUsed("project").catch((err) => {
+    console.error("[projects] Failed to load recent usage:", err);
+    return new Map<string, string>();
+  });
+  for (const execution of [...executionManager.getRecentExecutions(100), ...executionManager.getActiveExecutions()]) {
+    if (execution.targetType !== "project") continue;
+    const startedAt = new Date(execution.startedAt).toISOString();
+    if (startedAt > (lastUsed.get(execution.targetName) ?? "")) {
+      lastUsed.set(execution.targetName, startedAt);
+    }
+  }
   const results = await Promise.all(
     projects.map(async (name) => {
       const projectPath = safeProjectPath(name);
@@ -151,7 +163,7 @@ projectsRouter.get("/", async (req, res) => {
       }
     }),
   );
-  res.json(results);
+  res.json(results.map((project) => ({ ...project, lastUsedAt: lastUsed.get(project.name) ?? null })));
 });
 
 projectsRouter.get("/claude-skills", (_req, res) => {

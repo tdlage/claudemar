@@ -130,7 +130,7 @@ function StatusDot({ status }: { status?: TargetStatus[string] }) {
       role="img"
       aria-label={label}
       title={label}
-      className={`status-dot ${status?.running ? "bg-warning" : status?.lastStatus === "error" ? "bg-danger" : "bg-border-hover"}`}
+      className={`status-dot ${status?.running ? "bg-warning animate-pulse" : status?.lastStatus === "error" ? "bg-danger" : "bg-border-hover"}`}
     />
   );
 }
@@ -179,6 +179,13 @@ export function Sidebar() {
     if (isMobile) setMobileOpen(false);
   }, [location.pathname, isMobile, setMobileOpen]);
   const update = useCallback((info: ExecutionInfo, running: boolean) => {
+    if (info.targetType === "project") {
+      setProjects((previous) => previous.map((project) =>
+        project.name === info.targetName && info.startedAt > (project.lastUsedAt ?? "")
+          ? { ...project, lastUsedAt: info.startedAt }
+          : project,
+      ));
+    }
     const key = `${info.targetType}:${info.targetName}`;
     setTargetStatus((prev) => ({
       ...prev,
@@ -202,11 +209,17 @@ export function Sidebar() {
   );
   useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>(
     "execution:error",
-    ({ info, hasQueued }) => update(info, !!hasQueued),
+    ({ info, hasQueued }) => {
+      update(info, !!hasQueued);
+      void load();
+    },
   );
   useSocketEvent<{ info: ExecutionInfo; hasQueued?: boolean }>(
     "execution:cancel",
-    ({ info, hasQueued }) => update(info, !!hasQueued),
+    ({ info, hasQueued }) => {
+      update(info, !!hasQueued);
+      void load();
+    },
   );
   useSocketRoom("files");
   const fileChangeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -217,6 +230,9 @@ export function Sidebar() {
     fileChangeTimer.current = setTimeout(load, 2000);
   });
   const expanded = isMobile || !collapsed;
+  const recentProjects = [...projects].sort((a, b) =>
+    (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? "") || a.name.localeCompare(b.name, "pt-BR"),
+  );
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `sidebar-link ${isActive ? "is-active" : ""} ${expanded ? "" : "is-compact"}`;
   if (isMobile && !mobileOpen) return null;
@@ -365,7 +381,7 @@ export function Sidebar() {
                     </button>
                   )}
                 </div>
-                {projects.slice(0, 6).map((p) => (
+                {recentProjects.slice(0, 6).map((p) => (
                   <NavLink
                     key={p.name}
                     to={`/projects/${encodeURIComponent(p.name)}`}
@@ -376,6 +392,16 @@ export function Sidebar() {
                       {p.name.slice(0, 1).toUpperCase()}
                     </span>
                     <span className="truncate flex-1">{p.name}</span>
+                    {p.hasChanges && (
+                      <span
+                        role="img"
+                        aria-label="Alterações pendentes de commit"
+                        title="Alterações pendentes de commit"
+                        className="inline-flex shrink-0 items-center rounded border border-warning/30 bg-warning/10 p-1 text-warning"
+                      >
+                        <GitCommitHorizontal size={14} aria-hidden="true" />
+                      </span>
+                    )}
                     <StatusDot status={targetStatus[`project:${p.name}`]} />
                   </NavLink>
                 ))}
