@@ -1,17 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
 process.env.ALLOWED_CHAT_ID ??= "1";
-process.env.CLAUDEMAR_DATA ??= mkdtempSync(resolve(tmpdir(), "claudemar-test-"));
+const outputDir = resolve(import.meta.dirname, "../../.output/session-inactivity");
+mkdirSync(outputDir, { recursive: true });
+const dataDir = mkdtempSync(resolve(outputDir, "data-"));
+process.env.CLAUDEMAR_DATA = dataDir;
 
-test("sessionInactivityTimeoutMs usa o default de 10 minutos", async () => {
+test("sessionInactivityTimeoutMs não interrompe sessões silenciosas por padrão", async () => {
   delete process.env.SESSION_INACTIVITY_TIMEOUT_MS;
   const { config } = await import(`../src/config.js?${Date.now()}`);
-  assert.equal(config.sessionInactivityTimeoutMs, 10 * 60 * 1000);
+  assert.equal(config.sessionInactivityTimeoutMs, 0);
 });
 
 test("sessionInactivityTimeoutMs respeita a env var", async () => {
@@ -30,6 +32,6 @@ test("sessionInactivityTimeoutMs 0 desliga o watchdog", async () => {
 
 process.on("exit", () => {
   try {
-    rmSync(process.env.CLAUDEMAR_DATA!, { recursive: true, force: true });
+    rmSync(dataDir, { recursive: true, force: true });
   } catch { /* noop */ }
 });

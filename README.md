@@ -102,6 +102,7 @@ ALLOWED_CHAT_ID=your-telegram-chat-id
 # Optional
 OPENAI_API_KEY=your-openai-key           # for voice message transcription
 AGENT_TIMEOUT_MS=300000                   # agent execution timeout (0 = no timeout)
+SESSION_INACTIVITY_TIMEOUT_MS=0           # optional cutoff without runner events; disabled by default
 MAX_BUFFER_SIZE=10485760                  # max process buffer (10MB)
 DASHBOARD_TOKEN=your-secret-token        # dashboard auth token (empty = localhost only)
 DASHBOARD_PORT=3000                       # dashboard port (default: 3000)

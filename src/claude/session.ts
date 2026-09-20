@@ -98,7 +98,7 @@ export class ClaudeSession extends BaseAgentSession {
     this.abortController.abort();
     this.queue.end();
     if (!this.settled) {
-      this.drainPendingResult("Sessão inativa por muito tempo — possível limite de sessão ou travamento do runner.");
+      this.drainPendingResult("Sessão interrompida pelo limite configurado de tempo sem eventos do runner (SESSION_INACTIVITY_TIMEOUT_MS).");
     }
   }
 
@@ -462,6 +462,7 @@ export class ClaudeSession extends BaseAgentSession {
   }
 
   sendUserMessage(blocksOrText: string | MessageBlock[], ingestText?: string): void {
+    if (!this.isAlive()) throw new Error("Runner encerrado. Retome a conversa em uma nova instância da sessão.");
     const stored = (ingestText ?? blocksToText(blocksOrText)).trim();
     this.pendingUserText = stored ? stored : null;
     this.settled = false;

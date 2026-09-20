@@ -115,7 +115,7 @@ export abstract class BaseAgentSession extends EventEmitter implements AgentSess
   }
 
   isAlive(): boolean {
-    return !this.dead;
+    return !this.dead && !this.inactivityExpired;
   }
 
   respondQuestion(id: string, text: string, answers?: QuestionAnswers): boolean {

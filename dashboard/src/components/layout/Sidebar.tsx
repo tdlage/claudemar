@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth, getMe } from "../../hooks/useAuth";
+import { SidebarGroups, type SidebarGroup } from "./SidebarGroups";
 import { TokenUsage } from "./TokenUsage";
 import { useSocketEvent, useSocketRoom } from "../../hooks/useSocket";
 import type { AgentInfo, ProjectInfo, ExecutionInfo } from "../../lib/types";
@@ -180,11 +181,14 @@ export function Sidebar() {
   }, [location.pathname, isMobile, setMobileOpen]);
   const update = useCallback((info: ExecutionInfo, running: boolean) => {
     if (info.targetType === "project") {
-      setProjects((previous) => previous.map((project) =>
-        project.name === info.targetName && info.startedAt > (project.lastUsedAt ?? "")
-          ? { ...project, lastUsedAt: info.startedAt }
-          : project,
-      ));
+      setProjects((previous) =>
+        previous.map((project) =>
+          project.name === info.targetName &&
+          info.startedAt > (project.lastUsedAt ?? "")
+            ? { ...project, lastUsedAt: info.startedAt }
+            : project,
+        ),
+      );
     }
     const key = `${info.targetType}:${info.targetName}`;
     setTargetStatus((prev) => ({
@@ -230,11 +234,242 @@ export function Sidebar() {
     fileChangeTimer.current = setTimeout(load, 2000);
   });
   const expanded = isMobile || !collapsed;
-  const recentProjects = [...projects].sort((a, b) =>
-    (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? "") || a.name.localeCompare(b.name, "pt-BR"),
+  const recentProjects = [...projects].sort(
+    (a, b) =>
+      (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? "") ||
+      a.name.localeCompare(b.name, "pt-BR"),
   );
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `sidebar-link ${isActive ? "is-active" : ""} ${expanded ? "" : "is-compact"}`;
+  const groups: SidebarGroup[] = [
+    {
+      id: "workspace",
+      label: "Workspace",
+      compact: true,
+      content: (
+        <>
+          <NavLink
+            to={admin ? "/" : "/workspaces"}
+            end
+            className={linkClass}
+            title="Visão geral"
+          >
+            <LayoutDashboard size={18} />
+            {expanded && "Visão geral"}
+          </NavLink>
+          {admin && (
+            <NavLink
+              to="/orchestrator"
+              className={linkClass}
+              title="Assistente"
+            >
+              <Crown size={18} />
+              {expanded && (
+                <>
+                  <span className="flex-1">Assistente</span>
+                  <StatusDot
+                    status={targetStatus["orchestrator:orchestrator"]}
+                  />
+                </>
+              )}
+            </NavLink>
+          )}
+          <NavLink
+            to="/workspaces/projects"
+            className={linkClass}
+            title="Projetos"
+          >
+            <Folder size={18} />
+            {expanded && (
+              <>
+                <span className="flex-1">Projetos</span>
+                <span className="nav-count">
+                  {loading ? "–" : projects.length}
+                </span>
+              </>
+            )}
+          </NavLink>
+          <NavLink
+            to="/workspaces/agents"
+            className={linkClass}
+            title="Agentes"
+          >
+            <Bot size={18} />
+            {expanded && (
+              <>
+                <span className="flex-1">Agentes</span>
+                <span className="nav-count">
+                  {loading ? "–" : agents.length}
+                </span>
+              </>
+            )}
+          </NavLink>
+          <NavLink to="/tracker" className={linkClass} title="Tarefas">
+            <KanbanSquare size={18} />
+            {expanded && "Tarefas"}
+          </NavLink>
+          {admin && (
+            <NavLink
+              to="/second-brain"
+              className={linkClass}
+              title="Second Brain"
+            >
+              <Brain size={18} />
+              {expanded && "Second Brain"}
+            </NavLink>
+          )}
+        </>
+      ),
+    },
+    {
+      id: "projects",
+      label: "Seus projetos",
+      action: admin ? (
+        <button
+          type="button"
+          className="icon-button small"
+          onClick={() => openCreateWorkspace("projects")}
+          aria-label="Novo projeto"
+          title="Novo projeto"
+        >
+          <Plus size={16} />
+        </button>
+      ) : undefined,
+      content: (
+        <>
+          {recentProjects.slice(0, 6).map((p) => (
+            <NavLink
+              key={p.name}
+              to={`/projects/${encodeURIComponent(p.name)}`}
+              className={linkClass}
+              title={p.name}
+            >
+              <span className="workspace-initial">
+                {p.name.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="truncate flex-1">{p.name}</span>
+              {p.hasChanges && (
+                <span
+                  role="img"
+                  aria-label="Alterações pendentes de commit"
+                  title="Alterações pendentes de commit"
+                  className="inline-flex shrink-0 items-center rounded border border-warning/30 bg-warning/10 p-1 text-warning"
+                >
+                  <GitCommitHorizontal size={14} aria-hidden="true" />
+                </span>
+              )}
+              <StatusDot status={targetStatus[`project:${p.name}`]} />
+            </NavLink>
+          ))}
+          {!projects.length && (
+            <p className="sidebar-hint">
+              {loading
+                ? "Carregando…"
+                : loadError
+                  ? "Projetos indisponíveis."
+                  : "Seus projetos aparecerão aqui."}
+            </p>
+          )}
+          {projects.length > 6 && (
+            <Link className="sidebar-more" to="/workspaces/projects">
+              Ver todos os projetos <ArrowUpRight size={13} />
+            </Link>
+          )}
+        </>
+      ),
+    },
+    {
+      id: "agents",
+      label: "Seus agentes",
+      action: admin ? (
+        <button
+          type="button"
+          className="icon-button small"
+          onClick={() => openCreateWorkspace("agents")}
+          aria-label="Novo agente"
+          title="Novo agente"
+        >
+          <Plus size={16} />
+        </button>
+      ) : undefined,
+      content: (
+        <>
+          {agents.slice(0, 4).map((a) => (
+            <NavLink
+              key={a.name}
+              to={`/agents/${encodeURIComponent(a.name)}`}
+              className={linkClass}
+              title={a.name}
+            >
+              <Bot size={16} />
+              <span className="truncate flex-1">{a.name}</span>
+              <StatusDot status={targetStatus[`agent:${a.name}`]} />
+            </NavLink>
+          ))}
+          {!agents.length && (
+            <p className="sidebar-hint">
+              {loading
+                ? "Carregando…"
+                : loadError
+                  ? "Agentes indisponíveis."
+                  : "Crie agentes para tarefas recorrentes."}
+            </p>
+          )}
+          {agents.length > 4 && (
+            <Link className="sidebar-more" to="/workspaces/agents">
+              Ver todos os agentes <ArrowUpRight size={13} />
+            </Link>
+          )}
+        </>
+      ),
+    },
+    ...(admin
+      ? [
+          {
+            id: "admin",
+            label: "Administração",
+            compact: true,
+            content: (
+              <>
+                <NavLink
+                  to="/users"
+                  className={linkClass}
+                  title="Pessoas e acessos"
+                >
+                  <Users size={17} />
+                  {expanded && "Pessoas e acessos"}
+                </NavLink>
+                <NavLink
+                  to="/settings"
+                  className={linkClass}
+                  title="Configurações"
+                >
+                  <Settings size={17} />
+                  {expanded && "Configurações"}
+                </NavLink>
+                <NavLink
+                  to="/logs"
+                  className={linkClass}
+                  title="Logs do sistema"
+                >
+                  <ScrollText size={17} />
+                  {expanded && "Logs do sistema"}
+                </NavLink>
+                <NavLink
+                  to="/changelog"
+                  className={linkClass}
+                  title="Novidades"
+                >
+                  <GitCommitHorizontal size={17} />
+                  {expanded && "Novidades"}
+                </NavLink>
+              </>
+            ),
+          },
+        ]
+      : []),
+  ];
+  const groupsStorageKey = `claudemar_sidebar_groups:${me?.role === "user" ? me.id : "admin"}`;
   if (isMobile && !mobileOpen) return null;
   return (
     <>
@@ -291,216 +526,20 @@ export function Sidebar() {
           </button>
         </div>
         <nav className="sidebar-nav" aria-label="Navegação principal">
-          <div className="sidebar-group">
-            {expanded && <p className="sidebar-label">Workspace</p>}
-            <NavLink
-              to={admin ? "/" : "/workspaces"}
-              end
-              className={linkClass}
-              title="Visão geral"
+          <SidebarGroups
+            key={groupsStorageKey}
+            groups={groups}
+            expanded={expanded}
+            storageKey={groupsStorageKey}
+          />
+          {expanded && loadError && (
+            <button
+              type="button"
+              className="sidebar-more text-warning"
+              onClick={() => void load()}
             >
-              <LayoutDashboard size={18} />
-              {expanded && "Visão geral"}
-            </NavLink>
-            {admin && (
-              <NavLink
-                to="/orchestrator"
-                className={linkClass}
-                title="Assistente"
-              >
-                <Crown size={18} />
-                {expanded && (
-                  <>
-                    <span className="flex-1">Assistente</span>
-                    <StatusDot
-                      status={targetStatus["orchestrator:orchestrator"]}
-                    />
-                  </>
-                )}
-              </NavLink>
-            )}
-            <NavLink
-              to="/workspaces/projects"
-              className={linkClass}
-              title="Projetos"
-            >
-              <Folder size={18} />
-              {expanded && (
-                <>
-                  <span className="flex-1">Projetos</span>
-                  <span className="nav-count">
-                    {loading ? "–" : projects.length}
-                  </span>
-                </>
-              )}
-            </NavLink>
-            <NavLink
-              to="/workspaces/agents"
-              className={linkClass}
-              title="Agentes"
-            >
-              <Bot size={18} />
-              {expanded && (
-                <>
-                  <span className="flex-1">Agentes</span>
-                  <span className="nav-count">
-                    {loading ? "–" : agents.length}
-                  </span>
-                </>
-              )}
-            </NavLink>
-            <NavLink to="/tracker" className={linkClass} title="Tarefas">
-              <KanbanSquare size={18} />
-              {expanded && "Tarefas"}
-            </NavLink>
-            {admin && (
-              <NavLink
-                to="/second-brain"
-                className={linkClass}
-                title="Second Brain"
-              >
-                <Brain size={18} />
-                {expanded && "Second Brain"}
-              </NavLink>
-            )}
-          </div>
-          {expanded && (
-            <>
-              <div className="sidebar-group">
-                <div className="sidebar-section-heading">
-                  <span className="sidebar-label">Seus projetos</span>
-                  {admin && (
-                    <button
-                      type="button"
-                      className="icon-button small"
-                      onClick={() => openCreateWorkspace("projects")}
-                      aria-label="Novo projeto"
-                      title="Novo projeto"
-                    >
-                      <Plus size={16} />
-                    </button>
-                  )}
-                </div>
-                {recentProjects.slice(0, 6).map((p) => (
-                  <NavLink
-                    key={p.name}
-                    to={`/projects/${encodeURIComponent(p.name)}`}
-                    className={linkClass}
-                    title={p.name}
-                  >
-                    <span className="workspace-initial">
-                      {p.name.slice(0, 1).toUpperCase()}
-                    </span>
-                    <span className="truncate flex-1">{p.name}</span>
-                    {p.hasChanges && (
-                      <span
-                        role="img"
-                        aria-label="Alterações pendentes de commit"
-                        title="Alterações pendentes de commit"
-                        className="inline-flex shrink-0 items-center rounded border border-warning/30 bg-warning/10 p-1 text-warning"
-                      >
-                        <GitCommitHorizontal size={14} aria-hidden="true" />
-                      </span>
-                    )}
-                    <StatusDot status={targetStatus[`project:${p.name}`]} />
-                  </NavLink>
-                ))}
-                {!projects.length && (
-                  <p className="sidebar-hint">
-                    {loading
-                      ? "Carregando…"
-                      : loadError
-                        ? "Projetos indisponíveis."
-                        : "Seus projetos aparecerão aqui."}
-                  </p>
-                )}
-                {projects.length > 6 && (
-                  <Link className="sidebar-more" to="/workspaces/projects">
-                    Ver todos os projetos <ArrowUpRight size={13} />
-                  </Link>
-                )}
-              </div>
-              <div className="sidebar-group">
-                <div className="sidebar-section-heading">
-                  <span className="sidebar-label">Seus agentes</span>
-                  {admin && (
-                    <button
-                      type="button"
-                      className="icon-button small"
-                      onClick={() => openCreateWorkspace("agents")}
-                      aria-label="Novo agente"
-                      title="Novo agente"
-                    >
-                      <Plus size={16} />
-                    </button>
-                  )}
-                </div>
-                {agents.slice(0, 4).map((a) => (
-                  <NavLink
-                    key={a.name}
-                    to={`/agents/${encodeURIComponent(a.name)}`}
-                    className={linkClass}
-                    title={a.name}
-                  >
-                    <Bot size={16} />
-                    <span className="truncate flex-1">{a.name}</span>
-                    <StatusDot status={targetStatus[`agent:${a.name}`]} />
-                  </NavLink>
-                ))}
-                {!agents.length && (
-                  <p className="sidebar-hint">
-                    {loading
-                      ? "Carregando…"
-                      : loadError
-                        ? "Agentes indisponíveis."
-                        : "Crie agentes para tarefas recorrentes."}
-                  </p>
-                )}
-                {agents.length > 4 && (
-                  <Link className="sidebar-more" to="/workspaces/agents">
-                    Ver todos os agentes <ArrowUpRight size={13} />
-                  </Link>
-                )}
-              </div>
-              {loadError && (
-                <button
-                  type="button"
-                  className="sidebar-more text-warning"
-                  onClick={() => void load()}
-                >
-                  Não foi possível carregar. Tentar novamente
-                </button>
-              )}
-            </>
-          )}
-          {admin && (
-            <div className="sidebar-group sidebar-admin">
-              {expanded && <p className="sidebar-label">Administração</p>}
-              <NavLink
-                to="/users"
-                className={linkClass}
-                title="Pessoas e acessos"
-              >
-                <Users size={17} />
-                {expanded && "Pessoas e acessos"}
-              </NavLink>
-              <NavLink
-                to="/settings"
-                className={linkClass}
-                title="Configurações"
-              >
-                <Settings size={17} />
-                {expanded && "Configurações"}
-              </NavLink>
-              <NavLink to="/logs" className={linkClass} title="Logs do sistema">
-                <ScrollText size={17} />
-                {expanded && "Logs do sistema"}
-              </NavLink>
-              <NavLink to="/changelog" className={linkClass} title="Novidades">
-                <GitCommitHorizontal size={17} />
-                {expanded && "Novidades"}
-              </NavLink>
-            </div>
+              Não foi possível carregar. Tentar novamente
+            </button>
           )}
         </nav>
         <div className="sidebar-footer">

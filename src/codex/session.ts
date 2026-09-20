@@ -160,21 +160,22 @@ export class CodexSession extends BaseAgentSession {
   protected onInactivity(): void {
     this.abortCurrentTurn();
     if (!this.settled) {
-      this.failTurn("Sessão inativa por muito tempo — possível limite de sessão ou travamento do runner.");
+      this.failTurn("Sessão interrompida pelo limite configurado de tempo sem eventos do runner (SESSION_INACTIVITY_TIMEOUT_MS).");
     }
   }
 
   private abortCurrentTurn(): void {
     const turn = this.currentTurn;
-    if (!turn) return;
+    if (!turn || turn.done) return;
     turn.done = true;
     turn.abort.abort();
-    this.skipTurns = this.queuedTurns;
+    this.skipTurns = Math.max(0, this.queuedTurns - 1);
     this.queuedTurns = 0;
     this.pending = null;
   }
 
   sendUserMessage(blocksOrText: string | MessageBlock[], ingestText?: string): void {
+    if (!this.isAlive()) throw new Error("Runner encerrado. Retome a conversa em uma nova instância da sessão.");
     const stored = (ingestText ?? blocksToText(blocksOrText)).trim();
     if (stored) this.pendingUserText = this.pendingUserText ? `${this.pendingUserText}\n\n${stored}` : stored;
     this.settled = false;
