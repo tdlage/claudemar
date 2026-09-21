@@ -3,7 +3,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Search, Filter } from "lucide-react";
 import { useExecutions } from "../hooks/useExecution";
 import { useDebounce } from "../hooks/useDebounce";
-import { Badge } from "../components/shared/Badge";
+import { ExecutionStatusBadge } from "../components/shared/ExecutionStatusBadge";
 import { Card } from "../components/shared/Card";
 import { formatUsage } from "../lib/types";
 import type { ExecutionInfo, ExecutionStatus, ExecutionTargetType } from "../lib/types";
@@ -45,15 +45,6 @@ export function LogsPage() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
-  const statusVariant = (status: ExecutionStatus) => {
-    switch (status) {
-      case "completed": return "success" as const;
-      case "error": return "danger" as const;
-      case "cancelled": return "warning" as const;
-      default: return "default" as const;
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -110,7 +101,6 @@ export function LogsPage() {
             <LogEntry
               key={exec.id}
               exec={exec}
-              statusVariant={statusVariant(exec.status)}
               expanded={expandedId === exec.id}
               onToggle={() => setExpandedId(expandedId === exec.id ? null : exec.id)}
             />
@@ -145,12 +135,10 @@ export function LogsPage() {
 
 function LogEntry({
   exec,
-  statusVariant,
   expanded,
   onToggle,
 }: {
   exec: ExecutionInfo;
-  statusVariant: "success" | "danger" | "warning" | "default";
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -160,7 +148,7 @@ function LogEntry({
         onClick={onToggle}
         className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-3 md:px-4 py-2.5 text-sm text-left hover:bg-surface-hover transition-colors"
       >
-        <Badge variant={statusVariant}>{exec.status}</Badge>
+        <ExecutionStatusBadge status={exec.status} />
         <span className="text-xs text-accent font-medium">{exec.targetType}</span>
         <span className="text-xs text-text-muted hidden sm:inline">{exec.targetName}</span>
         <span className="text-text-primary truncate flex-1 min-w-0 basis-[100px]">{exec.prompt}</span>

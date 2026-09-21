@@ -45,7 +45,7 @@ export function ExecutionCard({ execution, expanded, onViewOutput }: ExecutionCa
           <Badge>{execution.targetType}:{execution.targetName}</Badge>
           {execution.status === "running" && (
             <span className="flex items-center gap-1">
-              <span className="w-2 h-2 bg-success rounded-full animate-pulse" />
+              <span className="status-dot is-running" />
               <span className="text-xs text-text-muted">{elapsed}</span>
             </span>
           )}

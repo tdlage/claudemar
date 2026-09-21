@@ -128,6 +128,7 @@ export function ProjectDetailPage() {
       }
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Failed");
+      return false;
     }
   };
 

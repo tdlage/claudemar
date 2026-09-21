@@ -35,3 +35,18 @@ process.on("exit", () => {
     rmSync(dataDir, { recursive: true, force: true });
   } catch { /* noop */ }
 });
+
+test("background tasks have no implicit timeout and still accept an explicit limit", async () => {
+  const previous = process.env.PENDING_TASKS_GRACE_MS;
+  try {
+    delete process.env.PENDING_TASKS_GRACE_MS;
+    const defaults = await import("../src/config.js?pending-default");
+    assert.equal(defaults.config.pendingTasksGraceMs, 0);
+    process.env.PENDING_TASKS_GRACE_MS = "30000";
+    const configured = await import("../src/config.js?pending-configured");
+    assert.equal(configured.config.pendingTasksGraceMs, 30000);
+  } finally {
+    if (previous === undefined) delete process.env.PENDING_TASKS_GRACE_MS;
+    else process.env.PENDING_TASKS_GRACE_MS = previous;
+  }
+});

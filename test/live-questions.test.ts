@@ -148,6 +148,54 @@ function resultHarness() {
 }
 const successResult = { type: "result", subtype: "success", is_error: false, result: "", session_id: "session", permission_denials: [], duration_ms: 1 };
 
+test("silent background work remains pending beyond the former three-minute cutoff", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { session, methods } = resultHarness();
+  Object.assign(session, { pendingTasksGraceMs: 0 });
+  const result = session.waitForResult();
+  methods.handleTaskStarted({ task_id: "tests", description: "Django test suite" });
+  methods.handleResult({ ...successResult, result: "Aguardando a suíte." });
+  t.mock.timers.tick(30 * 60 * 1000);
+  assert.equal(session.getLastResult(), null);
+  assert.equal(session.isAlive(), true);
+  methods.handleTaskNotification({ task_id: "tests", status: "completed", summary: "37 tests OK" });
+  assert.equal((await result).isError, false);
+  assert.equal((await result).output, "Aguardando a suíte.");
+});
+
+test("explicit background cutoff stops the runner and preserves the partial result with an accurate cause", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { session, methods } = resultHarness();
+  const abortController = new AbortController();
+  let queueEnded = false;
+  Object.assign(session, { abortController, queue: { end: () => { queueEnded = true; } } });
+  const result = session.waitForResult();
+  methods.handleTaskStarted({ task_id: "tests", description: "Django test suite" });
+  methods.handleResult({ ...successResult, result: "Alterações aplicadas, testes pendentes." });
+  t.mock.timers.tick(10);
+  assert.equal((await result).isError, true);
+  assert.match((await result).errorMessages.join(" "), /PENDING_TASKS_GRACE_MS/);
+  assert.equal((await result).output, "Alterações aplicadas, testes pendentes.");
+  assert.equal(session.isAlive(), false);
+  assert.equal(abortController.signal.aborted, true);
+  assert.equal(queueEnded, true);
+});
+
+test("runner activity extends an explicitly configured background wait", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { session, methods } = resultHarness();
+  const activity = session as unknown as { handleMessage(message: unknown): void };
+  const result = session.waitForResult();
+  methods.handleTaskStarted({ task_id: "tests", description: "Django test suite" });
+  methods.handleResult({ ...successResult, result: "Aguardando a suíte." });
+  t.mock.timers.tick(8);
+  activity.handleMessage({ type: "tool_progress", tool_use_id: "tool", tool_name: "Bash", elapsed_time_seconds: 20 });
+  t.mock.timers.tick(8);
+  assert.equal(session.getLastResult(), null);
+  methods.handleTaskNotification({ task_id: "tests", status: "completed", summary: "OK" });
+  assert.equal((await result).isError, false);
+});
+
 test("Claude respects is_error even when the SDK subtype is success", async () => {
   const { session, methods } = resultHarness();
   const result = session.waitForResult();

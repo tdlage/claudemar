@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { Bot, ChevronDown, Search, Square, User, X } from "lucide-react";
+import { ExecutionStatusBadge } from "../shared/ExecutionStatusBadge";
 import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
 import { renderOutputHtml } from "../../lib/ansi";
@@ -139,12 +140,6 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
         </div>
       ))}
       {sorted.map((exec) => {
-        const statusVariant =
-          exec.status === "completed" ? "success" as const :
-          exec.status === "error" ? "danger" as const :
-          exec.status === "cancelled" ? "warning" as const :
-          "default" as const;
-
         const isExpanded = expandedId === exec.id;
         const clickable = !!onToggle;
 
@@ -158,7 +153,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
               className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 rounded-md text-sm min-w-0 ${clickable ? "cursor-pointer" : ""} ${isExpanded ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
               onClick={clickable ? () => onToggle(exec.id) : undefined}
             >
-              <Badge variant={statusVariant}>{exec.status}</Badge>
+              <ExecutionStatusBadge status={exec.status} />
               <span title={`${runtimeLabel(runtime)}${exec.model ? ` · ${exec.model}` : ""}`}>
                 <Badge variant={runtime === "codex" ? "info" : "accent"}>{runtimeLabel(runtime)}</Badge>
               </span>

@@ -102,14 +102,15 @@ export class ClaudeSession extends BaseAgentSession {
     }
   }
 
-  // Com o resultado do turno retido aguardando subagentes em background, subagentes podem
-  // morrer sem nunca emitir task_notification (ex.: falha de spawn em provider third-party).
-  // Sem este grace timer a execução ficaria "running" até o watchdog de inatividade.
   private startPendingTasksTimer(): void {
-    if (this.questions.waiting || this.pendingTasksGraceMs <= 0) return;
+    if (this.questions.waiting || this.pendingTasksGraceMs <= 0 || this.dead || this.settled) return;
     this.clearPendingTasksTimer();
     this.pendingTasksTimer = setTimeout(() => {
-      if (this.pendingResult) this.drainPendingResult("");
+      if (!this.pendingResult) return;
+      this.dead = true;
+      this.abortController.abort();
+      this.queue.end();
+      this.drainPendingResult("Sessão interrompida pelo limite configurado de espera por tarefas em background (PENDING_TASKS_GRACE_MS), sem confirmação de término.");
     }, this.pendingTasksGraceMs);
   }
 
@@ -120,7 +121,7 @@ export class ClaudeSession extends BaseAgentSession {
     }
   }
 
-  private flushLostTasks(): void {
+  private flushLostTasks(reason: string): void {
     for (const [taskId, task] of this.activeTasks) {
       this.emit("task", {
         phase: "done",
@@ -128,7 +129,7 @@ export class ClaudeSession extends BaseAgentSession {
         description: task.description,
         subagentType: task.subagentType,
         status: "failed",
-        summary: "Subagente sem resposta — descartado após espera.",
+        summary: `Tarefa sem confirmação de término. ${reason}`,
       } satisfies TaskEvent);
     }
     this.activeTasks.clear();
@@ -217,10 +218,10 @@ export class ClaudeSession extends BaseAgentSession {
     if (this.pendingResult) {
       const result = this.pendingResult;
       this.pendingResult = null;
-      const reason = fallbackMessage || "Subagentes encerraram sem retornar resultado após a espera.";
+      const reason = fallbackMessage || "Sessão encerrada sem confirmação de término das tarefas em background.";
       result.isError = true;
       result.errorMessages = [...result.errorMessages, reason];
-      this.flushLostTasks();
+      this.flushLostTasks(reason);
       this.settleTurn(result);
     } else {
       this.clearPendingTasksTimer();
@@ -244,6 +245,7 @@ export class ClaudeSession extends BaseAgentSession {
 
   private handleMessage(message: SDKMessage): void {
     this.resetInactivityTimer();
+    this.touchPendingTasks();
     switch (message.type) {
       case "system":
         this.handleSystem(message);
@@ -274,16 +276,12 @@ export class ClaudeSession extends BaseAgentSession {
         this.emit("checkpoint", f.file_id);
       }
     } else if (message.subtype === "task_started") {
-      this.touchPendingTasks();
       this.handleTaskStarted(message);
     } else if (message.subtype === "task_progress") {
-      this.touchPendingTasks();
       this.handleTaskProgress(message);
     } else if (message.subtype === "task_updated") {
-      this.touchPendingTasks();
       this.handleTaskUpdated(message);
     } else if (message.subtype === "task_notification") {
-      this.touchPendingTasks();
       this.handleTaskNotification(message);
     }
   }

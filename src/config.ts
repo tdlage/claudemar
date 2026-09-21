@@ -59,11 +59,8 @@ export const config = Object.freeze({
   // Ausência de eventos não comprova travamento: raciocínio e ferramentas podem
   // continuar em execução silenciosamente. O corte por silêncio exige opt-in.
   sessionInactivityTimeoutMs: numericEnv("SESSION_INACTIVITY_TIMEOUT_MS", 0),
-  // Quando o turno principal já produziu resultado mas há subagentes em background,
-  // este é o tempo máximo sem NENHUM evento de task antes de considerá-los perdidos
-  // e assentar o turno com o resultado retido (subagentes podem morrer sem emitir
-  // task_notification, ex.: falha de spawn em providers third-party).
-  pendingTasksGraceMs: numericEnv("PENDING_TASKS_GRACE_MS", 3 * 60 * 1000),
+  // Tarefas em background podem trabalhar sem emitir progresso. Corte só por opt-in.
+  pendingTasksGraceMs: numericEnv("PENDING_TASKS_GRACE_MS", 0),
   maxBufferSize: numericEnv("MAX_BUFFER_SIZE", 10 * 1024 * 1024),
   orchestratorPath: resolve(basePath, "orchestrator"),
   projectsPath: resolve(basePath, "projects"),

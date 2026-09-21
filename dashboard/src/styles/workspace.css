@@ -9,11 +9,11 @@
   --dt-border: #83a393;
   --dt-rail: #365447;
   --dt-brand: #b8dca6;
-  --dt-success: #a3d5b5;
-  --dt-warning: #ead49a;
+  --dt-success: #67e8a5;
+  --dt-warning: #ffd166;
   --dt-running: #ffdb4d;
-  --dt-danger: #f1b3a8;
-  --dt-info: #afd4ce;
+  --dt-danger: #ff929b;
+  --dt-info: #8bc4ff;
   --dt-on-solid: #0b1511;
 }
 :root[data-theme="paper"] {
@@ -26,11 +26,11 @@
   --dt-border: #77916f;
   --dt-rail: #cddcc6;
   --dt-brand: #446638;
-  --dt-success: #346a4b;
-  --dt-warning: #7c5f22;
-  --dt-running: #936500;
-  --dt-danger: #a34e43;
-  --dt-info: #396b64;
+  --dt-success: #146c43;
+  --dt-warning: #805500;
+  --dt-running: #805500;
+  --dt-danger: #b42338;
+  --dt-info: #175fa6;
   --dt-on-solid: #fbfdf8;
 }
 ::selection {
@@ -329,6 +329,15 @@
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+.execution-status-badge {
+  background: color-mix(in srgb, var(--dt-tone) 10%, transparent);
+}
+.execution-status-running {
+  --dt-tone: var(--dt-running);
+}
+.execution-status-cancelled {
+  background: transparent;
 }
 .status-dot.is-running {
   position: relative;

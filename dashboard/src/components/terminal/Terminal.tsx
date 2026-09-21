@@ -1,4 +1,5 @@
 import { useMobile } from "../../hooks/useMobile";
+import { ConfidentialAttachment, type ConfidentialFile } from "./ConfidentialAttachment";
 import { Modal } from "../shared/Modal";
 import { getMe } from "../../hooks/useAuth";
 import { useModelSelection } from "../../hooks/useModelSelection";
@@ -109,7 +110,7 @@ interface TerminalProps {
   isLive?: boolean;
   runtime?: AgentRuntime;
   showModelBadge?: boolean;
-  onStart?: (text: string, images: ImageBlock[], opts: StartOpts) => Promise<void> | void;
+  onStart?: (text: string, images: ImageBlock[], opts: StartOpts) => Promise<void | boolean> | void | boolean;
 }
 
 function startPermissionMode(mode: PermissionMode): PermissionMode {
@@ -120,6 +121,9 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const mobile = useMobile();
   const optionsId = useId();
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [sendingPrivate, setSendingPrivate] = useState(false);
+  const [privateFile, setPrivateFile] = useState<{ base: string; file: ConfidentialFile } | null>(null);
+  const confidentialFile = privateFile && privateFile.base === base ? privateFile.file : null;
   const admin = getMe()?.role === "admin";
   const [skipIsolationInstruction, setSkipIsolationInstruction] = useState(false);
   useEffect(() => { setSkipIsolationInstruction(false); }, [base]);
@@ -428,7 +432,9 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   }, [addToast]);
 
   const submit = useCallback(() => {
-    const text = input.trim();
+    if (sendingPrivate) return;
+    const visibleText = input.trim();
+    const text = [visibleText, confidentialFile?.instruction].filter(Boolean).join("\n\n");
     const images = pendingImages;
     if (!text && images.length === 0) return;
 
@@ -441,7 +447,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
 
     if (!willQueue) {
       const msgId = counterRef.current++;
-      setMessages((prev) => [...prev.slice(-29), { id: msgId, text, imageCount: images.length }]);
+      setMessages((prev) => [...prev.slice(-29), { id: msgId, text: [visibleText, confidentialFile ? "[Arquivo confidencial anexado]" : ""].filter(Boolean).join("\n"), imageCount: images.length }]);
     }
 
     if (injectIntoRunning) {
@@ -452,15 +458,25 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
         socket.emit("execution:send", { execId: executionId, text });
       }
     } else if (onStartRef.current) {
+      const start = onStartRef.current;
       const m = modeRef.current;
+      if (confidentialFile) {
+        setSendingPrivate(true);
+        void Promise.resolve().then(() => start(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), effort, model: modelSelection.selected?.model, skipIsolationInstruction: admin && skipIsolationInstruction }))
+          .then((result) => { if (result !== false) setPrivateFile((current) => current?.file.id === confidentialFile.id ? null : current); })
+          .catch(() => addToast("error", "Não foi possível enviar. O arquivo continua anexado."))
+          .finally(() => setSendingPrivate(false));
+      } else {
       void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), effort, model: modelSelection.selected?.model, skipIsolationInstruction: admin && skipIsolationInstruction });
+      }
       setSkipIsolationInstruction(false);
       if (m === "plan") setMode("default");
     }
 
     setInput("");
     setPendingImages([]);
-  }, [admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, addToast]);
+    if (injectIntoRunning) setPrivateFile(null);
+  }, [sendingPrivate, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, addToast]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -817,11 +833,12 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
                 }}
               />
             </label>
+            {base && <ConfidentialAttachment key={base} base={base} attachment={confidentialFile} disabled={sendingPrivate} onChange={(file) => setPrivateFile(file ? { base, file } : null)} />}
             <button
               type="button"
               onClick={submit}
               aria-label="Enviar mensagem"
-              disabled={(!input.trim() && pendingImages.length === 0) || (modelSelection.supported && modelSelection.saving)}
+              disabled={sendingPrivate || (!input.trim() && pendingImages.length === 0 && !confidentialFile) || (modelSelection.supported && modelSelection.saving)}
               className="inline-flex items-center justify-center shrink-0 h-11 w-11 md:h-auto md:w-auto p-1.5 rounded-xl md:rounded-md bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
               <Send size={mobile ? 20 : 14} />

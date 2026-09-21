@@ -265,6 +265,7 @@ body {
   .composer-row { gap: 6px; }
   .composer-input { order: 1; min-height: 46px; }
   .composer-attachment { order: 0; width: 40px; }
+  .composer-row > .composer-confidential { order: 0; width: 40px; }
   .composer-row > button { order: 2; }
   .terminal-options { flex-direction: column; align-items: stretch; gap: 16px; }
   .terminal-options > :empty { display: none; }
