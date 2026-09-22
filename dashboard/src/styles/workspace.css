@@ -1643,7 +1643,13 @@ kbd {
   flex: 0 0 100%;
   min-height: 0;
 }
-.project-detail-page .conversation-terminal { flex: 1; height: auto; min-height: 0; }
+.project-detail-page .conversation-questions {
+  position: static;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+.project-detail-page .conversation-terminal { flex: 1 1 auto; height: auto; min-height: 300px; }
 .project-detail-page .conversation-history { flex-shrink: 0; padding-bottom: 24px; }
 @media (min-width: 1200px) {
   .project-repo-count { display: inline-flex; }
@@ -1652,4 +1658,6 @@ kbd {
   .project-breadcrumb-title { font-size: 16px; }
   .project-header-actions { gap: 4px; }
   .project-detail-page .conversation-stage { flex: 1; gap: 4px; }
+  .project-detail-page .conversation-questions { flex: 1; }
+  .project-detail-page .conversation-terminal { min-height: 0; }
 }

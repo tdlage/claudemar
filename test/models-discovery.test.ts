@@ -49,6 +49,7 @@ test("getModelDisplayName resolve Fable 5.1 pelo id", () => {
 });
 
 test("getModelDisplayName resolve Opus 5 e mantém o alias legado opus", () => {
+  assert.equal(getModelDisplayName("claude-opus-5-5"), "Opus 5.5");
   assert.equal(getModelDisplayName("claude-opus-5"), "Opus 5");
   assert.equal(getModelDisplayName("claude-opus-4-8"), "Opus 4.8");
   assert.equal(getModelDisplayName("opus"), "Opus 5");
@@ -78,11 +79,12 @@ test("normalizeModel mapeia os valores legados para os modelos atuais", () => {
 test("PROJECT_SELECTABLE_MODELS oferece exatamente Opus e Fable", () => {
   assert.deepEqual(
     PROJECT_SELECTABLE_MODELS.map((m) => m.model),
-    ["claude-opus-5", "claude-fable-5-1"],
+    ["claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"],
   );
 });
 
 test("isSelectableProjectModel aceita apenas os modelos suportados", () => {
+  assert.equal(isSelectableProjectModel("claude-opus-5-5"), true);
   assert.equal(isSelectableProjectModel("claude-opus-5"), true);
   assert.equal(isSelectableProjectModel("claude-fable-5-1"), true);
   assert.equal(isSelectableProjectModel("claude-sonnet-4-6"), false);

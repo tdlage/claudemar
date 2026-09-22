@@ -10,6 +10,7 @@ interface DiscoveredModel {
 }
 
 const CLAUDE_DEFAULT_MODELS: DiscoveredModel[] = [
+  { id: "claude-opus-5-5", displayName: "Opus 5.5", createdAt: "", provider: "claude" },
   { id: "claude-opus-5", displayName: "Opus 5", createdAt: "", provider: "claude" },
   { id: "claude-fable-5-1", displayName: "Fable 5.1", createdAt: "", provider: "claude" },
   { id: "claude-sonnet-5", displayName: "Sonnet 5", createdAt: "", provider: "claude" },
@@ -22,6 +23,7 @@ const CLAUDE_DEFAULT_MODELS: DiscoveredModel[] = [
 // Usamos ids explícitos aceitos diretamente pelo Agent SDK. O alias "opus" não é usado
 // porque a versão instalada do SDK ainda o expande para claude-opus-4-8, não para o Opus 5.
 export const PROJECT_SELECTABLE_MODELS = [
+  { model: "claude-opus-5-5", displayName: "Opus 5.5" },
   { model: "claude-opus-5", displayName: "Opus 5" },
   { model: "claude-fable-5-1", displayName: "Fable 5.1" },
 ] as const;

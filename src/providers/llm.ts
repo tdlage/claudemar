@@ -38,8 +38,15 @@ const ZAI_BASE_URL = "https://api.z.ai/api/anthropic";
 const ZAI_MODEL = "glm-5.3";
 const ZAI_HAIKU_MODEL = "glm-5.3-flash";
 
-const CODEX_MODEL = "gpt-5.6-sol";
-const CODEX_LIGHT_MODEL = "gpt-5.6-luna";
+const CODEX_MODEL = "gpt-6-sol";
+const CODEX_LIGHT_MODEL = "gpt-6-luna";
+
+// Modelos padrão de gerações anteriores do Codex: só são reescritos quando o perfil ainda
+// carrega exatamente o valor semeado, preservando qualquer modelo escolhido pelo usuário.
+const SUPERSEDED_CODEX_MODELS: Record<string, string> = {
+  "gpt-5.6-sol": CODEX_MODEL,
+  "gpt-5.6-luna": CODEX_LIGHT_MODEL,
+};
 
 // Valores persistidos por versões anteriores: gateway Bifrost (removido) e o proxy local
 // claude-codex que o perfil codex usava antes do runtime nativo do Codex SDK.
@@ -149,17 +156,29 @@ export function parseExtraEnv(extraEnv: string): Array<[string, string]> {
 }
 
 // Corrige perfis default cujos valores mudaram após já terem sido semeados e descarta os
-// que dependiam do gateway removido. Só reescreve um perfil quando o baseUrl ainda é o
-// legado (default intocado), preservando qualquer customização feita pelo usuário.
+// que dependiam do gateway removido. Só reescreve quando o valor persistido ainda é o
+// default anterior (baseUrl legado ou modelo de geração anterior do Codex), preservando
+// qualquer customização feita pelo usuário.
 export function migrateLegacyProfiles(profiles: LlmProfile[]): { profiles: LlmProfile[]; changed: boolean } {
   const defaults = new Map(defaultLlmProfiles().map((p) => [p.id, p]));
   let changed = false;
   const migrated: LlmProfile[] = [];
-  for (const p of profiles) {
+  for (let p of profiles) {
     const baseUrl = p.baseUrl.trim();
     if (LEGACY_GATEWAY_PROFILE_IDS.has(p.id) && LEGACY_GATEWAY_URLS.has(baseUrl)) {
       changed = true;
       continue;
+    }
+    if (p.runtime === "codex" && !baseUrl) {
+      const models = {
+        opusModel: SUPERSEDED_CODEX_MODELS[p.opusModel.trim()] ?? p.opusModel,
+        sonnetModel: SUPERSEDED_CODEX_MODELS[p.sonnetModel.trim()] ?? p.sonnetModel,
+        haikuModel: SUPERSEDED_CODEX_MODELS[p.haikuModel.trim()] ?? p.haikuModel,
+      };
+      if (models.opusModel !== p.opusModel || models.sonnetModel !== p.sonnetModel || models.haikuModel !== p.haikuModel) {
+        changed = true;
+        p = { ...p, ...models };
+      }
     }
     const def = defaults.get(p.id);
     const legacy =

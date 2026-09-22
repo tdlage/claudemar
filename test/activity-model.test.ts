@@ -9,10 +9,10 @@ const base: ModelActivity = { id: "last", targetType: "project", targetName: "ap
 
 test("uses the latest Activity for this target, including active executions", () => {
   const older = { ...base, id: "older", startedAt: "2026-09-09T12:00:00Z", model: "claude-opus-5" };
-  const latest = { ...base, model: "gpt-5.6-sol", runtime: "codex" as const };
+  const latest = { ...base, model: "gpt-6-sol", runtime: "codex" as const };
   const other = { ...latest, id: "other", targetType: "agent", startedAt: "2026-09-11T12:00:00Z" };
   assert.equal(latestModelActivity([older, other, latest], "project", "app"), latest);
-  assert.equal(modelFromActivity(latest, models, "claude"), "codex::gpt-5.6-sol");
+  assert.equal(modelFromActivity(latest, models, "claude"), "codex::gpt-6-sol");
 });
 
 test("keeps the exact model instead of replacing it with a runtime default", () => {
@@ -37,7 +37,7 @@ test("missing or unknown exact models fall back to Opus for Claude and Astra for
 });
 
 test("uses an exact stored selection when the model field is missing", () => {
-  assert.equal(modelFromActivity({ ...base, runtime: "codex", modelSelection: "codex::gpt-5.6-luna" }, models, "claude"), "codex::gpt-5.6-luna");
+  assert.equal(modelFromActivity({ ...base, runtime: "codex", modelSelection: "codex::gpt-6-luna" }, models, "claude"), "codex::gpt-6-luna");
 });
 
 

@@ -578,7 +578,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   );
 
   return (
-    <div className="terminal flex flex-col w-full h-full min-h-0 md:min-h-[300px] gap-2">
+    <div className="terminal flex flex-col w-full h-full min-h-0 gap-2">
       {compactNotice && (
         <div className="flex items-center gap-1.5 text-xs text-warning bg-warning/10 border border-warning/30 rounded-md px-2 py-1 shrink-0">
           <AlertTriangle size={12} />

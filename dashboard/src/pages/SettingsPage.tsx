@@ -320,11 +320,11 @@ export function SettingsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-text-muted mb-1">Modelo principal</label>
-                          <input type="text" value={p.opusModel} onChange={(e) => patchProfile(p.id, { opusModel: e.target.value })} placeholder="gpt-5.6-sol" className={inputMonoClass} />
+                          <input type="text" value={p.opusModel} onChange={(e) => patchProfile(p.id, { opusModel: e.target.value })} placeholder="gpt-6-sol" className={inputMonoClass} />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-text-muted mb-1">Modelo leve</label>
-                          <input type="text" value={p.haikuModel} onChange={(e) => patchProfile(p.id, { haikuModel: e.target.value })} placeholder="gpt-5.6-luna" className={inputMonoClass} />
+                          <input type="text" value={p.haikuModel} onChange={(e) => patchProfile(p.id, { haikuModel: e.target.value })} placeholder="gpt-6-luna" className={inputMonoClass} />
                         </div>
                       </div>
                     ) : (
