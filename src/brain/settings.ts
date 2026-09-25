@@ -5,6 +5,7 @@ import { DEFAULT_HALF_LIFE_DAYS, DEFAULT_SALIENCE_BONUS, DEFAULT_TYPE_WEIGHTS } 
 import { SCHEDULER_NAMES } from "./types.js";
 import { ROOT_TENANT } from "./tenants.js";
 import { slugify } from "./text.js";
+import { parseTargetKey } from "./claudemar/managed.js";
 import type {
   BrainAccount,
   BrainLlmProvider,
@@ -61,6 +62,7 @@ function defaults(): BrainSettings {
       distill: false,
       lint: false,
       freshness: true,
+      claudemar: false,
     },
     cadences: {
       gmailMs: 120_000,
@@ -72,6 +74,7 @@ function defaults(): BrainSettings {
       whatsappMs: 300_000,
       slackMs: 60_000,
       freshnessMs: 3_600_000,
+      claudemarMs: 120_000,
     },
     chatter: { minChars: 12, extraConfirmations: [], samplePerWeek: 20 },
     llm: {
@@ -96,6 +99,15 @@ function defaults(): BrainSettings {
       salienceBonus: DEFAULT_SALIENCE_BONUS,
     },
     jev: { triagePrefilter: true, triageMinConfidence: 0.8, selector: true, selectorThreshold: 0.5 },
+    claudemar: {
+      tenants: {},
+      excludedTargets: [],
+      transcripts: true,
+      orphanSessions: false,
+      includeOtherUsers: false,
+      pipeline: true,
+      commits: true,
+    },
   };
 }
 
@@ -199,6 +211,18 @@ function sanitizeHalfLives(
   return out;
 }
 
+const validTargetKey = (key: string): boolean => parseTargetKey(key) !== null;
+
+function sanitizeTargetTenants(raw: unknown): Record<string, string> {
+  if (!isPlainObject(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!validTargetKey(key) || typeof value !== "string" || !value.trim()) continue;
+    out[key] = slugify(value, 48);
+  }
+  return out;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -227,6 +251,7 @@ function sanitize(raw: unknown): BrainSettings {
   const bf = (r.backfill ?? {}) as Record<string, unknown>;
   const ret = (r.retrieval ?? {}) as Record<string, unknown>;
   const jev = (r.jev ?? {}) as Record<string, unknown>;
+  const cm = (r.claudemar ?? {}) as Record<string, unknown>;
   const providers = sanitizeProviders(llm.providers);
   return {
     schedulers: Object.fromEntries(
@@ -242,6 +267,7 @@ function sanitize(raw: unknown): BrainSettings {
       whatsappMs: num(cad.whatsappMs, d.cadences.whatsappMs, 60_000),
       slackMs: num(cad.slackMs, d.cadences.slackMs, 15_000),
       freshnessMs: num(cad.freshnessMs, d.cadences.freshnessMs, 300_000),
+      claudemarMs: num(cad.claudemarMs, d.cadences.claudemarMs, 30_000),
     },
     chatter: {
       minChars: num(chat.minChars, d.chatter.minChars),
@@ -292,6 +318,15 @@ function sanitize(raw: unknown): BrainSettings {
       selector: bool(jev.selector, d.jev.selector),
       selectorThreshold: ratio(jev.selectorThreshold, d.jev.selectorThreshold),
     },
+    claudemar: {
+      tenants: sanitizeTargetTenants(cm.tenants),
+      excludedTargets: [...new Set(strArr(cm.excludedTargets).filter(validTargetKey))],
+      transcripts: bool(cm.transcripts, d.claudemar.transcripts),
+      orphanSessions: bool(cm.orphanSessions, d.claudemar.orphanSessions),
+      includeOtherUsers: bool(cm.includeOtherUsers, d.claudemar.includeOtherUsers),
+      pipeline: bool(cm.pipeline, d.claudemar.pipeline),
+      commits: bool(cm.commits, d.claudemar.commits),
+    },
   };
 }
 
@@ -327,8 +362,14 @@ class BrainSettingsManager {
     return this.snapshot;
   }
 
+  /** Mapeamento de contexto e exclusão de alvos só mudam pela rota dedicada, que também re-contextualiza e expurga. */
   update(patch: unknown): BrainSettings {
     const merged = deepMerge(this.data as unknown as Record<string, unknown>, patch);
+    merged.claudemar = {
+      ...(merged.claudemar as Record<string, unknown>),
+      tenants: this.data.claudemar.tenants,
+      excludedTargets: this.data.claudemar.excludedTargets,
+    };
     this.data = sanitize(merged);
     this.touched();
     return clone(this.snapshot);
@@ -353,6 +394,22 @@ class BrainSettingsManager {
   removeAccount(email: string): void {
     const normalized = email.trim().toLowerCase();
     this.data.accounts = this.data.accounts.filter((a) => a.email !== normalized);
+    this.touched();
+  }
+
+  setClaudemarTenant(targetKey: string, tenantId: string | null): void {
+    if (!validTargetKey(targetKey)) throw new Error(`alvo inválido: ${targetKey}`);
+    const tenants = { ...this.data.claudemar.tenants };
+    if (tenantId && tenantId.trim()) tenants[targetKey] = slugify(tenantId, 48);
+    else delete tenants[targetKey];
+    this.data.claudemar.tenants = tenants;
+    this.touched();
+  }
+
+  setClaudemarExcluded(targetKey: string, excluded: boolean): void {
+    if (!validTargetKey(targetKey)) throw new Error(`alvo inválido: ${targetKey}`);
+    const rest = this.data.claudemar.excludedTargets.filter((key) => key !== targetKey);
+    this.data.claudemar.excludedTargets = excluded ? [...rest, targetKey] : rest;
     this.touched();
   }
 

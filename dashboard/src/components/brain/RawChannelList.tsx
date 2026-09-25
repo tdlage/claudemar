@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Mail, Calendar, MessageCircle, Hash, HardDrive } from "lucide-react";
+import { Mail, Calendar, MessageCircle, Hash, HardDrive, Bot } from "lucide-react";
 import { Card } from "../shared/Card";
 import { useBrainData } from "../../hooks/useBrain";
 import type { BrainChannelSummary } from "../../lib/types";
@@ -9,11 +9,13 @@ const CHANNEL_META: Record<string, { label: string; icon: typeof Mail }> = {
   calendar: { label: "Agenda", icon: Calendar },
   whatsapp: { label: "WhatsApp", icon: MessageCircle },
   slack: { label: "Slack", icon: Hash },
+  claudemar: { label: "Claudemar", icon: Bot },
 };
 
 const IDLE_HINT: Record<string, string> = {
   whatsapp: "conector disponível — pareie o número em Configurações",
   slack: "conector disponível — ligue o agendador em Configurações",
+  claudemar: "entra a cada nova execução; o histórico vem pelo backfill em Configurações",
 };
 
 export function RawChannelList() {
@@ -34,7 +36,7 @@ export function RawChannelList() {
   if (channels.length === 0) {
     return (
       <p className="text-sm text-text-muted py-8 text-center">
-        Nenhum dado ingerido ainda. Conecte uma conta Google em Configurações para começar.
+        Nenhum dado ingerido ainda. Conecte uma conta Google ou rode o backfill do claudemar em Configurações.
       </p>
     );
   }

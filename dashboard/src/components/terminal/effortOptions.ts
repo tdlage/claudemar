@@ -1,6 +1,6 @@
-import type { AgentRuntime } from "../../lib/types";
+import type { AgentRuntime, Effort } from "../../lib/types";
 
-export type Effort = "minimal" | "low" | "medium" | "high" | "extra" | "max" | "ultracode";
+export type { Effort };
 export type EffortSelection = Effort | "auto";
 
 export interface EffortOption {

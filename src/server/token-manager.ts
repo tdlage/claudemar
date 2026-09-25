@@ -35,6 +35,10 @@ class TokenManager extends EventEmitter {
     return this.currentToken;
   }
 
+  getActiveTokens(): string[] {
+    return [config.dashboardToken, this.currentToken, this.previousToken].filter((t): t is string => Boolean(t));
+  }
+
   validate(candidate: string): boolean {
     if (!candidate) return false;
 

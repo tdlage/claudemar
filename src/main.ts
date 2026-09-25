@@ -18,10 +18,8 @@ import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
 import { secretsManager } from "./secrets-manager.js";
-import { runTrackerMigrations } from "./tracker-migration.js";
 import { runPipelineMigrations } from "./pipeline-migration.js";
 import { runDataMigrations } from "./data-migration.js";
-import { initTrackerExecutionBridge } from "./tracker-execution-bridge.js";
 import { initPipelineRunner } from "./pipeline-runner.js";
 import { initClaudeAuthWatch } from "./claude/claude-auth-state.js";
 import { ensureMemoryReady } from "./memory/session-memory.js";
@@ -53,9 +51,6 @@ ensureCredentialsDir();
 generateSendEmailScript();
 ensureAllAgentGitRepos();
 cleanupLegacyMailboxes();
-await runTrackerMigrations().catch((err) => {
-  console.error("[tracker] Migration failed (MySQL may not be configured):", err.message);
-});
 await runPipelineMigrations().catch((err) => {
   console.error("[pipeline] Migration failed (MySQL may not be configured):", err.message);
 });
@@ -69,7 +64,6 @@ await sessionNamesManager.initialize();
 await commandQueue.initialize();
 await runProcessManager.initialize();
 await executionManager.loadRecent();
-await initTrackerExecutionBridge();
 initClaudeAuthWatch();
 await initPipelineRunner().catch((err) => {
   console.error("[pipeline] Runner init failed:", err instanceof Error ? err.message : String(err));

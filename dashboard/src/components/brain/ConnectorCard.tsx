@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { Mail, Calendar, Inbox, Filter, Hammer, Pause, Play, RefreshCw, MessageCircle, Hash } from "lucide-react";
+import { Mail, Calendar, Inbox, Filter, Hammer, Pause, Play, RefreshCw, MessageCircle, Hash, Bot } from "lucide-react";
 import { Card } from "../shared/Card";
 import { Badge } from "../shared/Badge";
 import { tenantVariant } from "../../lib/tenantVariant";
@@ -16,6 +16,7 @@ const ICONS: Record<string, typeof Mail> = {
   compile: Hammer,
   whatsapp: MessageCircle,
   slack: Hash,
+  claudemar: Bot,
 };
 
 const LABELS: Record<string, string> = {
@@ -26,6 +27,7 @@ const LABELS: Record<string, string> = {
   compile: "Compilação",
   whatsapp: "WhatsApp",
   slack: "Slack",
+  claudemar: "Claudemar",
 };
 
 export function ConnectorCard({

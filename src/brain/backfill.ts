@@ -29,6 +29,13 @@ import {
 import { quarantineWrite } from "./quarantine.js";
 import { brainEvents, emitActivity } from "./events.js";
 import { getBackfillState, idleBackfillState } from "./status.js";
+import {
+  backfillClaudemarExtras,
+  backfillExecutionsWindow,
+  estimateClaudemarExecutions,
+  monthWindows,
+  prepareLiveCursor,
+} from "./claudemar/connector.js";
 import type { BackfillState } from "./types.js";
 
 const DONE_KEY = "brain:backfill:done";
@@ -86,12 +93,64 @@ async function drainIngest(): Promise<void> {
   }
 }
 
+function rawWindowStart(monthsRaw: number): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsRaw, 1)).toISOString();
+}
+
+async function runClaudemarRaw(state: BackfillState): Promise<void> {
+  const redis = getRedis();
+  const since = rawWindowStart(state.monthsRaw);
+  state.progress.currentAccount = "claudemar";
+  await prepareLiveCursor(state.startedAt ?? new Date().toISOString());
+  for (const window of monthWindows(since)) {
+    if (await cancelRequested()) return;
+    const month = window.from.slice(0, 7);
+    const unit = `claudemar|${month}`;
+    state.progress.currentMonth = month;
+    if ((await redis.sismember(DONE_KEY, unit)) === 1) {
+      state.progress.processed += 1;
+      continue;
+    }
+    state.progress.detail = `claudemar: execuções de ${month}`;
+    await persist(state);
+    try {
+      await backfillExecutionsWindow(window.from, window.to, cancelRequested);
+      await drainIngest();
+      if (!(await cancelRequested())) await redis.sadd(DONE_KEY, unit);
+    } catch (err) {
+      state.error = `claudemar ${month}: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    state.progress.processed += 1;
+    await persist(state);
+  }
+
+  const extras = "claudemar|extras";
+  if ((await redis.sismember(DONE_KEY, extras)) !== 1 && !(await cancelRequested())) {
+    try {
+      await backfillClaudemarExtras(since, cancelRequested, async (detail) => {
+        state.progress.detail = detail;
+        await persist(state);
+      });
+      await drainIngest();
+      if (!(await cancelRequested())) await redis.sadd(DONE_KEY, extras);
+    } catch (err) {
+      state.error = `claudemar: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+  state.progress.processed += 1;
+  state.progress.currentAccount = null;
+  state.progress.currentMonth = null;
+  await persist(state);
+}
+
 async function runRawPhase(state: BackfillState): Promise<void> {
   const redis = getRedis();
   state.phase = "raw";
   const months = monthsBetween(state.monthsRaw);
   const accounts = state.accounts;
-  state.progress.total = accounts.length * months.length + accounts.length;
+  const claudemarUnits = state.claudemar ? monthWindows(rawWindowStart(state.monthsRaw)).length + 1 : 0;
+  state.progress.total = accounts.length * months.length + accounts.length + claudemarUnits;
   state.progress.processed = 0;
 
   for (const account of accounts) {
@@ -138,6 +197,7 @@ async function runRawPhase(state: BackfillState): Promise<void> {
   }
   state.progress.currentAccount = null;
   state.progress.currentMonth = null;
+  if (state.claudemar && !(await cancelRequested())) await runClaudemarRaw(state);
 }
 
 async function waitForBatch(stage: "triage" | "compile", batchId: string, state: BackfillState): Promise<boolean> {
@@ -370,6 +430,8 @@ export async function startBackfill(params: {
   monthsRaw?: number;
   monthsCompile?: number;
   accounts?: string[];
+  google?: boolean;
+  claudemar?: boolean;
 }): Promise<BackfillState | { error: string }> {
   if (running) return { error: "backfill já em execução" };
   running = true;
@@ -381,19 +443,23 @@ export async function startBackfill(params: {
     }
 
     const settings = brainSettingsManager.get();
-    const connected = listConnectedEmails();
+    const connected = params.google === false ? [] : listConnectedEmails();
     const accounts =
       params.accounts && params.accounts.length > 0
         ? params.accounts.filter((a) => connected.includes(a.toLowerCase()))
         : connected;
-    if (accounts.length === 0) {
+    const claudemar = params.claudemar === true;
+    if (accounts.length === 0 && !claudemar) {
       running = false;
-      return { error: "nenhuma conta Google conectada" };
+      return {
+        error: params.google === false ? "nenhuma fonte selecionada" : "nenhuma conta Google conectada",
+      };
     }
 
     const paramsChanged =
       previous.monthsRaw !== (params.monthsRaw ?? settings.backfill.monthsRaw) ||
-      previous.accounts.join(",") !== accounts.join(",");
+      previous.accounts.join(",") !== accounts.join(",") ||
+      previous.claudemar !== claudemar;
     if (previous.status === "done" || paramsChanged) {
       await getRedis().del(DONE_KEY).catch(() => {});
     }
@@ -402,6 +468,7 @@ export async function startBackfill(params: {
       ...idleBackfillState(),
       status: "running",
       accounts,
+      claudemar,
       monthsRaw: params.monthsRaw ?? settings.backfill.monthsRaw,
       monthsCompile: params.monthsCompile ?? settings.backfill.monthsCompile,
       startedAt: new Date().toISOString(),
@@ -410,7 +477,7 @@ export async function startBackfill(params: {
     await persist(state);
     emitActivity({
       kind: "backfill",
-      label: `backfill iniciado (${accounts.length} conta(s), ${state.monthsRaw}m raw)`,
+      label: `backfill iniciado (${accounts.length} conta(s)${claudemar ? " + claudemar" : ""}, ${state.monthsRaw}m raw)`,
     });
     void runBackfill(state);
     return state;
@@ -440,9 +507,10 @@ export interface BackfillEstimate {
   estimatedCostUsd: number;
   triageBatch: boolean;
   compileBatch: boolean;
+  claudemarExecutions: number | null;
 }
 
-export async function estimateBackfill(monthsCompile: number): Promise<BackfillEstimate> {
+export async function estimateBackfill(monthsCompile: number, monthsRaw: number): Promise<BackfillEstimate> {
   const settings = brainSettingsManager.get();
   const scan = await scanRawThreads();
   const untriaged = scan.filter((i) => i.relevance === null).length;
@@ -458,11 +526,13 @@ export async function estimateBackfill(monthsCompile: number): Promise<BackfillE
   const compileBatch = stageSupportsBatch("compile");
   const triageCost = untriaged * 0.003 * (triageBatch ? 0.5 : 1);
   const compileCost = compilable * 0.045 * (compileBatch ? 0.5 : 1);
+  const claudemarExecutions = await estimateClaudemarExecutions(rawWindowStart(monthsRaw)).catch(() => null);
   return {
     untriaged,
     compilable,
     estimatedCostUsd: Math.round((triageCost + compileCost) * 100) / 100,
     triageBatch,
     compileBatch,
+    claudemarExecutions,
   };
 }

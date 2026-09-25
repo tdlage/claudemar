@@ -13,6 +13,7 @@ const LABELS: Record<BrainSchedulerName, { label: string; hint: string }> = {
   distill: { label: "Distilação", hint: "extrai lições de threads encerradas para wiki/lessons — usa LLM" },
   lint: { label: "Lint semanal", hint: "relatório de saúde do wiki em state/lint — propõe, não altera" },
   freshness: { label: "FreshnessWatch", hint: "vigia heartbeats, filas e conectores mudos; gera alertas" },
+  claudemar: { label: "Claudemar", hint: "execuções, transcripts, tarefas e commits dos projetos e agentes" },
 };
 
 const CADENCE_KEYS: Partial<Record<BrainSchedulerName, keyof BrainSettings["cadences"]>> = {
@@ -25,6 +26,7 @@ const CADENCE_KEYS: Partial<Record<BrainSchedulerName, keyof BrainSettings["cade
   whatsapp: "whatsappMs",
   slack: "slackMs",
   freshness: "freshnessMs",
+  claudemar: "claudemarMs",
 };
 
 const FIXED_TIMES: Partial<Record<BrainSchedulerName, string>> = {

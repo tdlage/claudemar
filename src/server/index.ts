@@ -1,14 +1,13 @@
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import rateLimit from "express-rate-limit";
 import { Server as SocketServer } from "socket.io";
-import { config } from "../config.js";
 import { authMiddleware, requireAdmin, securityHeaders } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { setupWebSocket } from "./websocket.js";
-import { verifyUploadSignature } from "../upload-signer.js";
+import { EVIDENCE_DIR, EVIDENCE_FILE_PREFIX, EVIDENCE_ROUTE, LEGACY_EVIDENCE_ROUTE, verifyUploadSignature } from "../upload-signer.js";
 import { agentsRouter } from "./routes/agents.js";
 import { projectsRouter } from "./routes/projects.js";
 import { executionsRouter } from "./routes/executions.js";
@@ -21,10 +20,10 @@ import { transcriptionRouter } from "./routes/transcription.js";
 import { usersRouter } from "./routes/users.js";
 import { authRouter, authPublicRouter } from "./routes/auth.js";
 import { settingsRouter } from "./routes/settings.js";
-import { trackerRouter } from "./routes/tracker.js";
 import { pipelineRouter } from "./routes/pipeline.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { brainRouter, brainPublicRouter, whatsappWebhookHandler } from "./routes/brain.js";
+import { brainMcpRoute } from "../brain/external-mcp.js";
 
 export function createDashboardServer() {
   const app = express();
@@ -53,15 +52,14 @@ export function createDashboardServer() {
     message: { error: "Too many requests, please try again later" },
   });
 
-  app.get("/files/tracker/:filename", (req, res) => {
+  app.get(`${EVIDENCE_ROUTE}/:filename`, (req, res) => {
     const { exp, sig } = req.query as { exp?: string; sig?: string };
     if (!exp || !sig || !verifyUploadSignature(req.params.filename, exp, sig)) {
       res.status(403).json({ error: "Invalid or expired signature" });
       return;
     }
-    const uploadsDir = resolve(config.dataPath, "tracker-uploads");
-    const filePath = resolve(uploadsDir, req.params.filename);
-    if (!filePath.startsWith(uploadsDir) || !existsSync(filePath)) {
+    const filePath = resolve(EVIDENCE_DIR, req.params.filename);
+    if (!filePath.startsWith(EVIDENCE_DIR + sep) || !existsSync(filePath)) {
       res.status(404).json({ error: "File not found" });
       return;
     }
@@ -72,6 +70,16 @@ export function createDashboardServer() {
         res.status(500).json({ error: "Failed to serve file" });
       }
     });
+  });
+
+  app.get(`${LEGACY_EVIDENCE_ROUTE}/:filename`, (req, res) => {
+    const filename = req.params.filename;
+    if (!filename.startsWith(EVIDENCE_FILE_PREFIX)) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
+    const query = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
+    res.redirect(308, `${EVIDENCE_ROUTE}/${encodeURIComponent(filename)}${query}`);
   });
 
   app.use("/webhooks", express.raw({ type: "application/json" }), webhooksRouter);
@@ -86,6 +94,7 @@ export function createDashboardServer() {
   app.use("/api/auth", jsonParser, authPublicRouter);
   app.post("/api/brain/whatsapp/webhook", express.raw({ type: "*/*", limit: "2mb" }), whatsappWebhookHandler);
   app.use("/api/brain", brainPublicRouter);
+  app.all("/api/brain/mcp", ...brainMcpRoute);
   app.use("/api", authMiddleware);
 
   app.use("/api/auth", jsonParser, authRouter);
@@ -103,7 +112,6 @@ export function createDashboardServer() {
   app.post("/api/brain/whatsapp/import", requireAdmin, brainJsonParser);
   app.use("/api/brain", requireAdmin, jsonParser, brainRouter);
   app.use("/api/transcribe", transcriptionRouter);
-  app.use("/api/tracker", express.json({ limit: "150mb" }), trackerRouter);
   // Acesso por projeto (admin ou user com a aba "pipeline" habilitada) é validado nos
   // param middlewares do próprio pipelineRouter.
   app.use("/api/pipeline", express.json({ limit: "150mb" }), pipelineRouter);

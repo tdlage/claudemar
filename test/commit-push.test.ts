@@ -23,12 +23,12 @@ async function fixture() {
 }
 const opts = (cwd: string) => ({ cwd, signal: new AbortController().signal, progress: () => {}, generate: async () => ({ message: "feat: add content $(touch never-execute)", tokens: 5 }) });
 
-test("commits and pushes once, preserves refs, and retry with no changes skips generation", async () => {
+test("commits and pushes once, and retry with no changes skips generation", async () => {
   const cwd = await fixture();
   let calls = 0;
-  const options = { ...opts(cwd), refs: ["APP-1"], generate: async () => { calls++; return opts(cwd).generate(); } };
+  const options = { ...opts(cwd), generate: async () => { calls++; return opts(cwd).generate(); } };
   assert.equal(await runCommitPush(options), 5);
-  assert.equal(git(cwd, "log", "-1", "--format=%B"), "feat: add content $(touch never-execute)\n\nRefs: APP-1");
+  assert.equal(git(cwd, "log", "-1", "--format=%B"), "feat: add content $(touch never-execute)");
   assert.equal(git(`${cwd}/remote.git`, "rev-parse", "refs/heads/main"), git(cwd, "rev-parse", "HEAD"));
   assert.equal(git(cwd, "status", "--porcelain"), "");
   await runCommitPush(options);

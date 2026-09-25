@@ -4,7 +4,7 @@ import { usersManager, DEFAULT_PROJECT_TABS, type ProjectTabKey } from "../users
 
 export type RequestContext =
   | { role: "admin" }
-  | { role: "user"; userId: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[]; projectTabs: Record<string, ProjectTabKey[]> };
+  | { role: "user"; userId: string; name: string; projects: string[]; agents: string[]; projectTabs: Record<string, ProjectTabKey[]> };
 
 // Abas visíveis de um projeto para o contexto: admin vê tudo; user vê o configurado
 // (ou o default histórico terminal/input/output quando não há configuração).
@@ -30,7 +30,7 @@ export function resolveContext(token: string): RequestContext | null {
   if (tokenManager.validate(token)) return { role: "admin" };
   const user = token ? usersManager.findByToken(token) : null;
   if (user) {
-    return { role: "user", userId: user.id, name: user.name, projects: user.projects, agents: user.agents, trackerProjects: user.trackerProjects, projectTabs: user.projectTabs };
+    return { role: "user", userId: user.id, name: user.name, projects: user.projects, agents: user.agents, projectTabs: user.projectTabs };
   }
   return null;
 }

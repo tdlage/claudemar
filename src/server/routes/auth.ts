@@ -59,7 +59,6 @@ authRouter.get("/me", (req, res) => {
     name: ctx.name,
     projects: ctx.projects,
     agents: ctx.agents,
-    trackerProjects: ctx.trackerProjects,
     projectTabs: ctx.projectTabs,
   });
 });

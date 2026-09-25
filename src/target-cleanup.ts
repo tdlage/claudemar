@@ -3,6 +3,7 @@ import { config } from "./config.js";
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { execute } from "./database.js";
+import { likeEscape } from "./history.js";
 import { executionManager } from "./execution-manager.js";
 import { commandQueue } from "./queue.js";
 import { deleteMemoryForTarget } from "./memory/session-memory.js";
@@ -12,6 +13,13 @@ import { runProcessManager } from "./run-process-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
 import { usersManager } from "./users-manager.js";
 import { REPO_WORKTREES_ROOT, hiddenReposPath } from "./repositories.js";
+import { purgeTarget } from "./brain/claudemar/purge.js";
+
+async function purgeBrainTarget(target: { kind: "project" | "agent"; name: string }): Promise<void> {
+  await purgeTarget(target).catch((err) => {
+    console.error(`[cleanup] falha ao remover ${target.kind} ${target.name} do Second Brain:`, err instanceof Error ? err.message : String(err));
+  });
+}
 
 function cancelActiveExecutions(targetType: string, targetName: string): void {
   for (const exec of executionManager.getActiveExecutions()) {
@@ -49,7 +57,7 @@ export async function purgeProjectData(projectName: string): Promise<void> {
 
   await execute(
     "DELETE FROM execution_history WHERE target_type = 'project' AND (target_name = ? OR target_name LIKE ?)",
-    [projectName, `__commitpush:${projectName}:%`],
+    [projectName, `${likeEscape(`__commitpush:${projectName}:`)}%`],
   );
   await execute("DELETE FROM user_projects WHERE project_name = ?", [projectName]);
   await execute("DELETE FROM user_project_tabs WHERE project_name = ?", [projectName]);
@@ -60,6 +68,7 @@ export async function purgeProjectData(projectName: string): Promise<void> {
   projectSettingsManager.removeProject(projectName);
   await rm(resolve(REPO_WORKTREES_ROOT, projectName), { recursive: true, force: true });
   await deleteMemoryForTarget({ targetType: "project", targetName: projectName });
+  await purgeBrainTarget({ kind: "project", name: projectName });
 }
 
 export async function purgeAgentData(agentName: string): Promise<void> {
@@ -77,4 +86,5 @@ export async function purgeAgentData(agentName: string): Promise<void> {
   await usersManager.reload();
 
   await deleteMemoryForTarget({ targetType: "agent", targetName: agentName });
+  await purgeBrainTarget({ kind: "agent", name: agentName });
 }

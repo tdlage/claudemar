@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Bot, Folder, House, KanbanSquare, Menu } from "lucide-react";
+import { Bot, Folder, House, Menu } from "lucide-react";
 import { isAdmin } from "../../hooks/useAuth";
 import { useSidebar } from "./Sidebar";
 
@@ -10,7 +10,6 @@ export function MobileNavigation() {
     { to: isAdmin() ? "/" : "/workspaces", label: "Início", icon: House, active: pathname === "/" || pathname === "/workspaces" },
     { to: "/workspaces/projects", label: "Projetos", icon: Folder, active: pathname.startsWith("/projects/") || pathname === "/workspaces/projects" },
     { to: "/workspaces/agents", label: "Agentes", icon: Bot, active: pathname.startsWith("/agents/") || pathname === "/workspaces/agents" },
-    { to: "/tracker", label: "Tarefas", icon: KanbanSquare, active: pathname.startsWith("/tracker") },
   ];
   return (
     <nav aria-label="Navegação principal" className="mobile-navigation">

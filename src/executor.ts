@@ -1,8 +1,6 @@
 import { spawn } from "node:child_process";
 import { config } from "./config.js";
 
-export type { AskQuestion } from "./providers/types.js";
-
 interface ShellResult {
   output: string;
   exitCode: number;

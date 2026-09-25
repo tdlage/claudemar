@@ -1,4 +1,4 @@
-export type BrainChannel = "email" | "calendar" | "whatsapp" | "slack" | "drive";
+export type BrainChannel = "email" | "calendar" | "whatsapp" | "slack" | "drive" | "claudemar";
 export type BrainSubchannel = "direct" | "group";
 /** Id de contexto no registry dinâmico (state/contexts.md), inferido pela triagem. */
 export type BrainTenant = string;
@@ -218,6 +218,7 @@ export interface BrainSettings {
     distill: boolean;
     lint: boolean;
     freshness: boolean;
+    claudemar: boolean;
   };
   cadences: {
     gmailMs: number;
@@ -229,6 +230,7 @@ export interface BrainSettings {
     whatsappMs: number;
     slackMs: number;
     freshnessMs: number;
+    claudemarMs: number;
   };
   chatter: {
     minChars: number;
@@ -264,6 +266,18 @@ export interface BrainSettings {
   };
   retrieval: BrainRetrievalSettings;
   jev: BrainJevSettings;
+  claudemar: BrainClaudemarSettings;
+}
+
+export interface BrainClaudemarSettings {
+  /** targetKey ("orchestrator", "project:<nome>", "agent:<nome>") → id do contexto. */
+  tenants: Record<string, string>;
+  excludedTargets: string[];
+  transcripts: boolean;
+  orphanSessions: boolean;
+  includeOtherUsers: boolean;
+  pipeline: boolean;
+  commits: boolean;
 }
 
 export interface BrainJevSettings {
@@ -286,6 +300,7 @@ export const SCHEDULER_NAMES = [
   "distill",
   "lint",
   "freshness",
+  "claudemar",
 ] as const;
 
 export type BrainSchedulerName = (typeof SCHEDULER_NAMES)[number];
@@ -326,6 +341,7 @@ export interface BackfillState {
   status: "idle" | "running" | "done" | "error" | "cancelled";
   phase: "raw" | "triage" | "compile" | null;
   accounts: string[];
+  claudemar: boolean;
   monthsRaw: number;
   monthsCompile: number;
   startedAt: string | null;

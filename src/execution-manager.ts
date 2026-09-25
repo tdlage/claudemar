@@ -9,7 +9,7 @@ import type { AgentSession, Effort, MessageBlock, PendingPermission, PermissionD
 import { createAgentSession } from "./runtime/create-session.js";
 import { isUltracode } from "./claude/options.js";
 import { resolveBypass, resolveStartPermissionMode } from "./claude/permission.js";
-import { formatToolUse } from "./providers/format.js";
+import { compactOutput, formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
 import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
@@ -52,11 +52,12 @@ export interface ExecutionInfo {
   planMode: boolean;
   resumeSessionId?: string | null;
   streamOffset: number;
+  effort?: Effort;
+  effortAuto?: boolean;
 }
 
 export interface StartExecutionOpts {
   taskMode?: "commit-push";
-  commitPushRefs?: string[];
   source: ExecutionSource;
   targetType: ExecutionTargetType;
   targetName: string;
@@ -74,6 +75,7 @@ export interface StartExecutionOpts {
   skipIsolationInstruction?: boolean;
   blocks?: MessageBlock[];
   effort?: Effort;
+  effortAuto?: boolean;
   autoApprove?: boolean;
   permissionMode?: PermissionMode;
   schedulerMode?: boolean;
@@ -94,9 +96,7 @@ const DEFAULT_MODEL = DEFAULT_PROJECT_MODEL;
 function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<HistoryEntry, "costUsd" | "totalTokens" | "durationMs">>): HistoryEntry {
   const durationMs = overrides?.durationMs
     ?? (info.completedAt ? info.completedAt.getTime() - info.startedAt.getTime() : 0);
-  const output = info.output.length > MAX_PERSISTED_OUTPUT
-    ? info.output.slice(0, MAX_PERSISTED_OUTPUT) + "\n...(truncated)"
-    : info.output;
+  const output = compactOutput(info.output, MAX_PERSISTED_OUTPUT);
   return {
     id: info.id,
     prompt: info.prompt,
@@ -117,6 +117,8 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
     sessionId: info.result?.sessionId || undefined,
     planMode: info.planMode || undefined,
     username: info.username || undefined,
+    effort: info.effort,
+    effortAuto: info.effortAuto || undefined,
   };
 }
 
@@ -292,7 +294,6 @@ export class ExecutionManager extends EventEmitter {
     const bypass = resolveBypass(opts);
     const session = createAgentSession({
       taskMode: opts.taskMode,
-      commitPushRefs: opts.commitPushRefs,
       profile,
       cwd: opts.cwd,
       model,
@@ -392,6 +393,8 @@ export class ExecutionManager extends EventEmitter {
       planMode: opts.planMode ?? false,
       resumeSessionId: null,
       streamOffset: 0,
+      effort: opts.effort,
+      effortAuto: opts.effort ? opts.effortAuto === true : undefined,
     };
 
     const sessionKey = this.userTargetKey(opts.targetType, opts.targetName, opts.username);
@@ -468,11 +471,18 @@ export class ExecutionManager extends EventEmitter {
 
   private wireSession(entry: ActiveEntry): void {
     const { info, session } = entry;
+    let compactAt = MAX_STREAM_OUTPUT;
+    const appendOutput = (text: string) => {
+      info.output += text;
+      if (info.output.length <= compactAt) return;
+      info.output = compactOutput(info.output, MAX_STREAM_OUTPUT / 2);
+      compactAt = Math.max(MAX_STREAM_OUTPUT, info.output.length + MAX_STREAM_OUTPUT / 2);
+    };
 
     const onChunk = (chunk: string) => {
       const offset = info.streamOffset;
       info.streamOffset += chunk.length;
-      if (info.output.length < MAX_STREAM_OUTPUT) info.output += chunk;
+      appendOutput(chunk);
       this.emit("output", info.id, chunk, offset);
     };
     const onThinking = (chunk: string) => this.emit("thinking", info.id, chunk);
@@ -480,7 +490,7 @@ export class ExecutionManager extends EventEmitter {
       const formatted = formatToolUse(name, toolInput);
       const offset = info.streamOffset;
       info.streamOffset += formatted.length;
-      if (info.output.length < MAX_STREAM_OUTPUT) info.output += formatted;
+      appendOutput(formatted);
       this.emit("output", info.id, formatted, offset);
       this.emit("tool", info.id, name, toolInput, name);
     };
@@ -724,10 +734,12 @@ export class ExecutionManager extends EventEmitter {
     return true;
   }
 
-  async setEffort(id: string, effort: Effort): Promise<boolean> {
+  async setEffort(id: string, effort: Effort, auto = false): Promise<boolean> {
     const entry = this.active.get(id);
     if (!entry) return false;
     await entry.session.setEffort(effort);
+    entry.info.effort = effort;
+    entry.info.effortAuto = auto;
     return true;
   }
 
@@ -899,6 +911,8 @@ export class ExecutionManager extends EventEmitter {
       planMode: e.planMode ?? false,
       username: e.username,
       streamOffset: (e.output ?? "").length,
+      effort: e.effort,
+      effortAuto: e.effortAuto,
     }));
 
     for (const e of entries) {
@@ -917,9 +931,7 @@ export class ExecutionManager extends EventEmitter {
       this.retiredSessions.delete(entry.session);
       entry.session.end();
     }
-    if (entry.info.output.length > MAX_MEMORY_OUTPUT) {
-      entry.info.output = entry.info.output.slice(0, MAX_MEMORY_OUTPUT) + "\n...(truncated)";
-    }
+    entry.info.output = compactOutput(entry.info.output, MAX_MEMORY_OUTPUT);
     this.recent.push(entry.info);
     if (this.recent.length > MAX_RECENT) this.recent.shift();
   }

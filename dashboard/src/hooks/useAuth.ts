@@ -38,12 +38,6 @@ export async function refreshMe(): Promise<MeResponse | null> {
   }
 }
 
-export function canEditTrackerProject(projectId: string): boolean {
-  const me = getMe();
-  if (!me || me.role === "admin") return true;
-  return me.trackerProjects.includes(projectId);
-}
-
 export function useAuth() {
   const [token, setTokenState] = useState(() =>
     localStorage.getItem("dashboard_token") || "",

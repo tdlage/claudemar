@@ -9,6 +9,7 @@ import { emitActivity } from "./events.js";
 import { ensureTenant, resolveTenantName, ROOT_TENANT, tenantRegistryPrompt } from "./tenants.js";
 import { brainSchedulers } from "./schedulers.js";
 import { jevLowValueVerdict, jevTriageEnabled } from "./jev.js";
+import { CLAUDEMAR_TRIAGE_SYSTEM, claudemarThreadTenant, claudemarTriageInput } from "./claudemar/prompts.js";
 import type { BrainChannel, BrainTenant, TriageResult } from "./types.js";
 
 const MAX_ATTEMPTS = 5;
@@ -93,6 +94,7 @@ export function channelOfThreadKey(threadKey: string): BrainChannel {
   if (threadKey.startsWith("gcal:")) return "calendar";
   if (threadKey.startsWith("wa:")) return "whatsapp";
   if (threadKey.startsWith("slack:")) return "slack";
+  if (threadKey.startsWith("cm:")) return "claudemar";
   return "email";
 }
 
@@ -108,6 +110,21 @@ export async function buildTriageRequest(threadKey: string): Promise<BuiltTriage
   if (!relPath) return null;
   const thread = await readThread(relPath);
   if (!thread) return null;
+
+  if (thread.frontmatter.channel === "claudemar") {
+    const input = await claudemarTriageInput(thread);
+    return {
+      relPath,
+      conversation: input.conversation,
+      tenantHint: input.tenant,
+      request: {
+        system: [{ text: CLAUDEMAR_TRIAGE_SYSTEM, cacheable: true }],
+        user: input.user,
+        schema: TRIAGE_JSON_SCHEMA,
+        maxTokens: 1024,
+      },
+    };
+  }
 
   const settings = brainSettingsManager.get();
   const account = settings.accounts.find((a) => a.email === thread.frontmatter.account.toLowerCase());
@@ -148,9 +165,12 @@ export async function buildTriageRequest(threadKey: string): Promise<BuiltTriage
   };
 }
 
-/** Pré-filtro pelo Jev: threads de baixo valor são anotadas sem LLM; as demais seguem para a triagem completa. */
+/**
+ * Pré-filtro pelo Jev: threads de baixo valor são anotadas sem LLM; as demais seguem para a triagem completa.
+ * O canal claudemar não passa por ele: pedidos, respostas e comandos dos agentes não vão para o revendedor do Jev.
+ */
 export async function prefilterTriage(threadKey: string, built: BuiltTriage): Promise<boolean> {
-  if (!jevTriageEnabled()) return false;
+  if (!jevTriageEnabled() || channelOfThreadKey(threadKey) === "claudemar") return false;
   let verdict;
   try {
     verdict = await jevLowValueVerdict(built.conversation);
@@ -247,7 +267,9 @@ export async function resolveTriageTenant(
 export async function applyTriageResult(threadKey: string, relPath: string, result: TriageResult, model?: string): Promise<void> {
   const settings = brainSettingsManager.get();
   const thread = await readThread(relPath);
-  const tenant = await resolveTriageTenant(result, thread?.frontmatter.participants ?? []);
+  const tenant = thread?.frontmatter.channel === "claudemar"
+    ? await claudemarThreadTenant(thread.frontmatter)
+    : await resolveTriageTenant(result, thread?.frontmatter.participants ?? []);
   await annotateTriage(relPath, {
     ...result,
     tenant,

@@ -147,7 +147,6 @@ describe("workspace creation", () => {
         role: "user",
         projects: [],
         agents: [],
-        trackerProjects: [],
       }),
     );
     render(

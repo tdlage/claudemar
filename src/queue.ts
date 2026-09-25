@@ -23,6 +23,7 @@ export interface QueueItem {
   skipSystemPrompt?: boolean;
   skipIsolationInstruction?: boolean;
   effort?: Effort;
+  effortAuto?: boolean;
   enqueuedAt: string;
   telegramChatId?: number;
 }
@@ -44,6 +45,7 @@ interface QueueRow extends RowDataPacket {
   skip_system_prompt: number;
   skip_isolation_instruction: number;
   effort: string | null;
+  effort_auto: number;
   enqueued_at: string | Date;
   telegram_chat_id: number | null;
 }
@@ -67,6 +69,7 @@ function rowToItem(row: QueueRow): QueueItem {
     skipSystemPrompt: row.skip_system_prompt === 1 ? true : undefined,
     skipIsolationInstruction: row.skip_isolation_instruction === 1,
     effort: (row.effort as Effort) ?? undefined,
+    effortAuto: row.effort_auto === 1 ? true : undefined,
     enqueuedAt,
     telegramChatId: row.telegram_chat_id ?? undefined,
   };
@@ -99,13 +102,13 @@ class CommandQueue extends EventEmitter {
     const enqueuedAt = new Date().toISOString();
 
     const result = await execute(
-      `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, permission_mode, agent_name, username, skip_system_prompt, skip_isolation_instruction, effort, enqueued_at, telegram_chat_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, permission_mode, agent_name, username, skip_system_prompt, skip_isolation_instruction, effort, effort_auto, enqueued_at, telegram_chat_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, opts.targetType, opts.targetName, opts.prompt, opts.source, opts.cwd,
        opts.resumeSessionId ?? null, opts.model ?? null, opts.planMode ? 1 : 0,
        opts.permissionMode ?? null,
        opts.agentName ?? null, opts.username ?? null,
-       opts.skipSystemPrompt ? 1 : 0, opts.skipIsolationInstruction === true && opts.username === "admin" ? 1 : 0, opts.effort ?? null,
+       opts.skipSystemPrompt ? 1 : 0, opts.skipIsolationInstruction === true && opts.username === "admin" ? 1 : 0, opts.effort ?? null, opts.effortAuto ? 1 : 0,
        toMySQLDatetime(enqueuedAt), opts.telegramChatId ?? null],
     );
 

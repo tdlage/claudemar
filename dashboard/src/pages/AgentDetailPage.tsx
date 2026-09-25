@@ -118,6 +118,7 @@ export function AgentDetailPage() {
         permissionMode: opts.permissionMode,
         skipIsolationInstruction: opts.skipIsolationInstruction,
         effort: opts.effort,
+        effortAuto: opts.effortAuto,
         model: opts.model,
         forceQueue: sequential || undefined,
         skipSystemPrompt: !sendSystemPrompt || undefined,

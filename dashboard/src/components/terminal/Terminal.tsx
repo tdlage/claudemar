@@ -95,6 +95,7 @@ export interface StartOpts {
   planMode: boolean;
   permissionMode: PermissionMode;
   effort?: Effort;
+  effortAuto?: boolean;
 }
 
 interface UserMessage {
@@ -443,7 +444,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     };
   }, [addToast]);
 
-  const recommendEffort = useCallback(async (prompt: string, target: ExecutionTarget, manual: Effort | null): Promise<{ effort: Effort; note?: string } | null> => {
+  const recommendEffort = useCallback(async (prompt: string, target: ExecutionTarget, manual: Effort | null): Promise<{ effort: Effort; auto: boolean; note?: string } | null> => {
     const runtime = activeRuntime;
     const fallback = manual ?? defaultEffortFor(runtime);
     let assessment: ComplexityAssessment;
@@ -451,13 +452,13 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
       assessment = await assessComplexity(prompt, runtime, target);
     } catch (err) {
       addToast("error", `Não foi possível avaliar a complexidade (${err instanceof Error ? err.message : String(err)}). Usando ${effortLabel(runtime, fallback)}.`);
-      return { effort: fallback };
+      return { effort: fallback, auto: false };
     }
     const chosen = manual === null || manual === assessment.effort
       ? assessment.effort
       : await new Promise<Effort | null>((resolve) => setEffortRecommendation({ assessment, selected: manual, runtime, resolve }));
     if (!chosen) return null;
-    return { effort: chosen, note: `Complexidade ${assessment.complexity}/5 · ${effortLabel(runtime, chosen)}${manual === null ? " (auto)" : ""}` };
+    return { effort: chosen, auto: manual === null, note: `Complexidade ${assessment.complexity}/5 · ${effortLabel(runtime, chosen)}${manual === null ? " (auto)" : ""}` };
   }, [activeRuntime, addToast]);
 
   const submit = useCallback(() => {
@@ -474,7 +475,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
       return;
     }
 
-    const dispatch = (chosenEffort: Effort | undefined, effortNote?: string) => {
+    const dispatch = (chosenEffort: Effort | undefined, effortAuto = false, effortNote?: string) => {
       if (!willQueue) {
         const msgId = counterRef.current++;
         setMessages((prev) => [...prev.slice(-29), { id: msgId, text: [visibleText, confidentialFile ? "[Arquivo confidencial anexado]" : ""].filter(Boolean).join("\n"), imageCount: images.length, effortNote }]);
@@ -483,14 +484,14 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
       if (injectIntoRunning) {
         const socket = getSocket();
         if (images.length > 0) {
-          socket.emit("execution:send", { execId: executionId, blocks: [...images, ...(text ? [{ type: "text" as const, text }] : [])], effort: chosenEffort });
+          socket.emit("execution:send", { execId: executionId, blocks: [...images, ...(text ? [{ type: "text" as const, text }] : [])], effort: chosenEffort, effortAuto });
         } else {
-          socket.emit("execution:send", { execId: executionId, text, effort: chosenEffort });
+          socket.emit("execution:send", { execId: executionId, text, effort: chosenEffort, effortAuto });
         }
       } else if (onStartRef.current) {
         const start = onStartRef.current;
         const m = modeRef.current;
-        const opts: StartOpts = { planMode: m === "plan", permissionMode: startPermissionMode(m), effort: chosenEffort, model: modelSelection.selected?.model, skipIsolationInstruction: admin && skipIsolationInstruction };
+        const opts: StartOpts = { planMode: m === "plan", permissionMode: startPermissionMode(m), effort: chosenEffort, effortAuto, model: modelSelection.selected?.model, skipIsolationInstruction: admin && skipIsolationInstruction };
         if (confidentialFile) {
           setSendingPrivate(true);
           void Promise.resolve().then(() => start(text, images, opts))
@@ -521,7 +522,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     }
     setAssessing(true);
     void recommendEffort(visibleText, target, manualEffort)
-      .then((choice) => { if (choice) dispatch(choice.effort, choice.note); })
+      .then((choice) => { if (choice) dispatch(choice.effort, choice.auto, choice.note); })
       .finally(() => setAssessing(false));
   }, [sendingPrivate, assessing, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, automaticEffortOnly, base, complexityEnabled, activeRuntime, recommendEffort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, addToast]);
 

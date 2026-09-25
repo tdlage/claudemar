@@ -18,11 +18,6 @@ import { ThemeToggle } from "../shared/ThemeToggle";
 import { Button } from "../shared/Button";
 import { useToast } from "../shared/Toast";
 import { OPEN_SEARCH_EVENT } from "../../lib/workspaceEvents";
-import type {
-  TrackerProject,
-  TrackerCycle,
-  TrackerItem,
-} from "../../lib/types";
 
 export function Header({ projectActionsRef }: { projectActionsRef: Ref<HTMLDivElement> }) {
   const location = useLocation();
@@ -31,8 +26,7 @@ export function Header({ projectActionsRef }: { projectActionsRef: Ref<HTMLDivEl
   const [reloading, setReloading] = useState(false);
   const systemRef = useRef<HTMLDetailsElement>(null);
   const { addToast } = useToast();
-  const trackerNames = useTrackerBreadcrumbs(location.pathname);
-  const breadcrumbs = buildBreadcrumbs(location.pathname, trackerNames);
+  const breadcrumbs = buildBreadcrumbs(location.pathname);
   const projectName = /^\/projects\/([^/]+)\/?$/.exec(location.pathname)?.[1];
   const title = safeDecode(projectName ?? breadcrumbs[breadcrumbs.length - 1]);
   useEffect(() => {
@@ -191,62 +185,6 @@ function safeDecode(value: string) {
   }
 }
 
-function useTrackerBreadcrumbs(pathname: string) {
-  const [names, setNames] = useState<Record<string, string>>({});
-
-  const parts = pathname.split("/").filter(Boolean);
-  const isTracker = parts[0] === "tracker";
-  const projectId = isTracker ? parts[1] : undefined;
-  const cycleId = isTracker && parts[2] === "cycles" ? parts[3] : undefined;
-  const itemId = isTracker && parts[4] === "items" ? parts[5] : undefined;
-
-  useEffect(() => {
-    if (!isTracker) return;
-    const resolved: Record<string, string> = {};
-    const fetches: Promise<void>[] = [];
-
-    if (projectId && UUID_RE.test(projectId)) {
-      fetches.push(
-        api
-          .get<TrackerProject[]>("/tracker/projects")
-          .then((projects) => {
-            const p = projects.find((x: TrackerProject) => x.id === projectId);
-            if (p) resolved[projectId] = p.name;
-          })
-          .catch(() => {}),
-      );
-    }
-    if (cycleId && UUID_RE.test(cycleId) && projectId) {
-      fetches.push(
-        api
-          .get<TrackerCycle[]>(`/tracker/projects/${projectId}/cycles`)
-          .then((cycles) => {
-            const c = cycles.find((x: TrackerCycle) => x.id === cycleId);
-            if (c) resolved[cycleId] = c.name;
-          })
-          .catch(() => {}),
-      );
-    }
-    if (itemId && UUID_RE.test(itemId) && cycleId) {
-      fetches.push(
-        api
-          .get<TrackerItem[]>(`/tracker/cycles/${cycleId}/items`)
-          .then((items) => {
-            const item = items.find((x: TrackerItem) => x.id === itemId);
-            if (item) resolved[itemId] = `${item.seqNumber} - ${item.title}`;
-          })
-          .catch(() => {}),
-      );
-    }
-
-    if (fetches.length > 0) {
-      Promise.all(fetches).then(() => setNames(resolved));
-    }
-  }, [isTracker, projectId, cycleId, itemId]);
-
-  return names;
-}
-
 const BRAIN_SEGMENTS: Record<string, string> = {
   "second-brain": "Second Brain",
   chat: "Conversar",
@@ -259,10 +197,7 @@ const BRAIN_SEGMENTS: Record<string, string> = {
   quarantine: "Quarentena",
 };
 
-function buildBreadcrumbs(
-  pathname: string,
-  names: Record<string, string>,
-): string[] {
+function buildBreadcrumbs(pathname: string): string[] {
   if (pathname === "/") return ["Visão geral"];
   const parts = pathname.split("/").filter(Boolean);
   if (parts[0] === "second-brain") {
@@ -277,14 +212,10 @@ function buildBreadcrumbs(
     projects: "Projetos",
     agents: "Agentes",
     orchestrator: "Assistente",
-    tracker: "Tarefas",
-    cycles: "Ciclos",
-    items: "Itens",
-    board: "Quadro",
     logs: "Logs do sistema",
     changelog: "Novidades",
     users: "Pessoas e acessos",
     settings: "Configurações",
   };
-  return parts.map((p) => names[p] || labels[p] || (UUID_RE.test(p) ? "…" : p));
+  return parts.map((p) => labels[p] || (UUID_RE.test(p) ? "…" : p));
 }

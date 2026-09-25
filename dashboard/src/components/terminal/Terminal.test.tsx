@@ -273,7 +273,7 @@ it("sends the recommended effort with messages injected into a running execution
   render(<Terminal base="project:live" executionId="running" isLive onStart={vi.fn()} />);
   await chooseEffort(/picks the effort/);
   send("Agora reescreva a camada de persistência");
-  await waitFor(() => expect(socket.emit).toHaveBeenCalledWith("execution:send", { execId: "running", text: "Agora reescreva a camada de persistência", effort: "ultracode" }));
+  await waitFor(() => expect(socket.emit).toHaveBeenCalledWith("execution:send", { execId: "running", text: "Agora reescreva a camada de persistência", effort: "ultracode", effortAuto: true }));
 });
 
 it("always uses automatic effort for regular users without offering a manual choice", async () => {

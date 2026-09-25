@@ -9,8 +9,10 @@ const ANSI = {
   gray: "\x1b[90m",
 };
 
+const TOOL_LINE_PREFIX = `${ANSI.cyan}${ANSI.bold}> `;
+
 export function formatToolUse(name: string, input: Record<string, unknown>): string {
-  const label = `${ANSI.cyan}${ANSI.bold}> ${name}${ANSI.reset}`;
+  const label = `${TOOL_LINE_PREFIX}${name}${ANSI.reset}`;
   let detail = "";
 
   switch (name) {
@@ -42,4 +44,34 @@ export function formatToolUse(name: string, input: Record<string, unknown>): str
   }
 
   return `\n${label} ${detail}\n`;
+}
+
+export function compactOutput(output: string, max: number): string {
+  if (output.length <= max) return output;
+
+  const lines = output.split("\n");
+  const dropped = new Array<boolean>(lines.length).fill(false);
+  const budget = max - 64;
+  let length = output.length;
+  let omitted = 0;
+  let firstDropped = -1;
+  for (let i = 0; i < lines.length && length > budget; i++) {
+    if (!lines[i].startsWith(TOOL_LINE_PREFIX)) continue;
+    dropped[i] = true;
+    length -= lines[i].length + 1;
+    omitted++;
+    if (firstDropped < 0) firstDropped = i;
+    if (lines[i + 1] === "") {
+      dropped[i + 1] = true;
+      length -= 1;
+    }
+  }
+
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (i === firstDropped) kept.push(`${ANSI.dim}...(${omitted} tool calls omitted)${ANSI.reset}`);
+    if (!dropped[i]) kept.push(lines[i]);
+  }
+
+  return kept.join("\n");
 }

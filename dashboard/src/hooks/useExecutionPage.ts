@@ -96,6 +96,8 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
         planMode: e.planMode ?? false,
         username: e.username as string | undefined,
         resumeSessionId: e.sessionId as string | undefined,
+        effort: e.effort as ExecutionInfo["effort"],
+        effortAuto: e.effortAuto === true,
       } as ExecutionInfo));
       setDbHistory(mapped);
       loadedTargetRef.current = key;

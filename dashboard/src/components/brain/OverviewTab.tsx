@@ -30,11 +30,12 @@ export function OverviewTab() {
   if (!status) return null;
 
   const noAccounts = status.google.accounts.length === 0;
-  if (noAccounts && status.counts.rawThreads === 0) {
+  const claudemarEnabled = status.schedulers.some((s) => s.name === "claudemar" && s.enabled);
+  if (noAccounts && status.counts.rawThreads === 0 && !claudemarEnabled) {
     return <FirstRunCta configured={status.google.configured} />;
   }
 
-  const connectorNames = ["gmail", "calendar", "whatsapp", "slack", "ingest", "triage", "compile"] as const;
+  const connectorNames = ["gmail", "calendar", "whatsapp", "slack", "claudemar", "ingest", "triage", "compile"] as const;
 
   return (
     <div className="space-y-4">

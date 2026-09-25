@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, readdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { getPool, toMySQLDatetime } from "./database.js";
 import { config } from "./config.js";
+import { EVIDENCE_DIR, EVIDENCE_FILE_PREFIX } from "./upload-signer.js";
 
 const TABLE_DEFINITIONS: string[] = [
   `CREATE TABLE IF NOT EXISTS users (
@@ -27,14 +28,6 @@ const TABLE_DEFINITIONS: string[] = [
     PRIMARY KEY (user_id, agent_name),
     INDEX idx_agent (agent_name),
     CONSTRAINT fk_ua_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-
-  `CREATE TABLE IF NOT EXISTS user_tracker_projects (
-    user_id CHAR(36) NOT NULL,
-    tracker_project_id VARCHAR(255) NOT NULL,
-    PRIMARY KEY (user_id, tracker_project_id),
-    INDEX idx_tracker_project (tracker_project_id),
-    CONSTRAINT fk_utp_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `CREATE TABLE IF NOT EXISTS user_project_tabs (
@@ -201,7 +194,7 @@ async function migrateUsers(pool: ReturnType<typeof getPool>): Promise<void> {
   const filePath = resolve(config.dataPath, "users.json");
   const data = readJsonFile(filePath) as Array<{
     id: string; name: string; email: string; token: string;
-    projects?: string[]; agents?: string[]; trackerProjects?: string[];
+    projects?: string[]; agents?: string[];
     createdAt: string;
   }> | null;
   if (!data || !(await tableIsEmpty(pool, "users"))) {
@@ -219,9 +212,6 @@ async function migrateUsers(pool: ReturnType<typeof getPool>): Promise<void> {
     }
     for (const a of u.agents ?? []) {
       await pool.execute("INSERT INTO user_agents (user_id, agent_name) VALUES (?, ?)", [u.id, a]);
-    }
-    for (const tp of u.trackerProjects ?? []) {
-      await pool.execute("INSERT INTO user_tracker_projects (user_id, tracker_project_id) VALUES (?, ?)", [u.id, tp]);
     }
   }
   console.log(`[data-migration] Migrated ${data.length} users`);
@@ -455,7 +445,48 @@ async function migrateMetrics(): Promise<void> {
   }
 }
 
-const USER_FK_TABLES = ["users", "user_projects", "user_agents", "user_tracker_projects", "user_project_tabs"];
+const USER_FK_TABLES = ["users", "user_projects", "user_agents", "user_project_tabs"];
+
+/** O tracker foi removido do produto: apaga suas tabelas (inclusive as de versões antigas) e a permissão por usuário. */
+async function dropTrackerTables(pool: ReturnType<typeof getPool>): Promise<void> {
+  const [rows] = await pool.query(
+    "SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND (TABLE_NAME LIKE ? OR TABLE_NAME = 'user_tracker_projects')",
+    ["tracker\\_%"],
+  );
+  const tables = (rows as Array<{ name: string }>).map((r) => r.name);
+  if (tables.length === 0) return;
+  const conn = await pool.getConnection();
+  try {
+    await conn.query("SET FOREIGN_KEY_CHECKS = 0");
+    for (const table of tables) {
+      await conn.query(`DROP TABLE IF EXISTS \`${table}\``);
+    }
+    console.log(`[data-migration] Tabelas do tracker removidas: ${tables.join(", ")}`);
+  } finally {
+    await conn.query("SET FOREIGN_KEY_CHECKS = 1").catch(() => {});
+    conn.release();
+  }
+}
+
+/**
+ * A pasta de uploads do tracker também guardava as evidências E2E do pipeline: elas vão para a pasta própria do
+ * pipeline e o resto (anexos de comentários e testes do tracker) é apagado junto com a funcionalidade.
+ */
+function relocateTrackerUploads(): void {
+  const legacyDir = resolve(config.dataPath, "tracker-uploads");
+  if (!existsSync(legacyDir)) return;
+  mkdirSync(EVIDENCE_DIR, { recursive: true });
+  let moved = 0;
+  for (const name of readdirSync(legacyDir)) {
+    const source = resolve(legacyDir, name);
+    if (name.startsWith(EVIDENCE_FILE_PREFIX) && !existsSync(resolve(EVIDENCE_DIR, name))) {
+      renameSync(source, resolve(EVIDENCE_DIR, name));
+      moved += 1;
+    }
+  }
+  rmSync(legacyDir, { recursive: true, force: true });
+  console.log(`[data-migration] Uploads do tracker removidos (${moved} evidência(s) do pipeline preservada(s))`);
+}
 
 async function ensureUnicodeCollation(pool: ReturnType<typeof getPool>): Promise<void> {
   const [rows] = await pool.query(
@@ -481,6 +512,8 @@ async function ensureUnicodeCollation(pool: ReturnType<typeof getPool>): Promise
 export async function runDataMigrations(): Promise<void> {
   const pool = getPool();
 
+  relocateTrackerUploads();
+  await dropTrackerTables(pool);
   await ensureUnicodeCollation(pool);
 
   for (const sql of TABLE_DEFINITIONS) {
@@ -534,6 +567,13 @@ async function ensureQueueColumns(pool: ReturnType<typeof getPool>): Promise<voi
     await pool.execute("ALTER TABLE queue_items ADD COLUMN effort VARCHAR(20) DEFAULT NULL");
   }
 
+  const [effortAutoRows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'queue_items' AND COLUMN_NAME = 'effort_auto'",
+  );
+  if ((effortAutoRows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE queue_items ADD COLUMN effort_auto TINYINT(1) NOT NULL DEFAULT 0 AFTER effort");
+  }
+
   const [modeRows] = await pool.execute(
     "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'queue_items' AND COLUMN_NAME = 'permission_mode'",
   );
@@ -562,6 +602,13 @@ async function ensureExecutionHistoryColumns(pool: ReturnType<typeof getPool>): 
   );
   if ((runtimeRows as Array<{ cnt: number }>)[0].cnt === 0) {
     await pool.execute("ALTER TABLE execution_history ADD COLUMN runtime VARCHAR(16) DEFAULT NULL AFTER model");
+  }
+
+  const [effortRows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'execution_history' AND COLUMN_NAME = 'effort'",
+  );
+  if ((effortRows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE execution_history ADD COLUMN effort VARCHAR(20) DEFAULT NULL, ADD COLUMN effort_auto TINYINT(1) NOT NULL DEFAULT 0");
   }
   await pool.execute(
     `UPDATE execution_history

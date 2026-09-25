@@ -5,7 +5,7 @@ import type { RowDataPacket } from "mysql2/promise";
 import { executionManager, type ExecutionInfo } from "./execution-manager.js";
 import { pipelineManager, type PipelineCard, type RunStatus, type StageArtifacts } from "./pipeline-manager.js";
 import { cardWorktreeRoot, PIPELINE_WORKTREES_ROOT } from "./pipeline-worktree.js";
-import { signUploadUrl } from "./upload-signer.js";
+import { EVIDENCE_DIR, EVIDENCE_FILE_PREFIX, signUploadUrl } from "./upload-signer.js";
 import { config } from "./config.js";
 import { query, execute } from "./database.js";
 import { createPipelineMcpServer } from "./pipeline-mcp.js";
@@ -13,7 +13,6 @@ import { buildPlanReposInstruction } from "./pipeline-prompt.js";
 import { resolveTimeoutMs } from "./pipeline-timeout.js";
 import type { PipelineStage } from "./pipeline-migration.js";
 
-const UPLOADS_DIR = resolve(config.dataPath, "tracker-uploads");
 const EVIDENCE_SUBDIR = ".pipeline-evidence";
 const MAX_RUN_OUTPUT = 200_000;
 const USAGE_EMIT_INTERVAL_MS = 1000;
@@ -237,16 +236,16 @@ class PipelineRunner {
   }
 
   private collectEvidence(cwd: string, runId: string, screenshots: string[]): string[] {
-    mkdirSync(UPLOADS_DIR, { recursive: true });
+    mkdirSync(EVIDENCE_DIR, { recursive: true });
     const evidenceDir = resolve(cwd, EVIDENCE_SUBDIR);
     const flat: string[] = [];
     for (const [i, name] of screenshots.entries()) {
       const base = basename(name);
       const src = resolve(evidenceDir, base);
       if (!src.startsWith(evidenceDir) || !existsSync(src)) continue;
-      const flatName = `pipeline-${runId}-${i}-${base}`;
+      const flatName = `${EVIDENCE_FILE_PREFIX}${runId}-${i}-${base}`;
       try {
-        copyFileSync(src, resolve(UPLOADS_DIR, flatName));
+        copyFileSync(src, resolve(EVIDENCE_DIR, flatName));
         flat.push(flatName);
       } catch (err) {
         console.error(`[pipeline-runner] failed to collect evidence ${base}:`, err);

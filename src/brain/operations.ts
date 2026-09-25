@@ -21,6 +21,8 @@ import {
   upsertSection,
 } from "./wiki.js";
 import { markCompiledInto } from "./raw-store.js";
+import { isManagedSection, MANAGED_PAGE_RE } from "./claudemar/managed.js";
+import { claudemarThreadTenant } from "./claudemar/prompts.js";
 import type { CompileOperation, CompileOutput, RawFrontmatter } from "./types.js";
 
 const tenantSchema = z.string().min(1);
@@ -251,7 +253,10 @@ export async function validateCompileOutput(
 ): Promise<ValidationResult> {
   const settings = brainSettingsManager.get();
   const errors: string[] = [];
-  const threadTenant = await canonicalTenant(thread.triage?.tenant ?? thread.tenant);
+  const threadTenant =
+    thread.channel === "claudemar"
+      ? await claudemarThreadTenant(thread)
+      : await canonicalTenant(thread.triage?.tenant ?? thread.tenant);
   const threadRoot = await tenantRoot(threadTenant);
   const isGroup = thread.subchannel === "group";
 
@@ -263,6 +268,19 @@ export async function validateCompileOutput(
     }
     for (const source of op.sources) {
       if (!sourceExists(source)) errors.push(`${label}: source "${source}" não existe em raw/`);
+    }
+
+    if (op.op === "create_page" && MANAGED_PAGE_RE.test(op.path)) {
+      errors.push(`${label}: "${op.path}" é página de alvo do claudemar, criada pelo conector — atualize-a com upsert_section`);
+    }
+    if (op.op === "create_page" && op.sections.some((section) => isManagedSection(section.section))) {
+      errors.push(`${label}: seções geradas automaticamente pelo claudemar não podem ser escritas pelo compilador`);
+    }
+    if (op.op === "upsert_section" && isManagedSection(op.section)) {
+      errors.push(`${label}: seção "${op.section}" é gerada automaticamente pelo claudemar — não altere`);
+    }
+    if (op.op === "mark_superseded" && MANAGED_PAGE_RE.test(op.path)) {
+      errors.push(`${label}: página de alvo do claudemar não pode ser marcada como superada`);
     }
 
     if (op.op === "create_page") {
@@ -360,6 +378,7 @@ export async function applyCompileOutput(
   rawRelPath: string,
   output: CompileOutput,
   containsPii: 0 | 1 = 0,
+  day?: string,
 ): Promise<ApplyResult> {
   const touched = new Set<string>();
   const threadSources = [rawRelPath];
@@ -387,7 +406,7 @@ export async function applyCompileOutput(
     } else if (op.op === "upsert_section") {
       if (await upsertSection(op.path, op.section, op.content, op.sources)) touched.add(op.path);
     } else if (op.op === "append_history") {
-      if (await appendHistory(op.path, op.content, op.sources, docKey)) touched.add(op.path);
+      if (await appendHistory(op.path, op.content, op.sources, docKey, day)) touched.add(op.path);
     } else if (op.op === "add_relation") {
       if (await addRelation(op.path, op.related)) touched.add(op.path);
     } else if (op.op === "mark_superseded") {
@@ -395,7 +414,7 @@ export async function applyCompileOutput(
     }
   }
 
-  const openLoops = await appendOpenLoops(output.open_loops, threadSources, threadKey);
+  const openLoops = await appendOpenLoops(output.open_loops, threadSources, threadKey, day);
   if (openLoops > 0) touched.add("state/open-loops.md");
 
   if (output.log_entry.trim()) {

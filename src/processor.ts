@@ -17,5 +17,6 @@ export function processQueueItem(item: QueueItem): string {
     skipSystemPrompt: item.skipSystemPrompt,
     skipIsolationInstruction: item.skipIsolationInstruction,
     effort: item.effort,
+    effortAuto: item.effortAuto,
   });
 }

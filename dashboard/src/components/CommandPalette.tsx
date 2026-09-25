@@ -10,7 +10,6 @@ import {
   Crown,
   Settings,
   Users,
-  KanbanSquare,
   X,
 } from "lucide-react";
 import { api } from "../lib/api";
@@ -100,13 +99,6 @@ export function CommandPalette() {
         category: "Navegação",
         icon: Bot,
         to: "/workspaces/agents",
-      },
-      {
-        id: "tracker",
-        label: "Tarefas",
-        category: "Navegação",
-        icon: KanbanSquare,
-        to: "/tracker",
       },
       ...(admin
         ? [

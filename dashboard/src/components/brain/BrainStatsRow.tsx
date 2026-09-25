@@ -7,7 +7,11 @@ function metric(status: BrainStatus, field: string): number {
 
 export function BrainStatsRow({ status }: { status: BrainStatus }) {
   const ingestedToday =
-    metric(status, "ingested:email") + metric(status, "ingested:calendar") + metric(status, "ingested:whatsapp") + metric(status, "ingested:slack");
+    metric(status, "ingested:email") +
+    metric(status, "ingested:calendar") +
+    metric(status, "ingested:whatsapp") +
+    metric(status, "ingested:slack") +
+    metric(status, "ingested:claudemar");
   const chatter = metric(status, "chatter_filtered");
   const chatterRate = ingestedToday + chatter > 0 ? Math.round((chatter / (ingestedToday + chatter)) * 100) : 0;
   const triaged = metric(status, "triaged");

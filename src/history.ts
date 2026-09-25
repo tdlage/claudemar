@@ -2,6 +2,7 @@ import { query, execute, toMySQLDatetime } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 import { inferRuntimeFromModel } from "./models-discovery.js";
 import type { AgentRuntime } from "./providers/llm.js";
+import { EFFORTS, type Effort } from "./runtime/types.js";
 
 export interface HistoryEntry {
   id: string;
@@ -23,6 +24,8 @@ export interface HistoryEntry {
   sessionId?: string;
   planMode?: boolean;
   username?: string;
+  effort?: Effort;
+  effortAuto?: boolean;
 }
 
 interface HistoryRow extends RowDataPacket {
@@ -45,6 +48,8 @@ interface HistoryRow extends RowDataPacket {
   session_id: string | null;
   plan_mode: number;
   username: string | null;
+  effort: string | null;
+  effort_auto: number | null;
 }
 
 function rowToEntry(row: HistoryRow): HistoryEntry {
@@ -72,19 +77,22 @@ function rowToEntry(row: HistoryRow): HistoryEntry {
     sessionId: row.session_id ?? undefined,
     planMode: row.plan_mode === 1 ? true : undefined,
     username: row.username ?? undefined,
+    effort: EFFORTS.includes(row.effort as Effort) ? (row.effort as Effort) : undefined,
+    effortAuto: row.effort_auto === 1 ? true : undefined,
   };
 }
 
 export function appendHistory(entry: HistoryEntry): void {
   execute(
-    `INSERT INTO execution_history (id, prompt, target_type, target_name, agent_name, model, runtime, status, started_at, completed_at, cost_usd, total_tokens, duration_ms, source, output, error, session_id, plan_mode, username)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO execution_history (id, prompt, target_type, target_name, agent_name, model, runtime, status, started_at, completed_at, cost_usd, total_tokens, duration_ms, source, output, error, session_id, plan_mode, username, effort, effort_auto)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       entry.id, entry.prompt, entry.targetType, entry.targetName,
       entry.agentName ?? null, entry.model ?? null, entry.runtime ?? inferRuntimeFromModel(entry.model), entry.status, toMySQLDatetime(entry.startedAt), entry.completedAt ? toMySQLDatetime(entry.completedAt) : null,
       entry.costUsd ?? 0, entry.totalTokens ?? 0, entry.durationMs ?? 0, entry.source ?? "telegram",
       entry.output ?? null, entry.error ?? null, entry.sessionId ?? null,
       entry.planMode ? 1 : 0, entry.username ?? null,
+      entry.effort ?? null, entry.effortAuto ? 1 : 0,
     ],
   ).catch((err) => console.error("[history] append failed:", err));
 }
@@ -145,4 +153,152 @@ export async function loadSessionRefs(targetType: string, targetName: string): P
     model: r.model ?? "opus",
     runtime: r.runtime === "codex" || r.runtime === "claude" ? r.runtime : inferRuntimeFromModel(r.model),
   }));
+}
+
+const MAX_BATCH = 500;
+
+function batchLimit(limit: number): number {
+  return Math.min(MAX_BATCH, Math.max(1, Math.floor(Number(limit))));
+}
+
+export async function loadHistoryFinishedSince(sinceIso: string, limit: number): Promise<HistoryEntry[]> {
+  const rows = await query<HistoryRow[]>(
+    `SELECT * FROM execution_history
+     WHERE COALESCE(completed_at, started_at) >= ?
+     ORDER BY COALESCE(completed_at, started_at) ASC, id ASC
+     LIMIT ${batchLimit(limit)}`,
+    [toMySQLDatetime(sinceIso)],
+  );
+  return rows.map(rowToEntry);
+}
+
+export async function loadHistoryStartedBetween(
+  fromIso: string,
+  toIso: string,
+  afterId: string | null,
+  limit: number,
+): Promise<HistoryEntry[]> {
+  const rows = await query<HistoryRow[]>(
+    `SELECT * FROM execution_history
+     WHERE started_at >= ? AND started_at < ? AND (? IS NULL OR id > ?)
+     ORDER BY id ASC
+     LIMIT ${batchLimit(limit)}`,
+    [toMySQLDatetime(fromIso), toMySQLDatetime(toIso), afterId, afterId],
+  );
+  return rows.map(rowToEntry);
+}
+
+export async function countHistoryStartedSince(fromIso: string): Promise<number> {
+  const rows = await query<(RowDataPacket & { total: number })[]>(
+    "SELECT COUNT(*) AS total FROM execution_history WHERE started_at >= ?",
+    [toMySQLDatetime(fromIso)],
+  );
+  return Number(rows[0]?.total ?? 0);
+}
+
+export async function loadSessionPrompts(
+  sessionId: string,
+): Promise<{ id: string; prompt: string; completedAt: string | null }[]> {
+  const rows = await query<(RowDataPacket & { id: string; prompt: string; completed_at: Date | string | null })[]>(
+    "SELECT id, prompt, completed_at FROM execution_history WHERE session_id = ? ORDER BY started_at ASC, id ASC",
+    [sessionId],
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    prompt: row.prompt,
+    completedAt: row.completed_at ? (row.completed_at instanceof Date ? row.completed_at.toISOString() : String(row.completed_at)) : null,
+  }));
+}
+
+export async function sessionsWithHistory(sessionIds: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (let i = 0; i < sessionIds.length; i += MAX_BATCH) {
+    const chunk = sessionIds.slice(i, i + MAX_BATCH);
+    if (chunk.length === 0) continue;
+    const rows = await query<(RowDataPacket & { session_id: string })[]>(
+      `SELECT DISTINCT session_id FROM execution_history WHERE session_id IN (${chunk.map(() => "?").join(",")})`,
+      chunk,
+    );
+    for (const row of rows) found.add(row.session_id.toLowerCase());
+  }
+  return found;
+}
+
+export interface TargetHistorySummary {
+  executions: number;
+  sessions: number;
+  firstAt: string | null;
+  lastAt: string | null;
+  costUsd: number;
+  byRuntime: Record<string, number>;
+  byStatus: Record<string, number>;
+  recent: Pick<HistoryEntry, "id" | "prompt" | "status" | "startedAt" | "runtime" | "model" | "sessionId" | "source" | "username">[];
+}
+
+export function likeEscape(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+export async function summarizeTargetHistory(
+  targetType: string,
+  targetName: string | null,
+  recentLimit: number,
+): Promise<TargetHistorySummary> {
+  const where = targetName === null
+    ? "target_type = ?"
+    : "target_type = ? AND (target_name = ? OR target_name LIKE ?)";
+  const params = targetName === null
+    ? [targetType]
+    : [targetType, targetName, `${likeEscape(`__commitpush:${targetName}:`)}%`];
+  const totals = await query<(RowDataPacket & {
+    executions: number;
+    sessions: number;
+    first_at: Date | string | null;
+    last_at: Date | string | null;
+    cost: number | null;
+  })[]>(
+    `SELECT COUNT(*) AS executions, COUNT(DISTINCT session_id) AS sessions,
+            MIN(started_at) AS first_at, MAX(started_at) AS last_at, SUM(cost_usd) AS cost
+     FROM execution_history WHERE ${where}`,
+    params,
+  );
+  const grouped = await query<(RowDataPacket & { runtime: string | null; status: string; total: number })[]>(
+    `SELECT runtime, status, COUNT(*) AS total FROM execution_history WHERE ${where} GROUP BY runtime, status`,
+    params,
+  );
+  const recentRows = await query<HistoryRow[]>(
+    `SELECT id, prompt, status, started_at, runtime, model, session_id, source, username, target_type, target_name
+     FROM execution_history WHERE ${where} ORDER BY started_at DESC LIMIT ${batchLimit(recentLimit)}`,
+    params,
+  );
+  const iso = (value: Date | string | null | undefined): string | null =>
+    value ? (value instanceof Date ? value.toISOString() : String(value)) : null;
+  const byRuntime: Record<string, number> = {};
+  const byStatus: Record<string, number> = {};
+  for (const row of grouped) {
+    const runtime = row.runtime ?? "desconhecido";
+    byRuntime[runtime] = (byRuntime[runtime] ?? 0) + Number(row.total);
+    byStatus[row.status] = (byStatus[row.status] ?? 0) + Number(row.total);
+  }
+  const total = totals[0];
+  return {
+    executions: Number(total?.executions ?? 0),
+    sessions: Number(total?.sessions ?? 0),
+    firstAt: iso(total?.first_at),
+    lastAt: iso(total?.last_at),
+    costUsd: Number(total?.cost ?? 0),
+    byRuntime,
+    byStatus,
+    recent: recentRows.map((row) => ({
+      id: row.id,
+      prompt: row.prompt,
+      status: row.status,
+      startedAt: iso(row.started_at) ?? "",
+      runtime: row.runtime === "codex" || row.runtime === "claude" ? row.runtime : inferRuntimeFromModel(row.model),
+      model: row.model ?? undefined,
+      sessionId: row.session_id ?? undefined,
+      source: row.source,
+      username: row.username ?? undefined,
+    })),
+  };
 }

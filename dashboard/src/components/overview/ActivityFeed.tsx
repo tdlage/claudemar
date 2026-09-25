@@ -9,6 +9,7 @@ import { SelectionSafeHtml } from "../shared/SelectionSafeHtml";
 import { formatActivityTime, formatExecutionDateTime } from "../../lib/format";
 import type { AgentRuntime, ExecutionInfo, QueueItem } from "../../lib/types";
 import { inferRuntime, resolveRuntime, runtimeLabel } from "../../lib/runtime";
+import { effortLabel } from "../terminal/effortOptions";
 
 const LIMIT_OPTIONS = [20, 50, 100] as const;
 
@@ -154,7 +155,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
               onClick={clickable ? () => onToggle(exec.id) : undefined}
             >
               <ExecutionStatusBadge status={exec.status} />
-              <span title={`${runtimeLabel(runtime)}${exec.model ? ` · ${exec.model}` : ""}`}>
+              <span title={[runtimeLabel(runtime), exec.model, exec.effort && `Esforço: ${effortLabel(runtime, exec.effort)}${exec.effortAuto ? " (auto)" : ""}`].filter(Boolean).join(" · ")}>
                 <Badge variant={runtime === "codex" ? "info" : "accent"}>{runtimeLabel(runtime)}</Badge>
               </span>
               {exec.username && (

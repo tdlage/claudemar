@@ -58,6 +58,7 @@ export function idleBackfillState(): BackfillState {
     status: "idle",
     phase: null,
     accounts: [],
+    claudemar: false,
     monthsRaw: 0,
     monthsCompile: 0,
     startedAt: null,
@@ -71,7 +72,7 @@ export async function getBackfillState(): Promise<BackfillState> {
   try {
     const raw = await getRedis().get(KEYS.backfillState);
     if (!raw) return idleBackfillState();
-    return JSON.parse(raw) as BackfillState;
+    return { ...idleBackfillState(), ...(JSON.parse(raw) as Partial<BackfillState>) };
   } catch {
     return idleBackfillState();
   }

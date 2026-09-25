@@ -45,6 +45,14 @@ export const KEYS = {
   metrics: (day: string) => `brain:metrics:${day}`,
   chatterSamples: "brain:chatter:samples",
   activity: "brain:activity",
+  cmExecCursor: "brain:cm:cursor:exec",
+  cmExecDone: "brain:cm:exec:done",
+  cmCardHashes: "brain:cm:cards",
+  cmCommitCursor: "brain:cm:cursor:commits",
+  cmOrphanCursor: "brain:cm:cursor:orphans",
+  cmTargetHashes: "brain:cm:targets",
+  cmDirtyTargets: "brain:cm:dirty",
+  cmGates: "brain:cm:gates",
 } as const;
 
 const SEEN_TTL_SECONDS = 400 * 24 * 60 * 60;

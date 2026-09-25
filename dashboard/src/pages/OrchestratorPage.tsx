@@ -92,6 +92,7 @@ export function OrchestratorPage() {
         permissionMode: opts.permissionMode,
         skipIsolationInstruction: opts.skipIsolationInstruction,
         effort: opts.effort,
+        effortAuto: opts.effortAuto,
         model: opts.model,
       });
       if (result.queued) {

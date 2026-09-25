@@ -87,11 +87,17 @@ export interface NormalizedMessage {
   truncated: boolean;
 }
 
-export function normalizeMessage(bodyText: string, bodyHtml?: string): NormalizedMessage {
+export function normalizeMessage(
+  bodyText: string,
+  bodyHtml?: string,
+  opts: { conversational?: boolean } = {},
+): NormalizedMessage {
   let text = bodyText.trim().length > 0 ? bodyText : bodyHtml ? htmlToMarkdown(bodyHtml) : "";
   text = text.replace(/\r\n/g, "\n").replace(/\u00a0/g, " ");
-  text = stripQuotes(text);
-  text = stripSignature(text);
+  if (opts.conversational !== false) {
+    text = stripQuotes(text);
+    text = stripSignature(text);
+  }
   text = text.replace(/\n{3,}/g, "\n\n").trim();
   let truncated = false;
   if (text.length > MAX_EVENT_CHARS) {

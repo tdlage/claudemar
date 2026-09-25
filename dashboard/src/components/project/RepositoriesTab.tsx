@@ -9,7 +9,6 @@ import { Modal } from "../shared/Modal";
 import { GitDiffViewer } from "./GitDiffViewer";
 import { GitLog } from "./GitLog";
 import { useToast } from "../shared/Toast";
-import { TrackerItemSelector } from "./TrackerItemSelector";
 import type { RepoInfo, RepoBranches, GitCommit, CIWorkflowRun, WorktreeInfo } from "../../lib/types";
 
 interface CIStatusSummary {
@@ -65,7 +64,6 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
   const [diffRepo, setDiffRepo] = useState<string | null>(null);
 
   const [commitPush, setCommitPush] = useState<Record<string, CommitPushState>>({});
-  const [trackerSelectorTarget, setTrackerSelectorTarget] = useState<string | null>(null);
 
   const [worktrees, setWorktrees] = useState<Record<string, WorktreeInfo[]>>({});
   const [wtDiff, setWtDiff] = useState<string | null>(null);
@@ -226,14 +224,11 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
     }
   }, [repos, projectName]);
 
-  const handleCommitPush = async (targetKey: string, trackerItems: string[] = []) => {
+  const handleCommitPush = async (targetKey: string) => {
     const [repoName, wtPath] = targetKey.split("@@");
     const query = wtPath ? `?worktree=${encodeURIComponent(wtPath)}` : "";
     try {
-      const { id } = await api.post<{ id: string }>(
-        `/projects/${projectName}/repos/${repoName}/commit-push${query}`,
-        { trackerItems },
-      );
+      const { id } = await api.post<{ id: string }>(`/projects/${projectName}/repos/${repoName}/commit-push${query}`);
       setCommitPush((prev) => ({
         ...prev,
         [targetKey]: { execId: id, status: "running" },
@@ -546,7 +541,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => setTrackerSelectorTarget(repo.name)}
+                    onClick={() => handleCommitPush(repo.name)}
                     disabled={cpState?.status === "running"}
                   >
                     {cpState?.status === "running" ? (
@@ -681,7 +676,7 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
                             <Button
                               size="sm"
                               variant="secondary"
-                              onClick={() => setTrackerSelectorTarget(wtKey)}
+                              onClick={() => handleCommitPush(wtKey)}
                               disabled={wtCpState?.status === "running"}
                             >
                               {wtCpState?.status === "running" ? (
@@ -773,17 +768,6 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
           </div>
         </div>
       </Modal>
-
-      <TrackerItemSelector
-        open={!!trackerSelectorTarget}
-        onClose={() => setTrackerSelectorTarget(null)}
-        onConfirm={(items) => {
-          if (trackerSelectorTarget) {
-            handleCommitPush(trackerSelectorTarget, items);
-          }
-          setTrackerSelectorTarget(null);
-        }}
-      />
 
       <Modal open={!!wtCreateRepo} onClose={() => setWtCreateRepo(null)} title="New Worktree">
         <div className="space-y-3">

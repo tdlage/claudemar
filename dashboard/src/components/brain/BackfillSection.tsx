@@ -13,6 +13,7 @@ interface BackfillEstimate {
   estimatedCostUsd: number;
   triageBatch: boolean;
   compileBatch: boolean;
+  claudemarExecutions: number | null;
 }
 
 const inputClass =
@@ -25,17 +26,23 @@ export function BackfillSection() {
   const [monthsRaw, setMonthsRaw] = useState(12);
   const [monthsCompile, setMonthsCompile] = useState(3);
   const [selected, setSelected] = useState<string[]>([]);
+  const [includeGoogle, setIncludeGoogle] = useState(true);
+  const [includeClaudemar, setIncludeClaudemar] = useState(true);
   const [estimate, setEstimate] = useState<BackfillEstimate | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const connected = accounts.filter((a) => a.connected);
   const backfill = status?.backfill;
+  const googleSelected = includeGoogle && connected.length > 0;
+  const hasSource = googleSelected || includeClaudemar;
 
   const openConfirm = async () => {
     setBusy(true);
     try {
-      const est = await api.get<BackfillEstimate>(`/brain/backfill/estimate?monthsCompile=${monthsCompile}`);
+      const est = await api.get<BackfillEstimate>(
+        `/brain/backfill/estimate?monthsCompile=${monthsCompile}&monthsRaw=${monthsRaw}`,
+      );
       setEstimate(est);
       setConfirming(true);
     } catch (e) {
@@ -51,7 +58,9 @@ export function BackfillSection() {
       await api.post("/brain/backfill/start", {
         monthsRaw,
         monthsCompile,
-        accounts: selected.length > 0 ? selected : undefined,
+        accounts: googleSelected && selected.length > 0 ? selected : undefined,
+        google: googleSelected,
+        claudemar: includeClaudemar,
       });
       addToast("success", "Backfill iniciado");
       setConfirming(false);
@@ -74,6 +83,24 @@ export function BackfillSection() {
         Ingere o histórico (raw), roda a triagem e compila os últimos meses. Retomável: cancelar preserva o
         progresso por mês/conta.
       </p>
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-text-muted">Fontes</p>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeGoogle && connected.length > 0}
+              disabled={connected.length === 0}
+              onChange={(e) => setIncludeGoogle(e.target.checked)}
+            />
+            Gmail e Calendar
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+            <input type="checkbox" checked={includeClaudemar} onChange={(e) => setIncludeClaudemar(e.target.checked)} />
+            Claudemar (execuções, transcripts, tarefas e commits)
+          </label>
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-text-muted mb-1">Meses de histórico bruto (raw)</label>
@@ -98,7 +125,7 @@ export function BackfillSection() {
           />
         </div>
       </div>
-      {connected.length > 1 && (
+      {googleSelected && connected.length > 1 && (
         <div className="space-y-1">
           <p className="text-xs font-medium text-text-muted">Contas (nenhuma marcada = todas)</p>
           <div className="flex flex-wrap gap-3">
@@ -122,14 +149,16 @@ export function BackfillSection() {
       <Button
         size="sm"
         onClick={openConfirm}
-        disabled={busy || connected.length === 0}
+        disabled={busy || !hasSource}
         className="flex items-center gap-1.5"
       >
         <DatabaseBackup size={14} />
         {busy ? "Calculando…" : "Iniciar backfill"}
       </Button>
-      {connected.length === 0 && (
-        <p className="text-xs text-warning">Conecte pelo menos uma conta Google antes de rodar o backfill.</p>
+      {!hasSource && (
+        <p className="text-xs text-warning">
+          Selecione o claudemar ou conecte pelo menos uma conta Google antes de rodar o backfill.
+        </p>
       )}
 
       <Modal open={confirming} onClose={() => setConfirming(false)} title="Confirmar backfill">
@@ -142,8 +171,14 @@ export function BackfillSection() {
                 <strong>${estimate.estimatedCostUsd.toFixed(2)}</strong>
                 {estimate.triageBatch || estimate.compileBatch ? " (com Batch API)" : " (sem Batch API — realtime)"}.
               </p>
+              {includeClaudemar && estimate.claudemarExecutions !== null && (
+                <p>
+                  Claudemar: <strong>{estimate.claudemarExecutions}</strong> execução(ões) nos últimos {monthsRaw} meses,
+                  além de tarefas, commits e sessões avulsas — cada execução vira uma thread a triar.
+                </p>
+              )}
               <p className="text-xs text-text-muted">
-                A fase raw ainda vai baixar o histórico do Gmail/Calendar ({monthsRaw} meses), então o total de
+                A fase raw ainda vai baixar o histórico ({monthsRaw} meses), então o total de
                 threads cresce durante a execução. Referência da spec: triagem de 12 meses ≈ $15; compilação
                 integral dos últimos 3 meses ≈ $80–150 em batch. Compilar 12 meses inteiros custaria $600+.
               </p>

@@ -21,7 +21,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  KanbanSquare,
   ArrowUpRight,
 } from "lucide-react";
 import { api } from "../../lib/api";
@@ -303,10 +302,6 @@ export function Sidebar() {
                 </span>
               </>
             )}
-          </NavLink>
-          <NavLink to="/tracker" className={linkClass} title="Tarefas">
-            <KanbanSquare size={18} />
-            {expanded && "Tarefas"}
           </NavLink>
           {admin && (
             <NavLink

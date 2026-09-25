@@ -204,10 +204,9 @@ function LogEntry({
           )}
           {exec.output && (
             <div>
-              <p className="text-xs text-text-muted mb-1">Output{exec.output.length > 5000 ? " (preview)" : ""}:</p>
+              <p className="text-xs text-text-muted mb-1">Output:</p>
               <pre className="text-xs text-text-secondary font-mono whitespace-pre-wrap overflow-auto max-h-48 bg-surface rounded p-2 border border-border">
-                {exec.output.slice(0, 5000)}
-                {exec.output.length > 5000 ? "\n...(truncated)" : ""}
+                {exec.output}
               </pre>
             </div>
           )}

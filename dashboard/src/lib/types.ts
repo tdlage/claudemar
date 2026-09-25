@@ -39,6 +39,8 @@ export interface ExecutionInfo {
   pendingQuestion?: PendingQuestion | null;
   planMode?: boolean;
   resumeSessionId?: string | null;
+  effort?: Effort;
+  effortAuto?: boolean;
   liveUsage?: ExecutionUsage;
 }
 
@@ -237,9 +239,10 @@ export const DEFAULT_PROJECT_TABS: ProjectTabKey[] = ["terminal", "input", "outp
 
 export type MeResponse =
   | { role: "admin" }
-  | { role: "user"; id: string; name: string; projects: string[]; agents: string[]; trackerProjects: string[]; projectTabs: Record<string, ProjectTabKey[]> };
+  | { role: "user"; id: string; name: string; projects: string[]; agents: string[]; projectTabs: Record<string, ProjectTabKey[]> };
 
 export type AgentRuntime = "claude" | "codex";
+export type Effort = "minimal" | "low" | "medium" | "high" | "extra" | "max" | "ultracode";
 
 export interface LlmProfile {
   id: string;
@@ -308,180 +311,6 @@ export interface EmailProfileMasked {
   senderName: string;
 }
 
-// ── Tracker (Shape Up) ──
-
-export type CycleStatus = "active" | "completed";
-export type CycleType = "features" | "bugs";
-export type ItemType = "feature" | "bug";
-export type TestCasePriority = "critical" | "high" | "medium" | "low";
-export type TestRunStatus = "passed" | "failed" | "blocked" | "skipped";
-
-export interface CycleColumn {
-  id: string;
-  name: string;
-  color: string;
-  position: number;
-}
-
-export interface TrackerProject {
-  id: string;
-  name: string;
-  code: string;
-  description: string;
-  nextItemNumber: number;
-  createdBy: string;
-  createdAt: string;
-}
-
-export interface TrackerCycle {
-  id: string;
-  projectId: string;
-  name: string;
-  type: CycleType;
-  status: CycleStatus;
-  columns: CycleColumn[];
-  createdBy: string;
-  createdAt: string;
-}
-
-export interface ItemTestStats {
-  total: number;
-  passed: number;
-  failed: number;
-  noRuns: number;
-}
-
-export interface TrackerItem {
-  id: string;
-  cycleId: string;
-  title: string;
-  type: ItemType;
-  description: string;
-  columnId: string;
-  appetite: number;
-  priority: string | null;
-  startedAt: string | null;
-  inScope: string;
-  outOfScope: string;
-  assignees: string[];
-  tags: string[];
-  seqNumber: number;
-  position: number;
-  testStats: ItemTestStats;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ProjectBoardItem extends TrackerItem {
-  cycleName: string;
-  cycleType: CycleType;
-}
-
-export interface TrackerItemSearchResult {
-  id: string;
-  code: string;
-  title: string;
-  cycleId: string;
-  columnId: string;
-}
-
-export interface TrackerAttachment {
-  id: string;
-  commentId: string;
-  filename: string;
-  url: string;
-  mimeType: string;
-  size: number;
-  uploadedBy: string;
-  uploadedAt: string;
-}
-
-export interface TrackerComment {
-  id: string;
-  targetType: "item";
-  targetId: string;
-  authorId: string;
-  authorName: string;
-  content: string;
-  attachments: TrackerAttachment[];
-  createdAt: string;
-}
-
-export interface TrackerTestCase {
-  id: string;
-  targetType: "item";
-  targetId: string;
-  title: string;
-  description: string;
-  preconditions: string;
-  steps: string;
-  expectedResult: string;
-  priority: TestCasePriority;
-  position: number;
-  lastRunStatus?: TestRunStatus | null;
-  passCount?: number;
-  failCount?: number;
-  totalRuns?: number;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TrackerTestRunAttachment {
-  id: string;
-  testRunId: string;
-  filename: string;
-  url: string;
-  mimeType: string;
-  size: number;
-  uploadedBy: string;
-  uploadedAt: string;
-}
-
-export interface TrackerTestRunCommentAttachment {
-  id: string;
-  commentId: string;
-  filename: string;
-  url: string;
-  mimeType: string;
-  size: number;
-  uploadedBy: string;
-  uploadedAt: string;
-}
-
-export interface TrackerTestRunComment {
-  id: string;
-  testRunId: string;
-  authorId: string;
-  authorName: string;
-  content: string;
-  attachments: TrackerTestRunCommentAttachment[];
-  createdAt: string;
-}
-
-export interface TrackerTestRun {
-  id: string;
-  testCaseId: string;
-  status: TestRunStatus;
-  notes: string;
-  executedBy: string;
-  executedByName: string;
-  executedAt: string;
-  durationSeconds: number | null;
-  attachments: TrackerTestRunAttachment[];
-}
-
-export interface TrackerItemCommit {
-  id: string;
-  itemId: string;
-  repo: string;
-  commitHash: string;
-  message: string;
-  committedAt: string;
-  createdAt: string;
-}
-
 // ── CI / GitHub Actions ──
 
 export interface CIWorkflow {
@@ -539,23 +368,6 @@ export interface CIWebhookEvent {
   conclusion: string | null;
   url: string;
   actor: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type ItemPlanStatus = "planning" | "planned" | "executing" | "reviewing" | "completed" | "error";
-
-export interface TrackerItemPlan {
-  id: string;
-  itemId: string;
-  targetProject: string;
-  sessionId: string | null;
-  status: ItemPlanStatus;
-  promptSent: string;
-  planMarkdown: string | null;
-  pendingQuestions: AskQuestion[] | null;
-  lastExecutionId: string | null;
-  createdBy: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -695,7 +507,7 @@ export interface PipelineBundle {
 
 // ── Second Brain ──
 
-export type BrainChannel = "email" | "calendar" | "whatsapp" | "slack" | "drive";
+export type BrainChannel = "email" | "calendar" | "whatsapp" | "slack" | "drive" | "claudemar";
 export type BrainTenant = string;
 export interface BrainChatMessage {
   role: "user" | "assistant";
@@ -721,7 +533,7 @@ export interface BrainTenantEntry {
   merged_into: string | null;
 }
 
-export type BrainSchedulerName = "gmail" | "calendar" | "ingest" | "triage" | "compile" | "index" | "digest" | "whatsapp" | "slack" | "distill" | "lint" | "freshness";
+export type BrainSchedulerName = "gmail" | "calendar" | "ingest" | "triage" | "compile" | "index" | "digest" | "whatsapp" | "slack" | "distill" | "lint" | "freshness" | "claudemar";
 
 export interface BrainParticipant {
   name: string;
@@ -835,6 +647,7 @@ export interface BackfillState {
   status: "idle" | "running" | "done" | "error" | "cancelled";
   phase: "raw" | "triage" | "compile" | null;
   accounts: string[];
+  claudemar: boolean;
   monthsRaw: number;
   monthsCompile: number;
   startedAt: string | null;
@@ -895,7 +708,7 @@ export interface BrainAccountSetting {
 
 export interface BrainSettings {
   schedulers: Record<BrainSchedulerName, boolean>;
-  cadences: { gmailMs: number; calendarMs: number; ingestMs: number; triageMs: number; compileMs: number; indexMs: number; whatsappMs: number; slackMs: number; freshnessMs: number };
+  cadences: { gmailMs: number; calendarMs: number; ingestMs: number; triageMs: number; compileMs: number; indexMs: number; whatsappMs: number; slackMs: number; freshnessMs: number; claudemarMs: number };
   chatter: { minChars: number; extraConfirmations: string[]; samplePerWeek: number };
   llm: { providers: BrainLlmProvider[]; triage: BrainStageLlm; compile: BrainStageLlm; selector: BrainStageLlm; distill: BrainStageLlm; lint: BrainStageLlm };
   compile: { minRelevance: number; maxSectionChars: number; contextPages: number; batchSize: number; maxPerTick: number };
@@ -905,6 +718,55 @@ export interface BrainSettings {
   backfill: { monthsRaw: number; monthsCompile: number };
   retrieval: BrainRetrievalSettings;
   jev: { triagePrefilter: boolean; triageMinConfidence: number; selector: boolean; selectorThreshold: number };
+  claudemar: BrainClaudemarSettings;
+}
+
+export interface BrainClaudemarSettings {
+  tenants: Record<string, string>;
+  excludedTargets: string[];
+  transcripts: boolean;
+  orphanSessions: boolean;
+  includeOtherUsers: boolean;
+  pipeline: boolean;
+  commits: boolean;
+}
+
+export interface BrainApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface BrainMcpAuditEntry {
+  at: string;
+  keyId: string;
+  keyName: string;
+  ip: string;
+  userAgent: string;
+  tool: string;
+  args: string;
+  bytes: number;
+  ok: boolean;
+}
+
+export interface BrainApiKeysResponse {
+  endpointPath: string;
+  publicBaseUrl: string;
+  keys: BrainApiKey[];
+}
+
+export interface BrainClaudemarTarget {
+  key: string;
+  kind: "orchestrator" | "project" | "agent";
+  name: string;
+  label: string;
+  tenant: string;
+  mappedTenant: string | null;
+  excluded: boolean;
+  pagePath: string;
+  pageExists: boolean;
 }
 
 export interface BrainQuarantineItem {

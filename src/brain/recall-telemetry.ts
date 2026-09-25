@@ -41,7 +41,7 @@ export function buildRecallLine(params: {
     surface: params.surface,
     tool: params.tool,
     scope: { targetType: "brain", targetName: params.targetName },
-    query: params.query,
+    query: params.query.slice(0, 500),
     requested: params.requested,
     candidates_rrf: params.candidatesRrf,
     returned_ids: params.returnedIds,

@@ -13,18 +13,12 @@ const LogsPage = lazy(() => import("./pages/LogsPage").then((module) => ({ defau
 const ChangelogPage = lazy(() => import("./pages/ChangelogPage").then((module) => ({ default: module.ChangelogPage })));
 const UsersPage = lazy(() => import("./pages/UsersPage").then((module) => ({ default: module.UsersPage })));
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
-const TrackerPage = lazy(() => import("./pages/TrackerPage").then((module) => ({ default: module.TrackerPage })));
 const SecondBrainPage = lazy(() => import("./pages/SecondBrainPage").then((module) => ({ default: module.SecondBrainPage })));
 const WorkspacesPage = lazy(() => import("./pages/WorkspacesPage").then((module) => ({ default: module.WorkspacesPage })));
 
 function KeyedBrainPage() {
   const { tab } = useParams();
   return <SecondBrainPage key={tab} />;
-}
-
-function KeyedTrackerPage() {
-  const { projectId, cycleId, itemId } = useParams();
-  return <TrackerPage key={`${projectId}-${cycleId}-${itemId}`} />;
 }
 
 function KeyedProjectPage() {
@@ -92,11 +86,6 @@ export const router = createBrowserRouter([
       { path: "changelog", element: <AdminGuard><ChangelogPage /></AdminGuard> },
       { path: "users", element: <AdminGuard><UsersPage /></AdminGuard> },
       { path: "settings", element: <AdminGuard><SettingsPage /></AdminGuard> },
-      { path: "tracker", element: <TrackerPage /> },
-      { path: "tracker/:projectId", element: <KeyedTrackerPage /> },
-      { path: "tracker/:projectId/board", element: <KeyedTrackerPage /> },
-      { path: "tracker/:projectId/cycles/:cycleId", element: <KeyedTrackerPage /> },
-      { path: "tracker/:projectId/cycles/:cycleId/items/:itemId", element: <KeyedTrackerPage /> },
       { path: "*", element: <RouteError notFound /> },
     ] }],
   },

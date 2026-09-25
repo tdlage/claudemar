@@ -4,7 +4,7 @@ import { sha256Hex } from "./text.js";
 import type { CanonicalEvent } from "./types.js";
 
 export const canonicalEventSchema = z.object({
-  channel: z.enum(["email", "calendar", "whatsapp", "slack", "drive"]),
+  channel: z.enum(["email", "calendar", "whatsapp", "slack", "drive", "claudemar"]),
   subchannel: z.enum(["direct", "group"]),
   account: z.string().min(1),
   external_id: z.string().min(1),

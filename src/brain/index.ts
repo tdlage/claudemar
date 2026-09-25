@@ -13,6 +13,7 @@ import "./digest.js";
 import "./distill.js";
 import "./lint.js";
 import "./freshness.js";
+import "./claudemar/connector.js";
 import "./connectors/whatsapp.js";
 import { slackManager } from "./connectors/slack.js";
 

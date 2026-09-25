@@ -38,7 +38,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "raw_list",
     description:
-      "Lista threads brutas (email, calendar, whatsapp, slack) da mais recente para a mais antiga, com caminho, data, relevância e assunto. Use para descobrir o que existe antes de ler.",
+      "Lista threads brutas (email, calendar, whatsapp, slack, claudemar) da mais recente para a mais antiga, com caminho, data, relevância e assunto. Use para descobrir o que existe antes de ler. No canal claudemar o assunto traz o alvo (ex.: \"Projeto claudemar — …\", \"Agente x — …\", \"[CÓDIGO-12] …\").",
     input_schema: {
       type: "object",
       properties: {
@@ -139,7 +139,8 @@ async function systemPrompt(): Promise<string> {
     .filter((t) => !t.merged_into)
     .map((t) => `${t.id} (${t.label})`)
     .join(", ");
-  return `Você responde perguntas sobre o Second Brain do usuário: a memória pessoal dele, ingerida de email, calendar, WhatsApp e Slack.
+  return `Você responde perguntas sobre o Second Brain do usuário: a memória pessoal dele, ingerida de email, calendar, WhatsApp, Slack e do claudemar
+(a plataforma de agentes dele: execuções do orquestrador, dos projetos e dos agentes, cards do pipeline, commits).
 
 Hoje é ${dayKeyInTz(new Date(), config.brainTz)} (fuso ${config.brainTz}).
 Contextos conhecidos: ${contexts || "(nenhum ainda)"}.
@@ -148,6 +149,11 @@ Como trabalhar:
 - SEMPRE busque antes de responder. Nunca responda de memória própria sobre a vida do usuário.
 - O wiki compilado (brain_search/brain_read) só tem o que a compilação já processou; pode estar vazio.
   Quando não achar nada lá, use raw_list, raw_grep e raw_thread — a evidência bruta é a fonte completa.
+- Perguntas sobre o trabalho no claudemar (decisões, implementações, status dos cards do pipeline, o que foi pedido a um agente e o
+  que ele respondeu): comece pela página do alvo em wiki/projects/claudemar-projeto-<nome>.md, claudemar-agente-<nome>.md
+  ou claudemar-orquestrador.md (nome em minúsculas, sem acentos, com hífens; na dúvida, brain_read("wiki/projects")) — as seções "Pipeline (claudemar)" e "Atividade (claudemar)" são atualizadas
+  automaticamente e listam as execuções recentes com o caminho da thread bruta. Para o pedido e a resposta completos,
+  use raw_list/raw_grep com channel "claudemar" e leia a thread com raw_thread.
 - Cite sempre de onde veio o fato: o caminho do arquivo e a data.
 - Não sei é resposta válida. Se a busca não sustentar a resposta, diga que não há registro em vez de deduzir.
 - Responda em português, direto, sem repetir a pergunta.

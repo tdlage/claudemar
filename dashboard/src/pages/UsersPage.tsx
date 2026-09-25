@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Plus, Pencil, Trash2, X, Save, Copy, Check } from "lucide-react";
 import { api } from "../lib/api";
 import { DEFAULT_PROJECT_TABS, PROJECT_TAB_KEYS } from "../lib/types";
-import type { AgentInfo, ProjectInfo, TrackerProject, ProjectTabKey } from "../lib/types";
+import type { AgentInfo, ProjectInfo, ProjectTabKey } from "../lib/types";
 
 const TAB_LABEL: Record<ProjectTabKey, string> = {
   terminal: "Terminal",
@@ -21,7 +21,6 @@ interface User {
   token: string;
   projects: string[];
   agents: string[];
-  trackerProjects: string[];
   projectTabs: Record<string, ProjectTabKey[]>;
   createdAt: string;
 }
@@ -30,7 +29,6 @@ export function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
-  const [trackerProjects, setTrackerProjects] = useState<TrackerProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Partial<User> | null>(null);
   const [creating, setCreating] = useState(false);
@@ -53,7 +51,6 @@ export function UsersPage() {
     loadUsers();
     api.get<AgentInfo[]>("/agents").then(setAgents).catch(() => {});
     api.get<ProjectInfo[]>("/projects").then(setProjects).catch(() => {});
-    api.get<TrackerProject[]>("/tracker/projects").then(setTrackerProjects).catch(() => {});
   }, [loadUsers]);
 
   const handleCreate = async () => {
@@ -94,7 +91,6 @@ export function UsersPage() {
         email: user.email,
         projects: [...user.projects],
         agents: [...user.agents],
-        trackerProjects: [...(user.trackerProjects || [])],
         projectTabs: { ...(user.projectTabs || {}) },
       });
     }
@@ -142,15 +138,6 @@ export function UsersPage() {
       ? current.filter((a) => a !== agentName)
       : [...current, agentName];
     setEditing({ ...editing, agents: next });
-  };
-
-  const toggleTrackerProject = (projectId: string) => {
-    if (!editing) return;
-    const current = editing.trackerProjects || [];
-    const next = current.includes(projectId)
-      ? current.filter((id) => id !== projectId)
-      : [...current, projectId];
-    setEditing({ ...editing, trackerProjects: next });
   };
 
   return (
@@ -231,9 +218,6 @@ export function UsersPage() {
                     <span className="text-xs text-text-muted">
                       {user.agents.length} agent{user.agents.length !== 1 ? "s" : ""}
                     </span>
-                    <span className="text-xs text-text-muted">
-                      {(user.trackerProjects || []).length} tracker
-                    </span>
                     <button
                       onClick={(e) => { e.stopPropagation(); copyToken(user.id, user.token); }}
                       className="flex items-center gap-1 text-xs text-text-muted hover:text-accent transition-colors"
@@ -285,7 +269,7 @@ export function UsersPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-text-muted mb-2">
                         Projects ({editing.projects?.length || 0}/{projects.length})
@@ -356,33 +340,6 @@ export function UsersPage() {
                         ))}
                         {agents.length === 0 && (
                           <span className="text-xs text-text-muted">No agents available</span>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-text-muted mb-2">
-                        Tracker ({editing.trackerProjects?.length || 0}/{trackerProjects.length})
-                      </label>
-                      <div className="space-y-1 max-h-48 overflow-y-auto">
-                        {trackerProjects.map((tp) => (
-                          <label
-                            key={tp.id}
-                            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-hover cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={editing.trackerProjects?.includes(tp.id) || false}
-                              onChange={() => toggleTrackerProject(tp.id)}
-                              className="rounded border-border text-accent focus:ring-accent"
-                            />
-                            <span className="text-sm text-text-primary">
-                              <span className="text-[10px] font-mono text-accent mr-1">{tp.code}</span>
-                              {tp.name}
-                            </span>
-                          </label>
-                        ))}
-                        {trackerProjects.length === 0 && (
-                          <span className="text-xs text-text-muted">No tracker projects available</span>
                         )}
                       </div>
                     </div>

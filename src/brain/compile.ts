@@ -15,10 +15,17 @@ import { quarantineWrite } from "./quarantine.js";
 import { emitActivity } from "./events.js";
 import { brainSchedulers } from "./schedulers.js";
 import { channelOfThreadKey } from "./triage.js";
+import { dayKeyInTz } from "./text.js";
+import { config } from "../config.js";
+import { claudemarCompileGuidance, claudemarExcerpt, claudemarThreadTarget } from "./claudemar/prompts.js";
+import { ensureTargetPage } from "./claudemar/pages.js";
+import { isTargetExcluded, targetPagePath } from "./claudemar/targets.js";
 import type { CompileOutput, RawFrontmatter } from "./types.js";
 
 const MAX_ATTEMPTS = 5;
 const MAX_THREAD_CHARS = 12_000;
+const CLAUDEMAR_THREAD_CHARS = 16_000;
+const CLAUDEMAR_HEAD_CHARS = 4_000;
 
 export interface BuiltCompileRequest {
   request: StageRequest;
@@ -41,7 +48,13 @@ export async function buildCompileRequest(threadKey: string): Promise<BuiltCompi
     ...thread.frontmatter.participants.map((p) => p.name).filter(Boolean),
   ];
   const { paths } = await resolveEntities(entityNames);
-  const related = await relatedPagesText(paths, settings.compile.contextPages);
+  const claudemar = thread.frontmatter.channel === "claudemar";
+  const target = claudemar ? claudemarThreadTarget(thread.frontmatter) : null;
+  if (target && isTargetExcluded(target)) return { error: "alvo do claudemar excluído do brain" };
+  if (target) await ensureTargetPage(target, relPath);
+  const targetPage = target ? targetPagePath(target) : null;
+  const contextPaths = targetPage ? [targetPage, ...paths.filter((p) => p !== targetPage)] : paths;
+  const related = await relatedPagesText(contextPaths, settings.compile.contextPages);
 
   const substantive = thread.blocks.filter((b) => b.chatter === null);
   const header = [
@@ -52,18 +65,23 @@ export async function buildCompileRequest(threadKey: string): Promise<BuiltCompi
     `Participantes: ${thread.frontmatter.participants.map((p) => `${p.name} <${p.handle}>`).join(", ")}`,
   ].join("\n");
 
-  let used = 0;
   const messages: string[] = [];
-  for (const block of substantive.slice().reverse()) {
-    const entry = `## [${block.at}] ${block.sender}\n${block.body}\n`;
-    if (used + entry.length > MAX_THREAD_CHARS) break;
-    used += entry.length;
-    messages.unshift(entry);
+  if (claudemar) {
+    messages.push(claudemarExcerpt(thread.blocks, CLAUDEMAR_THREAD_CHARS, CLAUDEMAR_HEAD_CHARS));
+  } else {
+    let used = 0;
+    for (const block of substantive.slice().reverse()) {
+      const entry = `## [${block.at}] ${block.sender}\n${block.body}\n`;
+      if (used + entry.length > MAX_THREAD_CHARS) break;
+      used += entry.length;
+      messages.unshift(entry);
+    }
   }
 
   const user = [
     related ? `# Páginas existentes do wiki relacionadas\n\n${related}` : "# Nenhuma página relacionada existente no wiki",
     `# Thread a compilar (fonte: ${relPath})\n\n${header}\n\n${messages.join("\n")}`,
+    ...(claudemar ? [await claudemarCompileGuidance(relPath, thread.frontmatter)] : []),
     `# Tarefa\n\nCompile esta thread conforme o contrato. Use "${relPath}" como source. Atualize páginas existentes em vez de criar novas. Se nada merece extração, devolva operations vazio.`,
   ].join("\n\n");
 
@@ -104,6 +122,7 @@ export async function processCompileResult(
     built.relPath,
     output,
     built.frontmatter.contains_pii === 1 ? 1 : 0,
+    dayKeyInTz(new Date(built.frontmatter.occurred_to), config.brainTz),
   );
   await incrMetric("compiled");
   emitActivity({

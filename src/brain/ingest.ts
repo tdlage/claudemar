@@ -31,7 +31,9 @@ async function tenantHintFor(event: CanonicalEvent): Promise<BrainTenant> {
 
 async function processEvent(event: CanonicalEvent): Promise<void> {
   const settings = brainSettingsManager.get();
-  const normalized = normalizeMessage(event.body_text, event.body_html);
+  const normalized = normalizeMessage(event.body_text, event.body_html, {
+    conversational: event.channel !== "claudemar",
+  });
   const verdict = classifyChatter(normalized.text, {
     minChars: settings.chatter.minChars,
     extraConfirmations: settings.chatter.extraConfirmations,
@@ -48,7 +50,8 @@ async function processEvent(event: CanonicalEvent): Promise<void> {
     });
   }
 
-  const piiHint: 0 | 1 = event.channel === "calendar" && event.subchannel === "direct" ? 0 : 1;
+  const piiHint: 0 | 1 =
+    event.channel === "claudemar" || (event.channel === "calendar" && event.subchannel === "direct") ? 0 : 1;
   const tenantHint = await tenantHintFor(event);
   const result = await upsertMessage({
     event,

@@ -14,7 +14,7 @@ import { countBrainPoints } from "../../brain/brain-index.js";
 import { brainSearch } from "../../brain/search.js";
 import { readRecallDistribution, readRecallTail } from "../../brain/recall-telemetry.js";
 import { WIKI_DIRS, appendOpenLoopTransition, currentOpenLoops, markReviewed, readOpenLoops } from "../../brain/wiki.js";
-import { listTenants, mergeTenants, updateTenant } from "../../brain/tenants.js";
+import { ensureTenant, listTenants, mergeTenants, updateTenant } from "../../brain/tenants.js";
 import { rewriteTenantReferences } from "../../brain/tenant-rewrite.js";
 import { brainChat, type BrainChatMessage } from "../../brain/chat.js";
 import { listDigests, readDigest } from "../../brain/digest.js";
@@ -52,6 +52,12 @@ import {
 import { exportToEvents } from "../../brain/whatsapp-export.js";
 import { slackManager } from "../../brain/connectors/slack.js";
 import { emitCanonicalEvent } from "../../brain/canonical.js";
+import { describeTarget, describeTargets, retenantTargetPages } from "../../brain/claudemar/pages.js";
+import { brainApiKeys } from "../../brain/api-keys.js";
+import { config } from "../../config.js";
+import { markTargetsDirty } from "../../brain/claudemar/connector.js";
+import { isTargetExcluded, parseTargetKey } from "../../brain/claudemar/targets.js";
+import { purgeTarget } from "../../brain/claudemar/purge.js";
 import type { BrainSchedulerName, RawFrontmatter } from "../../brain/types.js";
 
 export const brainRouter = Router();
@@ -177,6 +183,75 @@ brainRouter.patch(
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  }),
+);
+
+brainRouter.get("/api-keys", (_req, res) => {
+  res.json({ endpointPath: "/api/brain/mcp", publicBaseUrl: config.publicBaseUrl, keys: brainApiKeys.list() });
+});
+
+brainRouter.post("/api-keys", (req, res) => {
+  try {
+    res.json(brainApiKeys.create(paramStr(req.body?.name)));
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+brainRouter.delete("/api-keys/:id", (req, res) => {
+  try {
+    if (!brainApiKeys.revoke(paramStr(req.params.id))) {
+      res.status(404).json({ error: "chave não encontrada" });
+      return;
+    }
+  } catch (err) {
+    res.status(500).json({ error: `revogação não gravada em disco: ${err instanceof Error ? err.message : String(err)}` });
+    return;
+  }
+  res.json({ revoked: true });
+});
+
+brainRouter.get("/api-keys/audit", (req, res) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+  res.json(brainApiKeys.readAudit(limit));
+});
+
+brainRouter.get(
+  "/claudemar/targets",
+  asyncHandler(async (_req, res) => {
+    res.json(await describeTargets());
+  }),
+);
+
+brainRouter.put(
+  "/claudemar/targets/:key",
+  asyncHandler(async (req, res) => {
+    const key = paramStr(req.params.key);
+    const target = parseTargetKey(key);
+    const known = target ? (await describeTargets()).some((t) => t.key === key) : false;
+    if (!target || !known) {
+      res.status(404).json({ error: "alvo desconhecido" });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const hasTenant = "tenant" in body && (body.tenant === null || typeof body.tenant === "string");
+    const hasExcluded = typeof body.excluded === "boolean";
+    if (!hasTenant && !hasExcluded) {
+      res.status(400).json({ error: "informe tenant (string ou null) ou excluded (boolean)" });
+      return;
+    }
+    if (hasTenant) {
+      const label = typeof body.tenant === "string" ? body.tenant.trim().slice(0, 80) : "";
+      brainSettingsManager.setClaudemarTenant(key, label ? await ensureTenant({ label }) : null);
+      await retenantTargetPages(target);
+    }
+    if (hasExcluded) {
+      brainSettingsManager.setClaudemarExcluded(key, body.excluded as boolean);
+      if (body.excluded === true) await purgeTarget(target);
+    }
+    if (!isTargetExcluded(target)) await markTargetsDirty([target]).catch(() => {});
+    brainEvents.emit("status-changed");
+    res.json(await describeTarget(target));
   }),
 );
 
@@ -794,8 +869,14 @@ brainRouter.post(
     const accounts = Array.isArray(req.body?.accounts)
       ? (req.body.accounts as unknown[]).filter((a): a is string => typeof a === "string")
       : undefined;
-    const result = await startBackfill({ monthsRaw, monthsCompile, accounts });
-    if ("error" in result) {
+    const result = await startBackfill({
+      monthsRaw,
+      monthsCompile,
+      accounts,
+      google: req.body?.google !== false,
+      claudemar: req.body?.claudemar === true,
+    });
+    if (!("status" in result)) {
       res.status(409).json({ error: result.error });
       return;
     }
@@ -820,8 +901,10 @@ brainRouter.post(
 brainRouter.get(
   "/backfill/estimate",
   asyncHandler(async (req, res) => {
-    const monthsCompile = Number(req.query.monthsCompile) || brainSettingsManager.get().backfill.monthsCompile;
-    res.json(await estimateBackfill(monthsCompile));
+    const settings = brainSettingsManager.get();
+    const monthsCompile = Number(req.query.monthsCompile) || settings.backfill.monthsCompile;
+    const monthsRaw = Number(req.query.monthsRaw) || settings.backfill.monthsRaw;
+    res.json(await estimateBackfill(monthsCompile, monthsRaw));
   }),
 );
 

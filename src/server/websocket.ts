@@ -8,7 +8,6 @@ import { runProcessManager } from "../run-process-manager.js";
 import { resolveContext, hasProjectTab, type RequestContext } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
 import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
-import { trackerManager } from "../tracker-manager.js";
 import { pipelineManager } from "../pipeline-manager.js";
 import { ciEventManager } from "../ci-events.js";
 import { brainEvents } from "../brain/events.js";
@@ -108,17 +107,19 @@ export function setupWebSocket(io: SocketServer): void {
       executionManager.submitAnswer(execId, answer);
     });
 
-    socket.on("execution:send", async ({ execId, blocks, text, effort }: { execId: string; blocks?: MessageBlock[]; text?: string; effort?: Effort }) => {
+    socket.on("execution:send", async ({ execId, blocks, text, effort, effortAuto }: { execId: string; blocks?: MessageBlock[]; text?: string; effort?: Effort; effortAuto?: boolean }) => {
       if (!ownsExecution(execId)) return;
       const payload = blocks && blocks.length > 0 ? blocks : (text ?? "");
       const info = executionManager.getExecution(execId);
       if (!info) return;
       const prompt = text ?? (blocks ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
       const ctx = getCtx();
+      const automatic = ctx?.role === "user";
       const requestedEffort = ctx?.role === "user"
         ? await automaticEffort(prompt, info.runtime, { targetType: info.targetType, targetName: info.targetName, username: ctx.name })
         : typeof effort === "string" && EFFORTS.includes(effort) ? effort : undefined;
-      if (requestedEffort) await executionManager.setEffort(execId, requestedEffort).catch(() => false);
+      const requestedEffortAuto = requestedEffort !== undefined && (automatic || effortAuto === true);
+      if (requestedEffort) await executionManager.setEffort(execId, requestedEffort, requestedEffortAuto).catch(() => false);
       if (executionManager.sendMessage(execId, payload)) return;
       if (!prompt.trim()) return;
 
@@ -141,6 +142,7 @@ export function setupWebSocket(io: SocketServer): void {
           model: info.modelSelection,
           planMode: info.planMode || undefined,
           effort: requestedEffort,
+          effortAuto: requestedEffortAuto,
         }).then(() => {
           socket.emit("execution:send:queued", { execId });
         }).catch(() => {
@@ -162,6 +164,7 @@ export function setupWebSocket(io: SocketServer): void {
           planMode: info.planMode,
           blocks: blocks && blocks.length > 0 ? blocks : undefined,
           effort: requestedEffort,
+          effortAuto: requestedEffortAuto,
         });
         socket.emit("execution:send:restarted", { execId, newId });
       } catch (err) {
@@ -204,14 +207,6 @@ export function setupWebSocket(io: SocketServer): void {
 
     socket.on("unsubscribe:run", (configId: string) => {
       socket.leave(`run:${configId}`);
-    });
-
-    socket.on("subscribe:tracker", () => {
-      socket.join("tracker");
-    });
-
-    socket.on("unsubscribe:tracker", () => {
-      socket.leave("tracker");
     });
 
     socket.on("subscribe:pipeline", () => {
@@ -364,21 +359,6 @@ export function setupWebSocket(io: SocketServer): void {
     io.to("executions").emit("run:error", { configId, error });
     io.to(`run:${configId}`).emit("run:error", { configId, error });
   });
-
-  const trackerEvents = [
-    "project:create", "project:update", "project:delete",
-    "cycle:create", "cycle:update", "cycle:delete",
-    "item:create", "item:update", "item:delete",
-    "comment:add", "comment:delete",
-    "testcase:create", "testcase:update", "testcase:delete", "testcase:reorder",
-    "testrun:create", "testrun:update", "testrun:delete", "testrun:attachment", "testrun:comment",
-    "plan:create", "plan:update",
-  ];
-  for (const event of trackerEvents) {
-    trackerManager.on(event, (data) => {
-      io.to("tracker").emit(`tracker:${event}`, data);
-    });
-  }
 
   const pipelineEvents = [
     "pipeline:update",

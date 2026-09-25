@@ -1,4 +1,4 @@
-import { KeyRound, Cpu, Plug, FileText, Filter, Users, DatabaseBackup, MailX, Gauge } from "lucide-react";
+import { KeyRound, Cpu, Plug, FileText, Filter, Users, DatabaseBackup, MailX, Gauge, Bot, Share2 } from "lucide-react";
 import { Button } from "../shared/Button";
 import { useToast } from "../shared/Toast";
 import { useBrainSettings } from "../../hooks/useBrain";
@@ -9,6 +9,8 @@ import { ContractEditor } from "./ContractEditor";
 import { BackfillSection } from "./BackfillSection";
 import { TenantsSection } from "./TenantsSection";
 import { WhatsappSlackSection } from "./WhatsappSlackSection";
+import { ClaudemarSection } from "./ClaudemarSection";
+import { ExternalAccessSection } from "./ExternalAccessSection";
 
 const inputClass =
   "w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent";
@@ -44,6 +46,16 @@ export function BrainSettingsTab() {
       <section className="space-y-4">
         <SectionHeader icon={Plug} title="WhatsApp e Slack" />
         <WhatsappSlackSection />
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader icon={Bot} title="Claudemar (projetos e agentes)" />
+        <ClaudemarSection settings={settings} patch={patch} />
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader icon={Share2} title="Acesso externo (MCP)" />
+        <ExternalAccessSection />
       </section>
 
       <section className="space-y-4">

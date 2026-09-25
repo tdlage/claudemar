@@ -29,7 +29,6 @@ export interface User {
   token: string;
   projects: string[];
   agents: string[];
-  trackerProjects: string[];
   projectTabs: Record<string, ProjectTabKey[]>;
   createdAt: string;
 }
@@ -60,9 +59,6 @@ class UsersManager {
     const agentRows = await query<(RowDataPacket & { user_id: string; agent_name: string })[]>(
       "SELECT user_id, agent_name FROM user_agents",
     );
-    const trackerRows = await query<(RowDataPacket & { user_id: string; tracker_project_id: string })[]>(
-      "SELECT user_id, tracker_project_id FROM user_tracker_projects",
-    );
     const tabRows = await query<(RowDataPacket & { user_id: string; project_name: string; tab_key: string })[]>(
       "SELECT user_id, project_name, tab_key FROM user_project_tabs",
     );
@@ -78,12 +74,6 @@ class UsersManager {
       const list = agentMap.get(r.user_id) ?? [];
       list.push(r.agent_name);
       agentMap.set(r.user_id, list);
-    }
-    const trackerMap = new Map<string, string[]>();
-    for (const r of trackerRows) {
-      const list = trackerMap.get(r.user_id) ?? [];
-      list.push(r.tracker_project_id);
-      trackerMap.set(r.user_id, list);
     }
     const tabsMap = new Map<string, Record<string, ProjectTabKey[]>>();
     for (const r of tabRows) {
@@ -102,7 +92,6 @@ class UsersManager {
         token: row.token,
         projects: projectMap.get(row.id) ?? [],
         agents: agentMap.get(row.id) ?? [],
-        trackerProjects: trackerMap.get(row.id) ?? [],
         projectTabs: tabsMap.get(row.id) ?? {},
         createdAt,
       });
@@ -129,7 +118,6 @@ class UsersManager {
       token: randomBytes(32).toString("base64url"),
       projects: [],
       agents: [],
-      trackerProjects: [],
       projectTabs: {},
       createdAt: new Date().toISOString(),
     };
@@ -143,7 +131,7 @@ class UsersManager {
     return user;
   }
 
-  async update(id: string, data: Partial<Pick<User, "name" | "email" | "projects" | "agents" | "trackerProjects" | "projectTabs">>): Promise<User | null> {
+  async update(id: string, data: Partial<Pick<User, "name" | "email" | "projects" | "agents" | "projectTabs">>): Promise<User | null> {
     const user = this.users.get(id);
     if (!user) return null;
 
@@ -180,14 +168,6 @@ class UsersManager {
         await conn.execute("DELETE FROM user_agents WHERE user_id = ?", [id]);
         for (const a of data.agents) {
           await conn.execute("INSERT INTO user_agents (user_id, agent_name) VALUES (?, ?)", [id, a]);
-        }
-      }
-
-      if (data.trackerProjects !== undefined) {
-        user.trackerProjects = data.trackerProjects;
-        await conn.execute("DELETE FROM user_tracker_projects WHERE user_id = ?", [id]);
-        for (const tp of data.trackerProjects) {
-          await conn.execute("INSERT INTO user_tracker_projects (user_id, tracker_project_id) VALUES (?, ?)", [id, tp]);
         }
       }
 

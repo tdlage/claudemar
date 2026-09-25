@@ -720,11 +720,6 @@ projectsRouter.post("/:name/repos/:repo/commit-push", asyncHandler(async (req, r
     ? `:wt-${resolved.worktreeBranch || "detached"}`
     : "";
   const targetName = `__commitpush:${req.params.name}:${req.params.repo}${worktreeSuffix}`;
-  const trackerItems = req.body?.trackerItems ?? [];
-  if (!Array.isArray(trackerItems) || trackerItems.length > 100 || trackerItems.some((item) => typeof item !== "string" || !item.trim() || item.length > 200 || /[\r\n\0]/.test(item))) {
-    res.status(400).json({ error: "Referências de tracker inválidas" });
-    return;
-  }
   const prompt = "Gerar mensagem com z.ai, fazer commit das alterações e push para origin.";
 
   const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
@@ -734,7 +729,6 @@ projectsRouter.post("/:name/repos/:repo/commit-push", asyncHandler(async (req, r
     targetName,
     model: COMMIT_PUSH_MODEL,
     taskMode: "commit-push",
-    commitPushRefs: trackerItems,
     effort: "low",
     skipSystemPrompt: true,
     prompt,

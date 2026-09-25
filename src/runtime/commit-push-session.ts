@@ -16,7 +16,7 @@ export class CommitPushSession extends BaseAgentSession {
       let output = "", tokens = 0;
       const errors: string[] = [];
       try {
-        tokens = await runCommitPush({ cwd: this.init.cwd, refs: this.init.commitPushRefs, signal: this.controller.signal, generate: commitMessageGenerator(this.init.profile), progress: (text) => { output += text; this.emit("chunk", text); } });
+        tokens = await runCommitPush({ cwd: this.init.cwd, signal: this.controller.signal, generate: commitMessageGenerator(this.init.profile), progress: (text) => { output += text; this.emit("chunk", text); } });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         errors.push(message);

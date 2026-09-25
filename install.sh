@@ -456,7 +456,7 @@ setup_env() {
         printf 'DASHBOARD_TOKEN=%s\n' "$dashboard_token" >> "$env_file"
         printf 'DASHBOARD_PORT=%s\n' "${dashboard_port:-3000}" >> "$env_file"
         printf 'CLAUDEMAR_DATA=%s\n' "$DATA_DIR" >> "$env_file"
-        printf '\n# MySQL (required for Tracker feature)\n' >> "$env_file"
+        printf '\n# MySQL (execution history, users and pipeline)\n' >> "$env_file"
         printf 'MYSQL_HOST=localhost\n' >> "$env_file"
         printf 'MYSQL_PORT=3306\n' >> "$env_file"
         printf 'MYSQL_USER=claudemar\n' >> "$env_file"
@@ -477,7 +477,7 @@ DASHBOARD_TOKEN=
 DASHBOARD_PORT=3000
 CLAUDEMAR_DATA=${DATA_DIR}
 
-# MySQL (required for Tracker feature)
+# MySQL (execution history, users and pipeline)
 MYSQL_HOST=localhost
 MYSQL_PORT=3306
 MYSQL_USER=claudemar
@@ -494,7 +494,7 @@ EOF
 }
 
 setup_mysql() {
-    step 7 "Configuring MySQL (Tracker)"
+    step 7 "Configuring MySQL"
 
     local env_file="$INSTALL_DIR/.env"
 
@@ -509,14 +509,14 @@ setup_mysql() {
     fi
 
     if ! command -v mysql &>/dev/null; then
-        warn "MySQL client not found — Tracker feature will be disabled"
-        info "Install MySQL/MariaDB and re-run installer to enable Tracker"
+        warn "MySQL client not found — execution history, users and pipeline will be unavailable"
+        info "Install MySQL/MariaDB and re-run installer to enable them"
         info "  Ubuntu/Debian: sudo apt-get install -y mysql-server"
         info "  RHEL/Amazon:   sudo yum install -y mysql-server"
         info "  macOS:         brew install mysql"
 
         if ! grep -q '^MYSQL_HOST=' "$env_file" 2>/dev/null; then
-            printf '\n# MySQL (required for Tracker feature)\n' >> "$env_file"
+            printf '\n# MySQL (execution history, users and pipeline)\n' >> "$env_file"
             printf 'MYSQL_HOST=localhost\n' >> "$env_file"
             printf 'MYSQL_PORT=3306\n' >> "$env_file"
             printf 'MYSQL_USER=claudemar\n' >> "$env_file"
@@ -529,7 +529,7 @@ setup_mysql() {
     if [[ ! -t 0 ]]; then
         warn "Non-interactive mode: MySQL not configured. Edit .env manually."
         if ! grep -q '^MYSQL_HOST=' "$env_file" 2>/dev/null; then
-            printf '\n# MySQL (required for Tracker feature)\n' >> "$env_file"
+            printf '\n# MySQL (execution history, users and pipeline)\n' >> "$env_file"
             printf 'MYSQL_HOST=localhost\n' >> "$env_file"
             printf 'MYSQL_PORT=3306\n' >> "$env_file"
             printf 'MYSQL_USER=claudemar\n' >> "$env_file"
@@ -541,15 +541,15 @@ setup_mysql() {
 
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║              MySQL Configuration (Tracker)                   ║${NC}"
+    echo -e "${BOLD}║                    MySQL Configuration                       ║${NC}"
     echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  The Tracker feature (Shape Up kanban board) requires MySQL."
+    echo -e "  Execution history, users and the pipeline require MySQL."
     echo -e "  Tables are created automatically on first startup."
     echo ""
     echo -e "  ${BOLD}Option 1:${NC} Auto-create database and user (requires mysql root access)"
     echo -e "  ${BOLD}Option 2:${NC} Enter existing database credentials"
-    echo -e "  ${BOLD}Option 3:${NC} Skip (Tracker will be disabled)"
+    echo -e "  ${BOLD}Option 3:${NC} Skip (features that need MySQL will be unavailable)"
     echo ""
     read -rp "$(echo -e "  ${BOLD}Choice${NC} [1/2/3]: ")" mysql_choice
     mysql_choice="${mysql_choice:-3}"
@@ -611,12 +611,12 @@ MYSQL_EOF
             MYSQL_CONFIGURED=true
         else
             warn "Could not connect to MySQL — verify credentials and ensure the database exists"
-            info "Tracker will attempt to connect on startup"
+            info "claudemar will attempt to connect on startup"
         fi
     fi
 
     if [[ "$mysql_choice" == "3" ]]; then
-        info "MySQL skipped — Tracker feature will be disabled"
+        info "MySQL skipped — execution history, users and pipeline will be unavailable"
         mysql_pass=""
     fi
 
@@ -627,7 +627,7 @@ MYSQL_EOF
         sed -i "s/^MYSQL_PASSWORD=.*/MYSQL_PASSWORD=${mysql_pass}/" "$env_file"
         sed -i "s/^MYSQL_DATABASE=.*/MYSQL_DATABASE=${mysql_db}/" "$env_file"
     else
-        printf '\n# MySQL (required for Tracker feature)\n' >> "$env_file"
+        printf '\n# MySQL (execution history, users and pipeline)\n' >> "$env_file"
         printf 'MYSQL_HOST=%s\n' "$mysql_host" >> "$env_file"
         printf 'MYSQL_PORT=%s\n' "$mysql_port" >> "$env_file"
         printf 'MYSQL_USER=%s\n' "$mysql_user" >> "$env_file"
@@ -890,7 +890,7 @@ print_summary() {
     if [[ "$MYSQL_CONFIGURED" == true ]]; then
         echo -e "${BOLD}║${NC}  MySQL:     ${GREEN}configured${NC}"
     else
-        echo -e "${BOLD}║${NC}  MySQL:     ${YELLOW}not configured (Tracker disabled)${NC}"
+        echo -e "${BOLD}║${NC}  MySQL:     ${YELLOW}not configured (history, users and pipeline unavailable)${NC}"
     fi
 
     if [[ "$SERVICE_INSTALLED" == true ]]; then

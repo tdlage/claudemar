@@ -34,7 +34,7 @@ const triageSchema = z.object({
 
 export const rawFrontmatterSchema = z.object({
   id: z.string(),
-  channel: z.enum(["email", "calendar", "whatsapp", "slack", "drive"]),
+  channel: z.enum(["email", "calendar", "whatsapp", "slack", "drive", "claudemar"]),
   subchannel: z.enum(["direct", "group"]),
   account: z.string(),
   thread_key: z.string(),
@@ -176,7 +176,7 @@ function serialize(data: Record<string, unknown>, body: string): string {
 
 export function parseRawFile(content: string): { frontmatter: RawFrontmatter; body: string } | null {
   try {
-    const parsed = matter(content);
+    const parsed = matter(content, {});
     const fm = rawFrontmatterSchema.parse(parsed.data);
     return { frontmatter: fm as RawFrontmatter, body: parsed.content.replace(/^\n+/, "") };
   } catch {
@@ -190,7 +190,7 @@ export function serializeRawFile(frontmatter: RawFrontmatter, body: string): str
 
 export function parseWikiFile(content: string): { frontmatter: WikiFrontmatter; body: string } | null {
   try {
-    const parsed = matter(content);
+    const parsed = matter(content, {});
     const fm = wikiFrontmatterSchema.parse(parsed.data);
     const frontmatter = { ...fm, tenant_root: fm.tenant_root || fm.tenant } as WikiFrontmatter;
     return { frontmatter, body: parsed.content.replace(/^\n+/, "") };
@@ -201,7 +201,7 @@ export function parseWikiFile(content: string): { frontmatter: WikiFrontmatter; 
 
 export function parseWikiFrontmatterLoose(content: string): { data: Record<string, unknown>; body: string } {
   try {
-    const parsed = matter(content);
+    const parsed = matter(content, {});
     return { data: parsed.data as Record<string, unknown>, body: parsed.content.replace(/^\n+/, "") };
   } catch {
     return { data: {}, body: content };

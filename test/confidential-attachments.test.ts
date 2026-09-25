@@ -56,7 +56,7 @@ test("stores exact content in a private file and returns only a reference, isola
   assert.ok(result.instruction.includes(path));
   await fetch(`${url}/${result.id}?base=project:other`, { method: "DELETE" });
   assert.equal(await readFile(path, "utf8"), secret);
-  ctx = { role: "user", userId: "user-1", name: "user", projects: ["qualichart"], agents: [], trackerProjects: [], projectTabs: {} };
+  ctx = { role: "user", userId: "user-1", name: "user", projects: ["qualichart"], agents: [], projectTabs: {} };
   await fetch(`${url}/${result.id}?base=project:qualichart`, { method: "DELETE" });
   assert.equal(await readFile(path, "utf8"), secret);
   ctx = { role: "admin" };
@@ -68,7 +68,7 @@ test("stores exact content in a private file and returns only a reference, isola
 test("rejects unauthorized scopes, traversal and invalid content without echoing it", async () => {
   ctx = undefined;
   assert.equal((await upload("project:qualichart", "secret")).status, 403);
-  ctx = { role: "user", userId: "user-1", name: "user", projects: ["qualichart"], agents: [], trackerProjects: [], projectTabs: {} };
+  ctx = { role: "user", userId: "user-1", name: "user", projects: ["qualichart"], agents: [], projectTabs: {} };
   for (const base of ["orchestrator", "project:other", "agent:other", "project:../qualichart", "project:qualichart:extra"]) {
     assert.equal((await upload(base, "secret")).status, 403);
   }

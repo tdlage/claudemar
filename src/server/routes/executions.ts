@@ -117,7 +117,7 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
     res.status(409).json({ error: "Serviço em reinício para atualização — tente novamente em instantes" });
     return;
   }
-  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, agentName, forceQueue, skipSystemPrompt, skipIsolationInstruction, schedulerMode, model } = req.body;
+  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, effortAuto, agentName, forceQueue, skipSystemPrompt, skipIsolationInstruction, schedulerMode, model } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -198,9 +198,11 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) }); return;
   }
+  const automatic = req.ctx?.role === "user";
   const resolvedEffort = req.ctx?.role === "user"
     ? await automaticEffort(prompt, runtime, { targetType, targetName: effectiveTargetName, username: req.ctx.name })
     : typeof effort === "string" && EFFORTS.includes(effort as Effort) ? (effort as Effort) : undefined;
+  const resolvedEffortAuto = resolvedEffort !== undefined && (automatic || effortAuto === true);
   const queuePayload = {
     targetType,
     targetName: effectiveTargetName,
@@ -215,6 +217,7 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
     skipSystemPrompt: skipSystemPrompt || false,
     skipIsolationInstruction: skipIsolationInstruction === true,
     effort: resolvedEffort,
+    effortAuto: resolvedEffortAuto,
     model: selectedModel,
   };
 

@@ -8,6 +8,7 @@ import { brainWriteLock, writeFileAtomic } from "./git.js";
 import { parseWikiFile, parseWikiFrontmatterLoose, serializeWikiFile } from "./frontmatter.js";
 import { dayKeyInTz, hash8 } from "./text.js";
 import { invalidateAliasCache } from "./entities.js";
+import { isManagedSection } from "./claudemar/managed.js";
 import type { BrainTenant, CompileOpenLoop, OpenLoopEntry, WikiFrontmatter, WikiPageType } from "./types.js";
 
 export const TYPE_DIRS: Record<WikiPageType, string> = {
@@ -53,6 +54,15 @@ function confidenceFor(independentSources: number): "low" | "medium" | "high" {
 
 function mergeSources(existing: string[], incoming: string[]): string[] {
   return [...new Set([...existing, ...incoming])].sort();
+}
+
+/** Conteúdo de seção nunca abre seção nova: um "## " vindo de fora forjaria seções, inclusive as geradas por código. */
+function sectionBody(content: string): string {
+  return content.replace(/^[ \t]{0,3}#{1,2}(?=[ \t])/gm, "###");
+}
+
+function oneLineEntry(content: string): string {
+  return content.replace(/\s*\n+\s*/g, " ").trim();
 }
 
 function today(): string {
@@ -141,7 +151,9 @@ export async function createWikiPage(params: {
       pinned: false,
     };
     const body = serializeSections({
-      sections: params.sections.map((s) => ({ name: s.section, content: s.content })),
+      sections: params.sections
+        .filter((s) => !isManagedSection(s.section))
+        .map((s) => ({ name: oneLineEntry(s.section), content: sectionBody(s.content) })),
     });
     await writePage(params.relPath, frontmatter, body);
   });
@@ -153,13 +165,15 @@ export async function upsertSection(
   content: string,
   sources: string[],
 ): Promise<boolean> {
+  if (isManagedSection(section)) return false;
   return brainWriteLock(async () => {
     const page = await readPage(relPath);
     if (!page) return false;
     const doc = parseSections(page.body);
-    const existing = doc.sections.find((s) => s.name.toLowerCase() === section.toLowerCase());
-    if (existing) existing.content = content;
-    else doc.sections.push({ name: section, content });
+    const name = oneLineEntry(section);
+    const existing = doc.sections.find((s) => s.name.toLowerCase() === name.toLowerCase());
+    if (existing) existing.content = sectionBody(content);
+    else doc.sections.push({ name, content: sectionBody(content) });
     page.frontmatter.sources = mergeSources(page.frontmatter.sources, sources);
     page.frontmatter.independent_sources = page.frontmatter.sources.length;
     page.frontmatter.confidence = confidenceFor(page.frontmatter.independent_sources);
@@ -174,6 +188,7 @@ export async function appendHistory(
   content: string,
   sources: string[],
   docKey: string,
+  day: string = today(),
 ): Promise<boolean> {
   return brainWriteLock(async () => {
     const page = await readPage(relPath);
@@ -185,7 +200,7 @@ export async function appendHistory(
       history = { name: "Histórico", content: "" };
       doc.sections.push(history);
     }
-    const entry = `- [${today()}] ${content} <!-- dk:${docKey} -->`;
+    const entry = `- [${day}] ${oneLineEntry(content)} <!-- dk:${docKey} -->`;
     history.content = history.content ? `${history.content}\n${entry}` : entry;
     page.frontmatter.sources = mergeSources(page.frontmatter.sources, sources);
     page.frontmatter.independent_sources = page.frontmatter.sources.length;
@@ -220,7 +235,7 @@ export async function markSuperseded(
     if (page.body.includes(`dk:${docKey}`)) return true;
     page.frontmatter.status = "archived";
     const doc = parseSections(page.body);
-    const note = `- [${today()}] Superado${supersededBy ? ` por ${supersededBy}` : ""}: ${reason} <!-- dk:${docKey} -->`;
+    const note = `- [${today()}] Superado${supersededBy ? ` por ${oneLineEntry(supersededBy)}` : ""}: ${oneLineEntry(reason)} <!-- dk:${docKey} -->`;
     let history = doc.sections.find((s) => s.name.toLowerCase().startsWith("hist"));
     if (!history) {
       history = { name: "Histórico", content: "" };
@@ -228,6 +243,47 @@ export async function markSuperseded(
     }
     history.content = history.content ? `${history.content}\n${note}` : note;
     await writePage(relPath, page.frontmatter, serializeSections(doc));
+    return true;
+  });
+}
+
+/**
+ * Reescreve seções geradas por código (não pelo compilador) mantendo-as no fim da página, e alinha o
+ * contexto da página ao do alvo. Não grava quando nada mudou.
+ */
+export async function upsertManagedSections(
+  relPath: string,
+  sections: { name: string; content: string }[],
+  context: { tenant: BrainTenant; tenantRoot: BrainTenant },
+): Promise<boolean> {
+  return brainWriteLock(async () => {
+    const page = await readPage(relPath);
+    if (!page) return false;
+    const doc = parseSections(page.body);
+    const managed = new Set(sections.map((s) => s.name.toLowerCase()));
+    const current = serializeSections(doc);
+    const next = serializeSections({
+      sections: [
+        ...doc.sections.filter((s) => !managed.has(s.name.toLowerCase())),
+        ...sections.map((s) => ({ name: s.name, content: sectionBody(s.content) })),
+      ],
+    });
+    const retenant = page.frontmatter.tenant !== context.tenant || page.frontmatter.tenant_root !== context.tenantRoot;
+    if (next === current && !retenant) return false;
+    page.frontmatter.tenant = context.tenant;
+    page.frontmatter.tenant_root = context.tenantRoot;
+    await writePage(relPath, page.frontmatter, next);
+    return true;
+  });
+}
+
+export async function setPageTenant(relPath: string, tenant: BrainTenant, tenantRoot: BrainTenant): Promise<boolean> {
+  return brainWriteLock(async () => {
+    const page = await readPage(relPath);
+    if (!page || (page.frontmatter.tenant === tenant && page.frontmatter.tenant_root === tenantRoot)) return false;
+    page.frontmatter.tenant = tenant;
+    page.frontmatter.tenant_root = tenantRoot;
+    await writePage(relPath, page.frontmatter, page.body);
     return true;
   });
 }
@@ -351,6 +407,7 @@ export async function appendOpenLoops(
   loops: CompileOpenLoop[],
   sources: string[],
   threadKey: string,
+  day: string = today(),
 ): Promise<number> {
   if (loops.length === 0) return 0;
   return brainWriteLock(async () => {
@@ -367,9 +424,9 @@ export async function appendOpenLoops(
         tenant: loop.tenant,
         kind: loop.kind,
         counterparty: loop.counterparty,
-        opened_at: today(),
+        opened_at: day,
         due: loop.due,
-        last_movement: today(),
+        last_movement: day,
         status: "open",
         supersedes: loop.supersedes,
         sources: mergeSources(loop.sources, sources),

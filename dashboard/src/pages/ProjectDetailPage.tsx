@@ -117,6 +117,7 @@ export function ProjectDetailPage() {
         permissionMode: opts.permissionMode,
         skipIsolationInstruction: opts.skipIsolationInstruction,
         effort: opts.effort,
+        effortAuto: opts.effortAuto,
         agentName: selectedAgent || undefined,
         forceQueue: sequential || undefined,
         model: opts.model,

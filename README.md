@@ -238,7 +238,7 @@ src/
   runtime/                 # Shared session lifecycle
   claude/                  # Claude runtime
   codex/                   # Codex runtime
-  execution-manager.ts     # Singleton execution tracker (EventEmitter)
+  execution-manager.ts     # Singleton execution manager (EventEmitter)
   repositories.ts          # Git repository discovery and operations
   session.ts               # Project names and workspace paths
   config.ts                # Environment configuration
