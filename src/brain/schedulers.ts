@@ -12,6 +12,7 @@ export interface SchedulerDef {
   name: BrainSchedulerName;
   cadenceMs?: (settings: BrainSettings) => number;
   at?: { hour: number; minute: number };
+  initialDelayMs?: number;
   run: () => Promise<string>;
   disabledReason?: () => string | null;
 }
@@ -57,7 +58,7 @@ class BrainSchedulers {
   start(): void {
     if (this.running) return;
     this.running = true;
-    for (const name of this.defs.keys()) this.loop(name);
+    for (const name of this.defs.keys()) this.loop(name, true);
   }
 
   async stop(): Promise<void> {
@@ -73,14 +74,16 @@ class BrainSchedulers {
     await Promise.all(pending);
   }
 
-  private loop(name: BrainSchedulerName): void {
+  private loop(name: BrainSchedulerName, initial = false): void {
     const def = this.defs.get(name);
     const state = this.states.get(name);
     if (!def || !state || !this.running) return;
     if (state.timer) clearTimeout(state.timer);
-    const target = def.at
-      ? msUntilNext(def.at)
-      : Math.max(1000, def.cadenceMs?.(brainSettingsManager.get()) ?? 300_000);
+    const target = initial && def.initialDelayMs !== undefined
+      ? def.initialDelayMs
+      : def.at
+        ? msUntilNext(def.at)
+        : Math.max(1000, def.cadenceMs?.(brainSettingsManager.get()) ?? 300_000);
     if (target > MAX_TIMER_MS) {
       state.timer = setTimeout(() => this.loop(name), MAX_TIMER_MS);
       state.timer.unref();

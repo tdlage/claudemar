@@ -5,7 +5,7 @@ import { brainSchedulers } from "./schedulers.js";
 import { rawDir, wikiDir } from "./paths.js";
 import { repoInfo } from "./git.js";
 import { getAccountsStatus, googleConfigured } from "./connectors/google-auth.js";
-import { getActiveAlerts } from "./freshness.js";
+import { evaluateAlerts } from "./freshness.js";
 import { quarantineCount } from "./quarantine.js";
 import type { BackfillState, BrainStatus } from "./types.js";
 
@@ -78,14 +78,13 @@ export async function getBackfillState(): Promise<BackfillState> {
 }
 
 export async function getBrainStatus(): Promise<BrainStatus> {
-  const [schedulers, queues, metrics, quarantine, git, backfill, alerts, counts] = await Promise.all([
+  const [schedulers, queues, metrics, quarantine, git, backfill, counts] = await Promise.all([
     brainSchedulers.statuses(),
     queueDepths(),
     getMetrics(7),
     quarantineCount(),
     getGitInfo(),
     getBackfillState(),
-    getActiveAlerts(),
     getCounts(),
   ]);
 
@@ -99,6 +98,6 @@ export async function getBrainStatus(): Promise<BrainStatus> {
     counts,
     git,
     backfill,
-    alerts,
+    alerts: evaluateAlerts({ statuses: schedulers, queues, metrics }),
   };
 }
