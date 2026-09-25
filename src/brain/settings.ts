@@ -95,6 +95,7 @@ function defaults(): BrainSettings {
       halfLifeDays: { ...DEFAULT_HALF_LIFE_DAYS },
       salienceBonus: DEFAULT_SALIENCE_BONUS,
     },
+    jev: { triagePrefilter: true, triageMinConfidence: 0.8, selector: true, selectorThreshold: 0.5 },
   };
 }
 
@@ -104,6 +105,10 @@ function bool(raw: unknown, fallback: boolean): boolean {
 
 function num(raw: unknown, fallback: number, min = 0): number {
   return typeof raw === "number" && Number.isFinite(raw) && raw >= min ? raw : fallback;
+}
+
+function ratio(raw: unknown, fallback: number): number {
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : fallback;
 }
 
 function str(raw: unknown, fallback: string): string {
@@ -221,6 +226,7 @@ function sanitize(raw: unknown): BrainSettings {
   const ef = (r.emailFilter ?? {}) as Record<string, unknown>;
   const bf = (r.backfill ?? {}) as Record<string, unknown>;
   const ret = (r.retrieval ?? {}) as Record<string, unknown>;
+  const jev = (r.jev ?? {}) as Record<string, unknown>;
   const providers = sanitizeProviders(llm.providers);
   return {
     schedulers: Object.fromEntries(
@@ -279,6 +285,12 @@ function sanitize(raw: unknown): BrainSettings {
       typeWeights: sanitizeTypeWeights(ret.typeWeights, d.retrieval.typeWeights),
       halfLifeDays: sanitizeHalfLives(ret.halfLifeDays, d.retrieval.halfLifeDays),
       salienceBonus: num(ret.salienceBonus, d.retrieval.salienceBonus),
+    },
+    jev: {
+      triagePrefilter: bool(jev.triagePrefilter, d.jev.triagePrefilter),
+      triageMinConfidence: ratio(jev.triageMinConfidence, d.jev.triageMinConfidence),
+      selector: bool(jev.selector, d.jev.selector),
+      selectorThreshold: ratio(jev.selectorThreshold, d.jev.selectorThreshold),
     },
   };
 }

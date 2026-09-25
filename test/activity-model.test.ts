@@ -29,11 +29,11 @@ test("uses session metadata to distinguish providers with the same model", () =>
 
 test("missing or unknown exact models fall back to Opus for Claude and Astra for Codex", () => {
   for (const model of [undefined, "auto", "unknown-model"]) {
-    assert.equal(modelFromActivity({ ...base, model, runtime: "claude" }, models, "codex"), "anthropic::claude-opus-5");
+    assert.equal(modelFromActivity({ ...base, model, runtime: "claude" }, models, "codex"), "anthropic::claude-opus-5-5");
     assert.equal(modelFromActivity({ ...base, model, runtime: "codex" }, models, "claude"), "codex::gpt-6-astra");
   }
   assert.equal(modelFromActivity(undefined, models, "codex"), "codex::gpt-6-astra");
-  assert.equal(modelFromActivity(undefined, models, "claude"), "anthropic::claude-opus-5");
+  assert.equal(modelFromActivity(undefined, models, "claude"), "anthropic::claude-opus-5-5");
 });
 
 test("uses an exact stored selection when the model field is missing", () => {

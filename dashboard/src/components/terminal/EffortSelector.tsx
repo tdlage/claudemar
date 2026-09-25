@@ -1,16 +1,17 @@
 import { Check, ChevronDown } from "lucide-react";
 import type { AgentRuntime } from "../../lib/types";
 import { Dropdown } from "../shared/Dropdown";
-import { effortOptionsFor, type Effort } from "./effortOptions";
+import { effortOptionsFor, type EffortSelection } from "./effortOptions";
 
 interface EffortSelectorProps {
   runtime: AgentRuntime;
-  value: Effort;
-  onChange: (effort: Effort) => void;
+  value: EffortSelection;
+  autoAvailable: boolean;
+  onChange: (effort: EffortSelection) => void;
 }
 
-export function EffortSelector({ runtime, value, onChange }: EffortSelectorProps) {
-  const options = effortOptionsFor(runtime);
+export function EffortSelector({ runtime, value, autoAvailable, onChange }: EffortSelectorProps) {
+  const options = effortOptionsFor(runtime, autoAvailable);
   const selected = options.find((option) => option.value === value) ?? options[0];
   const isOpenAi = runtime === "codex";
 

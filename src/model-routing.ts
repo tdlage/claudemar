@@ -30,9 +30,11 @@ export function modelsForProfiles(profiles: LlmProfile[]): ModelOption[] {
 
 export function resolveModelSelection(selection: string, profiles: LlmProfile[]): { profile: LlmProfile; model: string; selection: string } {
   const options = modelsForProfiles(profiles);
-  const normalized = normalizeModel(selection);
-  let option = options.find((item) => item.model === selection);
-  if (!option && !selection.includes("::")) {
+  const separator = selection.indexOf("::");
+  const normalized = normalizeModel(separator < 0 ? selection : selection.slice(separator + 2));
+  const normalizedSelection = separator < 0 ? normalized : `${selection.slice(0, separator)}::${normalized}`;
+  let option = options.find((item) => item.model === selection || item.model === normalizedSelection);
+  if (!option && separator < 0) {
     const matches = options.filter((item) => item.modelId === normalized);
     option = matches.find((item) => {
       const profile = profiles.find((p) => p.id === item.providerId)!;

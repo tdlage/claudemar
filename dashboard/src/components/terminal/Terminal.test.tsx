@@ -14,7 +14,7 @@ const { handlers, socket } = vi.hoisted(() => {
 });
 const mobile = vi.hoisted(() => ({ value: false }));
 vi.mock("../../hooks/useMobile", () => ({ useMobile: () => mobile.value }));
-vi.mock("../../lib/api", () => ({ api: { get: vi.fn(), put: vi.fn() } }));
+vi.mock("../../lib/api", () => ({ api: { get: vi.fn(), put: vi.fn(), post: vi.fn() } }));
 vi.mock("../../lib/socket", () => ({ getSocket: () => socket }));
 vi.mock("../../hooks/useCurrentModel", () => ({ useCurrentModel: () => ({ runtime: "claude", displayName: "Claude" }) }));
 vi.mock("../shared/Toast", () => ({ useToast: () => ({ addToast: vi.fn() }) }));
@@ -181,4 +181,110 @@ it("keeps secondary controls collapsed and preserves the draft while configuring
   fireEvent.click(toggle);
   expect(screen.queryByRole("combobox", { name: "Agente" })).not.toBeInTheDocument();
   expect(field).toHaveValue("Minha tarefa");
+});
+
+function mockClaudeWithJev(assessment: { complexity: number; confidence: number; effort: string }) {
+  const model = "anthropic::claude-opus-5";
+  const models = [{ model, modelId: "claude-opus-5", displayName: "Opus 5", runtime: "claude", providerId: "anthropic", providerLabel: "Claude" }];
+  vi.mocked(api.get).mockImplementation(async (path) => {
+    if (path === "/system/provider") return { selectableModels: models, defaultModel: model };
+    if (path === "/executions/complexity") return { enabled: true };
+    return { model };
+  });
+  vi.mocked(api.post).mockReset();
+  vi.mocked(api.post).mockResolvedValue(assessment);
+}
+
+async function chooseEffort(label: RegExp) {
+  fireEvent.click(screen.getByRole("button", { name: "Opções da conversa" }));
+  fireEvent.click(screen.getByTitle("Claude effort: High"));
+  await screen.findByRole("button", { name: /picks the effort/ });
+  fireEvent.click(screen.getByRole("button", { name: label }));
+}
+
+function send(text: string) {
+  fireEvent.change(screen.getByRole("textbox", { name: "Mensagem" }), { target: { value: text } });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Mensagem" }), { key: "Enter" });
+}
+
+it("applies the effort recommended by Jev when Auto is selected", async () => {
+  mockClaudeWithJev({ complexity: 4, confidence: 0.9, effort: "max" });
+  const start = vi.fn();
+  render(<Terminal base="project:site" executionId={null} onStart={start} />);
+  await chooseEffort(/picks the effort/);
+  send("Refatore o módulo de pagamentos");
+  await waitFor(() => expect(start).toHaveBeenCalledWith("Refatore o módulo de pagamentos", [], expect.objectContaining({ effort: "max" })));
+  expect(api.post).toHaveBeenCalledWith("/executions/complexity", { prompt: "Refatore o módulo de pagamentos", runtime: "claude", targetType: "project", targetName: "site" });
+  expect(screen.queryByRole("dialog", { name: "Esforço recomendado" })).not.toBeInTheDocument();
+  expect(screen.getByText("Complexidade 4/5 · Max (auto)")).toBeInTheDocument();
+});
+
+it("asks which effort to use when the selected effort differs from the recommendation", async () => {
+  mockClaudeWithJev({ complexity: 4, confidence: 0.9, effort: "max" });
+  const start = vi.fn();
+  render(<Terminal base="project:ask" executionId={null} onStart={start} />);
+  await chooseEffort(/Best balance of quality/);
+
+  send("Migre o backend");
+  expect(await screen.findByRole("dialog", { name: "Esforço recomendado" })).toHaveTextContent("complexidade 4/5");
+  expect(start).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Usar Max" }));
+  await waitFor(() => expect(start).toHaveBeenLastCalledWith("Migre o backend", [], expect.objectContaining({ effort: "max" })));
+
+  send("Revise a migração");
+  await screen.findByRole("dialog", { name: "Esforço recomendado" });
+  fireEvent.click(screen.getByRole("button", { name: "Manter High" }));
+  await waitFor(() => expect(start).toHaveBeenLastCalledWith("Revise a migração", [], expect.objectContaining({ effort: "high" })));
+
+  send("Descarte isso");
+  await screen.findByRole("dialog", { name: "Esforço recomendado" });
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Esforço recomendado" })).not.toBeInTheDocument());
+  expect(start).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("textbox", { name: "Mensagem" })).toHaveValue("Descarte isso");
+});
+
+it("sends without asking when the selected effort matches, and skips slash commands", async () => {
+  mockClaudeWithJev({ complexity: 2, confidence: 0.95, effort: "high" });
+  const start = vi.fn();
+  render(<Terminal base="project:match" executionId={null} onStart={start} />);
+  await chooseEffort(/Best balance of quality/);
+  send("Adicione um botão de copiar");
+  await waitFor(() => expect(start).toHaveBeenCalledWith("Adicione um botão de copiar", [], expect.objectContaining({ effort: "high" })));
+  expect(screen.queryByRole("dialog", { name: "Esforço recomendado" })).not.toBeInTheDocument();
+  send("/compact");
+  expect(start).toHaveBeenLastCalledWith("/compact", [], expect.objectContaining({ effort: "high" }));
+  expect(api.post).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the selected effort when the assessment fails", async () => {
+  mockClaudeWithJev({ complexity: 0, confidence: 0, effort: "low" });
+  vi.mocked(api.post).mockRejectedValue(new Error("Jev respondeu 402"));
+  const start = vi.fn();
+  render(<Terminal base="project:fail" executionId={null} onStart={start} />);
+  await chooseEffort(/Best balance of quality/);
+  send("Corrija o login");
+  await waitFor(() => expect(start).toHaveBeenCalledWith("Corrija o login", [], expect.objectContaining({ effort: "high" })));
+});
+
+it("sends the recommended effort with messages injected into a running execution", async () => {
+  mockClaudeWithJev({ complexity: 5, confidence: 0.97, effort: "ultracode" });
+  socket.emit.mockClear();
+  render(<Terminal base="project:live" executionId="running" isLive onStart={vi.fn()} />);
+  await chooseEffort(/picks the effort/);
+  send("Agora reescreva a camada de persistência");
+  await waitFor(() => expect(socket.emit).toHaveBeenCalledWith("execution:send", { execId: "running", text: "Agora reescreva a camada de persistência", effort: "ultracode" }));
+});
+
+it("always uses automatic effort for regular users without offering a manual choice", async () => {
+  localStorage.setItem("dashboard_me", JSON.stringify({ role: "user" }));
+  mockClaudeWithJev({ complexity: 3, confidence: 0.9, effort: "extra" });
+  const start = vi.fn();
+  render(<Terminal base="project:user" executionId={null} onStart={start} />);
+  fireEvent.click(screen.getByRole("button", { name: "Opções da conversa" }));
+  expect(await screen.findByTitle("O esforço é definido automaticamente pela complexidade de cada prompt")).toHaveTextContent("auto");
+  expect(screen.queryByTitle(/Claude effort/)).not.toBeInTheDocument();
+  send("Corrija o login");
+  expect(start).toHaveBeenCalledWith("Corrija o login", [], expect.objectContaining({ effort: undefined }));
+  expect(api.post).not.toHaveBeenCalled();
 });

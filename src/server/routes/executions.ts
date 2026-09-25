@@ -1,7 +1,7 @@
 import { validateIsolationInstruction } from "../isolation-instruction.js";
 import { latestModelActivity, modelFromActivity } from "../../activity-model.js";
 import { existsSync } from "node:fs";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { Router } from "express";
 import { executionManager } from "../../execution-manager.js";
 import { EFFORTS, type Effort, type MessageBlock } from "../../runtime/types.js";
@@ -18,6 +18,9 @@ import { filterExistingSessions, sessionFileExists } from "../../session-validat
 import { inferRuntimeFromModel } from "../../models-discovery.js";
 import { refreshProviderCatalog } from "../../provider-catalog.js";
 import { resolveTargetModel, targetModelSettings, sessionModelSettings } from "../../target-model-settings.js";
+import { isJevConfigured } from "../../jev/client.js";
+import type { AgentRuntime } from "../../providers/llm.js";
+import { assessSessionComplexity, automaticEffort } from "../../jev/session-complexity.js";
 
 export const executionsRouter = Router();
 
@@ -30,18 +33,21 @@ function filterExecutionsByAccess(executions: ReturnType<typeof executionManager
   });
 }
 
+function resolveAccessibleTarget(req: Request, res: Response, targetType: unknown, targetName: unknown): { targetType: string; targetName: string } | null {
+  if (typeof targetName !== "string" || typeof targetType !== "string" || !["project", "agent", "orchestrator"].includes(targetType)) {
+    res.status(400).json({ error: "Alvo inválido" }); return null;
+  }
+  if (req.ctx?.role === "user" && (targetType === "orchestrator" || !(targetType === "project" ? req.ctx.projects : req.ctx.agents).includes(targetName))) {
+    res.status(403).json({ error: "Forbidden" }); return null;
+  }
+  const path = targetType === "project" ? safeProjectPath(targetName) : targetType === "agent" ? getAgentPaths(targetName)?.root : config.orchestratorPath;
+  if (!path || !existsSync(path)) { res.status(404).json({ error: "Alvo não encontrado" }); return null; }
+  return { targetType, targetName };
+}
+
 executionsRouter.route("/model-preference")
   .all((req, res, next) => {
-    const { targetType, targetName } = req.query;
-    if (typeof targetName !== "string" || !["project", "agent", "orchestrator"].includes(String(targetType))) {
-      res.status(400).json({ error: "Alvo inválido" }); return;
-    }
-    if (req.ctx?.role === "user" && (targetType === "orchestrator" || !(targetType === "project" ? req.ctx.projects : req.ctx.agents).includes(targetName))) {
-      res.status(403).json({ error: "Forbidden" }); return;
-    }
-    const path = targetType === "project" ? safeProjectPath(targetName) : targetType === "agent" ? getAgentPaths(targetName)?.root : config.orchestratorPath;
-    if (!path || !existsSync(path)) { res.status(404).json({ error: "Alvo não encontrado" }); return; }
-    next();
+    if (resolveAccessibleTarget(req, res, req.query.targetType, req.query.targetName)) next();
   })
   .get(async (req, res) => {
     const models = await refreshProviderCatalog();
@@ -71,6 +77,27 @@ executionsRouter.route("/model-preference")
       res.json({ model: resolved.selection });
     } catch (err) { res.status(400).json({ error: err instanceof Error ? err.message : String(err) }); }
   });
+
+executionsRouter.get("/complexity", (_req, res) => {
+  res.json({ enabled: isJevConfigured() });
+});
+
+executionsRouter.post("/complexity", async (req, res) => {
+  if (!isJevConfigured()) { res.status(503).json({ error: "Jev não configurado" }); return; }
+  const { prompt, runtime } = req.body ?? {};
+  if (typeof prompt !== "string" || !prompt.trim() || (runtime !== "claude" && runtime !== "codex")) {
+    res.status(400).json({ error: "prompt e runtime são obrigatórios" }); return;
+  }
+  const target = resolveAccessibleTarget(req, res, req.body.targetType, req.body.targetName);
+  if (!target) return;
+  try {
+    res.json(await assessSessionComplexity(prompt.trim(), runtime, { ...target, username: reqUsername(req) }));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[jev] complexity assessment failed:", message);
+    res.status(502).json({ error: message });
+  }
+});
 
 executionsRouter.get("/", (req, res) => {
   const status = req.query.status as string | undefined;
@@ -158,17 +185,22 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
 
   const effectiveTargetName = targetName || "orchestrator";
   const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
-  const resolvedEffort = typeof effort === "string" && EFFORTS.includes(effort as Effort) ? (effort as Effort) : undefined;
   const validModes = ["default", "acceptEdits", "bypassPermissions", "plan"];
   const requestedMode = typeof permissionMode === "string" && validModes.includes(permissionMode) ? (permissionMode as PermissionMode) : undefined;
   let selectedModel: string;
+  let runtime: AgentRuntime;
   try {
     if (model !== undefined && (typeof model !== "string" || !model)) throw new Error("Modelo inválido");
     await refreshProviderCatalog();
-    selectedModel = resolveTargetModel(targetType, effectiveTargetName, model).selection;
+    const resolved = resolveTargetModel(targetType, effectiveTargetName, model);
+    selectedModel = resolved.selection;
+    runtime = resolved.profile.runtime;
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) }); return;
   }
+  const resolvedEffort = req.ctx?.role === "user"
+    ? await automaticEffort(prompt, runtime, { targetType, targetName: effectiveTargetName, username: req.ctx.name })
+    : typeof effort === "string" && EFFORTS.includes(effort as Effort) ? (effort as Effort) : undefined;
   const queuePayload = {
     targetType,
     targetName: effectiveTargetName,

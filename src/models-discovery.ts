@@ -1,6 +1,6 @@
 import { isNativeAnthropic, type LlmProfile } from "./providers/llm.js";
 
-export const DEFAULT_OPUS_DISPLAY = "Opus 5";
+export const DEFAULT_OPUS_DISPLAY = "Opus 5.5";
 
 interface DiscoveredModel {
   id: string;
@@ -11,20 +11,15 @@ interface DiscoveredModel {
 
 const CLAUDE_DEFAULT_MODELS: DiscoveredModel[] = [
   { id: "claude-opus-5-5", displayName: "Opus 5.5", createdAt: "", provider: "claude" },
-  { id: "claude-opus-5", displayName: "Opus 5", createdAt: "", provider: "claude" },
   { id: "claude-fable-5-1", displayName: "Fable 5.1", createdAt: "", provider: "claude" },
   { id: "claude-sonnet-5", displayName: "Sonnet 5", createdAt: "", provider: "claude" },
-  { id: "claude-opus-4-8", displayName: "Opus 4.8", createdAt: "", provider: "claude" },
-  { id: "claude-sonnet-4-6", displayName: "Sonnet 4.6", createdAt: "", provider: "claude" },
-  { id: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5", createdAt: "", provider: "claude" },
 ];
 
 // Modelos Claude escolhíveis por projeto (só se aplicam ao provider nativo "anthropic").
 // Usamos ids explícitos aceitos diretamente pelo Agent SDK. O alias "opus" não é usado
-// porque a versão instalada do SDK ainda o expande para claude-opus-4-8, não para o Opus 5.
+// porque a versão instalada do SDK ainda o expande para claude-opus-4-8, não para o Opus 5.5.
 export const PROJECT_SELECTABLE_MODELS = [
   { model: "claude-opus-5-5", displayName: "Opus 5.5" },
-  { model: "claude-opus-5", displayName: "Opus 5" },
   { model: "claude-fable-5-1", displayName: "Fable 5.1" },
 ] as const;
 
@@ -32,7 +27,7 @@ export function getNativeClaudeModels(): SelectableProjectModel[] {
   return CLAUDE_DEFAULT_MODELS.map(({ id, displayName }) => ({ model: id, displayName }));
 }
 
-export const DEFAULT_PROJECT_MODEL = "claude-opus-5";
+export const DEFAULT_PROJECT_MODEL = "claude-opus-5-5";
 
 const CODEX_CHATGPT_MODELS = ["gpt-6-astra"] as const;
 
@@ -41,9 +36,14 @@ export interface SelectableProjectModel {
   displayName: string;
 }
 
-// Valores legados já persistidos (alias "opus", Fable 5) apontam para os modelos atuais.
+// Valores legados já persistidos (alias "opus", Opus anteriores ao 5.5, Fable 5, Sonnet 4.6 e Haiku 4.5)
+// apontam para os modelos atuais.
 const LEGACY_MODELS: Record<string, string> = {
   opus: DEFAULT_PROJECT_MODEL,
+  "claude-opus-5": DEFAULT_PROJECT_MODEL,
+  "claude-opus-4-8": DEFAULT_PROJECT_MODEL,
+  "claude-sonnet-4-6": "claude-sonnet-5",
+  "claude-haiku-4-5-20251001": "claude-sonnet-5",
   "claude-fable-5": "claude-fable-5-1",
 };
 

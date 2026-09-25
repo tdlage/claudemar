@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { ModelOption, ProviderInfo } from "../lib/types";
+import { executionTargetFromBase } from "../lib/target";
 
 export function useModelSelection(base?: string, executionId?: string | null) {
   const [state, setState] = useState<{ base?: string; models: ModelOption[]; model: string; ready: boolean }>({ base, models: [], model: "", ready: false });
   const manualSelection = useRef<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
-  const targetType = base?.split(":")[0] ?? "";
-  const targetName = base?.slice(targetType.length + 1) || (targetType === "orchestrator" ? "orchestrator" : "");
-  const supported = ["project", "agent", "orchestrator"].includes(targetType);
-  const path = `/executions/model-preference?targetType=${encodeURIComponent(targetType)}&targetName=${encodeURIComponent(targetName)}`;
+  const target = executionTargetFromBase(base);
+  const supported = target !== null;
+  const path = `/executions/model-preference?targetType=${encodeURIComponent(target?.targetType ?? "")}&targetName=${encodeURIComponent(target?.targetName ?? "")}`;
   useEffect(() => {
     if (!supported) return;
     let cancelled = false;

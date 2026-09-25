@@ -6,9 +6,10 @@ import { annotateTriage, findThreadPath, readThread } from "./raw-store.js";
 import { noteCandidates } from "./entities.js";
 import { quarantineWrite } from "./quarantine.js";
 import { emitActivity } from "./events.js";
-import { ensureTenant, resolveTenantName, tenantRegistryPrompt } from "./tenants.js";
+import { ensureTenant, resolveTenantName, ROOT_TENANT, tenantRegistryPrompt } from "./tenants.js";
 import { brainSchedulers } from "./schedulers.js";
-import type { BrainChannel, TriageResult } from "./types.js";
+import { jevLowValueVerdict, jevTriageEnabled } from "./jev.js";
+import type { BrainChannel, BrainTenant, TriageResult } from "./types.js";
 
 const MAX_ATTEMPTS = 5;
 const MAX_INPUT_CHARS = 8000;
@@ -95,7 +96,14 @@ export function channelOfThreadKey(threadKey: string): BrainChannel {
   return "email";
 }
 
-export async function buildTriageRequest(threadKey: string): Promise<{ request: StageRequest; relPath: string } | null> {
+export interface BuiltTriage {
+  request: StageRequest;
+  relPath: string;
+  conversation: string;
+  tenantHint: BrainTenant;
+}
+
+export async function buildTriageRequest(threadKey: string): Promise<BuiltTriage | null> {
   const relPath = await findThreadPath(threadKey, channelOfThreadKey(threadKey));
   if (!relPath) return null;
   const thread = await readThread(relPath);
@@ -104,17 +112,19 @@ export async function buildTriageRequest(threadKey: string): Promise<{ request: 
   const settings = brainSettingsManager.get();
   const account = settings.accounts.find((a) => a.email === thread.frontmatter.account.toLowerCase());
   const substantive = thread.blocks.filter((b) => b.chatter === null);
-  const parts: string[] = [
+  const registry = [
     "# Contextos conhecidos (use o id, ou proponha um rótulo novo)",
     await tenantRegistryPrompt(),
     "",
+  ].join("\n");
+  const parts: string[] = [
     `Canal: ${thread.frontmatter.channel} (${thread.frontmatter.subchannel})`,
     `Conta de origem: ${thread.frontmatter.account}${account ? ` (tenant da conta: ${account.tenant})` : ""}`,
     `Assunto: ${thread.frontmatter.subject || "(sem assunto)"}`,
     `Participantes: ${thread.frontmatter.participants.map((p) => `${p.name} <${p.handle}>`).join(", ")}`,
     "",
   ];
-  let used = parts.join("\n").length;
+  let used = registry.length + parts.join("\n").length;
   const messages: string[] = [];
   for (const block of substantive.slice().reverse()) {
     const entry = `[${block.at}] ${block.sender}:\n${block.body}\n`;
@@ -123,16 +133,48 @@ export async function buildTriageRequest(threadKey: string): Promise<{ request: 
     messages.unshift(entry);
   }
   parts.push(...messages);
+  const conversation = parts.join("\n");
 
   return {
     relPath,
+    conversation,
+    tenantHint: thread.frontmatter.tenant === "unknown" ? ROOT_TENANT : thread.frontmatter.tenant,
     request: {
       system: [{ text: TRIAGE_SYSTEM, cacheable: true }],
-      user: parts.join("\n"),
+      user: `${registry}\n${conversation}`,
       schema: TRIAGE_JSON_SCHEMA,
       maxTokens: 1024,
     },
   };
+}
+
+/** Pré-filtro pelo Jev: threads de baixo valor são anotadas sem LLM; as demais seguem para a triagem completa. */
+export async function prefilterTriage(threadKey: string, built: BuiltTriage): Promise<boolean> {
+  if (!jevTriageEnabled()) return false;
+  let verdict;
+  try {
+    verdict = await jevLowValueVerdict(built.conversation);
+  } catch (err) {
+    console.error("[brain] pré-filtro Jev falhou:", err instanceof Error ? err.message : String(err));
+    return false;
+  }
+  if (!verdict) return false;
+  const confidence = Math.round(verdict.confidence * 100);
+  await applyTriageResult(threadKey, built.relPath, {
+    relevance: verdict.relevance,
+    tenant: built.tenantHint,
+    tenant_parent: null,
+    tenant_evidence: "contexto da ingestão (pré-filtro Jev)",
+    contains_pii: verdict.containsPii,
+    reason: `pré-filtro Jev: relevance ${verdict.relevance} com ${confidence}% de confiança, sem compromisso, prazo ou ação — sem LLM`,
+    entities: [],
+    projects: [],
+    has_commitment: false,
+    has_deadline: false,
+    action_required: false,
+  }, `jev:${verdict.model}`);
+  await incrMetric("jev_prefiltered");
+  return true;
 }
 
 export function buildAdhocTriageRequest(subject: string, body: string): StageRequest {
@@ -202,7 +244,7 @@ export async function resolveTriageTenant(
   });
 }
 
-export async function applyTriageResult(threadKey: string, relPath: string, result: TriageResult): Promise<void> {
+export async function applyTriageResult(threadKey: string, relPath: string, result: TriageResult, model?: string): Promise<void> {
   const settings = brainSettingsManager.get();
   const thread = await readThread(relPath);
   const tenant = await resolveTriageTenant(result, thread?.frontmatter.participants ?? []);
@@ -210,7 +252,7 @@ export async function applyTriageResult(threadKey: string, relPath: string, resu
     ...result,
     tenant,
     classified_at: new Date().toISOString(),
-    model: settings.llm.triage.model,
+    model: model ?? settings.llm.triage.model,
   });
   await incrMetric("triaged");
   await incrMetric(`relevance:${result.relevance}`);
@@ -254,6 +296,10 @@ export async function triageTick(): Promise<{ processed: number }> {
       const built = await buildTriageRequest(threadKey);
       if (!built) {
         await quarantineWrite("triage_failed", "thread não encontrada em raw/", null, threadKey);
+        continue;
+      }
+      if (await prefilterTriage(threadKey, built)) {
+        processed += 1;
         continue;
       }
       const raw = await runStageJson("triage", built.request);

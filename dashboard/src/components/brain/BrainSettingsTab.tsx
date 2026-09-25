@@ -1,4 +1,4 @@
-import { KeyRound, Cpu, Plug, FileText, Filter, Users, DatabaseBackup, MailX } from "lucide-react";
+import { KeyRound, Cpu, Plug, FileText, Filter, Users, DatabaseBackup, MailX, Gauge } from "lucide-react";
 import { Button } from "../shared/Button";
 import { useToast } from "../shared/Toast";
 import { useBrainSettings } from "../../hooks/useBrain";
@@ -54,6 +54,64 @@ export function BrainSettingsTab() {
           chamadas realtime com JSON validado.
         </p>
         <LlmProvidersSection settings={settings} patch={patch} />
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader icon={Gauge} title="Jev (TypeSafe)" />
+        <p className="text-xs text-text-muted">
+          Decisões estruturadas sem LLM, usando a JEV_API_KEY configurada em Chaves de API. O conteúdo das threads e
+          das buscas é enviado ao endpoint do Jev. Sem a chave, as etapas usam só o LLM.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.jev.triagePrefilter}
+                onChange={(e) => patch((prev) => ({ ...prev, jev: { ...prev.jev, triagePrefilter: e.target.checked } }))}
+              />
+              Pré-filtro da triagem: threads abaixo da relevância mínima dispensam o LLM
+            </label>
+            <label className="block text-xs font-medium text-text-muted mb-1">Confiança mínima do pré-filtro (%)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={Math.round(settings.jev.triageMinConfidence * 100)}
+              onChange={(e) =>
+                patch((prev) => ({
+                  ...prev,
+                  jev: { ...prev.jev, triageMinConfidence: Math.min(100, Math.max(0, Number(e.target.value) || 0)) / 100 },
+                }))
+              }
+              className={inputClass}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.jev.selector}
+                onChange={(e) => patch((prev) => ({ ...prev, jev: { ...prev.jev, selector: e.target.checked } }))}
+              />
+              Seletor da busca pelo Jev (o LLM fica como reserva)
+            </label>
+            <label className="block text-xs font-medium text-text-muted mb-1">Probabilidade mínima para manter um resultado (%)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={Math.round(settings.jev.selectorThreshold * 100)}
+              onChange={(e) =>
+                patch((prev) => ({
+                  ...prev,
+                  jev: { ...prev.jev, selectorThreshold: Math.min(100, Math.max(0, Number(e.target.value) || 0)) / 100 },
+                }))
+              }
+              className={inputClass}
+            />
+          </div>
+        </div>
       </section>
 
       <section className="space-y-4">

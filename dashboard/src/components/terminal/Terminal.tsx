@@ -4,7 +4,7 @@ import { Modal } from "../shared/Modal";
 import { getMe } from "../../hooks/useAuth";
 import { useModelSelection } from "../../hooks/useModelSelection";
 import { ModelSelector } from "./ModelSelector";
-import { useEffect, useRef, useState, useCallback, useId } from "react";
+import { useContext, useEffect, useRef, useState, useCallback, useId } from "react";
 import {
   Send, Square, Brain, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
   Loader2, CheckCircle2, XCircle, Users, SlidersHorizontal, MessageCircle,
@@ -23,7 +23,11 @@ import { MdLinksBar } from "./MdLinksBar";
 import { PermissionPrompt, type PermissionRequest } from "./PermissionPrompt";
 import { SelectionSafeHtml } from "../shared/SelectionSafeHtml";
 import { EffortSelector } from "./EffortSelector";
-import { defaultEffortFor, normalizeEffortFor, type Effort } from "./effortOptions";
+import { ConversationOverlayContext } from "./conversationOverlay";
+import { defaultEffortFor, effortLabel, normalizeEffortSelection, type Effort, type EffortSelection } from "./effortOptions";
+import { assessComplexity, useComplexityEnabled, type ComplexityAssessment } from "./complexity";
+import { EffortRecommendationDialog, type EffortRecommendation } from "./EffortRecommendationDialog";
+import { executionTargetFromBase, type ExecutionTarget } from "../../lib/target";
 import type { AgentRuntime } from "../../lib/types";
 
 export type PermissionMode = "default" | "auto" | "plan" | "acceptEdits" | "bypassPermissions";
@@ -90,13 +94,14 @@ export interface StartOpts {
   model?: string;
   planMode: boolean;
   permissionMode: PermissionMode;
-  effort: Effort;
+  effort?: Effort;
 }
 
 interface UserMessage {
   id: number;
   text: string;
   imageCount: number;
+  effortNote?: string;
 }
 
 interface TerminalProps {
@@ -119,6 +124,7 @@ function startPermissionMode(mode: PermissionMode): PermissionMode {
 
 export function Terminal({ executionId, base, controls, configurationSummary, inputControls, startPlaceholder, queueMode, isLive, runtime, showModelBadge = true, onStart }: TerminalProps) {
   const mobile = useMobile();
+  const overlay = useContext(ConversationOverlayContext);
   const optionsId = useId();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [sendingPrivate, setSendingPrivate] = useState(false);
@@ -156,9 +162,15 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
   const [mode, setMode] = useState<PermissionMode>("bypassPermissions");
-  const [claudeEffort, setClaudeEffort] = useCachedState<Effort>(`term:${cacheKey}:effort:claude`, defaultEffortFor("claude"));
-  const [codexEffort, setCodexEffort] = useCachedState<Effort>(`term:${cacheKey}:effort:codex`, defaultEffortFor("codex"));
-  const effort = normalizeEffortFor(activeRuntime, activeRuntime === "codex" ? codexEffort : claudeEffort);
+  const [claudeEffort, setClaudeEffort] = useCachedState<EffortSelection>(`term:${cacheKey}:effort:claude`, defaultEffortFor("claude"));
+  const [codexEffort, setCodexEffort] = useCachedState<EffortSelection>(`term:${cacheKey}:effort:codex`, defaultEffortFor("codex"));
+  const complexityEnabled = useComplexityEnabled();
+  const autoEffortAvailable = complexityEnabled && executionTargetFromBase(base) !== null;
+  const automaticEffortOnly = getMe()?.role === "user";
+  const effort = normalizeEffortSelection(activeRuntime, activeRuntime === "codex" ? codexEffort : claudeEffort, autoEffortAvailable);
+  const effortSummary = automaticEffortOnly ? (complexityEnabled ? "auto" : "padrão") : effort;
+  const [assessing, setAssessing] = useState(false);
+  const [effortRecommendation, setEffortRecommendation] = useState<(EffortRecommendation & { resolve: (effort: Effort | null) => void }) | null>(null);
   const slashRuntime = live && executionRuntime?.id === executionId ? executionRuntime.runtime : activeRuntime;
   const slashKey = slashCacheKey(cacheKey, slashRuntime);
   const [receivedCommands, setReceivedCommands] = useState<{ key: string; commands: string[] } | null>(null);
@@ -431,8 +443,25 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     };
   }, [addToast]);
 
+  const recommendEffort = useCallback(async (prompt: string, target: ExecutionTarget, manual: Effort | null): Promise<{ effort: Effort; note?: string } | null> => {
+    const runtime = activeRuntime;
+    const fallback = manual ?? defaultEffortFor(runtime);
+    let assessment: ComplexityAssessment;
+    try {
+      assessment = await assessComplexity(prompt, runtime, target);
+    } catch (err) {
+      addToast("error", `Não foi possível avaliar a complexidade (${err instanceof Error ? err.message : String(err)}). Usando ${effortLabel(runtime, fallback)}.`);
+      return { effort: fallback };
+    }
+    const chosen = manual === null || manual === assessment.effort
+      ? assessment.effort
+      : await new Promise<Effort | null>((resolve) => setEffortRecommendation({ assessment, selected: manual, runtime, resolve }));
+    if (!chosen) return null;
+    return { effort: chosen, note: `Complexidade ${assessment.complexity}/5 · ${effortLabel(runtime, chosen)}${manual === null ? " (auto)" : ""}` };
+  }, [activeRuntime, addToast]);
+
   const submit = useCallback(() => {
-    if (sendingPrivate) return;
+    if (sendingPrivate || assessing) return;
     const visibleText = input.trim();
     const text = [visibleText, confidentialFile?.instruction].filter(Boolean).join("\n\n");
     const images = pendingImages;
@@ -445,38 +474,56 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
       return;
     }
 
-    if (!willQueue) {
-      const msgId = counterRef.current++;
-      setMessages((prev) => [...prev.slice(-29), { id: msgId, text: [visibleText, confidentialFile ? "[Arquivo confidencial anexado]" : ""].filter(Boolean).join("\n"), imageCount: images.length }]);
-    }
-
-    if (injectIntoRunning) {
-      const socket = getSocket();
-      if (images.length > 0) {
-        socket.emit("execution:send", { execId: executionId, blocks: [...images, ...(text ? [{ type: "text" as const, text }] : [])] });
-      } else {
-        socket.emit("execution:send", { execId: executionId, text });
+    const dispatch = (chosenEffort: Effort | undefined, effortNote?: string) => {
+      if (!willQueue) {
+        const msgId = counterRef.current++;
+        setMessages((prev) => [...prev.slice(-29), { id: msgId, text: [visibleText, confidentialFile ? "[Arquivo confidencial anexado]" : ""].filter(Boolean).join("\n"), imageCount: images.length, effortNote }]);
       }
-    } else if (onStartRef.current) {
-      const start = onStartRef.current;
-      const m = modeRef.current;
-      if (confidentialFile) {
-        setSendingPrivate(true);
-        void Promise.resolve().then(() => start(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), effort, model: modelSelection.selected?.model, skipIsolationInstruction: admin && skipIsolationInstruction }))
-          .then((result) => { if (result !== false) setPrivateFile((current) => current?.file.id === confidentialFile.id ? null : current); })
-          .catch(() => addToast("error", "Não foi possível enviar. O arquivo continua anexado."))
-          .finally(() => setSendingPrivate(false));
-      } else {
-      void onStartRef.current(text, images, { planMode: m === "plan", permissionMode: startPermissionMode(m), effort, model: modelSelection.selected?.model, skipIsolationInstruction: admin && skipIsolationInstruction });
-      }
-      setSkipIsolationInstruction(false);
-      if (m === "plan") setMode("default");
-    }
 
-    setInput("");
-    setPendingImages([]);
-    if (injectIntoRunning) setPrivateFile(null);
-  }, [sendingPrivate, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, addToast]);
+      if (injectIntoRunning) {
+        const socket = getSocket();
+        if (images.length > 0) {
+          socket.emit("execution:send", { execId: executionId, blocks: [...images, ...(text ? [{ type: "text" as const, text }] : [])], effort: chosenEffort });
+        } else {
+          socket.emit("execution:send", { execId: executionId, text, effort: chosenEffort });
+        }
+      } else if (onStartRef.current) {
+        const start = onStartRef.current;
+        const m = modeRef.current;
+        const opts: StartOpts = { planMode: m === "plan", permissionMode: startPermissionMode(m), effort: chosenEffort, model: modelSelection.selected?.model, skipIsolationInstruction: admin && skipIsolationInstruction };
+        if (confidentialFile) {
+          setSendingPrivate(true);
+          void Promise.resolve().then(() => start(text, images, opts))
+            .then((result) => { if (result !== false) setPrivateFile((current) => current?.file.id === confidentialFile.id ? null : current); })
+            .catch(() => addToast("error", "Não foi possível enviar. O arquivo continua anexado."))
+            .finally(() => setSendingPrivate(false));
+        } else {
+          void start(text, images, opts);
+        }
+        setSkipIsolationInstruction(false);
+        if (m === "plan") setMode("default");
+      }
+
+      setInput("");
+      setPendingImages([]);
+      if (injectIntoRunning) setPrivateFile(null);
+    };
+
+    if (automaticEffortOnly) {
+      dispatch(undefined);
+      return;
+    }
+    const manualEffort = effort === "auto" ? null : effort;
+    const target = executionTargetFromBase(base);
+    if (!complexityEnabled || !target || !visibleText || visibleText.startsWith("/")) {
+      dispatch(manualEffort ?? defaultEffortFor(activeRuntime));
+      return;
+    }
+    setAssessing(true);
+    void recommendEffort(visibleText, target, manualEffort)
+      .then((choice) => { if (choice) dispatch(choice.effort, choice.note); })
+      .finally(() => setAssessing(false));
+  }, [sendingPrivate, assessing, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, automaticEffortOnly, base, complexityEnabled, activeRuntime, recommendEffort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, addToast]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -488,10 +535,10 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     if (executionId) getSocket().emit("execution:set-mode", { id: executionId, mode: next });
   }, [executionId]);
 
-  const handleSetEffort = useCallback((next: Effort) => {
+  const handleSetEffort = useCallback((next: EffortSelection) => {
     if (activeRuntime === "codex") setCodexEffort(next);
     else setClaudeEffort(next);
-    if (executionId) getSocket().emit("execution:set-effort", { id: executionId, effort: next });
+    if (executionId && next !== "auto") getSocket().emit("execution:set-effort", { id: executionId, effort: next });
   }, [activeRuntime, executionId, setClaudeEffort, setCodexEffort]);
 
   const handlePermissionDecision = useCallback((reqId: string, decision: "allow" | "always" | "deny") => {
@@ -573,7 +620,9 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
               </label>
             )}
         </div>
-        <div className="terminal-option-group"><span className="terminal-option-label">Esforço do modelo</span><EffortSelector runtime={activeRuntime} value={effort} onChange={handleSetEffort} /></div>
+        <div className="terminal-option-group"><span className="terminal-option-label">Esforço do modelo</span>{automaticEffortOnly
+          ? <span className="text-xs text-text-secondary capitalize" title="O esforço é definido automaticamente pela complexidade de cada prompt">{effortSummary}</span>
+          : <EffortSelector runtime={activeRuntime} value={effort} autoAvailable={autoEffortAvailable} onChange={handleSetEffort} />}</div>
       </div>
   );
 
@@ -586,6 +635,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
         </div>
       )}
 
+      <div className="terminal-output-frame">
       <div
         ref={containerRef}
         className="terminal-output activity-output flex-1 rounded-md overflow-auto bg-bg p-3 md:p-4 text-sm text-text-primary min-h-0 space-y-2"
@@ -700,11 +750,14 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
                     {m.text || (m.imageCount > 0 ? `(${m.imageCount} imagem${m.imageCount > 1 ? "s" : ""})` : "")}
                     {m.text && m.imageCount > 0 ? ` (+${m.imageCount} img)` : ""}
                   </span>
+                  {m.effortNote && <span className="shrink-0 text-[11px] text-text-muted">{m.effortNote}</span>}
                 </div>
               ))}
             </div>
           )}
 
+      </div>
+      {overlay && <div className="conversation-question-overlay">{overlay}</div>}
       </div>
 
       {permissions.length > 0 && (
@@ -735,7 +788,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
           </div>
           <div className="conversation-summary">
             <span className={mode === "bypassPermissions" ? "text-warning" : ""}>{mode === "bypassPermissions" ? "Aprovação automática ligada" : MODE_LABELS[mode]}</span>
-            <span>Esforço: <span className="capitalize">{effort}</span></span>
+            <span>Esforço: <span className="capitalize">{effortSummary}</span></span>
             {configurationSummary && <span>{configurationSummary}</span>}
           </div>
           {optionsOpen && <div id={optionsId} role="region" aria-label="Configurações da conversa" className="conversation-settings">{conversationOptions}</div>}
@@ -807,6 +860,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
                 }
               }}
               onPaste={handlePaste}
+              readOnly={assessing}
               placeholder={mobile ? (live && queueMode ? "Na fila…" : "Mensagem…") : live ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, / para comandos, cole imagens)")}
               rows={1}
               className="composer-input min-w-0 flex-1 bg-surface border border-border rounded-xl md:rounded-md px-3 py-2 md:py-1.5 text-base md:text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
@@ -838,10 +892,11 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
               type="button"
               onClick={submit}
               aria-label="Enviar mensagem"
-              disabled={sendingPrivate || (!input.trim() && pendingImages.length === 0 && !confidentialFile) || (modelSelection.supported && modelSelection.saving)}
+              title={assessing ? "Avaliando complexidade…" : undefined}
+              disabled={assessing || sendingPrivate || (!input.trim() && pendingImages.length === 0 && !confidentialFile) || (modelSelection.supported && modelSelection.saving)}
               className="inline-flex items-center justify-center shrink-0 h-11 w-11 md:h-auto md:w-auto p-1.5 rounded-xl md:rounded-md bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
-              <Send size={mobile ? 20 : 14} />
+              {assessing ? <Loader2 size={mobile ? 20 : 14} className="animate-spin" /> : <Send size={mobile ? 20 : 14} />}
             </button>
             {live && (
               <button
@@ -856,6 +911,10 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
           </div>
         </div>
       )}
+      <EffortRecommendationDialog
+        recommendation={effortRecommendation}
+        onChoose={(chosen) => { effortRecommendation?.resolve(chosen); setEffortRecommendation(null); }}
+      />
     </div>
   );
 }

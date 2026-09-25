@@ -8,6 +8,7 @@ import { scanRawThreads } from "./raw-scan.js";
 import {
   applyTriageResult,
   buildTriageRequest,
+  prefilterTriage,
   parseTriageResult,
 } from "./triage.js";
 import {
@@ -181,10 +182,15 @@ async function runTriagePhase(state: BackfillState): Promise<void> {
     const chunk = pending.slice(offset, offset + BATCH_CHUNK_TRIAGE);
     const builtByKey = new Map<string, string>();
     const items: BatchRequestItem[] = [];
+    let prefiltered = 0;
     for (const item of chunk) {
       await claimPending(KEYS.triagePending, KEYS.triageInflight, item.threadKey).catch(() => {});
       const built = await buildTriageRequest(item.threadKey);
-      if (built) {
+      if (built && await prefilterTriage(item.threadKey, built)) {
+        await releaseInflight(KEYS.triageInflight, item.threadKey);
+        prefiltered += 1;
+        state.progress.processed += 1;
+      } else if (built) {
         items.push({ customId: item.threadKey, request: built.request });
         builtByKey.set(item.threadKey, built.relPath);
       } else {
@@ -192,7 +198,7 @@ async function runTriagePhase(state: BackfillState): Promise<void> {
       }
     }
     if (items.length === 0) {
-      state.progress.processed += chunk.length;
+      state.progress.processed += chunk.length - prefiltered;
       continue;
     }
 

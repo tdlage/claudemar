@@ -1,9 +1,10 @@
 import type { AgentRuntime } from "../../lib/types";
 
 export type Effort = "minimal" | "low" | "medium" | "high" | "extra" | "max" | "ultracode";
+export type EffortSelection = Effort | "auto";
 
 export interface EffortOption {
-  value: Effort;
+  value: EffortSelection;
   label: string;
   description: string;
   isDefault?: boolean;
@@ -18,6 +19,8 @@ const CLAUDE_EFFORTS: EffortOption[] = [
   { value: "ultracode", label: "Ultracode", description: "Extended reasoning with workflow orchestration for coding" },
 ];
 
+const AUTO_EFFORT: EffortOption = { value: "auto", label: "Auto", description: "Jev rates each prompt's complexity and picks the effort" };
+
 const OPENAI_EFFORTS: EffortOption[] = [
   { value: "minimal", label: "Instant", description: "Fast responses for everyday work" },
   { value: "medium", label: "Medium", description: "Standard reasoning", isDefault: true },
@@ -26,8 +29,13 @@ const OPENAI_EFFORTS: EffortOption[] = [
   { value: "max", label: "Max", description: "Maximum reasoning effort" },
 ];
 
-export function effortOptionsFor(runtime: AgentRuntime): EffortOption[] {
-  return runtime === "codex" ? OPENAI_EFFORTS : CLAUDE_EFFORTS;
+export function effortOptionsFor(runtime: AgentRuntime, autoAvailable = false): EffortOption[] {
+  const options = runtime === "codex" ? OPENAI_EFFORTS : CLAUDE_EFFORTS;
+  return autoAvailable ? [AUTO_EFFORT, ...options] : options;
+}
+
+export function effortLabel(runtime: AgentRuntime, effort: EffortSelection): string {
+  return effortOptionsFor(runtime, true).find((option) => option.value === effort)?.label ?? effort;
 }
 
 export function normalizeEffortFor(runtime: AgentRuntime, effort: Effort): Effort {
@@ -42,6 +50,11 @@ export function normalizeEffortFor(runtime: AgentRuntime, effort: Effort): Effor
 
   if (effort === "minimal") return "low";
   return "high";
+}
+
+export function normalizeEffortSelection(runtime: AgentRuntime, selection: EffortSelection, autoAvailable: boolean): EffortSelection {
+  if (selection === "auto") return autoAvailable ? "auto" : defaultEffortFor(runtime);
+  return normalizeEffortFor(runtime, selection);
 }
 
 export function defaultEffortFor(runtime: AgentRuntime): Effort {

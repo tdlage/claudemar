@@ -9,7 +9,7 @@ test("catalog includes models from every provider with explicit runtime and iden
   const models = modelsForProfiles(profiles);
   assert.deepEqual(new Set(models.map((m) => m.providerId)), new Set(profiles.map((p) => p.id)));
   assert.ok(models.some((m) => m.modelId === "gpt-6-astra" && m.runtime === "codex"));
-  assert.ok(models.some((m) => m.modelId === "claude-sonnet-4-6" && m.runtime === "claude"));
+  assert.ok(models.some((m) => m.modelId === "claude-sonnet-5" && m.runtime === "claude"));
   assert.ok(models.some((m) => m.modelId === "glm-5.3-flash" && m.runtime === "claude"));
   assert.equal(new Set(models.map((m) => m.model)).size, models.length);
 });
@@ -29,6 +29,25 @@ test("legacy model ids resolve without choosing a global provider", () => {
   assert.equal(resolveModelSelection("gpt-6-astra", profiles).profile.id, "codex");
   assert.equal(resolveModelSelection("claude-opus-5", profiles).profile.id, "anthropic");
   assert.equal(resolveModelSelection("k3", profiles).profile.id, "kimi");
+});
+
+test("stored selections of retired Sonnet and Haiku versions resolve to Sonnet 5", () => {
+  const models = modelsForProfiles(profiles).filter((m) => m.providerId === "anthropic").map((m) => m.modelId);
+  assert.deepEqual(models, ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5"]);
+  for (const selection of ["anthropic::claude-sonnet-4-6", "anthropic::claude-haiku-4-5-20251001"]) {
+    assert.equal(resolveModelSelection(selection, profiles).selection, "anthropic::claude-sonnet-5");
+  }
+});
+
+test("stored selections of retired Opus versions resolve to Opus 5.5", () => {
+  const models = modelsForProfiles(profiles).filter((m) => m.providerId === "anthropic").map((m) => m.modelId);
+  assert.ok(models.includes("claude-opus-5-5"));
+  assert.ok(!models.includes("claude-opus-5") && !models.includes("claude-opus-4-8"));
+  for (const selection of ["anthropic::claude-opus-5", "anthropic::claude-opus-4-8", "claude-opus-5"]) {
+    const resolved = resolveModelSelection(selection, profiles);
+    assert.equal(resolved.selection, "anthropic::claude-opus-5-5");
+    assert.equal(resolved.model, "claude-opus-5-5");
+  }
 });
 
 test("per-execution profile and credentials remain independent", () => {

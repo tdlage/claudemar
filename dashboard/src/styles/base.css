@@ -220,7 +220,10 @@ body {
 .conversation-terminal { height: 500px; min-width: 0; }
 .terminal-option-group { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 0; }
 .terminal-option-label { display: block; font-size: 12px; font-weight: 600; color: var(--color-text-secondary); }
-.conversation-questions { position: sticky; top: 0; z-index: 20; max-height: 65dvh; overflow-y: auto; display: grid; gap: 12px; background: var(--color-bg); }
+.conversation-questions { overflow-y: auto; display: grid; gap: 12px; background: var(--color-bg); }
+.terminal-output-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.conversation-question-overlay { position: absolute; inset: 0; z-index: 10; display: grid; align-content: start; gap: 12px; overflow-y: auto; overscroll-behavior: contain; border-radius: 6px; background: var(--color-bg); }
+.conversation-question-overlay > section > div:last-child { position: sticky; bottom: 0; background: var(--color-surface); padding-block: 10px; border-top: 1px solid var(--color-border); }
 .activity-output { overflow-wrap: anywhere; }
 .activity-output pre { max-width: 100%; overflow-x: auto; overflow-wrap: normal; }
 .activity-output table { display: block; max-width: 100%; overflow-x: auto; }
@@ -255,7 +258,7 @@ body {
   .conversation-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0; }
   .conversation-heading button { padding-inline: 8px; }
   .conversation-terminal { flex: 1; min-height: 0; height: auto; }
-  .conversation-questions { position: static; flex: 1; min-height: 0; max-height: none; overscroll-behavior: contain; border-radius: 12px; }
+  .conversation-questions { flex: 1; min-height: 0; overscroll-behavior: contain; border-radius: 12px; }
   .has-questions .conversation-terminal { display: none; }
   .conversation-questions > section > div:last-child { position: sticky; bottom: 0; background: var(--color-surface); padding-block: 10px; border-top: 1px solid var(--color-border); }
   .conversation-questions > section > div:last-child button { width: 100%; }

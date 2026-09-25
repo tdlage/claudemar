@@ -263,6 +263,14 @@ export interface BrainSettings {
     monthsCompile: number;
   };
   retrieval: BrainRetrievalSettings;
+  jev: BrainJevSettings;
+}
+
+export interface BrainJevSettings {
+  triagePrefilter: boolean;
+  triageMinConfidence: number;
+  selector: boolean;
+  selectorThreshold: number;
 }
 
 export const SCHEDULER_NAMES = [

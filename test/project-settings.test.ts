@@ -34,7 +34,7 @@ test("getModel retorna o default para projeto sem preferência", () => {
   const { file, cleanup } = freshStore();
   try {
     const mgr = new ProjectSettingsManager(file);
-    assert.equal(mgr.getModel("qualquer"), "claude-opus-5");
+    assert.equal(mgr.getModel("qualquer"), "claude-opus-5-5");
   } finally {
     cleanup();
   }
@@ -59,11 +59,11 @@ test("voltar ao default remove a entrada persistida", () => {
   try {
     const mgr = new ProjectSettingsManager(file);
     mgr.setModel("proj-a", "claude-fable-5-1");
-    mgr.setModel("proj-a", "claude-opus-5");
+    mgr.setModel("proj-a", "claude-opus-5-5");
     mgr.flush();
 
     const reloaded = new ProjectSettingsManager(file);
-    assert.equal(reloaded.getModel("proj-a"), "claude-opus-5");
+    assert.equal(reloaded.getModel("proj-a"), "claude-opus-5-5");
   } finally {
     cleanup();
   }
@@ -75,7 +75,7 @@ test("a preferência de um projeto não afeta outro", () => {
     const mgr = new ProjectSettingsManager(file);
     mgr.setModel("proj-a", "claude-fable-5-1");
     assert.equal(mgr.getModel("proj-a"), "claude-fable-5-1");
-    assert.equal(mgr.getModel("proj-b"), "claude-opus-5");
+    assert.equal(mgr.getModel("proj-b"), "claude-opus-5-5");
     mgr.flush();
   } finally {
     cleanup();
@@ -87,7 +87,7 @@ test("setModel rejeita valores fora do catálogo", () => {
   try {
     const mgr = new ProjectSettingsManager(file);
     assert.throws(() => mgr.setModel("proj-a", "claude-sonnet-4-6"));
-    assert.equal(mgr.getModel("proj-a"), "claude-opus-5");
+    assert.equal(mgr.getModel("proj-a"), "claude-opus-5-5");
   } finally {
     cleanup();
   }

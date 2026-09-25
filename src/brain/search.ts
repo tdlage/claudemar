@@ -3,6 +3,7 @@ import { getClient } from "../memory/qdrant.js";
 import { embed } from "../memory/embeddings.js";
 import { rerank } from "../memory/rerank.js";
 import { runStageJson, stageDisabledReason } from "./llm.js";
+import { jevSelectIndices, jevSelectorEnabled } from "./jev.js";
 import { normalizeForIndex } from "./text.js";
 import { appendRecallLine, buildRecallLine } from "./recall-telemetry.js";
 import { brainSparseVector, bumpCounter, ensureBrainIndex, type BrainIndexPayload } from "./brain-index.js";
@@ -47,6 +48,14 @@ function dedupKey(text: string): string {
 }
 
 async function runSelector(query: string, pool: Candidate[], limit: number): Promise<Candidate[] | null> {
+  if (jevSelectorEnabled()) {
+    try {
+      const indices = await jevSelectIndices(query, pool.map((c) => c.payload), limit);
+      return indices.map((i) => pool[i]);
+    } catch (err) {
+      console.error("[brain] seletor Jev falhou, usando o LLM:", err instanceof Error ? err.message : String(err));
+    }
+  }
   if (stageDisabledReason("selector")) return null;
   const listing = pool
     .map(

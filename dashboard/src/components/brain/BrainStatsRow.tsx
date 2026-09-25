@@ -11,12 +11,13 @@ export function BrainStatsRow({ status }: { status: BrainStatus }) {
   const chatter = metric(status, "chatter_filtered");
   const chatterRate = ingestedToday + chatter > 0 ? Math.round((chatter / (ingestedToday + chatter)) * 100) : 0;
   const triaged = metric(status, "triaged");
+  const jevPrefiltered = metric(status, "jev_prefiltered");
   const compiled = metric(status, "compiled");
 
   const tiles: { label: string; value: string | number; hint?: string }[] = [
     { label: "Ingeridas hoje", value: ingestedToday },
     { label: "Chatter filtrado", value: `${chatterRate}%`, hint: `${chatter} mensagens hoje` },
-    { label: "Triadas hoje", value: triaged },
+    { label: "Triadas hoje", value: triaged, hint: `${jevPrefiltered} pelo pré-filtro Jev, sem LLM` },
     { label: "Compiladas hoje", value: compiled },
     { label: "Threads em raw", value: status.counts.rawThreads },
     { label: "Páginas no wiki", value: status.counts.wikiPages },

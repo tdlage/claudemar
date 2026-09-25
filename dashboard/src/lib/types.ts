@@ -128,7 +128,6 @@ export interface ProjectDetail {
 
 export const PROJECT_SELECTABLE_MODELS: { model: string; displayName: string }[] = [
   { model: "claude-opus-5-5", displayName: "Opus 5.5" },
-  { model: "claude-opus-5", displayName: "Opus 5" },
   { model: "claude-fable-5-1", displayName: "Fable 5.1" },
 ];
 
@@ -905,6 +904,7 @@ export interface BrainSettings {
   gmailQuery: string;
   backfill: { monthsRaw: number; monthsCompile: number };
   retrieval: BrainRetrievalSettings;
+  jev: { triagePrefilter: boolean; triageMinConfidence: number; selector: boolean; selectorThreshold: number };
 }
 
 export interface BrainQuarantineItem {

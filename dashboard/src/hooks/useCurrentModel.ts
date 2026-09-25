@@ -8,7 +8,7 @@ export interface CurrentModel {
   runtime: AgentRuntime;
 }
 
-const FALLBACK: CurrentModel = { id: "claude-opus-5", displayName: "Opus 5", runtime: "claude" };
+const FALLBACK: CurrentModel = { id: "claude-opus-5-5", displayName: "Opus 5.5", runtime: "claude" };
 
 let globalCache: CurrentModel | null = null;
 

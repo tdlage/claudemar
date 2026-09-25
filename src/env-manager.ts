@@ -15,6 +15,7 @@ export interface ManagedEnvKey {
 const LLM_GROUP = "Provedores LLM";
 const WHISPER_GROUP = "Transcrição de voz (Whisper)";
 const BRAIN_GROUP = "Second Brain";
+const JEV_GROUP = "Jev (TypeSafe)";
 
 export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "OPENAI_API_KEY", label: "OpenAI API Key", group: WHISPER_GROUP, help: "Usada apenas pelo Whisper na transcrição de voz. Os modelos GPT rodam pela assinatura do ChatGPT (login do Codex em Configurações), nunca por esta chave.", required: false },
@@ -23,6 +24,8 @@ export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "VOYAGE_API_KEY", label: "Voyage API Key", group: "Memória de longo prazo", help: "Embeddings (voyage-4-large) e rerank (rerank-2.5). Necessária para a memória.", required: false },
   { key: "QDRANT_URL", label: "Qdrant URL", group: "Memória de longo prazo", help: "Endpoint do cluster Qdrant (ex.: https://xxxx.cloud.qdrant.io).", required: false },
   { key: "QDRANT_API_KEY", label: "Qdrant API Key", group: "Memória de longo prazo", help: "Chave de acesso do Qdrant Cloud.", required: false },
+  { key: "JEV_API_KEY", label: "Jev API Key", group: JEV_GROUP, help: "Avalia a complexidade (0–5) de cada prompt do dashboard para recomendar o esforço de thinking. Sem ela, a opção Auto não aparece.", required: false },
+  { key: "JEV_API_URL", label: "Jev API URL", group: JEV_GROUP, help: "Endpoint de decisão do Jev. Padrão: https://api.typesafe.ai/v1/systemone (chaves do console TypeSafe). Chaves jv_live_ usam https://jevtypesafeai.com/api/v1/decide.", required: false },
   { key: "BRAIN_ANTHROPIC_API_KEY", label: "Anthropic API Key (brain)", group: BRAIN_GROUP, help: "Chave da Anthropic dedicada ao pipeline do Second Brain (triagem/compilação). Separada de ANTHROPIC_API_KEY para não substituir a subscription do Claude.", required: false },
   { key: "GOOGLE_CLIENT_ID", label: "Google Client ID", group: BRAIN_GROUP, help: "OAuth client do Google Cloud para os conectores Gmail/Calendar. Redirect URI: <PUBLIC_BASE_URL>/api/brain/google/callback.", required: false },
   { key: "GOOGLE_CLIENT_SECRET", label: "Google Client Secret", group: BRAIN_GROUP, help: "Secret do OAuth client do Google Cloud.", required: false },
