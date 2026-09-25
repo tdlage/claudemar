@@ -42,6 +42,10 @@ export async function jevDecide<Q extends Record<string, JevQuestion>>(state: Je
     signal: AbortSignal.timeout(config.jevTimeoutMs),
   });
   const body: unknown = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(`Jev respondeu ${res.status}: ${errorMessage(body) ?? res.statusText}`);
+  const detail = errorMessage(body) ?? res.statusText;
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(`o Jev recusou a JEV_API_KEY configurada (${res.status}: ${detail}). Confira a chave em Configurações → Chaves de API e reinicie o serviço`);
+  }
+  if (!res.ok) throw new Error(`Jev respondeu ${res.status}: ${detail}`);
   return body as JevDecision<Q>;
 }

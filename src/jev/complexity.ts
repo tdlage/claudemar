@@ -9,19 +9,19 @@ const COMPLEXITY_QUESTION = {
   type: "score",
   instructions: "Rate how much reasoning effort an autonomous AI coding agent needs to fully accomplish the latest request. Judge the work the request implies, not the length of the text. When the latest request is a short follow-up (an approval, an answer, 'continue', 'go ahead'), rate the work it authorizes using the earlier requests as context.",
   criteria: [
-    "Trivial: greeting, thanks, a yes/no or quick factual question, or anything answerable directly without touching code or running tools.",
-    "Simple: a small, well-specified action in one place, such as renaming, tweaking a value, reading a file, running one command, or explaining a short snippet.",
-    "Routine: a clear task following existing patterns, touching a few files or needing a short investigation, with low risk.",
-    "Moderate: a feature or bug fix that requires understanding several parts of the codebase, coordinated edits across files, and verification.",
-    "Complex: multi-step work with design decisions, ambiguous requirements, integration with external systems, cross-cutting changes, or hard debugging.",
-    "Very complex: large architecture-level work such as major refactors, migrations or new subsystems across many modules, requiring extensive planning and parallel exploration.",
+    "Low effort: greeting, thanks, a yes/no or quick factual question, or anything answerable directly without touching code or running tools.",
+    "Medium effort: a small, well-specified action in one place, such as renaming, tweaking a value, reading a file, running one command, or explaining a short snippet.",
+    "High effort: a clear task following existing patterns, touching a few files or needing a short investigation, with low risk.",
+    "Extra high effort: a feature or bug fix that requires understanding several parts of the codebase, coordinated edits across files, and verification.",
+    "Max effort: multi-step work with design decisions, ambiguous requirements, integration with external systems, cross-cutting changes, or hard debugging.",
+    "Ultracode effort: large architecture-level work such as major refactors, migrations or new subsystems across many modules, requiring extensive planning and parallel exploration.",
   ],
 } as const satisfies JevQuestion;
 
 const MAX_COMPLEXITY = COMPLEXITY_QUESTION.criteria.length - 1;
 
 const EFFORT_BY_COMPLEXITY: Record<AgentRuntime, readonly Effort[]> = {
-  claude: ["low", "medium", "high", "extra", "max", "ultracode"],
+  claude: ["low", "low", "medium", "high", "extra", "max"],
   codex: ["minimal", "minimal", "medium", "high", "extra", "max"],
 };
 
