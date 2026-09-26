@@ -1,9 +1,8 @@
 import type { Server as SocketServer, Socket } from "socket.io";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { executionManager, type ExecutionInfo } from "../execution-manager.js";
-import { EFFORTS, type Effort, type MessageBlock, type PermissionDecision } from "../runtime/types.js";
+import type { Effort, MessageBlock, PermissionDecision } from "../runtime/types.js";
 import { commandQueue } from "../queue.js";
-import { automaticEffort } from "../jev/session-complexity.js";
 import { runProcessManager } from "../run-process-manager.js";
 import { resolveContext, hasProjectTab, type RequestContext } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
@@ -107,20 +106,14 @@ export function setupWebSocket(io: SocketServer): void {
       executionManager.submitAnswer(execId, answer);
     });
 
-    socket.on("execution:send", async ({ execId, blocks, text, effort, effortAuto }: { execId: string; blocks?: MessageBlock[]; text?: string; effort?: Effort; effortAuto?: boolean }) => {
+    socket.on("execution:send", ({ execId, blocks, text }: { execId: string; blocks?: MessageBlock[]; text?: string }) => {
       if (!ownsExecution(execId)) return;
       const payload = blocks && blocks.length > 0 ? blocks : (text ?? "");
+      if (executionManager.sendMessage(execId, payload)) return;
+
       const info = executionManager.getExecution(execId);
       if (!info) return;
       const prompt = text ?? (blocks ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
-      const ctx = getCtx();
-      const automatic = ctx?.role === "user";
-      const requestedEffort = ctx?.role === "user"
-        ? await automaticEffort(prompt, info.runtime, { targetType: info.targetType, targetName: info.targetName, username: ctx.name })
-        : typeof effort === "string" && EFFORTS.includes(effort) ? effort : undefined;
-      const requestedEffortAuto = requestedEffort !== undefined && (automatic || effortAuto === true);
-      if (requestedEffort) await executionManager.setEffort(execId, requestedEffort, requestedEffortAuto).catch(() => false);
-      if (executionManager.sendMessage(execId, payload)) return;
       if (!prompt.trim()) return;
 
       const targetBusy = executionManager.isTargetActive(info.targetType, info.targetName);
@@ -141,8 +134,8 @@ export function setupWebSocket(io: SocketServer): void {
           username: info.username,
           model: info.modelSelection,
           planMode: info.planMode || undefined,
-          effort: requestedEffort,
-          effortAuto: requestedEffortAuto,
+          effort: info.effort,
+          effortAuto: info.effortAuto,
         }).then(() => {
           socket.emit("execution:send:queued", { execId });
         }).catch(() => {
@@ -163,8 +156,8 @@ export function setupWebSocket(io: SocketServer): void {
           model: info.modelSelection,
           planMode: info.planMode,
           blocks: blocks && blocks.length > 0 ? blocks : undefined,
-          effort: requestedEffort,
-          effortAuto: requestedEffortAuto,
+          effort: info.effort,
+          effortAuto: info.effortAuto,
         });
         socket.emit("execution:send:restarted", { execId, newId });
       } catch (err) {

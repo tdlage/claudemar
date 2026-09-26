@@ -267,13 +267,15 @@ it("keeps the selected effort when the assessment fails", async () => {
   await waitFor(() => expect(start).toHaveBeenCalledWith("Corrija o login", [], expect.objectContaining({ effort: "high" })));
 });
 
-it("sends the recommended effort with messages injected into a running execution", async () => {
-  mockClaudeWithJev({ complexity: 5, confidence: 0.97, effort: "ultracode" });
+it("keeps the running session effort for messages injected into the current execution", async () => {
+  mockClaudeWithJev({ complexity: 5, confidence: 0.97, effort: "max" });
   socket.emit.mockClear();
   render(<Terminal base="project:live" executionId="running" isLive onStart={vi.fn()} />);
-  await chooseEffort(/picks the effort/);
+  await chooseEffort(/Best balance of quality/);
   send("Agora reescreva a camada de persistência");
-  await waitFor(() => expect(socket.emit).toHaveBeenCalledWith("execution:send", { execId: "running", text: "Agora reescreva a camada de persistência", effort: "ultracode", effortAuto: true }));
+  expect(socket.emit).toHaveBeenCalledWith("execution:send", { execId: "running", text: "Agora reescreva a camada de persistência" });
+  expect(api.post).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog", { name: "Esforço recomendado" })).not.toBeInTheDocument();
 });
 
 it("always uses automatic effort for regular users without offering a manual choice", async () => {

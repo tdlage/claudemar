@@ -484,9 +484,9 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
       if (injectIntoRunning) {
         const socket = getSocket();
         if (images.length > 0) {
-          socket.emit("execution:send", { execId: executionId, blocks: [...images, ...(text ? [{ type: "text" as const, text }] : [])], effort: chosenEffort, effortAuto });
+          socket.emit("execution:send", { execId: executionId, blocks: [...images, ...(text ? [{ type: "text" as const, text }] : [])] });
         } else {
-          socket.emit("execution:send", { execId: executionId, text, effort: chosenEffort, effortAuto });
+          socket.emit("execution:send", { execId: executionId, text });
         }
       } else if (onStartRef.current) {
         const start = onStartRef.current;
@@ -510,7 +510,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
       if (injectIntoRunning) setPrivateFile(null);
     };
 
-    if (automaticEffortOnly) {
+    if (automaticEffortOnly || injectIntoRunning) {
       dispatch(undefined);
       return;
     }
