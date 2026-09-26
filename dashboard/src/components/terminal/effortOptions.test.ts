@@ -11,14 +11,14 @@ describe("provider effort options", () => {
 
   it("uses the ChatGPT thinking levels", () => {
     expect(effortOptionsFor("codex").map((option) => option.label)).toEqual([
-      "Instant", "Medium", "High", "Extra High", "Max",
+      "Low", "Medium", "High", "Extra High", "Max",
     ]);
     expect(defaultEffortFor("codex")).toBe("medium");
   });
 
   it("normalizes legacy levels when the provider changes", () => {
     expect(normalizeEffortFor("codex", "ultracode")).toBe("max");
-    expect(normalizeEffortFor("codex", "low")).toBe("minimal");
+    expect(normalizeEffortFor("codex", "minimal")).toBe("low");
     expect(normalizeEffortFor("claude", "minimal")).toBe("low");
     expect(normalizeEffortFor("claude", "ultracode")).toBe("ultracode");
     expect(normalizeEffortFor("codex", "max")).toBe("max");
@@ -27,13 +27,13 @@ describe("provider effort options", () => {
   it("offers Auto only when complexity assessment is available", () => {
     expect(effortOptionsFor("claude", true)[0].value).toBe("auto");
     expect(effortOptionsFor("codex", true).map((option) => option.label)).toEqual([
-      "Auto", "Instant", "Medium", "High", "Extra High", "Max",
+      "Auto", "Low", "Medium", "High", "Extra High", "Max",
     ]);
     expect(normalizeEffortSelection("claude", "auto", true)).toBe("auto");
     expect(normalizeEffortSelection("claude", "auto", false)).toBe("high");
     expect(normalizeEffortSelection("codex", "auto", false)).toBe("medium");
     expect(normalizeEffortSelection("codex", "ultracode", true)).toBe("max");
     expect(effortLabel("claude", "extra")).toBe("Extra high");
-    expect(effortLabel("codex", "minimal")).toBe("Instant");
+    expect(effortLabel("codex", "low")).toBe("Low");
   });
 });

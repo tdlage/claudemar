@@ -22,7 +22,7 @@ const CLAUDE_EFFORTS: EffortOption[] = [
 const AUTO_EFFORT: EffortOption = { value: "auto", label: "Auto", description: "Jev rates each prompt's complexity and picks the effort" };
 
 const OPENAI_EFFORTS: EffortOption[] = [
-  { value: "minimal", label: "Instant", description: "Fast responses for everyday work" },
+  { value: "low", label: "Low", description: "Fast responses for everyday work" },
   { value: "medium", label: "Medium", description: "Standard reasoning", isDefault: true },
   { value: "high", label: "High", description: "Extended reasoning for complex tasks" },
   { value: "extra", label: "Extra High", description: "Deeper reasoning for demanding tasks" },
@@ -43,7 +43,7 @@ export function normalizeEffortFor(runtime: AgentRuntime, effort: Effort): Effor
   if (options.some((option) => option.value === effort)) return effort;
 
   if (runtime === "codex") {
-    if (effort === "low") return "minimal";
+    if (effort === "minimal") return "low";
     if (effort === "ultracode") return "max";
     return "medium";
   }

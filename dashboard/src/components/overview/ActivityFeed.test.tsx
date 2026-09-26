@@ -25,10 +25,10 @@ function execution(overrides: Partial<ExecutionInfo>): ExecutionInfo {
 it("shows model and effort in the runtime badge tooltip, marking automatic choices", () => {
   render(<ActivityFeed executions={[
     execution({ id: "a", runtime: "claude", model: "claude-opus-5-5", effort: "extra", effortAuto: true }),
-    execution({ id: "b", runtime: "codex", model: "gpt-6-astra", effort: "minimal" }),
+    execution({ id: "b", runtime: "codex", model: "gpt-6-astra", effort: "low" }),
     execution({ id: "c", runtime: "claude", model: "claude-opus-5-5" }),
   ]} />);
   expect(screen.getByTitle("Claude · claude-opus-5-5 · Esforço: Extra high (auto)")).toBeInTheDocument();
-  expect(screen.getByTitle("Codex · gpt-6-astra · Esforço: Instant")).toBeInTheDocument();
+  expect(screen.getByTitle("Codex · gpt-6-astra · Esforço: Low")).toBeInTheDocument();
   expect(screen.getByTitle("Claude · claude-opus-5-5")).toBeInTheDocument();
 });

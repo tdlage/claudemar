@@ -22,7 +22,7 @@ const MAX_COMPLEXITY = COMPLEXITY_QUESTION.criteria.length - 1;
 
 const EFFORT_BY_COMPLEXITY: Record<AgentRuntime, readonly Effort[]> = {
   claude: ["low", "low", "medium", "high", "extra", "max"],
-  codex: ["minimal", "minimal", "medium", "high", "extra", "max"],
+  codex: ["low", "low", "medium", "high", "extra", "max"],
 };
 
 export interface ComplexityAssessment {
