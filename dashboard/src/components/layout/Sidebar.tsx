@@ -147,6 +147,7 @@ export function Sidebar() {
   const admin = !me || me.role === "admin";
   const location = useLocation();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [targetStatus, setTargetStatus] = useState<TargetStatus>({});
   const [loadError, setLoadError] = useState(false);
@@ -539,9 +540,12 @@ export function Sidebar() {
         </nav>
         <div className="sidebar-footer">
           {admin && expanded && (
-            <details className="usage-disclosure">
+            <details
+              className="usage-disclosure"
+              onToggle={(event) => setUsageOpen(event.currentTarget.open)}
+            >
               <summary>Uso de recursos</summary>
-              <TokenUsage collapsed={false} />
+              {usageOpen && <TokenUsage />}
             </details>
           )}
           <div className="sidebar-account">

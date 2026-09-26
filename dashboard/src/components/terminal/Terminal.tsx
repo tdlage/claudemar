@@ -163,8 +163,8 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
   const [mode, setMode] = useState<PermissionMode>("bypassPermissions");
-  const [claudeEffort, setClaudeEffort] = useCachedState<EffortSelection>(`term:${cacheKey}:effort:claude`, defaultEffortFor("claude"));
-  const [codexEffort, setCodexEffort] = useCachedState<EffortSelection>(`term:${cacheKey}:effort:codex`, defaultEffortFor("codex"));
+  const [claudeEffort, setClaudeEffort] = useCachedState<EffortSelection>(`term:${cacheKey}:effort:claude`, "auto");
+  const [codexEffort, setCodexEffort] = useCachedState<EffortSelection>(`term:${cacheKey}:effort:codex`, "auto");
   const complexityEnabled = useComplexityEnabled();
   const autoEffortAvailable = complexityEnabled && executionTargetFromBase(base) !== null;
   const automaticEffortOnly = getMe()?.role === "user";

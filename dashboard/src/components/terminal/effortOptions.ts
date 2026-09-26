@@ -19,7 +19,7 @@ const CLAUDE_EFFORTS: EffortOption[] = [
   { value: "ultracode", label: "Ultracode", description: "Extended reasoning with workflow orchestration for coding" },
 ];
 
-const AUTO_EFFORT: EffortOption = { value: "auto", label: "Auto", description: "Jev rates each prompt's complexity and picks the effort" };
+const AUTO_EFFORT: EffortOption = { value: "auto", label: "Auto", description: "Jev rates each prompt's complexity and picks the effort", isDefault: true };
 
 const OPENAI_EFFORTS: EffortOption[] = [
   { value: "low", label: "Low", description: "Fast responses for everyday work" },
@@ -31,7 +31,8 @@ const OPENAI_EFFORTS: EffortOption[] = [
 
 export function effortOptionsFor(runtime: AgentRuntime, autoAvailable = false): EffortOption[] {
   const options = runtime === "codex" ? OPENAI_EFFORTS : CLAUDE_EFFORTS;
-  return autoAvailable ? [AUTO_EFFORT, ...options] : options;
+  if (!autoAvailable) return options;
+  return [AUTO_EFFORT, ...options.map((option) => ({ ...option, isDefault: false }))];
 }
 
 export function effortLabel(runtime: AgentRuntime, effort: EffortSelection): string {
