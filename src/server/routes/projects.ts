@@ -5,7 +5,7 @@ import { rm } from "node:fs/promises";
 import archiver from "archiver";
 import type { Request, Response } from "express";
 import { Router } from "express";
-import { safeFilename, listFiles, listDirEntries, asyncHandler } from "../route-utils.js";
+import { safeFilename, listFiles, listDirEntries, inputUploadParser, asyncHandler } from "../route-utils.js";
 import {
   isValidProjectName,
   listProjects,
@@ -612,29 +612,20 @@ projectsRouter.get("/:name/input", (req, res) => {
   res.json(listFiles(inputDir(projectPath)));
 });
 
-projectsRouter.post("/:name/input", (req, res) => {
+projectsRouter.post("/:name/input", inputUploadParser, (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
 
-  const { filename, content } = req.body;
-  if (!filename || typeof filename !== "string" || !safeFilename(filename)) {
+  const { filename } = req.query;
+  if (!safeFilename(filename)) {
     res.status(400).json({ error: "Invalid or missing filename" });
     return;
   }
-  if (!content || typeof content !== "string") {
-    res.status(400).json({ error: "Missing file content (base64)" });
-    return;
-  }
-
-  const data = Buffer.from(content, "base64");
-  if (data.length === 0) {
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
     res.status(400).json({ error: "Empty file" });
     return;
   }
-  if (data.length > 10 * 1024 * 1024) {
-    res.status(413).json({ error: "File too large (max 10MB)" });
-    return;
-  }
+  const data = req.body;
 
   const dir = inputDir(projectPath);
   mkdirSync(dir, { recursive: true });

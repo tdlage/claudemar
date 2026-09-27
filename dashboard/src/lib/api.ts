@@ -67,5 +67,12 @@ export const api = {
       body: body ? JSON.stringify(body) : undefined,
     }),
 
+  upload: <T>(path: string, file: Blob) =>
+    request<T>(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    }),
+
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };

@@ -17,7 +17,7 @@ import { deleteAppearance, getAppearance, setAppearance } from "../../agents/app
 import { requireAdmin } from "../middleware.js";
 import { purgeAgentData } from "../../target-cleanup.js";
 import { secretsManager } from "../../secrets-manager.js";
-import { safeFilename, listFiles, listDirEntries } from "../route-utils.js";
+import { safeFilename, listFiles, listDirEntries, inputUploadParser } from "../route-utils.js";
 
 export const agentsRouter = Router();
 
@@ -359,7 +359,7 @@ agentsRouter.get("/:name/input", (req, res) => {
   res.json(listFiles(paths.input));
 });
 
-agentsRouter.post("/:name/input", (req, res) => {
+agentsRouter.post("/:name/input", inputUploadParser, (req, res) => {
   const { name } = req.params;
   if (!isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
@@ -371,25 +371,16 @@ agentsRouter.post("/:name/input", (req, res) => {
     return;
   }
 
-  const { filename, content } = req.body;
-  if (!filename || typeof filename !== "string" || !safeFilename(filename)) {
+  const { filename } = req.query;
+  if (!safeFilename(filename)) {
     res.status(400).json({ error: "Invalid or missing filename" });
     return;
   }
-  if (!content || typeof content !== "string") {
-    res.status(400).json({ error: "Missing file content (base64)" });
-    return;
-  }
-
-  const data = Buffer.from(content, "base64");
-  if (data.length === 0) {
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
     res.status(400).json({ error: "Empty file" });
     return;
   }
-  if (data.length > 10 * 1024 * 1024) {
-    res.status(413).json({ error: "File too large (max 10MB)" });
-    return;
-  }
+  const data = req.body;
 
   mkdirSync(paths.input, { recursive: true });
   const filePath = resolve(paths.input, filename);

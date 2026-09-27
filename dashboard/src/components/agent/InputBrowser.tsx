@@ -18,7 +18,7 @@ interface InputBrowserProps {
   onRefresh: () => void;
 }
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
 export function InputBrowser({ apiBasePath, files, onRefresh }: InputBrowserProps) {
   const { addToast } = useToast();
@@ -31,18 +31,14 @@ export function InputBrowser({ apiBasePath, files, onRefresh }: InputBrowserProp
     if (!file) return;
 
     if (file.size > MAX_FILE_SIZE) {
-      addToast("error", "File too large (max 10MB)");
+      addToast("error", "File too large (max 100MB)");
       return;
     }
 
     const sanitized = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     setUploading(true);
     try {
-      const buffer = await file.arrayBuffer();
-      const base64 = btoa(
-        new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), ""),
-      );
-      await api.post(`${apiBasePath}/input`, { filename: sanitized, content: base64 });
+      await api.upload(`${apiBasePath}/input?filename=${encodeURIComponent(sanitized)}`, file);
       addToast("success", `Uploaded ${sanitized}`);
       onRefresh();
     } catch {

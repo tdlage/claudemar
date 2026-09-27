@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { raw } from "express";
 import type { Request, Response } from "express";
 
 export function asyncHandler(
@@ -12,6 +13,10 @@ export function asyncHandler(
     });
   };
 }
+
+const MAX_INPUT_FILE_BYTES = 100 * 1024 * 1024;
+
+export const inputUploadParser = raw({ type: "application/octet-stream", limit: MAX_INPUT_FILE_BYTES });
 
 const SAFE_FILENAME_RE = /^[a-zA-Z0-9._-]+$/;
 
