@@ -3,8 +3,11 @@ import { Bot, ArrowUpRight } from "lucide-react";
 import { formatDistanceToNow, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { AgentInfo } from "../../lib/types";
+import { usePendingQuestionTargets } from "../../hooks/usePendingQuestionTargets";
+import { NeedsAnswerBadge } from "../shared/NeedsAnswerBadge";
 
 export function AgentStatusGrid({ agents }: { agents: AgentInfo[] }) {
+  const pending = usePendingQuestionTargets();
   if (!agents.length)
     return <p className="p-4 text-sm text-text-muted">Nenhum agente criado.</p>;
   return (
@@ -12,7 +15,7 @@ export function AgentStatusGrid({ agents }: { agents: AgentInfo[] }) {
       {agents.map((agent) => (
         <Link
           key={agent.name}
-          className="workspace-row"
+          className={`workspace-row ${pending.has(`agent:${agent.name}`) ? "needs-answer" : ""}`}
           to={`/agents/${encodeURIComponent(agent.name)}`}
         >
           <span className="workspace-row-icon agent">
@@ -28,6 +31,7 @@ export function AgentStatusGrid({ agents }: { agents: AgentInfo[] }) {
                 : "Pronto para a primeira conversa"}
             </span>
           </span>
+          {pending.has(`agent:${agent.name}`) && <NeedsAnswerBadge />}
           <ArrowUpRight size={16} className="text-text-muted shrink-0" />
         </Link>
       ))}

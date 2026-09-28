@@ -31,6 +31,8 @@ import { useSocketEvent, useSocketRoom } from "../../hooks/useSocket";
 import type { AgentInfo, ProjectInfo, ExecutionInfo } from "../../lib/types";
 import { useDialogFocus } from "../../hooks/useDialogFocus";
 import { Brand } from "../shared/Brand";
+import { NeedsAnswerBadge } from "../shared/NeedsAnswerBadge";
+import { usePendingQuestionTargets } from "../../hooks/usePendingQuestionTargets";
 import {
   WORKSPACES_CHANGED_EVENT,
   openCreateWorkspace,
@@ -150,6 +152,7 @@ export function Sidebar() {
   const [usageOpen, setUsageOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [targetStatus, setTargetStatus] = useState<TargetStatus>({});
+  const pendingQuestions = usePendingQuestionTargets();
   const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
@@ -234,8 +237,11 @@ export function Sidebar() {
     fileChangeTimer.current = setTimeout(load, 2000);
   });
   const expanded = isMobile || !collapsed;
+  const hasPendingQuestion = (type: "project" | "agent", name: string) => pendingQuestions.has(`${type}:${name}`);
+  const anyPending = (type: "project" | "agent") => [...pendingQuestions].some((key) => key.startsWith(`${type}:`));
   const recentProjects = [...projects].sort(
     (a, b) =>
+      Number(hasPendingQuestion("project", b.name)) - Number(hasPendingQuestion("project", a.name)) ||
       (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? "") ||
       a.name.localeCompare(b.name, "pt-BR"),
   );
@@ -276,7 +282,7 @@ export function Sidebar() {
           )}
           <NavLink
             to="/workspaces/projects"
-            className={linkClass}
+            className={(state) => `${linkClass(state)} ${anyPending("project") ? "needs-answer" : ""}`}
             title="Projetos"
           >
             <Folder size={18} />
@@ -291,7 +297,7 @@ export function Sidebar() {
           </NavLink>
           <NavLink
             to="/workspaces/agents"
-            className={linkClass}
+            className={(state) => `${linkClass(state)} ${anyPending("agent") ? "needs-answer" : ""}`}
             title="Agentes"
           >
             <Bot size={18} />
@@ -337,7 +343,7 @@ export function Sidebar() {
             <NavLink
               key={p.name}
               to={`/projects/${encodeURIComponent(p.name)}`}
-              className={linkClass}
+              className={(state) => `${linkClass(state)} ${hasPendingQuestion("project", p.name) ? "needs-answer" : ""}`}
               title={p.name}
             >
               <span className="workspace-initial">
@@ -354,6 +360,7 @@ export function Sidebar() {
                   <GitCommitHorizontal size={14} aria-hidden="true" />
                 </span>
               )}
+              {hasPendingQuestion("project", p.name) && <NeedsAnswerBadge compact />}
               <StatusDot status={targetStatus[`project:${p.name}`]} />
             </NavLink>
           ))}
@@ -390,15 +397,16 @@ export function Sidebar() {
       ) : undefined,
       content: (
         <>
-          {agents.slice(0, 4).map((a) => (
+          {[...agents].sort((a, b) => Number(hasPendingQuestion("agent", b.name)) - Number(hasPendingQuestion("agent", a.name))).slice(0, 4).map((a) => (
             <NavLink
               key={a.name}
               to={`/agents/${encodeURIComponent(a.name)}`}
-              className={linkClass}
+              className={(state) => `${linkClass(state)} ${hasPendingQuestion("agent", a.name) ? "needs-answer" : ""}`}
               title={a.name}
             >
               <Bot size={16} />
               <span className="truncate flex-1">{a.name}</span>
+              {hasPendingQuestion("agent", a.name) && <NeedsAnswerBadge compact />}
               <StatusDot status={targetStatus[`agent:${a.name}`]} />
             </NavLink>
           ))}

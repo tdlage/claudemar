@@ -15,6 +15,8 @@ import {
   WORKSPACES_CHANGED_EVENT,
   openCreateWorkspace,
 } from "../lib/workspaceEvents";
+import { usePendingQuestionTargets } from "../hooks/usePendingQuestionTargets";
+import { NeedsAnswerBadge } from "../components/shared/NeedsAnswerBadge";
 
 export function WorkspacesPage() {
   const { kind } = useParams();
@@ -22,6 +24,7 @@ export function WorkspacesPage() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [search, setSearch] = useState("");
+  const pending = usePendingQuestionTargets();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
@@ -146,7 +149,7 @@ export function WorkspacesPage() {
             <Link
               key={`${type}:${name}`}
               to={`/${type}/${encodeURIComponent(name)}`}
-              className="workspace-card"
+              className={`workspace-card ${pending.has(`${type === "agents" ? "agent" : "project"}:${name}`) ? "needs-answer" : ""}`}
             >
               <div className="flex items-center justify-between gap-3">
                 <span
@@ -154,7 +157,11 @@ export function WorkspacesPage() {
                 >
                   <Icon size={22} strokeWidth={1.6} />
                 </span>
-                <ArrowUpRight size={17} className="text-text-muted" />
+                {pending.has(`${type === "agents" ? "agent" : "project"}:${name}`) ? (
+                  <NeedsAnswerBadge />
+                ) : (
+                  <ArrowUpRight size={17} className="text-text-muted" />
+                )}
               </div>
               <h2>{name}</h2>
               <p>{detail}</p>
