@@ -4,9 +4,10 @@ import { api } from "../lib/api";
 import { OPEN_API_KEYS_EVENT } from "../components/layout/ApiKeysSetup";
 import { ClaudeAccountSection } from "../components/layout/ClaudeAccountSection";
 import { CodexAccountSection } from "../components/layout/CodexAccountSection";
+import { AutoEffortSection } from "../components/layout/AutoEffortSection";
 import { isAdmin } from "../hooks/useAuth";
 import { registerPasskey, getPasskeyCredentials, deletePasskey, isPasskeySupported } from "../lib/passkey";
-import type { RuntimeSettings, EmailProfileMasked, LlmProfile, AgentRuntime } from "../lib/types";
+import type { RuntimeSettings, EmailProfileMasked, LlmProfile, AgentRuntime, AutoEffortOffset } from "../lib/types";
 
 interface ProfileFormState {
   awsAccessKeyId: string;
@@ -17,10 +18,13 @@ interface ProfileFormState {
 }
 
 export function SettingsPage() {
-  const [settings, setSettings] = useState<RuntimeSettings>({ sesFrom: "", adminEmail: "", llmProfiles: [], activeProfileId: "" });
+  const [settings, setSettings] = useState<RuntimeSettings>({ sesFrom: "", adminEmail: "", llmProfiles: [], activeProfileId: "", autoEffortOffset: 0 });
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const [effortSaving, setEffortSaving] = useState(false);
+  const [effortMsg, setEffortMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const [llmDirty, setLlmDirty] = useState(false);
   const [llmSaving, setLlmSaving] = useState(false);
@@ -99,6 +103,24 @@ export function SettingsPage() {
     api.get<RuntimeSettings>("/settings").then(setSettings).catch(() => {});
     loadProfiles();
   }, [loadProfiles]);
+
+  const handleAutoEffortChange = async (autoEffortOffset: AutoEffortOffset) => {
+    const previous = settings.autoEffortOffset;
+    setSettings((current) => ({ ...current, autoEffortOffset }));
+    setEffortSaving(true);
+    setEffortMsg(null);
+    try {
+      const updated = await api.put<RuntimeSettings>("/settings", { autoEffortOffset });
+      setSettings((current) => ({ ...current, autoEffortOffset: updated.autoEffortOffset }));
+      setEffortMsg({ type: "ok", text: "Salvo" });
+      setTimeout(() => setEffortMsg(null), 3000);
+    } catch (err) {
+      setSettings((current) => ({ ...current, autoEffortOffset: previous }));
+      setEffortMsg({ type: "err", text: err instanceof Error ? err.message : "Falha ao salvar" });
+    } finally {
+      setEffortSaving(false);
+    }
+  };
 
   const handleSaveLlm = async () => {
     setLlmSaving(true);
@@ -382,6 +404,8 @@ export function SettingsPage() {
           </div>
         </div>
       </section>
+
+      <AutoEffortSection value={settings.autoEffortOffset} saving={effortSaving} message={effortMsg} onChange={(value) => void handleAutoEffortChange(value)} />
 
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-text-primary border-b border-border pb-2">Chaves de API</h2>

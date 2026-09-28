@@ -77,7 +77,7 @@ export function ProjectDetailPage() {
   }, [name]);
 
   const {
-    execId, setExecId, isRunning, sessionData, loadSession,
+    execId, setExecId, isRunning, sessionData, sessionRuntime, sessionModel, loadSession,
     handleSessionChange, handleSessionRename, handleSessionDelete,
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
@@ -240,6 +240,8 @@ export function ProjectDetailPage() {
           />
         }>
             <Terminal
+              sessionRuntime={sessionRuntime}
+              sessionModel={sessionModel}
               key={name}
               executionId={execId}
               base={`project:${name}`}

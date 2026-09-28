@@ -4,6 +4,8 @@ import type { AgentRuntime } from "../providers/llm.js";
 import type { Effort } from "../runtime/types.js";
 import { isJevConfigured } from "./client.js";
 import { assessComplexity, type ComplexityAssessment } from "./complexity.js";
+import { applyEffortOffset } from "./effort-offset.js";
+import { settingsManager } from "../settings-manager.js";
 
 const CONTEXT_PROMPTS = 3;
 
@@ -22,7 +24,8 @@ async function recentSessionPrompts({ targetType, targetName, username }: Sessio
 }
 
 export async function assessSessionComplexity(prompt: string, runtime: AgentRuntime, target: SessionTarget): Promise<ComplexityAssessment> {
-  return assessComplexity(prompt, await recentSessionPrompts(target), runtime);
+  const assessment = await assessComplexity(prompt, await recentSessionPrompts(target), runtime);
+  return { ...assessment, effort: applyEffortOffset(runtime, assessment.effort, settingsManager.get().autoEffortOffset) };
 }
 
 export async function automaticEffort(prompt: string, runtime: AgentRuntime, target: SessionTarget): Promise<Effort | undefined> {

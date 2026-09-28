@@ -4,6 +4,7 @@ import { emailSettingsManager } from "../../email-settings-manager.js";
 import { executionManager } from "../../execution-manager.js";
 import { regenerateOrchestratorAgentsMd } from "../../orchestrator-init.js";
 import { generateSendEmailScript } from "../../email-init.js";
+import { isAutoEffortOffset } from "../../jev/effort-offset.js";
 
 export const settingsRouter = Router();
 
@@ -12,12 +13,17 @@ settingsRouter.get("/", (_req, res) => {
 });
 
 settingsRouter.put("/", (req, res) => {
-  const { sesFrom, adminEmail, llmProfiles } = req.body;
+  const { sesFrom, adminEmail, llmProfiles, autoEffortOffset } = req.body;
+  if (autoEffortOffset !== undefined && !isAutoEffortOffset(autoEffortOffset)) {
+    res.status(400).json({ error: "Calibração de esforço inválida" });
+    return;
+  }
   const before = settingsManager.get();
   settingsManager.update({
     sesFrom: typeof sesFrom === "string" ? sesFrom : undefined,
     adminEmail: typeof adminEmail === "string" ? adminEmail : undefined,
     llmProfiles: Array.isArray(llmProfiles) ? llmProfiles : undefined,
+    autoEffortOffset,
   });
   const after = settingsManager.get();
   const llmChanged =

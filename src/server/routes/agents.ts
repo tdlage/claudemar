@@ -18,6 +18,7 @@ import { requireAdmin } from "../middleware.js";
 import { purgeAgentData } from "../../target-cleanup.js";
 import { secretsManager } from "../../secrets-manager.js";
 import { safeFilename, listFiles, listDirEntries, inputUploadParser } from "../route-utils.js";
+import { reauthLimiter, verifyReauthentication } from "../reauth.js";
 
 export const agentsRouter = Router();
 
@@ -547,6 +548,27 @@ agentsRouter.post("/:name/secrets", async (req, res) => {
 
   const created = await secretsManager.createSecret(name, secretName, value, description || "");
   res.status(201).json(created);
+});
+
+agentsRouter.post("/:name/secrets/:id/reveal", reauthLimiter, async (req: Request<{ name: string; id: string }>, res: Response) => {
+  const { name, id } = req.params;
+  if (!isValidAgentName(name)) {
+    res.status(400).json({ error: "Invalid agent name" });
+    return;
+  }
+  if (!(await verifyReauthentication(req))) {
+    res.status(403).json({ error: "Não foi possível confirmar sua identidade." });
+    return;
+  }
+  const secret = await secretsManager.getSecret(name, id);
+  if (!secret) {
+    res.status(404).json({ error: "Secret not found" });
+    return;
+  }
+  const who = req.ctx?.role === "user" ? `user ${req.ctx.name}` : "admin";
+  console.log(`[secrets] ${who} revelou o valor de ${name}/${secret.name}`);
+  res.set("Cache-Control", "no-store");
+  res.json({ value: secret.value });
 });
 
 agentsRouter.put("/:name/secrets/:id", async (req, res) => {

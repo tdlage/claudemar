@@ -263,11 +263,14 @@ export interface LlmProfile {
   extraEnv: string;
 }
 
+export type AutoEffortOffset = -1 | 0 | 1;
+
 export interface RuntimeSettings {
   sesFrom: string;
   adminEmail: string;
   llmProfiles: LlmProfile[];
   activeProfileId: string;
+  autoEffortOffset: AutoEffortOffset;
 }
 
 export interface CodexAuthStatus {

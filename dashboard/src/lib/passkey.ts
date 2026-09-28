@@ -1,4 +1,4 @@
-import { startRegistration, startAuthentication, browserSupportsWebAuthn } from "@simplewebauthn/browser";
+import { startRegistration, startAuthentication, browserSupportsWebAuthn, type AuthenticationResponseJSON } from "@simplewebauthn/browser";
 import { api } from "./api";
 
 export function isPasskeySupported(): boolean {
@@ -11,10 +11,14 @@ export async function registerPasskey(name: string): Promise<{ id: string; name:
   return api.post<{ id: string; name: string }>("/auth/passkey/register", { name, challenge, response });
 }
 
-export async function loginWithPasskey(): Promise<{ token: string }> {
+export async function passkeyAssertion(): Promise<{ challenge: string; response: AuthenticationResponseJSON }> {
   const { options, challenge } = await api.post<{ options: never; challenge: string }>("/auth/passkey/login-options", {});
   const response = await startAuthentication({ optionsJSON: options });
-  return api.post<{ verified: boolean; token: string }>("/auth/passkey/login", { challenge, response });
+  return { challenge, response };
+}
+
+export async function loginWithPasskey(): Promise<{ token: string }> {
+  return api.post<{ verified: boolean; token: string }>("/auth/passkey/login", await passkeyAssertion());
 }
 
 export async function getPasskeyStatus(): Promise<{ enabled: boolean }> {

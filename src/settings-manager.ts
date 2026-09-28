@@ -9,12 +9,14 @@ import {
   seedMissingDefaultProfiles,
   type LlmProfile,
 } from "./providers/llm.js";
+import { isAutoEffortOffset, type AutoEffortOffset } from "./jev/effort-offset.js";
 
 export interface RuntimeSettings {
   sesFrom: string;
   adminEmail: string;
   llmProfiles: LlmProfile[];
   activeProfileId: string;
+  autoEffortOffset: AutoEffortOffset;
 }
 
 function defaults(): RuntimeSettings {
@@ -23,6 +25,7 @@ function defaults(): RuntimeSettings {
     adminEmail: config.adminEmail,
     llmProfiles: defaultLlmProfiles(),
     activeProfileId: DEFAULT_ACTIVE_PROFILE_ID,
+    autoEffortOffset: 0,
   };
 }
 
@@ -57,6 +60,7 @@ class SettingsManager {
     if (!raw) return;
     if (typeof raw.sesFrom === "string") this.data.sesFrom = raw.sesFrom;
     if (typeof raw.adminEmail === "string") this.data.adminEmail = raw.adminEmail;
+    if (isAutoEffortOffset(raw.autoEffortOffset)) this.data.autoEffortOffset = raw.autoEffortOffset;
 
     if (Array.isArray(raw.llmProfiles)) {
       const sanitized = sanitizeProfiles(raw.llmProfiles);
@@ -104,6 +108,7 @@ class SettingsManager {
       adminEmail: this.data.adminEmail,
       llmProfiles: this.data.llmProfiles.map((p) => ({ ...p })),
       activeProfileId: this.data.activeProfileId,
+      autoEffortOffset: this.data.autoEffortOffset,
     };
   }
 
@@ -124,6 +129,9 @@ class SettingsManager {
         this.data.llmProfiles = profiles;
         this.data.activeProfileId = this.resolveActiveId(this.data.activeProfileId);
       }
+    }
+    if (patch.autoEffortOffset !== undefined && isAutoEffortOffset(patch.autoEffortOffset)) {
+      this.data.autoEffortOffset = patch.autoEffortOffset;
     }
     if (patch.activeProfileId !== undefined) {
       this.data.activeProfileId = this.resolveActiveId(patch.activeProfileId);

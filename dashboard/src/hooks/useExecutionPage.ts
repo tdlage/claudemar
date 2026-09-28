@@ -4,7 +4,7 @@ import { useExecutions } from "./useExecution";
 import { useToast } from "../components/shared/Toast";
 import { useCachedState } from "./useCachedState";
 import type { ExecutionInfo, SessionData } from "../lib/types";
-import { resolveRuntime } from "../lib/runtime";
+import { inferRuntime, resolveRuntime } from "../lib/runtime";
 
 interface UseExecutionPageOptions {
   targetType: string;
@@ -220,9 +220,17 @@ export function useExecutionPage({ targetType, targetName, cachePrefix, onExecut
     setExpandedExecId((prev) => (prev === id ? null : id));
   };
 
+  const currentSessionId = sessionData.sessionId;
+  const sessionModel = currentSessionId ? sessionData.models[currentSessionId] : undefined;
+  const sessionRuntime = currentSessionId
+    ? sessionData.runtimes[currentSessionId] ?? (sessionModel ? inferRuntime(sessionModel) : undefined)
+    : undefined;
+
   return {
     execId,
     setExecId,
+    sessionRuntime,
+    sessionModel,
     expandedExecId,
     activeExec,
     isRunning,

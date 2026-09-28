@@ -6,6 +6,7 @@ import { Button } from "../shared/Button";
 import { Modal } from "../shared/Modal";
 import { useToast } from "../shared/Toast";
 import type { AgentSecret, SecretFile } from "../../lib/types";
+import { RevealSecretModal } from "./RevealSecretModal";
 
 interface AgentSecretsProps {
   agentName: string;
@@ -35,6 +36,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
   const { addToast } = useToast();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AgentSecret | null>(null);
+  const [revealing, setRevealing] = useState<AgentSecret | null>(null);
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [description, setDescription] = useState("");
@@ -229,6 +231,9 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <Button size="sm" variant="secondary" onClick={() => setRevealing(secret)} aria-label={`Ver valor de ${secret.name}`} title="Ver valor">
+                      <Eye size={12} />
+                    </Button>
                     <Button size="sm" variant="secondary" onClick={() => openEdit(secret)}>
                       <Pencil size={12} />
                     </Button>
@@ -431,6 +436,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
           </div>
         </div>
       </Modal>
+      <RevealSecretModal agentName={agentName} secret={revealing} onClose={() => setRevealing(null)} />
     </div>
   );
 }

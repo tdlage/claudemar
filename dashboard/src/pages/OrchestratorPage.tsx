@@ -36,7 +36,7 @@ export function OrchestratorPage() {
   const [tab, setTab] = useCachedState<TabKey>("orchestrator:tab", "terminal");
 
   const {
-    execId, setExecId, isRunning, sessionData, loadSession,
+    execId, setExecId, isRunning, sessionData, sessionRuntime, sessionModel, loadSession,
     handleSessionChange, handleSessionRename, handleSessionDelete,
     activity, historyLimit, setHistoryLimit, sessionFilter, setSessionFilter,
     filteredQueue, filteredQuestions, submitAnswer,
@@ -194,6 +194,8 @@ export function OrchestratorPage() {
           />
         }>
             <Terminal
+              sessionRuntime={sessionRuntime}
+              sessionModel={sessionModel}
               executionId={execId}
               base="orchestrator"
               startPlaceholder="Message orchestrator... (Shift+Enter quebra linha)"

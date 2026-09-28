@@ -4,7 +4,7 @@ import { Modal } from "../shared/Modal";
 import { getMe } from "../../hooks/useAuth";
 import { useModelSelection } from "../../hooks/useModelSelection";
 import { ModelSelector } from "./ModelSelector";
-import { useContext, useEffect, useRef, useState, useCallback, useId } from "react";
+import { useContext, useEffect, useRef, useState, useCallback, useId, useMemo } from "react";
 import {
   Send, Square, Brain, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
   Loader2, CheckCircle2, XCircle, Users, SlidersHorizontal, MessageCircle,
@@ -28,6 +28,7 @@ import { defaultEffortFor, effortLabel, normalizeEffortSelection, type Effort, t
 import { assessComplexity, useComplexityEnabled, type ComplexityAssessment } from "./complexity";
 import { EffortRecommendationDialog, type EffortRecommendation } from "./EffortRecommendationDialog";
 import { executionTargetFromBase, type ExecutionTarget } from "../../lib/target";
+import { runtimeLabel } from "../../lib/runtime";
 import type { AgentRuntime } from "../../lib/types";
 
 export type PermissionMode = "default" | "auto" | "plan" | "acceptEdits" | "bypassPermissions";
@@ -115,6 +116,8 @@ interface TerminalProps {
   queueMode?: boolean;
   isLive?: boolean;
   runtime?: AgentRuntime;
+  sessionRuntime?: AgentRuntime;
+  sessionModel?: string;
   showModelBadge?: boolean;
   onStart?: (text: string, images: ImageBlock[], opts: StartOpts) => Promise<void | boolean> | void | boolean;
 }
@@ -123,7 +126,7 @@ function startPermissionMode(mode: PermissionMode): PermissionMode {
   return mode === "plan" ? "default" : mode;
 }
 
-export function Terminal({ executionId, base, controls, configurationSummary, inputControls, startPlaceholder, queueMode, isLive, runtime, showModelBadge = true, onStart }: TerminalProps) {
+export function Terminal({ executionId, base, controls, configurationSummary, inputControls, startPlaceholder, queueMode, isLive, runtime, sessionRuntime, sessionModel, showModelBadge = true, onStart }: TerminalProps) {
   const mobile = useMobile();
   const overlay = useContext(ConversationOverlayContext);
   const optionsId = useId();
@@ -138,6 +141,21 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const autoScrollRef = useRef(true);
   const currentModel = useCurrentModel();
   const modelSelection = useModelSelection(base, executionId);
+  const selectableModels = useMemo(
+    () => (sessionRuntime ? modelSelection.models.filter((model) => model.runtime === sessionRuntime) : modelSelection.models),
+    [modelSelection.models, sessionRuntime],
+  );
+  const selectedOutsideSession = !!sessionRuntime && !!modelSelection.selected && modelSelection.selected.runtime !== sessionRuntime;
+  const { ready: modelsReady, saving: modelSaving, select: selectModel, model: currentSelection } = modelSelection;
+  const sessionModelSwitch = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedOutsideSession || !modelsReady || modelSaving || !selectableModels.length) return;
+    const attempt = `${sessionRuntime}:${currentSelection}`;
+    if (sessionModelSwitch.current === attempt) return;
+    sessionModelSwitch.current = attempt;
+    const preferred = selectableModels.find((model) => model.modelId === sessionModel || model.model === sessionModel) ?? selectableModels[0];
+    void selectModel(preferred.model).catch(() => {});
+  }, [selectedOutsideSession, modelsReady, modelSaving, selectableModels, sessionModel, sessionRuntime, currentSelection, selectModel]);
   const [executionRuntime, setExecutionRuntime] = useState<{ id: string; runtime: AgentRuntime } | null>(null);
   const { addToast } = useToast();
   const cacheKey = base ?? "default";
@@ -472,8 +490,8 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
 
     const injectIntoRunning = live && executionId !== null && !queueMode;
     const willQueue = live && executionId !== null && queueMode;
-    if (!injectIntoRunning && modelSelection.supported && (!modelSelection.selected || !modelSelection.ready || modelSelection.saving)) {
-      addToast("error", modelSelection.saving ? "Aguarde salvar o modelo." : "Escolha um modelo de um provider autenticado.");
+    if (!injectIntoRunning && modelSelection.supported && (!modelSelection.selected || !modelSelection.ready || modelSelection.saving || selectedOutsideSession)) {
+      addToast("error", modelSelection.saving ? "Aguarde salvar o modelo." : selectedOutsideSession ? `Esta sessão é ${runtimeLabel(sessionRuntime!)}. Escolha um modelo ${runtimeLabel(sessionRuntime!)} ou inicie uma nova sessão.` : "Escolha um modelo de um provider autenticado.");
       return;
     }
 
@@ -526,7 +544,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     void recommendEffort(visibleText, target, manualEffort)
       .then((choice) => { if (choice) dispatch(choice.effort, choice.auto, choice.note); })
       .finally(() => setAssessing(false));
-  }, [sendingPrivate, assessing, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, automaticEffortOnly, base, complexityEnabled, activeRuntime, recommendEffort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, addToast]);
+  }, [sendingPrivate, assessing, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, automaticEffortOnly, base, complexityEnabled, activeRuntime, recommendEffort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, selectedOutsideSession, sessionRuntime, addToast]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -576,7 +594,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const slashSel = Math.min(slashIndex, Math.max(0, slashMatches.length - 1));
 
   const modelControl = onStart && modelSelection.supported ? (
-    <ModelSelector models={modelSelection.models} value={modelSelection.model} disabled={(live && !composingForQueue) || modelSelection.saving || !modelSelection.ready}
+    <ModelSelector models={selectableModels} value={modelSelection.model} disabled={(live && !composingForQueue) || modelSelection.saving || !modelSelection.ready}
       onChange={(model) => { void modelSelection.select(model).catch((err) => addToast("error", err instanceof Error ? err.message : "Falha ao salvar modelo")); }} />
   ) : showModelBadge ? <span className="text-sm text-text-secondary">{currentModel.displayName}</span> : null;
 

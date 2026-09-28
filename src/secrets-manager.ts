@@ -71,6 +71,11 @@ class SecretsManager {
     }));
   }
 
+  async getSecret(agentName: string, id: string): Promise<SecretEntry | null> {
+    const secrets = await this.getSecrets(agentName);
+    return secrets.find((s) => s.id === id) ?? null;
+  }
+
   async createSecret(agentName: string, name: string, value: string, description: string): Promise<MaskedSecret> {
     const entry: SecretEntry = { id: randomUUID(), name, value, description };
     await execute(
