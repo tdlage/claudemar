@@ -3,6 +3,7 @@ import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { executionManager, type ExecutionInfo } from "../execution-manager.js";
 import type { Effort, MessageBlock, PermissionDecision } from "../runtime/types.js";
 import { commandQueue } from "../queue.js";
+import { toQueueItemView } from "../queue-view.js";
 import { runProcessManager } from "../run-process-manager.js";
 import { resolveContext, hasProjectTab, type RequestContext } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
@@ -328,7 +329,7 @@ export function setupWebSocket(io: SocketServer): void {
   });
 
   commandQueue.on("queue:add", (item) => {
-    io.to("executions").emit("queue:add", { item });
+    io.to("executions").emit("queue:add", { item: toQueueItemView(item) });
   });
 
   commandQueue.on("queue:remove", (item) => {

@@ -151,7 +151,9 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const [messages, setMessages] = useState<UserMessage[]>([]);
 
   const live = isLive ?? running;
-  const activeRuntime = live && executionRuntime?.id === executionId ? executionRuntime.runtime : modelSelection.selected?.runtime ?? runtime ?? currentModel.runtime;
+  const liveRuntime = live && executionRuntime?.id === executionId ? executionRuntime.runtime : undefined;
+  const composingForQueue = live && queueMode === true;
+  const activeRuntime = (!composingForQueue && liveRuntime) || (modelSelection.selected?.runtime ?? runtime ?? currentModel.runtime);
 
   const onStartRef = useRef<TerminalProps["onStart"]>(onStart);
   const modeRef = useRef<PermissionMode>("default");
@@ -172,7 +174,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const effortSummary = automaticEffortOnly ? (complexityEnabled ? "auto" : "padrão") : effort;
   const [assessing, setAssessing] = useState(false);
   const [effortRecommendation, setEffortRecommendation] = useState<(EffortRecommendation & { resolve: (effort: Effort | null) => void }) | null>(null);
-  const slashRuntime = live && executionRuntime?.id === executionId ? executionRuntime.runtime : activeRuntime;
+  const slashRuntime = liveRuntime ?? activeRuntime;
   const slashKey = slashCacheKey(cacheKey, slashRuntime);
   const [receivedCommands, setReceivedCommands] = useState<{ key: string; commands: string[] } | null>(null);
   const slashCommands = receivedCommands?.key === slashKey ? receivedCommands.commands : getSlashCache(cacheKey, slashRuntime);
@@ -539,8 +541,8 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const handleSetEffort = useCallback((next: EffortSelection) => {
     if (activeRuntime === "codex") setCodexEffort(next);
     else setClaudeEffort(next);
-    if (executionId && next !== "auto") getSocket().emit("execution:set-effort", { id: executionId, effort: next });
-  }, [activeRuntime, executionId, setClaudeEffort, setCodexEffort]);
+    if (executionId && next !== "auto" && (!liveRuntime || liveRuntime === activeRuntime)) getSocket().emit("execution:set-effort", { id: executionId, effort: next });
+  }, [activeRuntime, liveRuntime, executionId, setClaudeEffort, setCodexEffort]);
 
   const handlePermissionDecision = useCallback((reqId: string, decision: "allow" | "always" | "deny") => {
     if (!executionId) return;
@@ -574,7 +576,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const slashSel = Math.min(slashIndex, Math.max(0, slashMatches.length - 1));
 
   const modelControl = onStart && modelSelection.supported ? (
-    <ModelSelector models={modelSelection.models} value={modelSelection.model} disabled={live || modelSelection.saving || !modelSelection.ready}
+    <ModelSelector models={modelSelection.models} value={modelSelection.model} disabled={(live && !composingForQueue) || modelSelection.saving || !modelSelection.ready}
       onChange={(model) => { void modelSelection.select(model).catch((err) => addToast("error", err instanceof Error ? err.message : "Falha ao salvar modelo")); }} />
   ) : showModelBadge ? <span className="text-sm text-text-secondary">{currentModel.displayName}</span> : null;
 

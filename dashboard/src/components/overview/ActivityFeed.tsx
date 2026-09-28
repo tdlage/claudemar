@@ -7,7 +7,7 @@ import { renderOutputHtml } from "../../lib/ansi";
 import { MarkdownViewerModal } from "../shared/MarkdownViewerModal";
 import { SelectionSafeHtml } from "../shared/SelectionSafeHtml";
 import { formatActivityTime, formatExecutionDateTime } from "../../lib/format";
-import type { AgentRuntime, ExecutionInfo, QueueItem } from "../../lib/types";
+import type { AgentRuntime, Effort, ExecutionInfo, QueueItem } from "../../lib/types";
 import { inferRuntime, resolveRuntime, runtimeLabel } from "../../lib/runtime";
 import { effortLabel } from "../terminal/effortOptions";
 
@@ -28,6 +28,22 @@ interface ActivityFeedProps {
   onHistoryLimitChange?: (limit: number) => void;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
+}
+
+interface RuntimeBadgeProps {
+  runtime: AgentRuntime;
+  model?: string;
+  effort?: Effort;
+  effortAuto?: boolean;
+}
+
+function RuntimeBadge({ runtime, model, effort, effortAuto }: RuntimeBadgeProps) {
+  const title = [runtimeLabel(runtime), model, effort && `Esforço: ${effortLabel(runtime, effort)}${effortAuto ? " (auto)" : ""}`].filter(Boolean).join(" · ");
+  return (
+    <span title={title}>
+      <Badge variant={runtime === "codex" ? "info" : "accent"}>{runtimeLabel(runtime)}</Badge>
+    </span>
+  );
 }
 
 export function ActivityFeed({ executions, queue = [], expandedId, onToggle, sessionNames = {}, sessionIds = [], sessionRuntimes = {}, sessionModels = {}, sessionFilter = "__all", onSessionFilterChange, historyLimit = 20, onHistoryLimitChange, searchQuery = "", onSearchChange }: ActivityFeedProps) {
@@ -100,6 +116,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
       {[...queue].reverse().map((item) => (
         <div key={`q-${item.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 rounded-md text-sm min-w-0 hover:bg-surface-hover">
           <Badge variant="warning">queued</Badge>
+          <RuntimeBadge runtime={resolveRuntime(item.runtime, item.model)} model={item.model} effort={item.effort} effortAuto={item.effortAuto} />
           <span className="text-text-muted text-xs">
             {item.targetName}
           </span>
@@ -155,9 +172,7 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
               onClick={clickable ? () => onToggle(exec.id) : undefined}
             >
               <ExecutionStatusBadge status={exec.status} />
-              <span title={[runtimeLabel(runtime), exec.model, exec.effort && `Esforço: ${effortLabel(runtime, exec.effort)}${exec.effortAuto ? " (auto)" : ""}`].filter(Boolean).join(" · ")}>
-                <Badge variant={runtime === "codex" ? "info" : "accent"}>{runtimeLabel(runtime)}</Badge>
-              </span>
+              <RuntimeBadge runtime={runtime} model={exec.model} effort={exec.effort} effortAuto={exec.effortAuto} />
               {exec.username && (
                 <span className="inline-flex items-center gap-0.5 text-xs text-text-muted bg-surface-hover rounded px-1 py-0.5">
                   <User size={10} />

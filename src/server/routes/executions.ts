@@ -10,6 +10,7 @@ import { getAgentPaths } from "../../agents/manager.js";
 import { config } from "../../config.js";
 import { loadOrchestratorSettings } from "../../orchestrator-settings.js";
 import { commandQueue } from "../../queue.js";
+import { toQueueItemView } from "../../queue-view.js";
 import { resolveRepoPath } from "../../repositories.js";
 import { safeProjectPath } from "../../session.js";
 import { sessionNamesManager } from "../../session-names-manager.js";
@@ -245,7 +246,7 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
 });
 
 executionsRouter.get("/queue", (_req, res) => {
-  res.json(commandQueue.getAll());
+  res.json(commandQueue.getAll().map(toQueueItemView));
 });
 
 executionsRouter.delete("/queue/:seqId", async (req, res) => {

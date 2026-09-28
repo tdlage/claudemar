@@ -191,6 +191,10 @@ export interface QueueItem {
   source: ExecutionSource;
   enqueuedAt: string;
   resumeSessionId?: string | null;
+  runtime?: AgentRuntime;
+  model?: string;
+  effort?: Effort;
+  effortAuto?: boolean;
 }
 
 export interface GitFileStatus {
