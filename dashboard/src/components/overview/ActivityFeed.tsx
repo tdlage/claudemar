@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Bot, ChevronDown, Search, Square, User, X } from "lucide-react";
+import { Bot, ChevronDown, ImageIcon, Search, Square, User, X } from "lucide-react";
 import { ExecutionStatusBadge } from "../shared/ExecutionStatusBadge";
 import { Badge } from "../shared/Badge";
 import { api } from "../../lib/api";
@@ -130,6 +130,12 @@ export function ActivityFeed({ executions, queue = [], expandedId, onToggle, ses
             <span className="inline-flex items-center gap-0.5 text-xs text-accent bg-accent/10 border border-accent/30 rounded px-1 py-0.5">
               <Bot size={10} />
               {item.agentName}
+            </span>
+          )}
+          {item.images && item.images.length > 0 && (
+            <span className="inline-flex items-center gap-0.5 text-xs text-text-muted bg-surface-hover rounded px-1 py-0.5" title={`${item.images.length} imagem${item.images.length > 1 ? "s" : ""} anexada${item.images.length > 1 ? "s" : ""}`}>
+              <ImageIcon size={10} />
+              {item.images.length}
             </span>
           )}
           <span className="text-text-primary truncate flex-1 min-w-0 basis-[120px]">

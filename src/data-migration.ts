@@ -580,6 +580,12 @@ async function ensureQueueColumns(pool: ReturnType<typeof getPool>): Promise<voi
   if ((modeRows as Array<{ cnt: number }>)[0].cnt === 0) {
     await pool.execute("ALTER TABLE queue_items ADD COLUMN permission_mode VARCHAR(20) DEFAULT NULL AFTER plan_mode");
   }
+  const [imageRows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'queue_items' AND COLUMN_NAME = 'images'",
+  );
+  if ((imageRows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE queue_items ADD COLUMN images TEXT DEFAULT NULL");
+  }
 }
 
 async function ensureExecutionHistoryColumns(pool: ReturnType<typeof getPool>): Promise<void> {

@@ -195,6 +195,7 @@ export interface QueueItem {
   model?: string;
   effort?: Effort;
   effortAuto?: boolean;
+  images?: { file: string; mediaType: string }[];
 }
 
 export interface GitFileStatus {

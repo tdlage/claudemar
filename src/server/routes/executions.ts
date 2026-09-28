@@ -226,11 +226,7 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
   const hasQueuedItems = commandQueue.getByTarget(targetType, effectiveTargetName).length > 0;
 
   if (forceQueue && (targetActive || hasQueuedItems)) {
-    if (execBlocks) {
-      res.status(409).json({ error: "Não é possível enfileirar mensagens com imagem enquanto há execução ou fila ativa. Aguarde terminar." });
-      return;
-    }
-    const item = await commandQueue.enqueue(queuePayload);
+    const item = await commandQueue.enqueue({ ...queuePayload, imageBlocks });
     res.status(202).json({ queued: true, queueItem: { id: item.id, seqId: item.seqId } });
     return;
   }

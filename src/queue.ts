@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { query, execute, toMySQLDatetime } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type { ExecutionSource, ExecutionTargetType } from "./execution-manager.js";
-import type { Effort } from "./runtime/types.js";
+import type { Effort, MessageBlock } from "./runtime/types.js";
+import { pruneQueueImages, removeQueueImages, saveQueueImages, type QueuedImage } from "./queue-attachments.js";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 
 export interface QueueItem {
@@ -26,7 +27,10 @@ export interface QueueItem {
   effortAuto?: boolean;
   enqueuedAt: string;
   telegramChatId?: number;
+  images?: QueuedImage[];
 }
+
+export type EnqueueOpts = Omit<QueueItem, "id" | "seqId" | "enqueuedAt" | "images"> & { imageBlocks?: MessageBlock[] };
 
 interface QueueRow extends RowDataPacket {
   seq_id: number;
@@ -48,6 +52,7 @@ interface QueueRow extends RowDataPacket {
   effort_auto: number;
   enqueued_at: string | Date;
   telegram_chat_id: number | null;
+  images: string | null;
 }
 
 function rowToItem(row: QueueRow): QueueItem {
@@ -72,6 +77,7 @@ function rowToItem(row: QueueRow): QueueItem {
     effortAuto: row.effort_auto === 1 ? true : undefined,
     enqueuedAt,
     telegramChatId: row.telegram_chat_id ?? undefined,
+    images: row.images ? (JSON.parse(row.images) as QueuedImage[]) : undefined,
   };
 }
 
@@ -91,29 +97,38 @@ class CommandQueue extends EventEmitter {
       queue.push(item);
       this.queues.set(key, queue);
     }
+    pruneQueueImages(new Set(rows.map((row) => row.id)));
   }
 
   targetKey(targetType: string, targetName: string): string {
     return `${targetType}:${targetName}`;
   }
 
-  async enqueue(opts: Omit<QueueItem, "id" | "seqId" | "enqueuedAt">): Promise<QueueItem> {
+  async enqueue({ imageBlocks, ...opts }: EnqueueOpts): Promise<QueueItem> {
     const id = randomUUID();
     const enqueuedAt = new Date().toISOString();
+    const images = imageBlocks ? saveQueueImages(id, imageBlocks) : [];
 
-    const result = await execute(
-      `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, permission_mode, agent_name, username, skip_system_prompt, skip_isolation_instruction, effort, effort_auto, enqueued_at, telegram_chat_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, opts.targetType, opts.targetName, opts.prompt, opts.source, opts.cwd,
-       opts.resumeSessionId ?? null, opts.model ?? null, opts.planMode ? 1 : 0,
-       opts.permissionMode ?? null,
-       opts.agentName ?? null, opts.username ?? null,
-       opts.skipSystemPrompt ? 1 : 0, opts.skipIsolationInstruction === true && opts.username === "admin" ? 1 : 0, opts.effort ?? null, opts.effortAuto ? 1 : 0,
-       toMySQLDatetime(enqueuedAt), opts.telegramChatId ?? null],
-    );
+    let result;
+    try {
+      result = await execute(
+        `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, permission_mode, agent_name, username, skip_system_prompt, skip_isolation_instruction, effort, effort_auto, enqueued_at, telegram_chat_id, images)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, opts.targetType, opts.targetName, opts.prompt, opts.source, opts.cwd,
+         opts.resumeSessionId ?? null, opts.model ?? null, opts.planMode ? 1 : 0,
+         opts.permissionMode ?? null,
+         opts.agentName ?? null, opts.username ?? null,
+         opts.skipSystemPrompt ? 1 : 0, opts.skipIsolationInstruction === true && opts.username === "admin" ? 1 : 0, opts.effort ?? null, opts.effortAuto ? 1 : 0,
+         toMySQLDatetime(enqueuedAt), opts.telegramChatId ?? null, images.length > 0 ? JSON.stringify(images) : null],
+      );
+    } catch (err) {
+      removeQueueImages(id);
+      throw err;
+    }
 
     const item: QueueItem = {
       ...opts,
+      ...(images.length > 0 ? { images } : {}),
       id,
       seqId: result.insertId,
       enqueuedAt,
@@ -151,6 +166,7 @@ class CommandQueue extends EventEmitter {
           this.queues.delete(key);
         }
         await execute("DELETE FROM queue_items WHERE seq_id = ?", [seqId]);
+        removeQueueImages(item.id);
         this.emit("queue:remove", item);
         return item;
       }
@@ -164,6 +180,7 @@ class CommandQueue extends EventEmitter {
     this.queues.delete(key);
     await execute("DELETE FROM queue_items WHERE target_type = ? AND target_name = ?", [targetType, targetName]);
     for (const item of queue) {
+      removeQueueImages(item.id);
       this.emit("queue:remove", item);
     }
     return queue.length;

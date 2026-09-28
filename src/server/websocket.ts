@@ -115,16 +115,13 @@ export function setupWebSocket(io: SocketServer): void {
       const info = executionManager.getExecution(execId);
       if (!info) return;
       const prompt = text ?? (blocks ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
-      if (!prompt.trim()) return;
+      const hasImages = blocks?.some((b) => b.type === "image") ?? false;
+      if (!prompt.trim() && !hasImages) return;
 
       const targetBusy = executionManager.isTargetActive(info.targetType, info.targetName);
       const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
 
       if (targetBusy || hasQueued) {
-        if (blocks && blocks.some((b) => b.type === "image")) {
-          socket.emit("execution:send:failed", { execId, reason: "Não é possível enfileirar mensagens com imagem. Aguarde a execução atual terminar." });
-          return;
-        }
         void commandQueue.enqueue({
           targetType: info.targetType,
           targetName: info.targetName,
@@ -137,6 +134,7 @@ export function setupWebSocket(io: SocketServer): void {
           planMode: info.planMode || undefined,
           effort: info.effort,
           effortAuto: info.effortAuto,
+          imageBlocks: blocks,
         }).then(() => {
           socket.emit("execution:send:queued", { execId });
         }).catch(() => {
