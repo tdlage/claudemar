@@ -1,10 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Activity, Square, RotateCw, Play } from "lucide-react";
+import { Activity, Square, RotateCw, Play, Server } from "lucide-react";
 import { api } from "../../lib/api";
 import { useSocketEvent } from "../../hooks/useSocket";
 import type { RunConfig } from "../../lib/types";
+import { useToast } from "../shared/Toast";
 
-export function ProcessIndicator() {
+type Action = "start" | "stop" | "restart";
+
+const ACTION_ERRORS: Record<Action, string> = {
+  start: "Não foi possível iniciar o processo.",
+  stop: "Não foi possível parar o processo.",
+  restart: "Não foi possível reiniciar o processo.",
+};
+
+export function ProcessIndicator({ variant = "menu" }: { variant?: "menu" | "topbar" }) {
+  const { addToast } = useToast();
   const [configs, setConfigs] = useState<RunConfig[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -38,41 +48,65 @@ export function ProcessIndicator() {
 
   const grouped = new Map<string, RunConfig[]>();
   for (const c of configs) {
-    const key = c.projectName || "Other";
+    const key = c.projectName || "Geral";
     const list = grouped.get(key) ?? [];
     list.push(c);
     grouped.set(key, list);
   }
 
-  const handleStart = async (id: string) => {
-    await api.post(`/run-configs/${id}/start`).catch(() => {});
+  const run = async (action: Action, id: string) => {
+    try {
+      await api.post(`/run-configs/${id}/${action}`);
+    } catch (err) {
+      addToast("error", err instanceof Error && err.message ? `${ACTION_ERRORS[action]} ${err.message}` : ACTION_ERRORS[action]);
+    } finally {
+      load();
+    }
   };
+  const handleStart = (id: string) => run("start", id);
+  const handleStop = (id: string) => run("stop", id);
+  const handleRestart = (id: string) => run("restart", id);
 
-  const handleStop = async (id: string) => {
-    await api.post(`/run-configs/${id}/stop`).catch(() => {});
-  };
-
-  const handleRestart = async (id: string) => {
-    await api.post(`/run-configs/${id}/restart`).catch(() => {});
-  };
+  const summary = `Processos: ${runningCount} de ${configs.length} em execução`;
 
   return (
-    <div ref={ref} className="relative hidden sm:block">
-      <button
-        onClick={() => setOpen(!open)}
-        className={`flex items-center gap-1 text-xs font-mono transition-colors cursor-pointer ${
-          runningCount > 0 ? "text-success" : "text-text-muted"
-        } hover:text-text-primary`}
-      >
-        <Activity size={12} />
-        <span>{runningCount}</span>
-      </button>
+    <div ref={ref} className={variant === "topbar" ? "relative" : "relative hidden sm:block"}>
+      {variant === "topbar" ? (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="icon-button relative"
+          title={summary}
+          aria-label={summary}
+          aria-expanded={open}
+        >
+          <Server size={18} className={runningCount > 0 ? "text-success" : undefined} />
+          {runningCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-success text-[10px] font-semibold leading-4 text-center text-bg">
+              {runningCount}
+            </span>
+          )}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          title={summary}
+          aria-expanded={open}
+          className={`flex items-center gap-1 text-xs font-mono transition-colors cursor-pointer ${
+            runningCount > 0 ? "text-success" : "text-text-muted"
+          } hover:text-text-primary`}
+        >
+          <Activity size={12} />
+          <span>{runningCount}</span>
+        </button>
+      )}
 
       {open && (
         <div className="absolute right-0 top-full mt-2 w-72 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
           <div className="px-3 py-2 border-b border-border">
             <span className="text-xs font-medium text-text-primary">
-              Processes ({runningCount} running)
+              Processos ({runningCount} em execução)
             </span>
           </div>
           <div className="max-h-80 overflow-y-auto">
@@ -109,14 +143,16 @@ export function ProcessIndicator() {
                             <button
                               onClick={() => handleRestart(cfg.id)}
                               className="p-1 text-text-muted hover:text-warning transition-colors cursor-pointer"
-                              title="Restart"
+                              title="Reiniciar"
+                              aria-label={`Reiniciar ${cfg.name}`}
                             >
                               <RotateCw size={11} />
                             </button>
                             <button
                               onClick={() => handleStop(cfg.id)}
                               className="p-1 text-text-muted hover:text-danger transition-colors cursor-pointer"
-                              title="Stop"
+                              title="Parar"
+                              aria-label={`Parar ${cfg.name}`}
                             >
                               <Square size={11} />
                             </button>
@@ -125,7 +161,8 @@ export function ProcessIndicator() {
                           <button
                             onClick={() => handleStart(cfg.id)}
                             className="p-1 text-text-muted hover:text-success transition-colors cursor-pointer"
-                            title="Start"
+                            title="Iniciar"
+                            aria-label={`Iniciar ${cfg.name}`}
                           >
                             <Play size={11} />
                           </button>

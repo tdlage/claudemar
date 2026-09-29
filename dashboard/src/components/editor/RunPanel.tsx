@@ -3,6 +3,7 @@ import { Globe, Play, Square, RotateCw, Plus, Pencil, Trash2 } from "lucide-reac
 import { api } from "../../lib/api";
 import { useSocketEvent } from "../../hooks/useSocket";
 import type { RunConfig } from "../../lib/types";
+import { isAdmin } from "../../hooks/useAuth";
 import { RunConfigForm } from "./RunConfigForm";
 import { RunTerminal } from "./RunTerminal";
 
@@ -11,6 +12,7 @@ interface RunPanelProps {
 }
 
 export function RunPanel({ base }: RunPanelProps) {
+  const admin = isAdmin();
   const [configs, setConfigs] = useState<RunConfig[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingConfig, setEditingConfig] = useState<RunConfig | null>(null);
@@ -99,25 +101,29 @@ export function RunPanel({ base }: RunPanelProps) {
     <div className="flex flex-col h-full">
       <div className="p-2 border-b border-border flex items-center justify-between">
         <span className="text-xs font-medium text-text-primary">Run Configurations</span>
-        <button
-          onClick={() => setShowForm(true)}
-          className="text-text-muted hover:text-accent transition-colors cursor-pointer"
-          title="Add Configuration"
-        >
-          <Plus size={14} />
-        </button>
+        {admin && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="text-text-muted hover:text-accent transition-colors cursor-pointer"
+            title="Add Configuration"
+          >
+            <Plus size={14} />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {filteredConfigs.length === 0 && (
           <div className="px-3 py-6 text-center">
             <p className="text-xs text-text-muted mb-2">No run configurations</p>
-            <button
-              onClick={() => setShowForm(true)}
-              className="text-xs text-accent hover:text-accent/80 transition-colors cursor-pointer"
-            >
-              Create one
-            </button>
+            {admin && (
+              <button
+                onClick={() => setShowForm(true)}
+                className="text-xs text-accent hover:text-accent/80 transition-colors cursor-pointer"
+              >
+                Create one
+              </button>
+            )}
           </div>
         )}
 
@@ -141,7 +147,7 @@ export function RunPanel({ base }: RunPanelProps) {
                 />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-text-primary truncate">{cfg.name}</p>
-                  <p className="text-[10px] text-text-muted truncate font-mono">{cfg.command}</p>
+                  {cfg.command && <p className="text-[10px] text-text-muted truncate font-mono">{cfg.command}</p>}
                   {cfg.proxyDomain && (
                     <p className="text-[10px] text-accent truncate flex items-center gap-0.5">
                       <Globe size={9} />
@@ -185,26 +191,30 @@ export function RunPanel({ base }: RunPanelProps) {
                       <Play size={12} />
                     </button>
                   )}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingConfig(cfg);
-                    }}
-                    className="p-1 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-                    title="Edit"
-                  >
-                    <Pencil size={12} />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(cfg.id);
-                    }}
-                    className="p-1 text-text-muted hover:text-danger transition-colors cursor-pointer"
-                    title="Delete"
-                  >
-                    <Trash2 size={12} />
-                  </button>
+                  {admin && (
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingConfig(cfg);
+                        }}
+                        className="p-1 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                        title="Edit"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(cfg.id);
+                        }}
+                        className="p-1 text-text-muted hover:text-danger transition-colors cursor-pointer"
+                        title="Delete"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 

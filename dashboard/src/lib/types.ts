@@ -211,9 +211,9 @@ export interface GitFileDiff {
 export interface RunConfig {
   id: string;
   name: string;
-  command: string;
-  workingDirectory: string;
-  envVars: Record<string, string>;
+  command?: string;
+  workingDirectory?: string;
+  envVars?: Record<string, string>;
   projectName: string;
   proxyDomain?: string;
   proxyPort?: number;

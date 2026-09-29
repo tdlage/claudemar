@@ -12,6 +12,7 @@ import { pipelineManager } from "../pipeline-manager.js";
 import { ciEventManager } from "../ci-events.js";
 import { brainEvents } from "../brain/events.js";
 import { getBrainStatus } from "../brain/status.js";
+import { canAccessRunConfig } from "./run-config-access.js";
 
 const RATE_LIMIT_WINDOW_MS = 1000;
 const RATE_LIMIT_MAX_EVENTS = 30;
@@ -190,6 +191,7 @@ export function setupWebSocket(io: SocketServer): void {
     });
 
     socket.on("subscribe:run", (configId: string) => {
+      if (!canAccessRunConfig(getCtx(), runProcessManager.getConfig(configId))) return;
       socket.join(`run:${configId}`);
       const output = runProcessManager.getOutput(configId);
       if (output) {
@@ -334,8 +336,15 @@ export function setupWebSocket(io: SocketServer): void {
     io.to("executions").emit("queue:remove", { item });
   });
 
-  runProcessManager.on("start", (configId, cfg) => {
-    io.to("executions").emit("run:start", { configId, config: cfg });
+  const emitToRunConfig = (event: string, configId: string, payload: unknown) => {
+    const cfg = runProcessManager.getConfig(configId);
+    for (const [, s] of io.sockets.sockets) {
+      if (canAccessRunConfig(s.data.ctx as RequestContext | undefined, cfg)) s.emit(event, payload);
+    }
+  };
+
+  runProcessManager.on("start", (configId) => {
+    emitToRunConfig("run:start", configId, { configId });
   });
 
   runProcessManager.on("output", (configId, chunk) => {
@@ -343,12 +352,12 @@ export function setupWebSocket(io: SocketServer): void {
   });
 
   runProcessManager.on("stop", (configId, exitCode) => {
-    io.to("executions").emit("run:stop", { configId, exitCode });
+    emitToRunConfig("run:stop", configId, { configId, exitCode });
     io.to(`run:${configId}`).emit("run:stop", { configId, exitCode });
   });
 
   runProcessManager.on("error", (configId, error) => {
-    io.to("executions").emit("run:error", { configId, error });
+    emitToRunConfig("run:error", configId, { configId, error });
     io.to(`run:${configId}`).emit("run:error", { configId, error });
   });
 

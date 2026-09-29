@@ -106,7 +106,7 @@ export function createDashboardServer() {
   app.use("/api/orchestrator", jsonParser, requireAdmin, orchestratorRouter);
   app.use("/api/system", jsonParser, systemCatalogRouter);
   app.use("/api/system", jsonParser, requireAdmin, systemRouter);
-  app.use("/api/run-configs", jsonParser, requireAdmin, runConfigsRouter);
+  app.use("/api/run-configs", jsonParser, runConfigsRouter);
   app.use("/api/users", jsonParser, requireAdmin, usersRouter);
   app.use("/api/settings", jsonParser, requireAdmin, settingsRouter);
   app.post("/api/brain/whatsapp/import", requireAdmin, brainJsonParser);

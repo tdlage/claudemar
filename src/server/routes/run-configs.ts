@@ -1,15 +1,28 @@
-import { Router } from "express";
-import { runProcessManager } from "../../run-process-manager.js";
+import { Router, type Request, type Response } from "express";
+import { runProcessManager, type RunConfig } from "../../run-process-manager.js";
+import { requireAdmin } from "../middleware.js";
+import { canAccessRunConfig, runConfigView } from "../run-config-access.js";
 
 export const runConfigsRouter = Router();
 
-runConfigsRouter.get("/", (_req, res) => {
-  const configs = runProcessManager.getAllConfigs();
+function accessibleConfig(req: Request, res: Response): RunConfig | null {
+  const cfg = runProcessManager.getConfig(String(req.params.id));
+  if (!canAccessRunConfig(req.ctx, cfg)) {
+    res.status(404).json({ error: "Config not found" });
+    return null;
+  }
+  return cfg;
+}
+
+runConfigsRouter.get("/", (req, res) => {
+  const ctx = req.ctx!;
   const status = runProcessManager.getStatus();
-  res.json(configs.map((c) => ({ ...c, status: status[c.id] ?? { running: false } })));
+  res.json(runProcessManager.getAllConfigs()
+    .filter((c) => canAccessRunConfig(ctx, c))
+    .map((c) => runConfigView(ctx, c, status[c.id] ?? { running: false })));
 });
 
-runConfigsRouter.post("/", async (req, res) => {
+runConfigsRouter.post("/", requireAdmin, async (req, res) => {
   const { name, command, workingDirectory, envVars, projectName, proxyDomain, proxyPort } = req.body;
   if (!name || !command) {
     res.status(400).json({ error: "name and command are required" });
@@ -27,7 +40,7 @@ runConfigsRouter.post("/", async (req, res) => {
   res.json(cfg);
 });
 
-runConfigsRouter.put("/:id", async (req, res) => {
+runConfigsRouter.put("/:id", requireAdmin, async (req: Request<{ id: string }>, res: Response) => {
   const updated = await runProcessManager.updateConfig(req.params.id, req.body);
   if (!updated) {
     res.status(404).json({ error: "Config not found" });
@@ -36,7 +49,7 @@ runConfigsRouter.put("/:id", async (req, res) => {
   res.json(updated);
 });
 
-runConfigsRouter.delete("/:id", async (req, res) => {
+runConfigsRouter.delete("/:id", requireAdmin, async (req: Request<{ id: string }>, res: Response) => {
   const deleted = await runProcessManager.deleteConfig(req.params.id);
   if (!deleted) {
     res.status(404).json({ error: "Config not found" });
@@ -46,13 +59,9 @@ runConfigsRouter.delete("/:id", async (req, res) => {
 });
 
 runConfigsRouter.post("/:id/start", (req, res) => {
-  const started = runProcessManager.startProcess(req.params.id);
-  if (!started) {
-    const cfg = runProcessManager.getConfig(req.params.id);
-    if (!cfg) {
-      res.status(404).json({ error: "Config not found" });
-      return;
-    }
+  const cfg = accessibleConfig(req, res);
+  if (!cfg) return;
+  if (!runProcessManager.startProcess(cfg.id)) {
     res.status(409).json({ error: "Already running" });
     return;
   }
@@ -60,8 +69,9 @@ runConfigsRouter.post("/:id/start", (req, res) => {
 });
 
 runConfigsRouter.post("/:id/stop", (req, res) => {
-  const stopped = runProcessManager.stopProcess(req.params.id);
-  if (!stopped) {
+  const cfg = accessibleConfig(req, res);
+  if (!cfg) return;
+  if (!runProcessManager.stopProcess(cfg.id)) {
     res.status(404).json({ error: "Not running" });
     return;
   }
@@ -69,11 +79,8 @@ runConfigsRouter.post("/:id/stop", (req, res) => {
 });
 
 runConfigsRouter.post("/:id/restart", (req, res) => {
-  const cfg = runProcessManager.getConfig(req.params.id);
-  if (!cfg) {
-    res.status(404).json({ error: "Config not found" });
-    return;
-  }
-  runProcessManager.restartProcess(req.params.id);
+  const cfg = accessibleConfig(req, res);
+  if (!cfg) return;
+  runProcessManager.restartProcess(cfg.id);
   res.json({ restarted: true });
 });

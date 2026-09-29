@@ -168,6 +168,7 @@ export function Header({ projectActionsRef }: { projectActionsRef: Ref<HTMLDivEl
             </div>
           </details>
         )}
+        {!admin && <ProcessIndicator variant="topbar" />}
         <ThemeToggle />
       </div>
     </header>
