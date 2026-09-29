@@ -7,11 +7,12 @@ interface EffortSelectorProps {
   runtime: AgentRuntime;
   value: EffortSelection;
   autoAvailable: boolean;
+  model?: string;
   onChange: (effort: EffortSelection) => void;
 }
 
-export function EffortSelector({ runtime, value, autoAvailable, onChange }: EffortSelectorProps) {
-  const options = effortOptionsFor(runtime, autoAvailable);
+export function EffortSelector({ runtime, value, autoAvailable, model, onChange }: EffortSelectorProps) {
+  const options = effortOptionsFor(runtime, autoAvailable, model);
   const selected = options.find((option) => option.value === value) ?? options[0];
   const isOpenAi = runtime === "codex";
 

@@ -21,6 +21,7 @@ import { sessionFileExists } from "./session-validator.js";
 import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type { AgentRuntime, LlmProfile } from "./providers/llm.js";
+import { effortForModel } from "./model-effort.js";
 
 export type ExecutionSource = "telegram" | "web" | "schedule" | "pipeline";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
@@ -364,12 +365,13 @@ export class ExecutionManager extends EventEmitter {
     return this.draining;
   }
 
-  startExecution(opts: StartExecutionOpts): string {
-    if (this.draining && !opts.continueDuringDrain) {
+  startExecution(requested: StartExecutionOpts): string {
+    if (this.draining && !requested.continueDuringDrain) {
       throw new Error("Serviço em reinício para atualização — novas execuções estão bloqueadas. Tente novamente em instantes.");
     }
     const id = randomUUID();
-    const { profile, model, selection } = resolveTargetModel(opts.targetType, opts.targetName, opts.model);
+    const { profile, model, selection } = resolveTargetModel(requested.targetType, requested.targetName, requested.model);
+    const opts: StartExecutionOpts = { ...requested, effort: effortForModel(model, requested.effort) };
     const info: ExecutionInfo = {
       id,
       source: opts.source,
@@ -734,9 +736,10 @@ export class ExecutionManager extends EventEmitter {
     return true;
   }
 
-  async setEffort(id: string, effort: Effort, auto = false): Promise<boolean> {
+  async setEffort(id: string, requested: Effort, auto = false): Promise<boolean> {
     const entry = this.active.get(id);
     if (!entry) return false;
+    const effort = effortForModel(entry.info.model, requested) ?? requested;
     await entry.session.setEffort(effort);
     entry.info.effort = effort;
     entry.info.effortAuto = auto;

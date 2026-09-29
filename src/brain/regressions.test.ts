@@ -97,7 +97,7 @@ test("patch parcial de settings preserva campos irmãos", () => {
   assert.deepEqual(after.emailFilter.skipCategories, ["promotions", "social"]);
   assert.equal(after.llm.triage.model, "modelo-custom");
   assert.equal(after.llm.triage.providerId, "anthropic");
-  assert.equal(after.llm.compile.model, "claude-sonnet-5");
+  assert.equal(after.llm.compile.model, "claude-sonnet-5-5");
   assert.equal(after.llm.providers.length, 3);
 
   getRedis().disconnect();

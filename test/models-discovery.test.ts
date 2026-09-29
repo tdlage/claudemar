@@ -161,12 +161,12 @@ test("resolveExecutionModel: alvos não-projeto usam o modelo do perfil ativo", 
 test("resolveExecutionModel: override explícito sempre prevalece", () => {
   assert.equal(
     resolveExecutionModel({
-      explicitModel: "claude-sonnet-5",
+      explicitModel: "claude-sonnet-5-5",
       targetType: "project",
       activeProfile: kimiProfile(),
       projectModel: "claude-fable-5-1",
     }),
-    "claude-sonnet-5",
+    "claude-sonnet-5-5",
   );
 });
 

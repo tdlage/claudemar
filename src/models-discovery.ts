@@ -12,7 +12,7 @@ interface DiscoveredModel {
 const CLAUDE_DEFAULT_MODELS: DiscoveredModel[] = [
   { id: "claude-opus-5-5", displayName: "Opus 5.5", createdAt: "", provider: "claude" },
   { id: "claude-fable-5-1", displayName: "Fable 5.1", createdAt: "", provider: "claude" },
-  { id: "claude-sonnet-5", displayName: "Sonnet 5", createdAt: "", provider: "claude" },
+  { id: "claude-sonnet-5-5", displayName: "Sonnet 5.5", createdAt: "", provider: "claude" },
 ];
 
 // Modelos Claude escolhíveis por projeto (só se aplicam ao provider nativo "anthropic").
@@ -36,14 +36,15 @@ export interface SelectableProjectModel {
   displayName: string;
 }
 
-// Valores legados já persistidos (alias "opus", Opus anteriores ao 5.5, Fable 5, Sonnet 4.6 e Haiku 4.5)
+// Valores legados já persistidos (alias "opus", Opus anteriores ao 5.5, Fable 5, Sonnet 4.6/5 e Haiku 4.5)
 // apontam para os modelos atuais.
 const LEGACY_MODELS: Record<string, string> = {
   opus: DEFAULT_PROJECT_MODEL,
   "claude-opus-5": DEFAULT_PROJECT_MODEL,
   "claude-opus-4-8": DEFAULT_PROJECT_MODEL,
-  "claude-sonnet-4-6": "claude-sonnet-5",
-  "claude-haiku-4-5-20251001": "claude-sonnet-5",
+  "claude-sonnet-4-6": "claude-sonnet-5-5",
+  "claude-sonnet-5": "claude-sonnet-5-5",
+  "claude-haiku-4-5-20251001": "claude-sonnet-5-5",
   "claude-fable-5": "claude-fable-5-1",
 };
 

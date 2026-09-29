@@ -188,7 +188,8 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const complexityEnabled = useComplexityEnabled();
   const autoEffortAvailable = complexityEnabled && executionTargetFromBase(base) !== null;
   const automaticEffortOnly = getMe()?.role === "user";
-  const effort = normalizeEffortSelection(activeRuntime, activeRuntime === "codex" ? codexEffort : claudeEffort, autoEffortAvailable);
+  const activeModel = modelSelection.selected?.modelId;
+  const effort = normalizeEffortSelection(activeRuntime, activeRuntime === "codex" ? codexEffort : claudeEffort, autoEffortAvailable, activeModel);
   const effortSummary = automaticEffortOnly ? (complexityEnabled ? "auto" : "padrão") : effort;
   const [assessing, setAssessing] = useState(false);
   const [effortRecommendation, setEffortRecommendation] = useState<(EffortRecommendation & { resolve: (effort: Effort | null) => void }) | null>(null);
@@ -537,14 +538,14 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     const manualEffort = effort === "auto" ? null : effort;
     const target = executionTargetFromBase(base);
     if (!complexityEnabled || !target || !visibleText || visibleText.startsWith("/")) {
-      dispatch(manualEffort ?? defaultEffortFor(activeRuntime));
+      dispatch(manualEffort ?? defaultEffortFor(activeRuntime, activeModel));
       return;
     }
     setAssessing(true);
     void recommendEffort(visibleText, target, manualEffort)
       .then((choice) => { if (choice) dispatch(choice.effort, choice.auto, choice.note); })
       .finally(() => setAssessing(false));
-  }, [sendingPrivate, assessing, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, automaticEffortOnly, base, complexityEnabled, activeRuntime, recommendEffort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, selectedOutsideSession, sessionRuntime, addToast]);
+  }, [sendingPrivate, assessing, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, automaticEffortOnly, base, complexityEnabled, activeRuntime, activeModel, recommendEffort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, selectedOutsideSession, sessionRuntime, addToast]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -643,7 +644,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
         </div>
         <div className="terminal-option-group"><span className="terminal-option-label">Esforço do modelo</span>{automaticEffortOnly
           ? <span className="text-xs text-text-secondary capitalize" title="O esforço é definido automaticamente pela complexidade de cada prompt">{effortSummary}</span>
-          : <EffortSelector runtime={activeRuntime} value={effort} autoAvailable={autoEffortAvailable} onChange={handleSetEffort} />}</div>
+          : <EffortSelector runtime={activeRuntime} model={activeModel} value={effort} autoAvailable={autoEffortAvailable} onChange={handleSetEffort} />}</div>
       </div>
   );
 

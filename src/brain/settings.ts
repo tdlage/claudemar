@@ -16,10 +16,10 @@ import type {
 } from "./types.js";
 
 export const DEFAULT_TRIAGE_MODEL = "claude-haiku-4-5-20251001";
-export const DEFAULT_COMPILE_MODEL = "claude-sonnet-5";
+export const DEFAULT_COMPILE_MODEL = "claude-sonnet-5-5";
 export const DEFAULT_SELECTOR_MODEL = "claude-haiku-4-5-20251001";
-export const DEFAULT_DISTILL_MODEL = "claude-sonnet-5";
-export const DEFAULT_LINT_MODEL = "claude-sonnet-5";
+export const DEFAULT_DISTILL_MODEL = "claude-sonnet-5-5";
+export const DEFAULT_LINT_MODEL = "claude-sonnet-5-5";
 
 function defaultProviders(): BrainLlmProvider[] {
   return [

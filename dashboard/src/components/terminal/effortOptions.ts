@@ -29,7 +29,20 @@ const OPENAI_EFFORTS: EffortOption[] = [
   { value: "max", label: "Max", description: "Maximum reasoning effort" },
 ];
 
-export function effortOptionsFor(runtime: AgentRuntime, autoAvailable = false): EffortOption[] {
+const SONNET_EFFORTS: EffortOption[] = CLAUDE_EFFORTS
+  .filter((option) => option.value === "extra" || option.value === "max" || option.value === "ultracode")
+  .map((option) => ({ ...option, isDefault: option.value === "extra" }));
+
+export function isSonnetModel(model?: string): boolean {
+  return /sonnet/i.test(model ?? "");
+}
+
+function restrictedToSonnet(runtime: AgentRuntime, model?: string): boolean {
+  return runtime === "claude" && isSonnetModel(model);
+}
+
+export function effortOptionsFor(runtime: AgentRuntime, autoAvailable = false, model?: string): EffortOption[] {
+  if (restrictedToSonnet(runtime, model)) return SONNET_EFFORTS;
   const options = runtime === "codex" ? OPENAI_EFFORTS : CLAUDE_EFFORTS;
   if (!autoAvailable) return options;
   return [AUTO_EFFORT, ...options.map((option) => ({ ...option, isDefault: false }))];
@@ -39,9 +52,10 @@ export function effortLabel(runtime: AgentRuntime, effort: EffortSelection): str
   return effortOptionsFor(runtime, true).find((option) => option.value === effort)?.label ?? effort;
 }
 
-export function normalizeEffortFor(runtime: AgentRuntime, effort: Effort): Effort {
-  const options = effortOptionsFor(runtime);
+export function normalizeEffortFor(runtime: AgentRuntime, effort: Effort, model?: string): Effort {
+  const options = effortOptionsFor(runtime, false, model);
   if (options.some((option) => option.value === effort)) return effort;
+  if (restrictedToSonnet(runtime, model)) return "extra";
 
   if (runtime === "codex") {
     if (effort === "minimal") return "low";
@@ -53,11 +67,12 @@ export function normalizeEffortFor(runtime: AgentRuntime, effort: Effort): Effor
   return "high";
 }
 
-export function normalizeEffortSelection(runtime: AgentRuntime, selection: EffortSelection, autoAvailable: boolean): EffortSelection {
-  if (selection === "auto") return autoAvailable ? "auto" : defaultEffortFor(runtime);
-  return normalizeEffortFor(runtime, selection);
+export function normalizeEffortSelection(runtime: AgentRuntime, selection: EffortSelection, autoAvailable: boolean, model?: string): EffortSelection {
+  if (selection === "auto") return autoAvailable && !restrictedToSonnet(runtime, model) ? "auto" : defaultEffortFor(runtime, model);
+  return normalizeEffortFor(runtime, selection, model);
 }
 
-export function defaultEffortFor(runtime: AgentRuntime): Effort {
+export function defaultEffortFor(runtime: AgentRuntime, model?: string): Effort {
+  if (restrictedToSonnet(runtime, model)) return "extra";
   return runtime === "codex" ? "medium" : "high";
 }
