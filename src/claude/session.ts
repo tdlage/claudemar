@@ -59,6 +59,17 @@ function createPushableQueue(): PushableQueue {
   };
 }
 
+function mergeResults(previous: AgentResult, next: AgentResult): AgentResult {
+  return {
+    ...next,
+    output: [previous.output, next.output].filter((text) => text.trim()).join("\n\n"),
+    sessionId: next.sessionId || previous.sessionId,
+    durationMs: previous.durationMs + next.durationMs,
+    totalTokens: previous.totalTokens + next.totalTokens,
+    permissionDenials: [...previous.permissionDenials, ...next.permissionDenials],
+  };
+}
+
 export class ClaudeSession extends BaseAgentSession {
   private queue = createPushableQueue();
   private abortController = new AbortController();
@@ -69,9 +80,12 @@ export class ClaudeSession extends BaseAgentSession {
   private bypass: boolean;
   private currentPermissionMode: PermissionMode;
   private activeTasks = new Map<string, { description: string; subagentType?: string }>();
+  private backgroundTasks = new Set<string>();
+  private runnerState: Extract<SDKMessage, { subtype: "session_state_changed" }>["state"] | null = null;
   private pendingResult: AgentResult | null = null;
   private taskFailures = new Map<string, string>();
-  private userMessageId: ReturnType<typeof randomUUID> | null = null;
+  private executionMessageIds = new Set<string>();
+  private interrupted = false;
   private pendingTasksGraceMs: number;
   private pendingTasksTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -217,29 +231,37 @@ export class ClaudeSession extends BaseAgentSession {
   private drainPendingResult(fallbackMessage: string): void {
     if (this.pendingResult) {
       const result = this.pendingResult;
-      this.pendingResult = null;
       const reason = fallbackMessage || "Sessão encerrada sem confirmação de término das tarefas em background.";
       result.isError = true;
       result.errorMessages = [...result.errorMessages, reason];
       this.flushLostTasks(reason);
       this.settleTurn(result);
     } else {
-      this.clearPendingTasksTimer();
-      this.activeTasks.clear();
-      this.pendingResult = null;
+      this.resetExecution();
       this.failTurn(fallbackMessage);
     }
   }
 
+  private resetExecution(): void {
+    this.clearPendingTasksTimer();
+    this.activeTasks.clear();
+    this.taskFailures.clear();
+    this.executionMessageIds.clear();
+    this.pendingResult = null;
+    this.interrupted = false;
+  }
+
   private settleTurn(result: AgentResult): void {
+    if (this.interrupted && !result.isError) {
+      result.isError = true;
+      result.errorMessages = ["Execução interrompida."];
+    }
     if (!result.output.trim() && result.permissionDenials.length === 0) {
       result.isError = true;
       result.errorMessages = [...new Set([...result.errorMessages, ...this.taskFailures.values()])];
       if (result.errorMessages.length === 0) result.errorMessages.push("Claude encerrou o turno sem retornar uma resposta. O provedor não informou a causa.");
     }
-    this.clearPendingTasksTimer();
-    this.activeTasks.clear();
-    this.pendingResult = null;
+    this.resetExecution();
     this.settleResult(result);
   }
 
@@ -283,6 +305,12 @@ export class ClaudeSession extends BaseAgentSession {
       this.handleTaskUpdated(message);
     } else if (message.subtype === "task_notification") {
       this.handleTaskNotification(message);
+    } else if (message.subtype === "background_tasks_changed") {
+      this.backgroundTasks = new Set(message.tasks.filter((task) => !task.ambient).map((task) => task.task_id));
+      if (this.interrupted) this.maybeSettle();
+    } else if (message.subtype === "session_state_changed") {
+      this.runnerState = message.state;
+      if (message.state === "idle") this.maybeSettle();
     }
   }
 
@@ -334,7 +362,7 @@ export class ClaudeSession extends BaseAgentSession {
       error: message.patch.error,
     } satisfies TaskEvent);
     if (status === "completed" || status === "failed" || status === "killed") {
-      this.finishTask(message.task_id);
+      this.activeTasks.delete(message.task_id);
     }
   }
 
@@ -353,22 +381,16 @@ export class ClaudeSession extends BaseAgentSession {
       toolUses: message.usage?.tool_uses,
       durationMs: message.usage?.duration_ms,
     } satisfies TaskEvent);
-    this.finishTask(message.task_id);
+    this.activeTasks.delete(message.task_id);
   }
 
-  private finishTask(taskId: string): void {
-    if (!this.activeTasks.delete(taskId)) return;
-    this.maybeSettlePending();
-  }
-
-  // Só assenta o resultado do turno principal depois que todos os subagentes em background
-  // terminarem — o SDK emite o "result" do turno enquanto os finders ainda rodam.
-  private maybeSettlePending(): void {
-    if (this.pendingResult && this.activeTasks.size === 0) {
-      const result = this.pendingResult;
-      this.pendingResult = null;
-      this.settleTurn(result);
-    }
+  // Cada "result" fecha só um turno: com tarefas em background o runner segue ativo e cada
+  // notificação de término vira um novo turno do modelo. A execução só termina quando o runner
+  // fica idle sem tarefas em background (ou, após interrupt, assim que as tarefas param).
+  private maybeSettle(): void {
+    if (!this.pendingResult || this.backgroundTasks.size > 0) return;
+    if (!this.interrupted && (this.runnerState === "running" || this.runnerState === "requires_action")) return;
+    this.settleTurn(this.pendingResult);
   }
 
   private handleAssistant(message: Extract<SDKMessage, { type: "assistant" }>): void {
@@ -400,15 +422,18 @@ export class ClaudeSession extends BaseAgentSession {
     this.emit("usage", { costUsd, tokens, contextPct } satisfies UsageInfo);
   }
 
-  private handleResult(message: Extract<SDKMessage, { type: "result" }>): void {
-    if (this.settled) return;
+  // Sem eco de uuid, só pertencem à execução as falhas de entrega e os turnos disparados por
+  // notificações de tarefas em background depois do primeiro resultado dela.
+  private belongsToExecution(message: Extract<SDKMessage, { type: "result" }>): boolean {
     const messageIds = message.user_message_uuids ?? (message.user_message_uuid ? [message.user_message_uuid] : []);
-    if (this.userMessageId && messageIds.length > 0 && !messageIds.includes(this.userMessageId)) return;
-    const unboundEmptyResult = this.userMessageId && messageIds.length === 0
-      && message.subtype === "success" && !message.is_error && message.num_turns === 0
-      && !message.result?.trim() && !this.assistantBuffer.trim()
-      && (!message.terminal_reason || message.terminal_reason === "completed");
-    if (unboundEmptyResult) return;
+    if (messageIds.length > 0) return messageIds.some((id) => this.executionMessageIds.has(id));
+    return this.pendingResult !== null || message.is_error || message.subtype !== "success";
+  }
+
+  private handleResult(message: Extract<SDKMessage, { type: "result" }>): void {
+    const turnText = this.assistantBuffer;
+    this.assistantBuffer = "";
+    if (this.settled || !this.belongsToExecution(message)) return;
 
     const usage = message.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
     const totalTokens = (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
@@ -428,7 +453,7 @@ export class ClaudeSession extends BaseAgentSession {
     }
 
     const isError = message.is_error || message.subtype !== "success";
-    const output = message.subtype === "success" ? message.result : this.assistantBuffer;
+    const output = message.subtype === "success" ? message.result : turnText;
     const errorMessages = message.subtype !== "success"
       ? (message.errors?.length ? message.errors : [message.subtype])
       : message.is_error
@@ -436,7 +461,7 @@ export class ClaudeSession extends BaseAgentSession {
         : [];
 
     const result: AgentResult = {
-      output: output || this.assistantBuffer,
+      output: output || turnText,
       sessionId: message.session_id || this.sessionId,
       durationMs: message.duration_ms ?? 0,
       costUsd: message.total_cost_usd ?? 0,
@@ -447,16 +472,9 @@ export class ClaudeSession extends BaseAgentSession {
     };
 
     this.ingestResult(result);
-
-    // Se há subagentes rodando em background, retém o resultado até que todos terminem
-    // (via task_notification) para não marcar a execução como concluída cedo demais.
-    if (this.activeTasks.size > 0) {
-      this.pendingResult = result;
-      this.emit("tasksPending", this.activeTasks.size);
-      this.startPendingTasksTimer();
-    } else {
-      this.settleTurn(result);
-    }
+    this.pendingResult = this.pendingResult ? mergeResults(this.pendingResult, result) : result;
+    this.maybeSettle();
+    if (!this.settled) this.startPendingTasksTimer();
   }
 
   sendUserMessage(blocksOrText: string | MessageBlock[], ingestText?: string): void {
@@ -464,11 +482,20 @@ export class ClaudeSession extends BaseAgentSession {
     const stored = (ingestText ?? blocksToText(blocksOrText)).trim();
     this.pendingUserText = stored ? stored : null;
     this.settled = false;
-    this.activeTasks.clear();
-    this.taskFailures.clear();
-    this.pendingResult = null;
-    this.clearPendingTasksTimer();
+    this.resetExecution();
     this.startInactivityTimer();
+    this.pushUserMessage(blocksOrText);
+  }
+
+  appendUserMessage(blocksOrText: string | MessageBlock[]): boolean {
+    if (!this.isAlive() || this.settled) return false;
+    const stored = blocksToText(blocksOrText).trim();
+    if (stored) this.pendingUserText = this.pendingUserText ? `${this.pendingUserText}\n\n${stored}` : stored;
+    this.pushUserMessage(blocksOrText);
+    return true;
+  }
+
+  private pushUserMessage(blocksOrText: string | MessageBlock[]): void {
     let content: SDKUserMessage["message"]["content"];
     if (typeof blocksOrText === "string") {
       content = blocksOrText;
@@ -480,23 +507,21 @@ export class ClaudeSession extends BaseAgentSession {
       ) as SDKUserMessage["message"]["content"];
     }
 
-    this.userMessageId = randomUUID();
-    const message: SDKUserMessage = {
-      type: "user",
-      uuid: this.userMessageId,
-      parent_tool_use_id: null,
-      message: { role: "user", content },
-    };
-    this.queue.push(message);
+    const uuid = randomUUID();
+    this.executionMessageIds.add(uuid);
+    this.queue.push({ type: "user", uuid, parent_tool_use_id: null, message: { role: "user", content } });
   }
 
   async interrupt(): Promise<void> {
+    this.interrupted = true;
     this.questions.cancelAll();
+    await Promise.all([...this.backgroundTasks].map((taskId) => this.runner?.stopTask(taskId).catch(() => {})));
     try {
       await this.runner?.interrupt();
     } catch {
       this.abortController.abort();
     }
+    this.maybeSettle();
   }
 
   async setPermissionMode(mode: PermissionMode): Promise<void> {
@@ -544,13 +569,11 @@ export class ClaudeSession extends BaseAgentSession {
     this.dead = true;
     this.questions.cancelAll("Sessão encerrada.");
     this.clearInactivityTimer();
-    this.clearPendingTasksTimer();
     for (const { settle } of this.permissionResolvers.values()) {
       settle({ behavior: "deny", message: "Sessão encerrada." });
     }
     this.permissionResolvers.clear();
-    this.activeTasks.clear();
-    this.pendingResult = null;
+    this.resetExecution();
     this.queue.end();
     this.abortController.abort();
   }

@@ -188,6 +188,11 @@ export class CodexSession extends BaseAgentSession {
       });
   }
 
+  appendUserMessage(blocksOrText: string | MessageBlock[]): boolean {
+    this.sendUserMessage(blocksOrText);
+    return true;
+  }
+
   private async runTurn(blocksOrText: string | MessageBlock[]): Promise<void> {
     if (this.skipTurns > 0) {
       this.skipTurns--;

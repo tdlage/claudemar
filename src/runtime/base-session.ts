@@ -162,6 +162,7 @@ export abstract class BaseAgentSession extends EventEmitter implements AgentSess
   }
 
   abstract sendUserMessage(blocksOrText: string | MessageBlock[], ingestText?: string): void;
+  abstract appendUserMessage(blocksOrText: string | MessageBlock[]): boolean;
   abstract interrupt(): Promise<void>;
   abstract setPermissionMode(mode: PermissionMode): Promise<void>;
   abstract setModel(id?: string): Promise<void>;

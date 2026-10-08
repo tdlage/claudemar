@@ -39,6 +39,7 @@ export interface BuildOptionsParams extends AgentSessionInit {
 export function buildOptions(params: BuildOptionsParams): Options {
   const env = applyProfile(process.env, params.profile);
   delete env.CLAUDECODE;
+  env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS = "1";
 
   const permissionMode = resolveInitialPermissionMode(params);
   const effort = params.effort ?? "high";

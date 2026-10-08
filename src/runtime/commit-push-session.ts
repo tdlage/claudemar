@@ -27,6 +27,7 @@ export class CommitPushSession extends BaseAgentSession {
       this.settleResult({ output, sessionId: "", durationMs: Date.now() - start, costUsd: 0, totalTokens: tokens, isError: errors.length > 0, errorMessages: errors, permissionDenials: [] });
     });
   }
+  appendUserMessage(): boolean { return false; }
   async interrupt(): Promise<void> { this.controller.abort(); }
   async setPermissionMode(): Promise<void> {}
   async setModel(): Promise<void> {}

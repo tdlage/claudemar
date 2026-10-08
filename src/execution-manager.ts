@@ -717,8 +717,7 @@ export class ExecutionManager extends EventEmitter {
   sendMessage(id: string, blocksOrText: string | MessageBlock[]): boolean {
     const entry = this.active.get(id);
     if (!entry) return false;
-    entry.session.sendUserMessage(blocksOrText);
-    return true;
+    return entry.session.appendUserMessage(blocksOrText);
   }
 
   async interrupt(id: string): Promise<boolean> {

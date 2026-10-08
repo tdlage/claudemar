@@ -68,6 +68,10 @@ function claudeHarness() {
     pendingTasksGraceMs: 10,
     pendingResult: { output: "Subagente trabalhando" },
     activeTasks: new Map([["task-1", { description: "Trabalho independente" }]]),
+    backgroundTasks: new Set<string>(),
+    runnerState: null,
+    executionMessageIds: new Set<string>(),
+    interrupted: false,
     taskFailures: new Map(),
     pendingTasksTimer: null,
   });
@@ -135,32 +139,94 @@ function resultHarness() {
   const { session, internals } = claudeHarness();
   internals.pendingResult = null;
   internals.activeTasks.clear();
-  Object.assign(session, { ingestResult: () => {}, emitUsage: async () => {} });
+  Object.assign(session, { inactivityTimeoutMs: 0, ingestResult: () => {}, emitUsage: async () => {}, executionMessageIds: new Set(["prompt"]) });
   return {
     session,
     methods: session as unknown as {
+      handleMessage(message: unknown): void;
       handleResult(message: unknown): void;
       handleTaskStarted(message: unknown): void;
       handleTaskNotification(message: unknown): void;
       drainPendingResult(reason: string): void;
+      interrupt(): Promise<void>;
+      executionMessageIds: Set<string>;
     },
   };
 }
-const successResult = { type: "result", subtype: "success", is_error: false, result: "", session_id: "session", permission_denials: [], duration_ms: 1 };
+const successResult = { type: "result", subtype: "success", is_error: false, result: "", session_id: "session", permission_denials: [], duration_ms: 1, user_message_uuid: "prompt" };
+const notificationResult = { ...successResult, user_message_uuid: undefined };
+const runnerState = (state: string) => ({ type: "system", subtype: "session_state_changed", state });
+const backgroundTasks = (...ids: string[]) => ({ type: "system", subtype: "background_tasks_changed", tasks: ids.map((id) => ({ task_id: id, task_type: "local_agent", description: id })) });
 
-test("silent background work remains pending beyond the former three-minute cutoff", async (t) => {
+test("background work keeps the execution running until the runner reports idle after the notification turn", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { session, methods } = resultHarness();
   Object.assign(session, { pendingTasksGraceMs: 0 });
   const result = session.waitForResult();
+  methods.handleMessage(runnerState("running"));
   methods.handleTaskStarted({ task_id: "tests", description: "Django test suite" });
+  methods.handleMessage(backgroundTasks("tests"));
   methods.handleResult({ ...successResult, result: "Aguardando a suíte." });
+  methods.handleMessage(runnerState("idle"));
   t.mock.timers.tick(30 * 60 * 1000);
   assert.equal(session.getLastResult(), null);
   assert.equal(session.isAlive(), true);
+  methods.handleMessage(backgroundTasks());
   methods.handleTaskNotification({ task_id: "tests", status: "completed", summary: "37 tests OK" });
+  assert.equal(session.getLastResult(), null);
+  methods.handleMessage(runnerState("running"));
+  methods.handleResult({ ...notificationResult, result: "Suíte concluída: 37 testes OK." });
+  assert.equal(session.getLastResult(), null);
+  methods.handleMessage(runnerState("idle"));
   assert.equal((await result).isError, false);
-  assert.equal((await result).output, "Aguardando a suíte.");
+  assert.equal((await result).output, "Aguardando a suíte.\n\nSuíte concluída: 37 testes OK.");
+});
+
+test("a message sent mid-execution does not release the execution while background agents run", async () => {
+  const { session, methods } = resultHarness();
+  Object.assign(session, { queue: { push: () => {} } });
+  const result = session.waitForResult();
+  methods.handleMessage(runnerState("running"));
+  methods.handleMessage(backgroundTasks("report-1", "report-2"));
+  methods.handleResult({ ...successResult, result: "Faltam os outros relatórios; sigo quando chegarem." });
+  assert.equal(session.appendUserMessage("O foco fica no cadastro."), true);
+  const appended = [...methods.executionMessageIds].at(-1);
+  methods.handleResult({ ...successResult, user_message_uuid: appended, result: "Entendido." });
+  assert.equal(session.getLastResult(), null);
+  methods.handleMessage(backgroundTasks("report-2"));
+  methods.handleResult({ ...notificationResult, result: "Chegou o primeiro relatório." });
+  methods.handleMessage(backgroundTasks());
+  methods.handleResult({ ...notificationResult, result: "Desenho final." });
+  assert.equal(session.getLastResult(), null);
+  methods.handleMessage(runnerState("idle"));
+  const final = await result;
+  assert.equal(final.isError, false);
+  assert.equal(final.output, "Faltam os outros relatórios; sigo quando chegarem.\n\nEntendido.\n\nChegou o primeiro relatório.\n\nDesenho final.");
+  assert.equal(final.durationMs, 4);
+});
+
+test("a settled session refuses mid-execution messages so the caller starts a new execution", async () => {
+  const { session, methods } = resultHarness();
+  const result = session.waitForResult();
+  methods.handleResult({ ...successResult, result: "Pronto." });
+  await result;
+  assert.equal(session.appendUserMessage("Mais uma coisa"), false);
+});
+
+test("interrupt stops background tasks and ends the execution as interrupted", async () => {
+  const { session, methods } = resultHarness();
+  const stopped: string[] = [];
+  Object.assign(session, { runner: { stopTask: async (id: string) => { stopped.push(id); }, interrupt: async () => {} } });
+  const result = session.waitForResult();
+  methods.handleMessage(runnerState("running"));
+  methods.handleMessage(backgroundTasks("agent"));
+  methods.handleResult({ ...successResult, result: "Aguardando agentes." });
+  await methods.interrupt();
+  assert.deepEqual(stopped, ["agent"]);
+  assert.equal(session.getLastResult(), null);
+  methods.handleMessage(backgroundTasks());
+  assert.equal((await result).isError, true);
+  assert.deepEqual((await result).errorMessages, ["Execução interrompida."]);
 });
 
 test("explicit background cutoff stops the runner and preserves the partial result with an accurate cause", async (t) => {
@@ -171,6 +237,7 @@ test("explicit background cutoff stops the runner and preserves the partial resu
   Object.assign(session, { abortController, queue: { end: () => { queueEnded = true; } } });
   const result = session.waitForResult();
   methods.handleTaskStarted({ task_id: "tests", description: "Django test suite" });
+  methods.handleMessage(backgroundTasks("tests"));
   methods.handleResult({ ...successResult, result: "Alterações aplicadas, testes pendentes." });
   t.mock.timers.tick(10);
   assert.equal((await result).isError, true);
@@ -184,15 +251,15 @@ test("explicit background cutoff stops the runner and preserves the partial resu
 test("runner activity extends an explicitly configured background wait", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { session, methods } = resultHarness();
-  const activity = session as unknown as { handleMessage(message: unknown): void };
   const result = session.waitForResult();
-  methods.handleTaskStarted({ task_id: "tests", description: "Django test suite" });
+  methods.handleMessage(backgroundTasks("tests"));
   methods.handleResult({ ...successResult, result: "Aguardando a suíte." });
   t.mock.timers.tick(8);
-  activity.handleMessage({ type: "tool_progress", tool_use_id: "tool", tool_name: "Bash", elapsed_time_seconds: 20 });
+  methods.handleMessage({ type: "tool_progress", tool_use_id: "tool", tool_name: "Bash", elapsed_time_seconds: 20 });
   t.mock.timers.tick(8);
   assert.equal(session.getLastResult(), null);
-  methods.handleTaskNotification({ task_id: "tests", status: "completed", summary: "OK" });
+  methods.handleMessage(backgroundTasks());
+  methods.handleMessage(runnerState("idle"));
   assert.equal((await result).isError, false);
 });
 
@@ -225,9 +292,12 @@ test("empty parent result waits for subagents and includes their failures", asyn
   const { session, methods } = resultHarness();
   const result = session.waitForResult();
   methods.handleTaskStarted({ task_id: "worker", description: "Review" });
+  methods.handleMessage(backgroundTasks("worker"));
   methods.handleResult(successResult);
   assert.equal(session.getLastResult(), null);
+  methods.handleMessage(backgroundTasks());
   methods.handleTaskNotification({ task_id: "worker", status: "failed", summary: "Worker authentication failed" });
+  methods.handleMessage(runnerState("idle"));
   assert.equal((await result).isError, true);
   assert.deepEqual((await result).errorMessages, ["Worker authentication failed"]);
 });
@@ -236,6 +306,7 @@ test("stream failure while waiting for workers does not turn partial output into
   const { session, methods } = resultHarness();
   const result = session.waitForResult();
   methods.handleTaskStarted({ task_id: "worker", description: "Review" });
+  methods.handleMessage(backgroundTasks("worker"));
   methods.handleResult({ ...successResult, result: "Review in progress" });
   methods.drainPendingResult("SDK connection closed");
   assert.equal((await result).isError, true);
@@ -245,25 +316,36 @@ test("stream failure while waiting for workers does not turn partial output into
 test("a normal Claude answer still completes successfully", async () => {
   const { session, methods } = resultHarness();
   const result = session.waitForResult();
+  methods.handleMessage(runnerState("running"));
   methods.handleResult({ ...successResult, result: "Documentos gerados." });
+  assert.equal(session.getLastResult(), null);
+  methods.handleMessage(runnerState("idle"));
   assert.equal((await result).isError, false);
   assert.equal((await result).output, "Documentos gerados.");
 });
 
 test("a resumed session ignores an empty housekeeping result before the user turn", async () => {
   const { session, methods } = resultHarness();
-  Object.assign(session, { userMessageId: "current-prompt" });
   const result = session.waitForResult();
-  methods.handleResult({ ...successResult, num_turns: 0, duration_ms: 37, queued_turn_count: 1 });
+  methods.handleResult({ ...notificationResult, num_turns: 0, duration_ms: 37, queued_turn_count: 1 });
   assert.equal(session.getLastResult(), null);
-  methods.handleResult({ ...successResult, result: "Revisão concluída", num_turns: 1, user_message_uuid: "current-prompt" });
+  methods.handleResult({ ...successResult, result: "Revisão concluída", num_turns: 1 });
   assert.equal((await result).isError, false);
   assert.equal((await result).output, "Revisão concluída");
 });
 
+test("a background notification turn left over from a previous execution cannot leak into the next one", async () => {
+  const { session, methods } = resultHarness();
+  const result = session.waitForResult();
+  methods.handleResult({ ...notificationResult, result: "Relatório antigo recebido." });
+  assert.equal(session.getLastResult(), null);
+  methods.handleResult({ ...successResult, result: "Resposta atual" });
+  assert.equal((await result).output, "Resposta atual");
+});
+
 test("results for old prompts cannot finish the current execution", async () => {
   const { session, methods } = resultHarness();
-  Object.assign(session, { userMessageId: "current-prompt" });
+  Object.assign(session, { executionMessageIds: new Set(["current-prompt"]) });
   const result = session.waitForResult();
   methods.handleResult({ ...successResult, result: "Resposta anterior", user_message_uuid: "old-prompt" });
   assert.equal(session.getLastResult(), null);
@@ -273,17 +355,15 @@ test("results for old prompts cannot finish the current execution", async () => 
 
 test("an empty result bound to the actual user prompt still reports failure", async () => {
   const { session, methods } = resultHarness();
-  Object.assign(session, { userMessageId: "current-prompt" });
   const result = session.waitForResult();
-  methods.handleResult({ ...successResult, num_turns: 0, user_message_uuid: "current-prompt" });
+  methods.handleResult({ ...successResult, num_turns: 0 });
   assert.equal((await result).isError, true);
 });
 
 test("an unbound API failure is not mistaken for housekeeping", async () => {
   const { session, methods } = resultHarness();
-  Object.assign(session, { userMessageId: "current-prompt" });
   const result = session.waitForResult();
-  methods.handleResult({ ...successResult, num_turns: 0, is_error: true, api_error_status: 429 });
+  methods.handleResult({ ...notificationResult, num_turns: 0, is_error: true, api_error_status: 429 });
   assert.equal((await result).isError, true);
   assert.match((await result).errorMessages[0], /429/);
 });
