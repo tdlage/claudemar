@@ -59,6 +59,7 @@ export interface AgentSessionInit {
   forkSession?: boolean;
   effort?: Effort;
   systemAppend?: string;
+  additionalDirectories?: string[];
   skipIsolationInstruction?: boolean;
   subagents?: Record<string, AgentDefinition>;
   schedulerMode?: boolean;

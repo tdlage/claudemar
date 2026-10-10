@@ -1,10 +1,12 @@
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { rm } from "node:fs/promises";
+import { resolve, dirname, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { query, execute } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 import { listAgents } from "./agents/manager.js";
+import { listProjects } from "./session.js";
 
 export interface SecretEntry {
   id: string;
@@ -28,16 +30,23 @@ export interface SecretFileInfo {
 
 interface SecretRow extends RowDataPacket {
   id: string;
-  agent_name: string;
   name: string;
   value: string;
   description: string;
 }
 
 interface FileDescRow extends RowDataPacket {
-  agent_name: string;
   filename: string;
   description: string;
+}
+
+interface SecretsScope {
+  secretsTable: string;
+  fileDescriptionsTable: string;
+  ownerColumn: string;
+  jsonPath: (owner: string) => string;
+  filesDir: (owner: string) => string;
+  listOwners: () => string[];
 }
 
 function maskValue(value: string): string {
@@ -45,24 +54,27 @@ function maskValue(value: string): string {
   return value.slice(0, 4) + "************" + value.slice(-4);
 }
 
-class SecretsManager {
+export class SecretsManager {
   private cache = new Map<string, SecretEntry[]>();
 
-  private async getSecrets(agentName: string): Promise<SecretEntry[]> {
-    let secrets = this.cache.get(agentName);
+  constructor(private readonly scope: SecretsScope) {}
+
+  private async getSecrets(owner: string): Promise<SecretEntry[]> {
+    let secrets = this.cache.get(owner);
     if (!secrets) {
+      const { secretsTable, ownerColumn } = this.scope;
       const rows = await query<SecretRow[]>(
-        "SELECT id, name, value, description FROM agent_secrets WHERE agent_name = ?",
-        [agentName],
+        `SELECT id, name, value, description FROM ${secretsTable} WHERE ${ownerColumn} = ?`,
+        [owner],
       );
       secrets = rows.map((r) => ({ id: r.id, name: r.name, value: r.value, description: r.description }));
-      this.cache.set(agentName, secrets);
+      this.cache.set(owner, secrets);
     }
     return secrets;
   }
 
-  async getMaskedSecrets(agentName: string): Promise<MaskedSecret[]> {
-    const secrets = await this.getSecrets(agentName);
+  async getMaskedSecrets(owner: string): Promise<MaskedSecret[]> {
+    const secrets = await this.getSecrets(owner);
     return secrets.map((s) => ({
       id: s.id,
       name: s.name,
@@ -71,24 +83,25 @@ class SecretsManager {
     }));
   }
 
-  async getSecret(agentName: string, id: string): Promise<SecretEntry | null> {
-    const secrets = await this.getSecrets(agentName);
+  async getSecret(owner: string, id: string): Promise<SecretEntry | null> {
+    const secrets = await this.getSecrets(owner);
     return secrets.find((s) => s.id === id) ?? null;
   }
 
-  async createSecret(agentName: string, name: string, value: string, description: string): Promise<MaskedSecret> {
+  async createSecret(owner: string, name: string, value: string, description: string): Promise<MaskedSecret> {
     const entry: SecretEntry = { id: randomUUID(), name, value, description };
+    const { secretsTable, ownerColumn } = this.scope;
     await execute(
-      "INSERT INTO agent_secrets (id, agent_name, name, value, description) VALUES (?, ?, ?, ?, ?)",
-      [entry.id, agentName, entry.name, entry.value, entry.description],
+      `INSERT INTO ${secretsTable} (id, ${ownerColumn}, name, value, description) VALUES (?, ?, ?, ?, ?)`,
+      [entry.id, owner, entry.name, entry.value, entry.description],
     );
-    this.cache.delete(agentName);
-    await this.syncToFile(agentName);
+    this.cache.delete(owner);
+    await this.syncToFile(owner);
     return { id: entry.id, name: entry.name, maskedValue: maskValue(entry.value), description: entry.description };
   }
 
-  async updateSecret(agentName: string, id: string, fields: { name?: string; value?: string; description?: string }): Promise<MaskedSecret | null> {
-    const secrets = await this.getSecrets(agentName);
+  async updateSecret(owner: string, id: string, fields: { name?: string; value?: string; description?: string }): Promise<MaskedSecret | null> {
+    const secrets = await this.getSecrets(owner);
     const entry = secrets.find((s) => s.id === id);
     if (!entry) return null;
 
@@ -96,33 +109,32 @@ class SecretsManager {
     if (fields.value !== undefined && fields.value !== "") entry.value = fields.value;
     if (fields.description !== undefined) entry.description = fields.description;
 
+    const { secretsTable, ownerColumn } = this.scope;
     await execute(
-      "UPDATE agent_secrets SET name = ?, value = ?, description = ? WHERE id = ?",
-      [entry.name, entry.value, entry.description, id],
+      `UPDATE ${secretsTable} SET name = ?, value = ?, description = ? WHERE id = ? AND ${ownerColumn} = ?`,
+      [entry.name, entry.value, entry.description, id, owner],
     );
-    this.cache.delete(agentName);
-    await this.syncToFile(agentName);
+    this.cache.delete(owner);
+    await this.syncToFile(owner);
     return { id: entry.id, name: entry.name, maskedValue: maskValue(entry.value), description: entry.description };
   }
 
-  async deleteSecret(agentName: string, id: string): Promise<boolean> {
-    const result = await execute("DELETE FROM agent_secrets WHERE id = ? AND agent_name = ?", [id, agentName]);
+  async deleteSecret(owner: string, id: string): Promise<boolean> {
+    const { secretsTable, ownerColumn } = this.scope;
+    const result = await execute(`DELETE FROM ${secretsTable} WHERE id = ? AND ${ownerColumn} = ?`, [id, owner]);
     if (result.affectedRows > 0) {
-      this.cache.delete(agentName);
-      await this.syncToFile(agentName);
+      this.cache.delete(owner);
+      await this.syncToFile(owner);
       return true;
     }
     return false;
   }
 
-  private filesDir(agentName: string): string {
-    return resolve(config.agentsPath, agentName, "secrets", "files");
-  }
-
-  private async loadFileDescriptions(agentName: string): Promise<Record<string, string>> {
+  private async loadFileDescriptions(owner: string): Promise<Record<string, string>> {
+    const { fileDescriptionsTable, ownerColumn } = this.scope;
     const rows = await query<FileDescRow[]>(
-      "SELECT filename, description FROM agent_secret_file_descriptions WHERE agent_name = ?",
-      [agentName],
+      `SELECT filename, description FROM ${fileDescriptionsTable} WHERE ${ownerColumn} = ?`,
+      [owner],
     );
     const result: Record<string, string> = {};
     for (const r of rows) {
@@ -131,10 +143,10 @@ class SecretsManager {
     return result;
   }
 
-  async getSecretFiles(agentName: string): Promise<SecretFileInfo[]> {
-    const dir = this.filesDir(agentName);
+  async getSecretFiles(owner: string): Promise<SecretFileInfo[]> {
+    const dir = this.scope.filesDir(owner);
     if (!existsSync(dir)) return [];
-    const descriptions = await this.loadFileDescriptions(agentName);
+    const descriptions = await this.loadFileDescriptions(owner);
     return readdirSync(dir)
       .filter((f) => !f.startsWith("."))
       .map((f) => {
@@ -143,43 +155,45 @@ class SecretsManager {
       });
   }
 
-  async saveSecretFile(agentName: string, filename: string, data: Buffer): Promise<SecretFileInfo> {
-    const dir = this.filesDir(agentName);
+  async saveSecretFile(owner: string, filename: string, data: Buffer): Promise<SecretFileInfo> {
+    const dir = this.scope.filesDir(owner);
     mkdirSync(dir, { recursive: true });
     const filePath = resolve(dir, filename);
     writeFileSync(filePath, data);
     const stat = statSync(filePath);
-    const descriptions = await this.loadFileDescriptions(agentName);
-    await this.syncToFile(agentName);
+    const descriptions = await this.loadFileDescriptions(owner);
+    await this.syncToFile(owner);
     return { name: filename, size: stat.size, description: descriptions[filename] ?? "" };
   }
 
-  async deleteSecretFile(agentName: string, filename: string): Promise<boolean> {
-    const filePath = resolve(this.filesDir(agentName), filename);
+  async deleteSecretFile(owner: string, filename: string): Promise<boolean> {
+    const filePath = resolve(this.scope.filesDir(owner), filename);
     if (!existsSync(filePath)) return false;
     unlinkSync(filePath);
+    const { fileDescriptionsTable, ownerColumn } = this.scope;
     await execute(
-      "DELETE FROM agent_secret_file_descriptions WHERE agent_name = ? AND filename = ?",
-      [agentName, filename],
+      `DELETE FROM ${fileDescriptionsTable} WHERE ${ownerColumn} = ? AND filename = ?`,
+      [owner, filename],
     );
-    await this.syncToFile(agentName);
+    await this.syncToFile(owner);
     return true;
   }
 
-  async updateSecretFileDescription(agentName: string, filename: string, description: string): Promise<boolean> {
-    const filePath = resolve(this.filesDir(agentName), filename);
+  async updateSecretFileDescription(owner: string, filename: string, description: string): Promise<boolean> {
+    const filePath = resolve(this.scope.filesDir(owner), filename);
     if (!existsSync(filePath)) return false;
+    const { fileDescriptionsTable, ownerColumn } = this.scope;
     await execute(
-      `INSERT INTO agent_secret_file_descriptions (agent_name, filename, description)
+      `INSERT INTO ${fileDescriptionsTable} (${ownerColumn}, filename, description)
        VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE description = VALUES(description)`,
-      [agentName, filename, description],
+      [owner, filename, description],
     );
     return true;
   }
 
-  getSecretFilePaths(agentName: string): Record<string, string> {
-    const dir = this.filesDir(agentName);
+  getSecretFilePaths(owner: string): Record<string, string> {
+    const dir = this.scope.filesDir(owner);
     if (!existsSync(dir)) return {};
     const result: Record<string, string> = {};
     for (const f of readdirSync(dir).filter((f) => !f.startsWith("."))) {
@@ -188,10 +202,14 @@ class SecretsManager {
     return result;
   }
 
-  async syncToFile(agentName: string): Promise<void> {
-    const secrets = await this.getSecrets(agentName);
-    const filePaths = this.getSecretFilePaths(agentName);
-    const jsonPath = resolve(config.agentsPath, agentName, "secrets.json");
+  secretsJsonPath(owner: string): string {
+    return this.scope.jsonPath(owner);
+  }
+
+  async syncToFile(owner: string): Promise<void> {
+    const secrets = await this.getSecrets(owner);
+    const filePaths = this.getSecretFilePaths(owner);
+    const jsonPath = this.scope.jsonPath(owner);
 
     if (secrets.length === 0 && Object.keys(filePaths).length === 0) {
       if (existsSync(jsonPath)) unlinkSync(jsonPath);
@@ -204,15 +222,50 @@ class SecretsManager {
     };
 
     mkdirSync(dirname(jsonPath), { recursive: true });
-    writeFileSync(jsonPath, JSON.stringify(data, null, 2), "utf-8");
+    writeFileSync(jsonPath, JSON.stringify(data, null, 2), { encoding: "utf-8", mode: 0o600 });
   }
 
   async syncAllToFiles(): Promise<void> {
-    const agents = listAgents();
-    for (const name of agents) {
-      await this.syncToFile(name);
+    for (const owner of this.scope.listOwners()) {
+      await this.syncToFile(owner);
     }
+  }
+
+  async purge(owner: string): Promise<void> {
+    const { secretsTable, fileDescriptionsTable, ownerColumn } = this.scope;
+    await execute(`DELETE FROM ${secretsTable} WHERE ${ownerColumn} = ?`, [owner]);
+    await execute(`DELETE FROM ${fileDescriptionsTable} WHERE ${ownerColumn} = ?`, [owner]);
+    this.cache.delete(owner);
   }
 }
 
-export const secretsManager = new SecretsManager();
+export const PROJECT_SECRETS_ROOT = resolve(config.dataPath, "project-secrets");
+
+export function projectSecretsDir(projectName: string): string {
+  const dir = resolve(PROJECT_SECRETS_ROOT, projectName);
+  if (!dir.startsWith(PROJECT_SECRETS_ROOT + sep)) throw new Error(`Invalid project name: ${projectName}`);
+  return dir;
+}
+
+export const agentSecretsManager = new SecretsManager({
+  secretsTable: "agent_secrets",
+  fileDescriptionsTable: "agent_secret_file_descriptions",
+  ownerColumn: "agent_name",
+  jsonPath: (agent) => resolve(config.agentsPath, agent, "secrets.json"),
+  filesDir: (agent) => resolve(config.agentsPath, agent, "secrets", "files"),
+  listOwners: listAgents,
+});
+
+export const projectSecretsManager = new SecretsManager({
+  secretsTable: "project_secrets",
+  fileDescriptionsTable: "project_secret_file_descriptions",
+  ownerColumn: "project_name",
+  jsonPath: (project) => resolve(projectSecretsDir(project), "secrets.json"),
+  filesDir: (project) => resolve(projectSecretsDir(project), "files"),
+  listOwners: listProjects,
+});
+
+export async function purgeProjectSecrets(projectName: string): Promise<void> {
+  await projectSecretsManager.purge(projectName);
+  await rm(projectSecretsDir(projectName), { recursive: true, force: true });
+}

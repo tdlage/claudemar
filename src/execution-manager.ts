@@ -12,7 +12,8 @@ import { resolveBypass, resolveStartPermissionMode } from "./claude/permission.j
 import { compactOutput, formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
-import { buildEmailHint, buildSecretsHint } from "./agents/agent-context.js";
+import { buildEmailHint, buildProjectSecretsHint, buildSecretsHint } from "./agents/agent-context.js";
+import { projectSecretsDir } from "./secrets-manager.js";
 import { config } from "./config.js";
 import { safeProjectPath } from "./session.js";
 import { inferRuntimeFromModel, DEFAULT_PROJECT_MODEL } from "./models-discovery.js";
@@ -242,6 +243,7 @@ export class ExecutionManager extends EventEmitter {
     if (opts.targetType === "project") {
       const projectPath = safeProjectPath(opts.targetName);
       if (projectPath) {
+        suffix += buildProjectSecretsHint(opts.targetName);
         const projectInputDir = resolve(projectPath, ".input");
         if (existsSync(projectInputDir)) {
           try {
@@ -263,6 +265,12 @@ export class ExecutionManager extends EventEmitter {
       suffix += `\n[SYSTEM: MODO AGENDAMENTO ATIVO. Quando o usuário pedir uma tarefa recorrente ou para rodar em determinado horário, NÃO edite crontab nem arquivos manualmente: use a tool mcp__scheduler__schedule_task (passe a expressão cron, uma descrição legível do horário, o que a tarefa faz e o prompt completo a ser executado). Use mcp__scheduler__list_schedules e mcp__scheduler__remove_schedule para consultar/remover. Sempre confirme ao usuário o que foi agendado.]`;
     }
     return suffix;
+  }
+
+  private buildAdditionalDirectories(opts: StartExecutionOpts): string[] | undefined {
+    if (opts.targetType !== "project" || !safeProjectPath(opts.targetName)) return undefined;
+    const secretsDir = projectSecretsDir(opts.targetName);
+    return existsSync(secretsDir) ? [secretsDir] : undefined;
   }
 
   // Só o orquestrador (runtime claude) delega a subagentes; agentes executam isolados.
@@ -306,6 +314,7 @@ export class ExecutionManager extends EventEmitter {
       resumeSessionId: resumeId ?? null,
       effort: opts.effort,
       systemAppend: this.buildSystemSuffix(opts, profile),
+      additionalDirectories: this.buildAdditionalDirectories(opts),
       skipIsolationInstruction,
       subagents: this.buildSubagents(opts, profile),
       extraMcpServers: opts.extraMcpServers,

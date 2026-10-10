@@ -74,7 +74,7 @@ export interface AgentInfo {
   lastExecution: string | null;
 }
 
-export interface AgentSecret {
+export interface MaskedSecret {
   id: string;
   name: string;
   maskedValue: string;
@@ -93,7 +93,7 @@ export interface AgentDetail extends AgentInfo {
   inputFiles: { name: string; size: number; mtime: string }[];
   contextFiles: string[];
   schedules: ScheduleEntry[];
-  secrets: AgentSecret[];
+  secrets: MaskedSecret[];
   secretFiles: SecretFile[];
 }
 
@@ -238,7 +238,7 @@ export interface SearchResponse {
   count: number;
 }
 
-export const PROJECT_TAB_KEYS = ["terminal", "input", "output", "repositories", "files", "ci", "pipeline"] as const;
+export const PROJECT_TAB_KEYS = ["terminal", "input", "output", "repositories", "files", "ci", "pipeline", "secrets"] as const;
 export type ProjectTabKey = (typeof PROJECT_TAB_KEYS)[number];
 export const DEFAULT_PROJECT_TABS: ProjectTabKey[] = ["terminal", "input", "output"];
 

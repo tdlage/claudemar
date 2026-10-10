@@ -46,6 +46,9 @@ import { COMMIT_PUSH_MODEL } from "../../providers/llm.js";
 import { purgeProjectData } from "../../target-cleanup.js";
 import { resolveTargetModel, targetModelSettings } from "../../target-model-settings.js";
 import { refreshProviderCatalog } from "../../provider-catalog.js";
+import { projectSecretsManager } from "../../secrets-manager.js";
+import { hasProjectTab } from "../middleware.js";
+import { registerSecretsRoutes } from "./secrets.js";
 
 export const projectsRouter = Router();
 
@@ -691,6 +694,19 @@ projectsRouter.delete("/:name/input/:file", (req, res) => {
   unlinkSync(filePath);
   res.json({ deleted: true });
 });
+
+function resolveSecretsProject(req: Request, res: Response): string | null {
+  const projectPath = resolveProject(req, res);
+  if (!projectPath) return null;
+  const projectName = String(req.params.name);
+  if (req.ctx?.role === "user" && !hasProjectTab(req.ctx, projectName, "secrets")) {
+    res.status(403).json({ error: "Forbidden" });
+    return null;
+  }
+  return projectName;
+}
+
+registerSecretsRoutes(projectsRouter, { manager: projectSecretsManager, ownerLabel: "projeto", resolveOwner: resolveSecretsProject });
 
 function extractSkillDescription(content: string): string {
   const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);

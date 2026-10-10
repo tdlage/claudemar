@@ -18,7 +18,7 @@ import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
 import { AgentConfig } from "../components/agent/AgentConfig";
 import { AgentSchedules } from "../components/agent/AgentSchedules";
 import { AgentContextFiles } from "../components/agent/AgentContextFiles";
-import { AgentSecrets } from "../components/agent/AgentSecrets";
+import { SecretsPanel } from "../components/shared/SecretsPanel";
 import { FilesBrowser } from "../components/project/FilesBrowser";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
@@ -357,8 +357,9 @@ export function AgentDetailPage() {
       )}
 
       {tab === "secrets" && (
-        <AgentSecrets
-          agentName={agent.name}
+        <SecretsPanel
+          apiBasePath={`/agents/${agent.name}`}
+          ownerLabel="agent"
           secrets={agent.secrets}
           secretFiles={agent.secretFiles}
           onRefresh={loadAgent}

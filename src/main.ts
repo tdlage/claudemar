@@ -17,7 +17,7 @@ import { ensureAllAgentGitRepos, cleanupLegacyMailboxes } from "./agents/manager
 import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
-import { secretsManager } from "./secrets-manager.js";
+import { agentSecretsManager, projectSecretsManager } from "./secrets-manager.js";
 import { runPipelineMigrations } from "./pipeline-migration.js";
 import { runDataMigrations } from "./data-migration.js";
 import { initPipelineRunner } from "./pipeline-runner.js";
@@ -68,7 +68,8 @@ initClaudeAuthWatch();
 await initPipelineRunner().catch((err) => {
   console.error("[pipeline] Runner init failed:", err instanceof Error ? err.message : String(err));
 });
-await secretsManager.syncAllToFiles();
+await agentSecretsManager.syncAllToFiles();
+await projectSecretsManager.syncAllToFiles();
 await ensureMemoryReady().catch((err) => {
   console.error("[memory] Initialization failed:", err instanceof Error ? err.message : String(err));
 });

@@ -3,20 +3,20 @@ import { Check, Copy, Eye, EyeOff, Fingerprint, KeyRound, ShieldCheck } from "lu
 import { api } from "../../lib/api";
 import { isAdmin } from "../../hooks/useAuth";
 import { getPasskeyStatus, isPasskeySupported, passkeyAssertion } from "../../lib/passkey";
-import { Modal } from "../shared/Modal";
-import { Button } from "../shared/Button";
+import { Modal } from "./Modal";
+import { Button } from "./Button";
 import { Field, Input } from "../../vendor/dantui";
-import type { AgentSecret } from "../../lib/types";
+import type { MaskedSecret } from "../../lib/types";
 
 interface RevealSecretModalProps {
-  agentName: string;
-  secret: AgentSecret | null;
+  apiBasePath: string;
+  secret: MaskedSecret | null;
   onClose: () => void;
 }
 
 const FAILURE_MESSAGE = "Não foi possível confirmar sua identidade. Confira o token e tente novamente.";
 
-export function RevealSecretModal({ agentName, secret, onClose }: RevealSecretModalProps) {
+export function RevealSecretModal({ apiBasePath, secret, onClose }: RevealSecretModalProps) {
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
   const [error, setError] = useState("");
@@ -51,7 +51,7 @@ export function RevealSecretModal({ agentName, secret, onClose }: RevealSecretMo
     setLoading(method);
     try {
       const body = method === "token" ? { method, token: token.trim() } : { method, ...(await passkeyAssertion()) };
-      const result = await api.post<{ value: string }>(`/agents/${encodeURIComponent(agentName)}/secrets/${encodeURIComponent(secret.id)}/reveal`, body);
+      const result = await api.post<{ value: string }>(`${apiBasePath}/secrets/${encodeURIComponent(secret.id)}/reveal`, body);
       setToken("");
       setValue(result.value);
     } catch (err) {

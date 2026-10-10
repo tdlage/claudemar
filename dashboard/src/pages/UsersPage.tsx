@@ -12,6 +12,7 @@ const TAB_LABEL: Record<ProjectTabKey, string> = {
   files: "Code",
   ci: "CI",
   pipeline: "Pipeline",
+  secrets: "Secrets",
 };
 
 interface User {

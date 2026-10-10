@@ -1,16 +1,17 @@
 import { useState, useRef } from "react";
 import { Plus, Trash2, Pencil, Eye, EyeOff, KeyRound, Upload, FileKey, Loader2, Download } from "lucide-react";
 import { api } from "../../lib/api";
-import { Card } from "../shared/Card";
-import { Button } from "../shared/Button";
-import { Modal } from "../shared/Modal";
-import { useToast } from "../shared/Toast";
-import type { AgentSecret, SecretFile } from "../../lib/types";
+import { Card } from "./Card";
+import { Button } from "./Button";
+import { Modal } from "./Modal";
+import { useToast } from "./Toast";
+import type { MaskedSecret, SecretFile } from "../../lib/types";
 import { RevealSecretModal } from "./RevealSecretModal";
 
-interface AgentSecretsProps {
-  agentName: string;
-  secrets: AgentSecret[];
+interface SecretsPanelProps {
+  apiBasePath: string;
+  ownerLabel: string;
+  secrets: MaskedSecret[];
   secretFiles: SecretFile[];
   onRefresh: () => void;
 }
@@ -32,11 +33,11 @@ function toBase64(buffer: ArrayBuffer): string {
 
 const SAFE_FILENAME_RE = /^[a-zA-Z0-9._-]+$/;
 
-export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: AgentSecretsProps) {
+export function SecretsPanel({ apiBasePath, ownerLabel, secrets, secretFiles, onRefresh }: SecretsPanelProps) {
   const { addToast } = useToast();
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<AgentSecret | null>(null);
-  const [revealing, setRevealing] = useState<AgentSecret | null>(null);
+  const [editing, setEditing] = useState<MaskedSecret | null>(null);
+  const [revealing, setRevealing] = useState<MaskedSecret | null>(null);
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [description, setDescription] = useState("");
@@ -61,7 +62,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
     setFormOpen(true);
   };
 
-  const openEdit = (secret: AgentSecret) => {
+  const openEdit = (secret: MaskedSecret) => {
     setEditing(secret);
     setName(secret.name);
     setValue("");
@@ -75,7 +76,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
     setSaving(true);
     try {
       if (editing) {
-        await api.put(`/agents/${agentName}/secrets/${editing.id}`, {
+        await api.put(`${apiBasePath}/secrets/${editing.id}`, {
           name: name.trim(),
           value: value || undefined,
           description,
@@ -87,7 +88,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
           setSaving(false);
           return;
         }
-        await api.post(`/agents/${agentName}/secrets`, {
+        await api.post(`${apiBasePath}/secrets`, {
           name: name.trim(),
           value,
           description,
@@ -106,7 +107,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this secret?")) return;
     try {
-      await api.delete(`/agents/${agentName}/secrets/${id}`);
+      await api.delete(`${apiBasePath}/secrets/${id}`);
       addToast("success", "Secret deleted");
       onRefresh();
     } catch {
@@ -141,7 +142,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
     try {
       const buffer = await uploadFile.arrayBuffer();
       const content = toBase64(buffer);
-      await api.post(`/agents/${agentName}/secrets/files`, {
+      await api.post(`${apiBasePath}/secrets/files`, {
         filename: uploadFilename.trim(),
         content,
         description: uploadDescription.trim() || undefined,
@@ -160,7 +161,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
   const handleDownloadFile = async (filename: string) => {
     try {
       const token = localStorage.getItem("dashboard_token") || "";
-      const res = await fetch(`/api/agents/${agentName}/secrets/files/${encodeURIComponent(filename)}/download`, {
+      const res = await fetch(`/api${apiBasePath}/secrets/files/${encodeURIComponent(filename)}/download`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error();
@@ -179,7 +180,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
   const handleDeleteFile = async (filename: string) => {
     if (!confirm(`Delete file "${filename}"?`)) return;
     try {
-      await api.delete(`/agents/${agentName}/secrets/files/${filename}`);
+      await api.delete(`${apiBasePath}/secrets/files/${filename}`);
       addToast("success", "File deleted");
       onRefresh();
     } catch {
@@ -189,7 +190,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
 
   const handleSaveFileDesc = async (filename: string) => {
     try {
-      await api.put(`/agents/${agentName}/secrets/files/${filename}/description`, {
+      await api.put(`${apiBasePath}/secrets/files/${filename}/description`, {
         description: fileDesc,
       });
       addToast("success", "Description updated");
@@ -212,7 +213,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
           </Button>
         </div>
         <p className="text-xs text-text-muted mb-3">
-          Available to the agent via secrets.json during execution.
+          Available to the {ownerLabel} via secrets.json during execution.
         </p>
 
         {secrets.length === 0 ? (
@@ -273,7 +274,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
           />
         </div>
         <p className="text-xs text-text-muted mb-3">
-          Files available to the agent via absolute path (certificates, auth keys, configs).
+          Files available to the {ownerLabel} via absolute path (certificates, auth keys, configs).
         </p>
 
         {secretFiles.length === 0 ? (
@@ -436,7 +437,7 @@ export function AgentSecrets({ agentName, secrets, secretFiles, onRefresh }: Age
           </div>
         </div>
       </Modal>
-      <RevealSecretModal agentName={agentName} secret={revealing} onClose={() => setRevealing(null)} />
+      <RevealSecretModal apiBasePath={apiBasePath} secret={revealing} onClose={() => setRevealing(null)} />
     </div>
   );
 }

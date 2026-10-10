@@ -59,6 +59,10 @@ export function buildOptions(params: BuildOptionsParams): Options {
     stderr: params.stderr,
   };
 
+  if (params.additionalDirectories && params.additionalDirectories.length > 0) {
+    options.additionalDirectories = params.additionalDirectories;
+  }
+
   if (permissionMode === "bypassPermissions") {
     options.allowDangerouslySkipPermissions = true;
   }

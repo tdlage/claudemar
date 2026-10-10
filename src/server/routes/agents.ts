@@ -16,9 +16,9 @@ import { listSchedulesByAgent, removeSchedule, removeSchedulesByAgent } from "..
 import { deleteAppearance, getAppearance, setAppearance } from "../../agents/appearance.js";
 import { requireAdmin } from "../middleware.js";
 import { purgeAgentData } from "../../target-cleanup.js";
-import { secretsManager } from "../../secrets-manager.js";
+import { agentSecretsManager } from "../../secrets-manager.js";
 import { safeFilename, listFiles, listDirEntries, inputUploadParser } from "../route-utils.js";
-import { reauthLimiter, verifyReauthentication } from "../reauth.js";
+import { registerSecretsRoutes } from "./secrets.js";
 
 export const agentsRouter = Router();
 
@@ -126,8 +126,8 @@ agentsRouter.get("/:name", async (req, res) => {
   try { contextFiles = readdirSync(paths.context).filter((f) => !f.startsWith(".")).sort(); } catch { }
 
   const schedules = await listSchedulesByAgent(name);
-  const secrets = await secretsManager.getMaskedSecrets(name);
-  const secretFiles = await secretsManager.getSecretFiles(name);
+  const secrets = await agentSecretsManager.getMaskedSecrets(name);
+  const secretFiles = await agentSecretsManager.getSecretFiles(name);
 
   res.json({
     ...info,
@@ -510,203 +510,18 @@ agentsRouter.put("/:name/context/:file", (req, res) => {
   res.json({ updated: true });
 });
 
-agentsRouter.get("/:name/secrets", async (req, res) => {
+function resolveAgentOwner(req: Request, res: Response): string | null {
   const { name } = req.params;
-  if (!isValidAgentName(name)) {
+  if (typeof name !== "string" || !isValidAgentName(name)) {
     res.status(400).json({ error: "Invalid agent name" });
-    return;
+    return null;
   }
   const paths = getAgentPaths(name);
   if (!paths || !existsSync(paths.root)) {
     res.status(404).json({ error: "Agent not found" });
-    return;
+    return null;
   }
-  res.json(await secretsManager.getMaskedSecrets(name));
-});
+  return name;
+}
 
-agentsRouter.post("/:name/secrets", async (req, res) => {
-  const { name } = req.params;
-  const { name: secretName, value, description } = req.body;
-
-  if (!isValidAgentName(name)) {
-    res.status(400).json({ error: "Invalid agent name" });
-    return;
-  }
-  const paths = getAgentPaths(name);
-  if (!paths || !existsSync(paths.root)) {
-    res.status(404).json({ error: "Agent not found" });
-    return;
-  }
-  if (!secretName || typeof secretName !== "string") {
-    res.status(400).json({ error: "name (string) required" });
-    return;
-  }
-  if (!value || typeof value !== "string") {
-    res.status(400).json({ error: "value (string) required" });
-    return;
-  }
-
-  const created = await secretsManager.createSecret(name, secretName, value, description || "");
-  res.status(201).json(created);
-});
-
-agentsRouter.post("/:name/secrets/:id/reveal", reauthLimiter, async (req: Request<{ name: string; id: string }>, res: Response) => {
-  const { name, id } = req.params;
-  if (!isValidAgentName(name)) {
-    res.status(400).json({ error: "Invalid agent name" });
-    return;
-  }
-  if (!(await verifyReauthentication(req))) {
-    res.status(403).json({ error: "Não foi possível confirmar sua identidade." });
-    return;
-  }
-  const secret = await secretsManager.getSecret(name, id);
-  if (!secret) {
-    res.status(404).json({ error: "Secret not found" });
-    return;
-  }
-  const who = req.ctx?.role === "user" ? `user ${req.ctx.name}` : "admin";
-  console.log(`[secrets] ${who} revelou o valor de ${name}/${secret.name}`);
-  res.set("Cache-Control", "no-store");
-  res.json({ value: secret.value });
-});
-
-agentsRouter.put("/:name/secrets/:id", async (req, res) => {
-  const { name, id } = req.params;
-  if (!isValidAgentName(name)) {
-    res.status(400).json({ error: "Invalid agent name" });
-    return;
-  }
-
-  const { name: secretName, value, description } = req.body;
-  const updated = await secretsManager.updateSecret(name, id, { name: secretName, value, description });
-  if (!updated) {
-    res.status(404).json({ error: "Secret not found" });
-    return;
-  }
-  res.json(updated);
-});
-
-agentsRouter.delete("/:name/secrets/:id", async (req, res) => {
-  const { name, id } = req.params;
-  if (!isValidAgentName(name)) {
-    res.status(400).json({ error: "Invalid agent name" });
-    return;
-  }
-
-  const deleted = await secretsManager.deleteSecret(name, id);
-  if (!deleted) {
-    res.status(404).json({ error: "Secret not found" });
-    return;
-  }
-  res.json({ deleted: true });
-});
-
-agentsRouter.get("/:name/secrets/files", async (req, res) => {
-  const { name } = req.params;
-  if (!isValidAgentName(name)) {
-    res.status(400).json({ error: "Invalid agent name" });
-    return;
-  }
-  const paths = getAgentPaths(name);
-  if (!paths || !existsSync(paths.root)) {
-    res.status(404).json({ error: "Agent not found" });
-    return;
-  }
-  res.json(await secretsManager.getSecretFiles(name));
-});
-
-agentsRouter.get("/:name/secrets/files/:file/download", (req, res) => {
-  const { name, file } = req.params;
-  if (!isValidAgentName(name) || !safeFilename(file)) {
-    res.status(400).json({ error: "Invalid name or filename" });
-    return;
-  }
-  const paths = secretsManager.getSecretFilePaths(name);
-  const filePath = paths[file];
-  if (!filePath || !existsSync(filePath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
-  const stat = statSync(filePath);
-  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file)}"`);
-  res.setHeader("Content-Length", stat.size);
-  res.setHeader("Content-Type", "application/octet-stream");
-  createReadStream(filePath).pipe(res);
-});
-
-agentsRouter.post("/:name/secrets/files", async (req, res) => {
-  const { name } = req.params;
-  if (!isValidAgentName(name)) {
-    res.status(400).json({ error: "Invalid agent name" });
-    return;
-  }
-  const paths = getAgentPaths(name);
-  if (!paths || !existsSync(paths.root)) {
-    res.status(404).json({ error: "Agent not found" });
-    return;
-  }
-
-  const { filename, content, description } = req.body;
-  if (!filename || typeof filename !== "string" || !safeFilename(filename)) {
-    res.status(400).json({ error: "Invalid or missing filename" });
-    return;
-  }
-  if (!content || typeof content !== "string") {
-    res.status(400).json({ error: "Missing file content (base64)" });
-    return;
-  }
-
-  const data = Buffer.from(content, "base64");
-  if (data.length === 0) {
-    res.status(400).json({ error: "Empty file" });
-    return;
-  }
-  if (data.length > 10 * 1024 * 1024) {
-    res.status(413).json({ error: "File too large (max 10MB)" });
-    return;
-  }
-
-  const info = await secretsManager.saveSecretFile(name, filename, data);
-  if (description && typeof description === "string") {
-    await secretsManager.updateSecretFileDescription(name, filename, description);
-    info.description = description;
-  }
-  res.status(201).json(info);
-});
-
-agentsRouter.put("/:name/secrets/files/:file/description", async (req, res) => {
-  const { name, file } = req.params;
-  if (!isValidAgentName(name) || !safeFilename(file)) {
-    res.status(400).json({ error: "Invalid name or filename" });
-    return;
-  }
-
-  const { description } = req.body;
-  if (typeof description !== "string") {
-    res.status(400).json({ error: "description string required" });
-    return;
-  }
-
-  const updated = await secretsManager.updateSecretFileDescription(name, file, description);
-  if (!updated) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
-  res.json({ updated: true });
-});
-
-agentsRouter.delete("/:name/secrets/files/:file", async (req, res) => {
-  const { name, file } = req.params;
-  if (!isValidAgentName(name) || !safeFilename(file)) {
-    res.status(400).json({ error: "Invalid name or filename" });
-    return;
-  }
-
-  const deleted = await secretsManager.deleteSecretFile(name, file);
-  if (!deleted) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
-  res.json({ deleted: true });
-});
+registerSecretsRoutes(agentsRouter, { manager: agentSecretsManager, ownerLabel: "agente", resolveOwner: resolveAgentOwner });

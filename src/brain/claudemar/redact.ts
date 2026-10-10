@@ -94,14 +94,16 @@ function platformTokens(): string[] {
   return [...tokenManager.getActiveTokens(), ...usersManager.getAll().map((u) => u.token)];
 }
 
-async function agentSecretValues(): Promise<string[]> {
-  const rows = await query<(RowDataPacket & { value: string })[]>("SELECT value FROM agent_secrets");
+async function storedSecretValues(): Promise<string[]> {
+  const rows = await query<(RowDataPacket & { value: string })[]>(
+    "SELECT value FROM agent_secrets UNION ALL SELECT value FROM project_secrets",
+  );
   return rows.map((row) => row.value);
 }
 
 /** Valores exatos dos segredos vigentes, lidos a cada uso para não perder um segredo recém-criado ou rotacionado. */
 export async function knownSecretValues(): Promise<string[]> {
-  const values = [...envSecretValues(), ...platformTokens(), ...(await agentSecretValues())];
+  const values = [...envSecretValues(), ...platformTokens(), ...(await storedSecretValues())];
   return [...new Set(values.filter((v) => typeof v === "string" && v.length >= MIN_SECRET_LENGTH))].sort(
     (a, b) => b.length - a.length,
   );

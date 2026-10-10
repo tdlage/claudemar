@@ -14,6 +14,7 @@ import { projectSettingsManager } from "./project-settings.js";
 import { usersManager } from "./users-manager.js";
 import { REPO_WORKTREES_ROOT, hiddenReposPath } from "./repositories.js";
 import { purgeTarget } from "./brain/claudemar/purge.js";
+import { agentSecretsManager, purgeProjectSecrets } from "./secrets-manager.js";
 
 async function purgeBrainTarget(target: { kind: "project" | "agent"; name: string }): Promise<void> {
   await purgeTarget(target).catch((err) => {
@@ -62,6 +63,7 @@ export async function purgeProjectData(projectName: string): Promise<void> {
   await execute("DELETE FROM user_projects WHERE project_name = ?", [projectName]);
   await execute("DELETE FROM user_project_tabs WHERE project_name = ?", [projectName]);
   await usersManager.reload();
+  await purgeProjectSecrets(projectName);
 
   await rm(hiddenReposPath(resolve(config.projectsPath, projectName)), { recursive: true, force: true });
   targetModelSettings.set("project", projectName);
@@ -76,8 +78,7 @@ export async function purgeAgentData(agentName: string): Promise<void> {
   cancelActiveExecutions("agent", agentName);
   await commandQueue.removeByTarget("agent", agentName);
 
-  await execute("DELETE FROM agent_secrets WHERE agent_name = ?", [agentName]);
-  await execute("DELETE FROM agent_secret_file_descriptions WHERE agent_name = ?", [agentName]);
+  await agentSecretsManager.purge(agentName);
   await execute(
     "DELETE FROM execution_history WHERE (target_type = 'agent' AND target_name = ?) OR agent_name = ?",
     [agentName, agentName],

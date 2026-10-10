@@ -19,13 +19,14 @@ import { FilesBrowser } from "../components/project/FilesBrowser";
 import { RepositoriesTab } from "../components/project/RepositoriesTab";
 import { CITab } from "../components/project/CITab";
 import { PipelineBoard } from "../components/pipeline/PipelineBoard";
+import { SecretsPanel } from "../components/shared/SecretsPanel";
 import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
 import { OutputBrowser, type OutputFile } from "../components/agent/OutputBrowser";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
 import { SessionSelector } from "../components/shared/SessionSelector";
 import { isAdmin, projectTabsFor, refreshMe } from "../hooks/useAuth";
-import { type ProjectDetail, type ProjectTabKey } from "../lib/types";
+import { type MaskedSecret, type ProjectDetail, type ProjectTabKey, type SecretFile } from "../lib/types";
 
 type TabKey = ProjectTabKey;
 
@@ -46,11 +47,14 @@ export function ProjectDetailPage() {
   const [selectedSkill, setSelectedSkill] = useCachedState(`project:${name}:skill`, "");
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
   const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
+  const [secrets, setSecrets] = useState<MaskedSecret[]>([]);
+  const [secretFiles, setSecretFiles] = useState<SecretFile[]>([]);
   const [ciInitialRepo, setCiInitialRepo] = useState<string | undefined>();
   const [, setMeVersion] = useState(0);
   const admin = isAdmin();
   const enabledTabs = name ? projectTabsFor(name) : "all";
   const tabEnabled = (key: TabKey) => enabledTabs === "all" || enabledTabs.includes(key);
+  const secretsEnabled = tabEnabled("secrets");
 
   useEffect(() => {
     if (admin) return;
@@ -74,6 +78,12 @@ export function ProjectDetailPage() {
   const loadOutputs = useCallback(() => {
     if (!name) return;
     api.get<OutputFile[]>(`/projects/${name}/output`).then(setOutputFiles).catch(() => {});
+  }, [name]);
+
+  const loadSecrets = useCallback(() => {
+    if (!name) return;
+    api.get<MaskedSecret[]>(`/projects/${name}/secrets`).then(setSecrets).catch(() => {});
+    api.get<SecretFile[]>(`/projects/${name}/secrets/files`).then(setSecretFiles).catch(() => {});
   }, [name]);
 
   const {
@@ -100,6 +110,10 @@ export function ProjectDetailPage() {
   useEffect(() => {
     loadSession();
   }, [loadSession]);
+
+  useEffect(() => {
+    if (secretsEnabled) loadSecrets();
+  }, [loadSecrets, secretsEnabled]);
 
   const handleStart = async (text: string, images: ImageBlock[], opts: StartOpts) => {
     if ((!text.trim() && images.length === 0) || !name) return;
@@ -148,6 +162,7 @@ export function ProjectDetailPage() {
     ...(tabEnabled("files") ? [{ key: "files" as const, label: "Código" }] : []),
     ...(tabEnabled("ci") && hasGithubRepos ? [{ key: "ci" as const, label: "CI" }] : []),
     ...(tabEnabled("pipeline") && project.repos.length > 0 ? [{ key: "pipeline" as const, label: "Pipeline" }] : []),
+    ...(secretsEnabled ? [{ key: "secrets" as const, label: `Credenciais (${secrets.length})` }] : []),
   ];
   const activeTab = tabs.some((t) => t.key === tab) ? tab : (tabs[0]?.key ?? "terminal");
 
@@ -348,6 +363,16 @@ export function ProjectDetailPage() {
 
       {activeTab === "pipeline" && (
         <PipelineBoard projectName={project.name} />
+      )}
+
+      {activeTab === "secrets" && (
+        <SecretsPanel
+          apiBasePath={`/projects/${project.name}`}
+          ownerLabel="project"
+          secrets={secrets}
+          secretFiles={secretFiles}
+          onRefresh={loadSecrets}
+        />
       )}
     </div>
   );

@@ -137,6 +137,22 @@ const TABLE_DEFINITIONS: string[] = [
     PRIMARY KEY (agent_name, filename)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
+  `CREATE TABLE IF NOT EXISTS project_secrets (
+    id CHAR(36) PRIMARY KEY,
+    project_name VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    value TEXT NOT NULL,
+    description TEXT NOT NULL,
+    INDEX idx_project (project_name)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS project_secret_file_descriptions (
+    project_name VARCHAR(255) NOT NULL,
+    filename VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    PRIMARY KEY (project_name, filename)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
   `CREATE TABLE IF NOT EXISTS agent_appearance (
     agent_name VARCHAR(255) PRIMARY KEY,
     color VARCHAR(16) DEFAULT NULL,

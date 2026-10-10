@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { query, execute, getPool, toMySQLDatetime } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 
-export const PROJECT_TAB_KEYS = ["terminal", "input", "output", "repositories", "files", "ci", "pipeline"] as const;
+export const PROJECT_TAB_KEYS = ["terminal", "input", "output", "repositories", "files", "ci", "pipeline", "secrets"] as const;
 export type ProjectTabKey = (typeof PROJECT_TAB_KEYS)[number];
 
 // Abas visíveis quando o projeto habilitado não tem configuração explícita (comportamento histórico).
