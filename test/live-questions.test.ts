@@ -139,7 +139,7 @@ function resultHarness() {
   const { session, internals } = claudeHarness();
   internals.pendingResult = null;
   internals.activeTasks.clear();
-  Object.assign(session, { inactivityTimeoutMs: 0, ingestResult: () => {}, emitUsage: async () => {}, executionMessageIds: new Set(["prompt"]) });
+  Object.assign(session, { inactivityTimeoutMs: 0, ingestResult: () => {}, emitUsage: async () => {}, executionMessageIds: new Set(["prompt"]), turnPrompts: [] });
   return {
     session,
     methods: session as unknown as {

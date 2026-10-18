@@ -85,6 +85,7 @@ export class ClaudeSession extends BaseAgentSession {
   private pendingResult: AgentResult | null = null;
   private taskFailures = new Map<string, string>();
   private executionMessageIds = new Set<string>();
+  private turnPrompts: string[] = [];
   private interrupted = false;
   private pendingTasksGraceMs: number;
   private pendingTasksTimer: ReturnType<typeof setTimeout> | null = null;
@@ -247,6 +248,7 @@ export class ClaudeSession extends BaseAgentSession {
     this.activeTasks.clear();
     this.taskFailures.clear();
     this.executionMessageIds.clear();
+    this.turnPrompts = [];
     this.pendingResult = null;
     this.interrupted = false;
   }
@@ -318,8 +320,19 @@ export class ClaudeSession extends BaseAgentSession {
     if (this.pendingResult) this.startPendingTasksTimer();
   }
 
+  // Skills com contexto bifurcado (ex.: /code-review) rodam como task skip_transcript e o SDK
+  // não emite nada delas até o fim; só a do comando enviado pelo usuário vira atividade visível.
+  private isForkedCommand(message: Extract<SDKMessage, { subtype: "task_started" }>): boolean {
+    const command = message.description.trim();
+    if (message.task_type !== "local_agent" || !command.startsWith("/")) return false;
+    return this.turnPrompts.some((prompt) => prompt === command || prompt.startsWith(`${command} `) || prompt.startsWith(`${command}\n`));
+  }
+
   private handleTaskStarted(message: Extract<SDKMessage, { subtype: "task_started" }>): void {
-    if (message.skip_transcript) return;
+    if (message.skip_transcript) {
+      if (!this.isForkedCommand(message)) return;
+      this.emit("toolUse", "Skill", { skill: message.description.trim().slice(1) });
+    }
     this.activeTasks.set(message.task_id, { description: message.description, subagentType: message.subagent_type });
     this.emit("task", {
       phase: "started",
@@ -509,6 +522,7 @@ export class ClaudeSession extends BaseAgentSession {
 
     const uuid = randomUUID();
     this.executionMessageIds.add(uuid);
+    this.turnPrompts.push(blocksToText(blocksOrText).trimStart());
     this.queue.push({ type: "user", uuid, parent_tool_use_id: null, message: { role: "user", content } });
   }
 

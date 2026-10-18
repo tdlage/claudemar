@@ -34,6 +34,9 @@ export function formatToolUse(name: string, input: Record<string, unknown>): str
     case "Agent":
       detail = `${ANSI.magenta}${input.description ?? input.subagent_type ?? ""}${ANSI.reset}`;
       break;
+    case "Skill":
+      detail = `${ANSI.magenta}/${input.skill ?? ""}${ANSI.reset}`;
+      break;
     case "AskUserQuestion": {
       const qs = input.questions as Array<{ question: string }> | undefined;
       detail = `${ANSI.yellow}${qs?.[0]?.question?.slice(0, 100) ?? ""}${ANSI.reset}`;
