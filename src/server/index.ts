@@ -13,6 +13,7 @@ import { projectsRouter } from "./routes/projects.js";
 import { executionsRouter } from "./routes/executions.js";
 import { filesRouter } from "./routes/files.js";
 import { confidentialAttachmentsRouter } from "./routes/confidential-attachments.js";
+import { promptAttachmentsRouter } from "./routes/prompt-attachments.js";
 import { orchestratorRouter } from "./routes/orchestrator.js";
 import { systemCatalogRouter, systemRouter } from "./routes/system.js";
 import { runConfigsRouter } from "./routes/run-configs.js";
@@ -103,6 +104,7 @@ export function createDashboardServer() {
   app.use("/api/executions", jsonParser, executionsRouter);
   app.use("/api/files", jsonParser, filesRouter);
   app.use("/api/confidential-attachments", confidentialAttachmentsRouter);
+  app.use("/api/prompt-attachments", promptAttachmentsRouter);
   app.use("/api/orchestrator", jsonParser, requireAdmin, orchestratorRouter);
   app.use("/api/system", jsonParser, systemCatalogRouter);
   app.use("/api/system", jsonParser, requireAdmin, systemRouter);

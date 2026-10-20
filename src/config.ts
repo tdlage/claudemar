@@ -73,6 +73,8 @@ export const config = Object.freeze({
   qdrantUrl: stringEnv("QDRANT_URL", ""),
   qdrantApiKey: stringEnv("QDRANT_API_KEY", ""),
   qdrantCollection: stringEnv("QDRANT_COLLECTION", "claudemar_sessions"),
+  promptAttachmentRetentionDays: numericEnv("PROMPT_ATTACHMENT_RETENTION_DAYS", 30),
+  promptAttachmentQuotaMb: numericEnv("PROMPT_ATTACHMENT_QUOTA_MB", 2048),
   jevApiUrl: stringEnv("JEV_API_URL", "https://api.typesafe.ai/v1/systemone"),
   jevApiKey: stringEnv("JEV_API_KEY", ""),
   jevModel: stringEnv("JEV_MODEL", "jev-latest"),

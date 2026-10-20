@@ -18,6 +18,7 @@ import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
 import { agentSecretsManager, projectSecretsManager } from "./secrets-manager.js";
+import { sweepExpiredPromptAttachments } from "./prompt-attachments.js";
 import { runPipelineMigrations } from "./pipeline-migration.js";
 import { runDataMigrations } from "./data-migration.js";
 import { initPipelineRunner } from "./pipeline-runner.js";
@@ -70,6 +71,11 @@ await initPipelineRunner().catch((err) => {
 });
 await agentSecretsManager.syncAllToFiles();
 await projectSecretsManager.syncAllToFiles();
+const sweepPromptAttachments = () => sweepExpiredPromptAttachments()
+  .then((removed) => { if (removed > 0) console.log(`[attachments] ${removed} anexo(s) expirado(s) removido(s)`); })
+  .catch((err) => console.error("[attachments] limpeza falhou:", err instanceof Error ? err.message : String(err)));
+void sweepPromptAttachments();
+setInterval(() => { void sweepPromptAttachments(); }, 6 * 60 * 60 * 1000).unref();
 await ensureMemoryReady().catch((err) => {
   console.error("[memory] Initialization failed:", err instanceof Error ? err.message : String(err));
 });

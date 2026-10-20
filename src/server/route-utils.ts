@@ -14,7 +14,7 @@ export function asyncHandler(
   };
 }
 
-const MAX_INPUT_FILE_BYTES = 100 * 1024 * 1024;
+export const MAX_INPUT_FILE_BYTES = 100 * 1024 * 1024;
 
 export const inputUploadParser = raw({ type: "application/octet-stream", limit: MAX_INPUT_FILE_BYTES });
 

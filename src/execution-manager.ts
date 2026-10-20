@@ -14,6 +14,7 @@ import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
 import { buildEmailHint, buildProjectSecretsHint, buildSecretsHint } from "./agents/agent-context.js";
 import { projectSecretsDir } from "./secrets-manager.js";
+import { existingPromptAttachmentsDir } from "./prompt-attachments.js";
 import { config } from "./config.js";
 import { safeProjectPath } from "./session.js";
 import { inferRuntimeFromModel, DEFAULT_PROJECT_MODEL } from "./models-discovery.js";
@@ -139,6 +140,7 @@ interface ActiveEntry {
 
 export class ExecutionManager extends EventEmitter {
   private sessionIsolation = new Map<string, boolean>();
+  private sessionDirectories = new Map<string, string>();
   private sessionProfiles = new Map<string, string>();
   private active = new Map<string, ActiveEntry>();
   private draining = false;
@@ -268,9 +270,14 @@ export class ExecutionManager extends EventEmitter {
   }
 
   private buildAdditionalDirectories(opts: StartExecutionOpts): string[] | undefined {
-    if (opts.targetType !== "project" || !safeProjectPath(opts.targetName)) return undefined;
-    const secretsDir = projectSecretsDir(opts.targetName);
-    return existsSync(secretsDir) ? [secretsDir] : undefined;
+    const dirs: string[] = [];
+    const attachmentsDir = existingPromptAttachmentsDir(opts.targetType, opts.targetName, opts.username ?? "admin");
+    if (attachmentsDir) dirs.push(attachmentsDir);
+    if (opts.targetType === "project" && safeProjectPath(opts.targetName)) {
+      const secretsDir = projectSecretsDir(opts.targetName);
+      if (existsSync(secretsDir)) dirs.push(secretsDir);
+    }
+    return dirs.length > 0 ? dirs : undefined;
   }
 
   // Só o orquestrador (runtime claude) delega a subagentes; agentes executam isolados.
@@ -283,6 +290,9 @@ export class ExecutionManager extends EventEmitter {
     const existing = this.sessions.get(sessionKey);
     const skipIsolationInstruction = opts.skipIsolationInstruction === true && opts.username === "admin";
     const isolationChanged = (this.sessionIsolation.get(sessionKey) ?? false) !== skipIsolationInstruction;
+    const additionalDirectories = this.buildAdditionalDirectories(opts);
+    const directoriesKey = (additionalDirectories ?? []).join("\n");
+    const directoriesChanged = (this.sessionDirectories.get(sessionKey) ?? "") !== directoriesKey;
     if (existing) {
       const planChanged = Boolean(opts.planMode) !== existing.planMode;
       const agentChanged = (opts.agentName ?? "") !== (existing.agentName ?? "");
@@ -293,7 +303,7 @@ export class ExecutionManager extends EventEmitter {
       // Per-call MCP servers/skills (ex.: pipeline) só se aplicam na criação da sessão; se um caller
       // não-agent traz extraMcpServers, recria para não herdar o MCP/skill da etapa anterior.
       const mcpChanged = opts.targetType !== "agent" && opts.extraMcpServers !== undefined;
-      if (!opts.taskMode && existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged && !isolationChanged) {
+      if (!opts.taskMode && existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged && !isolationChanged && !directoriesChanged) {
         return { session: existing, isNew: false };
       }
       this.retireSession(existing);
@@ -314,7 +324,7 @@ export class ExecutionManager extends EventEmitter {
       resumeSessionId: resumeId ?? null,
       effort: opts.effort,
       systemAppend: this.buildSystemSuffix(opts, profile),
-      additionalDirectories: this.buildAdditionalDirectories(opts),
+      additionalDirectories,
       skipIsolationInstruction,
       subagents: this.buildSubagents(opts, profile),
       extraMcpServers: opts.extraMcpServers,
@@ -327,6 +337,7 @@ export class ExecutionManager extends EventEmitter {
     this.sessions.set(sessionKey, session);
     this.sessionProfiles.set(sessionKey, profile.id);
     this.sessionIsolation.set(sessionKey, skipIsolationInstruction);
+    this.sessionDirectories.set(sessionKey, directoriesKey);
     this.sessionGen.set(sessionKey, this.llmConfigGen);
     return { session, isNew: true };
   }

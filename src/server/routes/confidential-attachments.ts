@@ -1,29 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { json, Router, type ErrorRequestHandler, type Request } from "express";
 import { config } from "../../config.js";
-import { safeProjectPath } from "../../session.js";
-import { getAgentPaths, isValidAgentName } from "../../agents/manager.js";
+import { resolveAttachmentTarget } from "../attachment-target.js";
 
 export const confidentialAttachmentsRouter = Router();
 confidentialAttachmentsRouter.use(json({ limit: "512kb" }));
 
 function attachmentDirectory(req: Request, base: unknown): string | null {
-  if (!req.ctx || typeof base !== "string") return null;
-  const [type, name, extra] = base.split(":");
-  if (extra !== undefined) return null;
-  if (base === "orchestrator") {
-    if (req.ctx.role !== "admin") return null;
-    if (!existsSync(config.orchestratorPath)) return null;
-  } else if (type === "project" && name && safeProjectPath(name)) {
-    if (req.ctx.role === "user" && !req.ctx.projects.includes(name)) return null;
-    if (!existsSync(safeProjectPath(name)!)) return null;
-  } else if (type === "agent" && name && isValidAgentName(name) && getAgentPaths(name)) {
-    if (req.ctx.role === "user" && !req.ctx.agents.includes(name)) return null;
-    if (!existsSync(getAgentPaths(name)!.root)) return null;
-  } else return null;
+  if (!req.ctx || !resolveAttachmentTarget(req, base)) return null;
   const owner = req.ctx.role === "admin" ? "admin" : req.ctx.userId;
   const scope = createHash("sha256").update(JSON.stringify([owner, base])).digest("hex");
   return resolve(config.dataPath, "confidential-attachments", scope);

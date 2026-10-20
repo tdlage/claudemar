@@ -6,7 +6,7 @@ import { useModelSelection } from "../../hooks/useModelSelection";
 import { ModelSelector } from "./ModelSelector";
 import { useContext, useEffect, useRef, useState, useCallback, useId, useMemo } from "react";
 import {
-  Send, Square, Brain, ChevronDown, History, Wrench, AlertTriangle, ImagePlus, Slash, Zap,
+  Send, Square, Brain, ChevronDown, History, Wrench, AlertTriangle, Paperclip, FileText, X, Slash, Zap,
   Loader2, CheckCircle2, XCircle, Users, SlidersHorizontal, MessageCircle,
 } from "lucide-react";
 import { getSocket } from "../../lib/socket";
@@ -14,10 +14,12 @@ import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
 import { extractMdPaths, renderOutputHtml } from "../../lib/ansi";
 import { useCurrentModel } from "../../hooks/useCurrentModel";
 import { useCachedState } from "../../hooks/useCachedState";
+import { getCached, setCached } from "../../lib/stateCache";
 import { useToast } from "../shared/Toast";
 import { formatToolDetail } from "../../lib/toolDetail";
-import { formatTokens, formatDuration } from "../../lib/format";
-import { fileToImageBlock, imageBlocksFromClipboard, type ImageBlock } from "../../lib/imageBlock";
+import { formatBytes, formatTokens, formatDuration } from "../../lib/format";
+import { fileToImageBlock, isVisionImage, type ImageBlock } from "../../lib/imageBlock";
+import { MAX_PROMPT_ATTACHMENT_BYTES, removePromptAttachment, uploadPromptAttachment, type PromptAttachment } from "../../lib/promptAttachment";
 import { getSlashCache, setSlashCache, slashCacheKey } from "../../lib/slashCache";
 import { MdLinksBar } from "./MdLinksBar";
 import { PermissionPrompt, type PermissionRequest } from "./PermissionPrompt";
@@ -165,6 +167,14 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
 
   const [input, setInput] = useCachedState<string>(`term:${cacheKey}:draft`, "");
   const [pendingImages, setPendingImages] = useCachedState<ImageBlock[]>(`term:${cacheKey}:images`, []);
+  const pendingFilesKey = `term:${cacheKey}:files`;
+  const [pendingFiles, setPendingFiles] = useCachedState<PromptAttachment[]>(pendingFilesKey, []);
+  const [uploadingFiles, setUploadingFiles] = useState(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const [running, setRunning] = useState(false);
   const [messages, setMessages] = useState<UserMessage[]>([]);
 
@@ -485,7 +495,12 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const submit = useCallback(() => {
     if (sendingPrivate || assessing) return;
     const visibleText = input.trim();
-    const text = [visibleText, confidentialFile?.instruction].filter(Boolean).join("\n\n");
+    if (uploadingFiles > 0) {
+      addToast("error", "Aguarde o envio dos anexos.");
+      return;
+    }
+    const files = pendingFiles;
+    const text = [visibleText, ...files.map((f) => f.instruction), confidentialFile?.instruction].filter(Boolean).join("\n\n");
     const images = pendingImages;
     if (!text && images.length === 0) return;
 
@@ -499,7 +514,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     const dispatch = (chosenEffort: Effort | undefined, effortAuto = false, effortNote?: string) => {
       if (!willQueue) {
         const msgId = counterRef.current++;
-        setMessages((prev) => [...prev.slice(-29), { id: msgId, text: [visibleText, confidentialFile ? "[Arquivo confidencial anexado]" : ""].filter(Boolean).join("\n"), imageCount: images.length, effortNote }]);
+        setMessages((prev) => [...prev.slice(-29), { id: msgId, text: [visibleText, ...files.map((f) => `[Anexo: ${f.name}]`), confidentialFile ? "[Arquivo confidencial anexado]" : ""].filter(Boolean).join("\n"), imageCount: images.length, effortNote }]);
       }
 
       if (injectIntoRunning) {
@@ -528,6 +543,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
 
       setInput("");
       setPendingImages([]);
+      setPendingFiles([]);
       if (injectIntoRunning) setPrivateFile(null);
     };
 
@@ -545,7 +561,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     void recommendEffort(visibleText, target, manualEffort)
       .then((choice) => { if (choice) dispatch(choice.effort, choice.auto, choice.note); })
       .finally(() => setAssessing(false));
-  }, [sendingPrivate, assessing, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, automaticEffortOnly, base, complexityEnabled, activeRuntime, activeModel, recommendEffort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, selectedOutsideSession, sessionRuntime, addToast]);
+  }, [sendingPrivate, assessing, uploadingFiles, pendingFiles, setPendingFiles, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, automaticEffortOnly, base, complexityEnabled, activeRuntime, activeModel, recommendEffort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, selectedOutsideSession, sessionRuntime, addToast]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -574,12 +590,50 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     getSocket().emit("execution:rewind", { id: executionId, uuid });
   }, [executionId]);
 
-  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const blocks = await imageBlocksFromClipboard(e.clipboardData);
-    if (blocks.length === 0) return;
+  const attachFiles = useCallback(async (files: File[]) => {
+    const images = files.filter(isVisionImage);
+    const others = files.filter((file) => !isVisionImage(file));
+    for (const image of images) {
+      void fileToImageBlock(image)
+        .then((block) => setPendingImages((prev) => [...prev, block]))
+        .catch(() => addToast("error", `Não foi possível ler a imagem ${image.name}.`));
+    }
+    if (others.length === 0) return;
+    if (!base) {
+      addToast("error", "Este terminal aceita apenas imagens PNG, JPEG, GIF ou WebP.");
+      return;
+    }
+    const tooLarge = others.filter((file) => file.size > MAX_PROMPT_ATTACHMENT_BYTES);
+    if (tooLarge.length > 0) addToast("error", `Arquivo maior que ${MAX_PROMPT_ATTACHMENT_BYTES / (1024 * 1024)} MB: ${tooLarge.map((f) => f.name).join(", ")}`);
+    const accepted = others.filter((file) => file.size <= MAX_PROMPT_ATTACHMENT_BYTES);
+    setUploadingFiles((n) => n + accepted.length);
+    await Promise.all(accepted.map(async (file) => {
+      try {
+        const attachment = await uploadPromptAttachment(base, file);
+        if (mountedRef.current) setPendingFiles((prev) => [...prev, attachment]);
+        else setCached(pendingFilesKey, [...(getCached<PromptAttachment[]>(pendingFilesKey) ?? []), attachment]);
+      } catch (err) {
+        addToast("error", `Não foi possível anexar ${file.name}: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setUploadingFiles((n) => n - 1);
+      }
+    }));
+  }, [base, pendingFilesKey, addToast, setPendingImages, setPendingFiles]);
+
+  const removePendingFile = useCallback((attachment: PromptAttachment) => {
+    setPendingFiles((prev) => prev.filter((f) => f.id !== attachment.id));
+    if (base) void removePromptAttachment(base, attachment.id).catch(() => {});
+  }, [base, setPendingFiles]);
+
+  // Planilhas e editores colocam no clipboard o texto e uma "foto" do mesmo conteúdo:
+  // com texto presente, imagens são só renderização e ficam de fora.
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const hasText = e.clipboardData.getData("text/plain").length > 0;
+    const files = Array.from(e.clipboardData.files).filter((file) => !hasText || !file.type.startsWith("image/"));
+    if (files.length === 0) return;
     e.preventDefault();
-    setPendingImages((prev) => [...prev, ...blocks]);
-  }, []);
+    void attachFiles(files);
+  }, [attachFiles]);
 
   const selectSlash = useCallback((cmd: string) => {
     setInput(`/${cmd} `);
@@ -818,7 +872,35 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
       )}
 
       {onStart && (
-        <div className="terminal-composer shrink-0 space-y-1.5">
+        <div
+          className="terminal-composer shrink-0 space-y-1.5"
+          onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+          onDrop={(e) => {
+            if (e.dataTransfer.files.length === 0) return;
+            e.preventDefault();
+            void attachFiles(Array.from(e.dataTransfer.files));
+          }}
+        >
+          {(pendingFiles.length > 0 || uploadingFiles > 0) && (
+            <div className="flex flex-wrap gap-1.5">
+              {pendingFiles.map((file) => (
+                <div key={file.id} className="inline-flex items-center gap-1.5 max-w-full rounded border border-border bg-surface px-2 py-1 text-xs" title={`${file.name} · ${file.mediaType}`}>
+                  <FileText size={12} className="shrink-0 text-text-muted" aria-hidden="true" />
+                  <span className="truncate text-text-primary">{file.name}</span>
+                  <span className="shrink-0 text-text-muted">{formatBytes(file.size)}</span>
+                  <button type="button" onClick={() => removePendingFile(file)} aria-label={`Remover ${file.name}`} className="shrink-0 text-text-muted hover:text-danger">
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+              {uploadingFiles > 0 && (
+                <div className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 text-xs text-text-muted">
+                  <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                  Enviando {uploadingFiles} arquivo{uploadingFiles > 1 ? "s" : ""}…
+                </div>
+              )}
+            </div>
+          )}
           {pendingImages.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {pendingImages.map((img, idx) => (
@@ -883,29 +965,27 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
               }}
               onPaste={handlePaste}
               readOnly={assessing}
-              placeholder={mobile ? (live && queueMode ? "Na fila…" : "Mensagem…") : live ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, / para comandos, cole imagens)")}
+              placeholder={mobile ? (live && queueMode ? "Na fila…" : "Mensagem…") : live ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, / para comandos, cole ou arraste arquivos)")}
               rows={1}
               className="composer-input min-w-0 flex-1 bg-surface border border-border rounded-xl md:rounded-md px-3 py-2 md:py-1.5 text-base md:text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
               style={{ maxHeight: 160 }}
             />
 
             <label
-              title="Anexar imagem"
+              title={base ? "Anexar arquivo" : "Anexar imagem"}
               className="composer-attachment flex items-center justify-center h-11 w-11 md:h-auto md:w-auto shrink-0 p-1.5 rounded-xl text-text-muted hover:text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
             >
-              <ImagePlus size={mobile ? 20 : 14} aria-hidden="true" />
-              <span className="sr-only">Anexar imagem</span>
+              <Paperclip size={mobile ? 20 : 14} aria-hidden="true" />
+              <span className="sr-only">{base ? "Anexar arquivo" : "Anexar imagem"}</span>
               <input
                 type="file"
-                accept="image/*"
+                accept={base ? undefined : "image/png,image/jpeg,image/gif,image/webp"}
                 multiple
                 className="sr-only"
-                onChange={async (e) => {
+                onChange={(e) => {
                   const files = Array.from(e.target.files ?? []);
-                  if (files.length === 0) return;
-                  const blocks = await Promise.all(files.map(fileToImageBlock));
-                  setPendingImages((prev) => [...prev, ...blocks]);
                   e.target.value = "";
+                  if (files.length > 0) void attachFiles(files);
                 }}
               />
             </label>
@@ -915,7 +995,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
               onClick={submit}
               aria-label="Enviar mensagem"
               title={assessing ? "Avaliando complexidade…" : undefined}
-              disabled={assessing || sendingPrivate || (!input.trim() && pendingImages.length === 0 && !confidentialFile) || (modelSelection.supported && modelSelection.saving)}
+              disabled={assessing || sendingPrivate || uploadingFiles > 0 || (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0 && !confidentialFile) || (modelSelection.supported && modelSelection.saving)}
               className="inline-flex items-center justify-center shrink-0 h-11 w-11 md:h-auto md:w-auto p-1.5 rounded-xl md:rounded-md bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
               {assessing ? <Loader2 size={mobile ? 20 : 14} className="animate-spin" /> : <Send size={mobile ? 20 : 14} />}

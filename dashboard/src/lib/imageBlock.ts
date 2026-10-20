@@ -3,6 +3,12 @@ export interface ImageBlock {
   source: { type: "base64"; media_type: string; data: string };
 }
 
+const VISION_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+export function isVisionImage(file: Pick<File, "type">): boolean {
+  return VISION_MEDIA_TYPES.has(file.type);
+}
+
 export function fileToImageBlock(file: File): Promise<ImageBlock> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -16,8 +22,3 @@ export function fileToImageBlock(file: File): Promise<ImageBlock> {
   });
 }
 
-export async function imageBlocksFromClipboard(clipboardData: DataTransfer): Promise<ImageBlock[]> {
-  const items = Array.from(clipboardData.items).filter((i) => i.type.startsWith("image/"));
-  const files = items.map((i) => i.getAsFile()).filter((f): f is File => !!f);
-  return Promise.all(files.map(fileToImageBlock));
-}
