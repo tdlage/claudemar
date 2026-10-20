@@ -184,6 +184,42 @@ check_claude() {
     fi
 }
 
+setup_codex_sandbox() {
+    [[ "$OS" == "linux" && ( "$DISTRO" == "ubuntu" || "$DISTRO" == "debian" ) ]] || return 0
+
+    local restrict_flag="/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
+    [[ -r "$restrict_flag" && "$(cat "$restrict_flag")" == "1" ]] || return 0
+
+    local profile_src="/usr/share/apparmor/extra-profiles/bwrap-userns-restrict"
+    local profile_dst="/etc/apparmor.d/bwrap-userns-restrict"
+
+    local failure="Codex will fail to run commands outside bypass mode"
+
+    info "AppArmor restricts unprivileged user namespaces — enabling the bubblewrap profile used by the Codex sandbox"
+    if ! command -v bwrap &>/dev/null || [[ ! -f "$profile_src" ]]; then
+        if ! { sudo apt-get update && sudo apt-get install -y bubblewrap apparmor-profiles; }; then
+            warn "Could not install bubblewrap/apparmor-profiles — $failure"
+            return 0
+        fi
+    fi
+
+    if [[ ! -f "$profile_src" ]]; then
+        warn "This apparmor-profiles package does not ship bwrap-userns-restrict — $failure"
+        return 0
+    fi
+
+    if ! cmp -s "$profile_src" "$profile_dst" && ! sudo install -m 0644 "$profile_src" "$profile_dst"; then
+        warn "Could not install $profile_dst — $failure"
+        return 0
+    fi
+
+    if sudo apparmor_parser -r "$profile_dst"; then
+        success "AppArmor profile bwrap-userns-restrict loaded (Codex sandbox enabled)"
+    else
+        warn "Failed to load $profile_dst — $failure"
+    fi
+}
+
 setup_repo() {
     step 4 "Setting up repository"
 
@@ -1040,6 +1076,7 @@ main() {
     preflight_checks
     ensure_node
     check_claude
+    setup_codex_sandbox
     setup_repo
     build_project
     setup_env
