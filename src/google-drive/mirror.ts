@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { copyFile, link, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, link, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join, posix } from "node:path";
 import { formatSize, truncateUtf8 } from "../byte-utils.js";
 
@@ -37,7 +37,9 @@ export interface PlannedFile extends MirrorFile {
   path: string;
 }
 
-export type SkipCause = "file-size" | "folder-size" | "download";
+export type SkipCause = "file-size" | "folder-size" | "download" | "upload";
+
+const MIRROR_SKIP_CAUSES = new Set<SkipCause>(["file-size", "folder-size", "download"]);
 
 export interface SkippedEntry {
   id: string;
@@ -47,10 +49,17 @@ export interface SkippedEntry {
   retryKey?: string;
   size?: number;
   keptPrevious?: boolean;
+  notedAt?: string;
+}
+
+export interface FolderEntry {
+  id: string;
+  path: string;
 }
 
 export interface MirrorPlan {
   directories: string[];
+  folders: FolderEntry[];
   files: PlannedFile[];
   skipped: SkippedEntry[];
 }
@@ -61,6 +70,8 @@ export interface ManifestEntry {
   fingerprint: string;
   size: number;
   mtimeMs: number;
+  ino?: number;
+  readOnly?: boolean;
   mimeType: string;
   exportMimeType: string | null;
   modifiedTime: string | null;
@@ -70,7 +81,20 @@ export interface ManifestEntry {
 export interface Manifest {
   files: ManifestEntry[];
   skipped: SkippedEntry[];
+  folders?: FolderEntry[];
   signature: string | null;
+  baseline?: boolean;
+}
+
+export interface LocalFile {
+  size: number;
+  mtimeMs: number;
+  ino: number;
+}
+
+export interface LocalTree {
+  files: Map<string, LocalFile>;
+  directories: Set<string>;
 }
 
 export interface MirrorOptions {
@@ -86,6 +110,9 @@ export interface MirrorOptions {
   retrySkipped?: boolean;
   signal?: AbortSignal;
   canCommit?: () => boolean;
+  beforeCommit?: () => Promise<void>;
+  salvage?: (trashDir: string) => Promise<void>;
+  fileMode?: (entry: ManifestEntry) => number;
 }
 
 export interface MirrorResult {
@@ -162,7 +189,7 @@ export function planMirror(rootId: string, folders: MirrorFolder[], files: Mirro
   const subfolders = groupByParent(folders);
   const folderFiles = groupByParent(files);
   const folderPaths = new Map<string, string>([[rootId, ""]]);
-  const plan: MirrorPlan = { directories: [], files: [], skipped: [] };
+  const plan: MirrorPlan = { directories: [], folders: [], files: [], skipped: [] };
   const visit = (folderId: string, base: string) => {
     const taken = new Set<string>();
     const children = (subfolders.get(folderId) ?? [])
@@ -173,6 +200,7 @@ export function planMirror(rootId: string, folders: MirrorFolder[], files: Mirro
     }
     for (const child of children) {
       plan.directories.push(child.path);
+      plan.folders.push({ id: child.folder.id, path: child.path });
       folderPaths.set(child.folder.id, child.path);
       visit(child.folder.id, child.path);
     }
@@ -206,26 +234,31 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+export function sameContent(local: LocalFile | undefined, entry: Pick<ManifestEntry, "size" | "mtimeMs">): boolean {
+  return local !== undefined && local.size === entry.size && Math.trunc(local.mtimeMs) === Math.trunc(entry.mtimeMs);
+}
+
 async function intact(root: string, entry: ManifestEntry): Promise<boolean> {
   try {
     const info = await lstat(join(root, entry.path));
-    return info.isFile() && info.size === entry.size && Math.trunc(info.mtimeMs) === Math.trunc(entry.mtimeMs);
+    return info.isFile() && sameContent(info, entry);
   } catch {
     return false;
   }
 }
 
-async function scan(root: string): Promise<{ files: Set<string>; directories: Set<string> } | null> {
-  const files = new Set<string>();
-  const directories = new Set<string>();
+export async function scanLocalTree(root: string): Promise<LocalTree | null> {
+  const tree: LocalTree = { files: new Map(), directories: new Set() };
   const walk = async (dir: string, rel: string): Promise<void> => {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const path = rel ? `${rel}/${entry.name}` : entry.name;
+      const absolute = join(dir, entry.name);
       if (entry.isDirectory()) {
-        directories.add(path);
-        await walk(join(dir, entry.name), path);
+        tree.directories.add(path);
+        await walk(absolute, path);
       } else {
-        files.add(path);
+        const info = await lstat(absolute);
+        tree.files.set(path, { size: info.isFile() ? info.size : -1, mtimeMs: info.mtimeMs, ino: info.ino });
       }
     }
   };
@@ -235,29 +268,40 @@ async function scan(root: string): Promise<{ files: Set<string>; directories: Se
     if (errorCode(err) === "ENOENT") return null;
     throw err;
   }
-  return { files, directories };
+  return tree;
 }
 
-function sameSet(a: Set<string>, b: string[]): boolean {
-  return a.size === b.length && b.every((value) => a.has(value));
-}
-
-async function mirrorIntact(root: string, entries: ManifestEntry[], directories: string[]): Promise<boolean> {
-  const disk = await scan(root);
-  if (!disk || !sameSet(disk.files, entries.map((entry) => entry.path)) || !sameSet(disk.directories, directories)) return false;
-  for (const entry of entries) {
-    if (!(await intact(root, entry))) return false;
+export function sameLocalTree(a: LocalTree | null, b: LocalTree | null): boolean {
+  if (!a || !b) return a === b;
+  if (a.files.size !== b.files.size || a.directories.size !== b.directories.size) return false;
+  for (const directory of a.directories) if (!b.directories.has(directory)) return false;
+  for (const [path, file] of a.files) {
+    const other = b.files.get(path);
+    if (!other || other.ino !== file.ino || !sameContent(other, file)) return false;
   }
   return true;
 }
 
-function toEntry(file: PlannedFile, size: number, mtimeMs: number, fingerprint = file.fingerprint): ManifestEntry {
+function sameSet(a: Iterable<string>, b: string[]): boolean {
+  const set = new Set(a);
+  return set.size === b.length && b.every((value) => set.has(value));
+}
+
+async function mirrorIntact(root: string, entries: ManifestEntry[], directories: string[]): Promise<LocalTree | null> {
+  const disk = await scanLocalTree(root);
+  if (!disk || !sameSet(disk.files.keys(), entries.map((entry) => entry.path)) || !sameSet(disk.directories, directories)) return null;
+  return entries.every((entry) => sameContent(disk.files.get(entry.path), entry)) ? disk : null;
+}
+
+function toEntry(file: PlannedFile, info: LocalFile, fingerprint = file.fingerprint): ManifestEntry {
   return {
     id: file.id,
     path: file.path,
     fingerprint,
-    size,
-    mtimeMs,
+    size: info.size,
+    mtimeMs: info.mtimeMs,
+    ino: info.ino,
+    readOnly: file.exportMimeType !== null || file.sourceId !== file.id,
     mimeType: file.mimeType,
     exportMimeType: file.exportMimeType,
     modifiedTime: file.modifiedTime,
@@ -310,7 +354,15 @@ async function removeLeftovers(workDir: string, key: string): Promise<void> {
   );
 }
 
-async function swapInto(staging: string, root: string, workDir: string, key: string): Promise<void> {
+async function applyModes(root: string, entries: ManifestEntry[], fileMode: (entry: ManifestEntry) => number): Promise<void> {
+  for (const entry of entries) {
+    const path = join(root, entry.path);
+    const mode = fileMode(entry);
+    if (((await lstat(path)).mode & 0o777) !== mode) await chmod(path, mode);
+  }
+}
+
+async function swapInto(staging: string, root: string, workDir: string, key: string, salvage?: (trashDir: string) => Promise<void>): Promise<void> {
   await mkdir(dirname(root), { recursive: true });
   const trash = join(workDir, `.trash-${key}-${randomBytes(4).toString("hex")}`);
   let replaced = false;
@@ -326,21 +378,25 @@ async function swapInto(staging: string, root: string, workDir: string, key: str
     if (replaced) await rename(trash, root).catch(() => {});
     throw err;
   }
-  if (replaced) await rm(trash, { recursive: true, force: true });
+  if (!replaced) return;
+  if (salvage) await salvage(trash);
+  await rm(trash, { recursive: true, force: true });
 }
 
 export async function applyMirror(options: MirrorOptions): Promise<MirrorResult> {
   const { root, plan, previous } = options;
   await removeLeftovers(options.workDir, options.key);
   const signature = planSignature(plan, options);
-  const previousSkips = previous.skipped.filter((entry) => entry.cause !== undefined);
+  const previousSkips = previous.skipped.filter((entry) => entry.cause !== undefined && MIRROR_SKIP_CAUSES.has(entry.cause));
 
-  if (!options.retrySkipped && previous.signature === signature && (await mirrorIntact(root, previous.files, plan.directories))) {
+  const disk = !options.retrySkipped && previous.signature === signature ? await mirrorIntact(root, previous.files, plan.directories) : null;
+  if (disk) {
     const planned = new Map(plan.files.map((file) => [file.id, file]));
     const files = previous.files.map((entry) => {
       const file = planned.get(entry.id);
-      return file ? toEntry(file, entry.size, entry.mtimeMs, entry.fingerprint) : entry;
+      return file ? toEntry(file, disk.files.get(entry.path)!, entry.fingerprint) : entry;
     });
+    if (options.fileMode) await applyModes(root, files, options.fileMode);
     return { files, skipped: previousSkips, totalBytes: files.reduce((sum, entry) => sum + entry.size, 0), changed: false, signature };
   }
 
@@ -365,8 +421,7 @@ export async function applyMirror(options: MirrorOptions): Promise<MirrorResult>
 
     const place = async (file: PlannedFile, source: ManifestEntry, destination: string, fingerprint?: string) => {
       await linkOrCopy(join(root, source.path), destination);
-      const info = await stat(destination);
-      files.push(toEntry(file, info.size, info.mtimeMs, fingerprint));
+      files.push(toEntry(file, await stat(destination), fingerprint));
     };
 
     const keepPreviousOrSkip = async (file: PlannedFile, destination: string, key: string, reason: string) => {
@@ -426,12 +481,14 @@ export async function applyMirror(options: MirrorOptions): Promise<MirrorResult>
         skipped.push({ id: file.id, path: file.path, reason: overFile ? tooLarge : folderLimit, cause: overFile ? "file-size" : "folder-size", retryKey: key, size: info.size });
         return;
       }
-      files.push(toEntry(file, info.size, info.mtimeMs));
+      files.push(toEntry(file, info));
     });
 
     throwIfAborted(options.signal);
+    if (options.fileMode) await applyModes(staging, files, options.fileMode);
     if (options.canCommit && !options.canCommit()) throw new MirrorAbortedError("Folder was disconnected during the sync");
-    await swapInto(staging, root, options.workDir, options.key);
+    if (options.beforeCommit) await options.beforeCommit();
+    await swapInto(staging, root, options.workDir, options.key, options.salvage);
     files.sort(byPath);
     skipped.sort(byPath);
     return { files, skipped, totalBytes, changed: true, signature };
@@ -452,7 +509,9 @@ export async function readManifest(path: string): Promise<Manifest> {
     return {
       files: Array.isArray(parsed.files) ? parsed.files : [],
       skipped: Array.isArray(parsed.skipped) ? parsed.skipped : [],
+      folders: Array.isArray(parsed.folders) ? parsed.folders : [],
       signature: typeof parsed.signature === "string" ? parsed.signature : null,
+      baseline: parsed.baseline === true || typeof parsed.signature === "string",
     };
   } catch (err) {
     if (errorCode(err) === "ENOENT" || err instanceof SyntaxError) return emptyManifest();

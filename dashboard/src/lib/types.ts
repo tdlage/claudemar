@@ -100,14 +100,20 @@ export interface AgentDetail extends AgentInfo {
 
 export type DriveFolderStatus = "pending" | "ok" | "error";
 
+export type DriveAccess = "read" | "write";
+
 export interface DriveFolderLink {
   id: string;
   folderId: string;
   folderName: string;
   folderUrl: string;
   localPath: string;
+  access: DriveAccess;
   ownerName: string;
   accountEmail: string | null;
+  accountId: string | null;
+  accountCanWrite: boolean | null;
+  isOwner: boolean;
   canManage: boolean;
   status: DriveFolderStatus;
   syncing: boolean;
@@ -131,6 +137,7 @@ export interface DriveAccount {
   email: string;
   displayName: string;
   reauthRequired: boolean;
+  canWrite: boolean;
   folderCount: number;
 }
 

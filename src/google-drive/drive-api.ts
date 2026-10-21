@@ -1,8 +1,9 @@
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { google, type drive_v3 } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
+import { lookup as lookupMimeType } from "mime-types";
 import { byteLimiter, formatSize } from "../byte-utils.js";
 import type { MirrorFile, MirrorFolder, TreeSkip } from "./mirror.js";
 
@@ -37,6 +38,17 @@ export interface DriveFolderInfo {
   name: string;
   driveId: string | null;
   trashed: boolean;
+  canAddChildren: boolean;
+}
+
+export type RemoteFile = Omit<MirrorFile, "parentId">;
+
+export interface DriveWriter {
+  createFolder(parentId: string, name: string): Promise<string>;
+  createFile(parentId: string, name: string, localPath: string): Promise<RemoteFile>;
+  updateContent(fileId: string, localPath: string): Promise<RemoteFile>;
+  move(fileId: string, name: string, fromParentId: string, toParentId: string): Promise<RemoteFile>;
+  trash(fileId: string): Promise<void>;
 }
 
 export type BrowseScope = "my" | "shared" | "drives";
@@ -144,7 +156,7 @@ function escapeQuery(value: string): string {
 export async function getFolder(drive: drive_v3.Drive, folderId: string, signal?: AbortSignal): Promise<DriveFolderInfo | null> {
   try {
     const { data } = await drive.files.get(
-      { fileId: folderId, fields: "id,name,mimeType,driveId,trashed", supportsAllDrives: true },
+      { fileId: folderId, fields: "id,name,mimeType,driveId,trashed,capabilities(canAddChildren)", supportsAllDrives: true },
       { signal, timeout: METADATA_TIMEOUT_MS },
     );
     if (!data.id || data.mimeType !== FOLDER_MIME) return null;
@@ -153,7 +165,7 @@ export async function getFolder(drive: drive_v3.Drive, folderId: string, signal?
       const { data: sharedDrive } = await drive.drives.get({ driveId: data.driveId, fields: "name" }, { signal, timeout: METADATA_TIMEOUT_MS });
       name = sharedDrive.name || name;
     }
-    return { id: data.id, name, driveId: data.driveId ?? null, trashed: data.trashed === true };
+    return { id: data.id, name, driveId: data.driveId ?? null, trashed: data.trashed === true, canAddChildren: data.capabilities?.canAddChildren === true };
   } catch (err) {
     if (isNotFound(err)) return null;
     throw err;
@@ -219,28 +231,7 @@ function nativeTypeLabel(mimeType: string): string {
   return NATIVE_TYPE_LABELS[type] ?? `Google "${type || "unknown"}"`;
 }
 
-async function resolveItem(
-  drive: drive_v3.Drive,
-  item: drive_v3.Schema$File,
-  signal: AbortSignal | undefined,
-): Promise<Omit<MirrorFile, "parentId"> | { reason: string }> {
-  let source = item;
-  if (item.mimeType === SHORTCUT_MIME) {
-    const targetId = item.shortcutDetails?.targetId;
-    if (!targetId) return { reason: "Shortcut without a target" };
-    if (item.shortcutDetails?.targetMimeType === FOLDER_MIME) return { reason: "Shortcuts to folders are not followed" };
-    try {
-      ({ data: source } = await drive.files.get(
-        { fileId: targetId, fields: ITEM_FIELDS, supportsAllDrives: true },
-        { signal, timeout: METADATA_TIMEOUT_MS },
-      ));
-    } catch (err) {
-      if (isInaccessibleTarget(err)) return { reason: "The shortcut target is not accessible" };
-      throw err;
-    }
-    if (source.trashed) return { reason: "The shortcut target is in the trash" };
-  }
-
+function describeFile(item: drive_v3.Schema$File, source: drive_v3.Schema$File): RemoteFile | { reason: string } {
   const mimeType = source.mimeType || "application/octet-stream";
   let extension = "";
   let exportMimeType: string | null = null;
@@ -271,6 +262,30 @@ async function resolveItem(
     modifiedTime: source.modifiedTime ?? null,
     webViewLink: source.webViewLink ?? item.webViewLink ?? null,
   };
+}
+
+async function resolveItem(
+  drive: drive_v3.Drive,
+  item: drive_v3.Schema$File,
+  signal: AbortSignal | undefined,
+): Promise<RemoteFile | { reason: string }> {
+  let source = item;
+  if (item.mimeType === SHORTCUT_MIME) {
+    const targetId = item.shortcutDetails?.targetId;
+    if (!targetId) return { reason: "Shortcut without a target" };
+    if (item.shortcutDetails?.targetMimeType === FOLDER_MIME) return { reason: "Shortcuts to folders are not followed" };
+    try {
+      ({ data: source } = await drive.files.get(
+        { fileId: targetId, fields: ITEM_FIELDS, supportsAllDrives: true },
+        { signal, timeout: METADATA_TIMEOUT_MS },
+      ));
+    } catch (err) {
+      if (isInaccessibleTarget(err)) return { reason: "The shortcut target is not accessible" };
+      throw err;
+    }
+    if (source.trashed) return { reason: "The shortcut target is in the trash" };
+  }
+  return describeFile(item, source);
 }
 
 export async function listFolderTree(
@@ -371,4 +386,54 @@ export async function listChanges(drive: drive_v3.Drive, startPageToken: string)
     if (!data.nextPageToken) throw new Error("Google Drive returned an incomplete change list");
     pageToken = data.nextPageToken;
   }
+}
+
+function writtenFile(data: drive_v3.Schema$File): RemoteFile {
+  const described = describeFile(data, data);
+  if ("reason" in described) throw new Error(`Google Drive returned an unexpected file: ${described.reason}`);
+  return described;
+}
+
+function uploadMedia(name: string, localPath: string) {
+  return { mimeType: lookupMimeType(name) || "application/octet-stream", body: createReadStream(localPath) };
+}
+
+export function driveWriter(drive: drive_v3.Drive, signal?: AbortSignal): DriveWriter {
+  const metadata = { signal, timeout: METADATA_TIMEOUT_MS };
+  const upload = { signal, timeout: DOWNLOAD_TIMEOUT_MS };
+  return {
+    async createFolder(parentId, name) {
+      const { data } = await drive.files.create(
+        { requestBody: { name, mimeType: FOLDER_MIME, parents: [parentId] }, fields: "id", supportsAllDrives: true },
+        metadata,
+      );
+      if (!data.id) throw new Error("Google Drive did not return the new folder id");
+      return data.id;
+    },
+    async createFile(parentId, name, localPath) {
+      const { data } = await drive.files.create(
+        { requestBody: { name, parents: [parentId] }, media: uploadMedia(name, localPath), fields: ITEM_FIELDS, supportsAllDrives: true },
+        upload,
+      );
+      return writtenFile(data);
+    },
+    async updateContent(fileId, localPath) {
+      const { data } = await drive.files.update(
+        { fileId, media: uploadMedia(localPath, localPath), fields: ITEM_FIELDS, supportsAllDrives: true },
+        upload,
+      );
+      return writtenFile(data);
+    },
+    async move(fileId, name, fromParentId, toParentId) {
+      const parents = fromParentId === toParentId ? {} : { addParents: toParentId, removeParents: fromParentId };
+      const { data } = await drive.files.update(
+        { fileId, requestBody: { name }, ...parents, fields: ITEM_FIELDS, supportsAllDrives: true },
+        metadata,
+      );
+      return writtenFile(data);
+    },
+    async trash(fileId) {
+      await drive.files.update({ fileId, requestBody: { trashed: true }, fields: "id", supportsAllDrives: true }, metadata);
+    },
+  };
 }

@@ -34,6 +34,7 @@
     "gray-matter": "^4.0.3",
     "ioredis": "^6.0.0",
     "js-yaml": "^5.2.3",
+    "mime-types": "^3.0.2",
     "mysql2": "^3.19.1",
     "openai": "^6.19.0",
     "socket.io": "^4.8.3",
@@ -43,6 +44,7 @@
   "devDependencies": {
     "@types/archiver": "^7.0.0",
     "@types/express": "^5.0.6",
+    "@types/mime-types": "^3.0.1",
     "@types/node": "^25.2.2",
     "@types/turndown": "^5.0.6",
     "knip": "^6.37.0",

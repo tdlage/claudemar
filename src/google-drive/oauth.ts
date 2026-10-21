@@ -5,13 +5,15 @@ import { config } from "../config.js";
 import { driveStore, type DriveAccount } from "./store.js";
 import { driveErrorInfo } from "./drive-api.js";
 
-const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const WRITE_SCOPE = "https://www.googleapis.com/auth/drive";
 const STATE_TTL_MS = 10 * 60_000;
 const REAUTH_REASONS = new Set(["invalid_grant", "invalid_rapt", "unauthorized_client"]);
 
 export interface PendingAuthorization {
   ownerId: string;
   returnTo: string | null;
+  write: boolean;
   expiresAt: number;
   browserKeyHash: Buffer;
 }
@@ -58,15 +60,30 @@ export function authorizationCookieName(state: string): string {
   return `gdrive_oauth_${sha256(state).toString("hex").slice(0, 16)}`;
 }
 
-export function beginAuthorization(ownerId: string, returnTo: string | null): AuthorizationStart {
+function grantedScopes(scope: string | null | undefined): string[] {
+  return (scope ?? "").split(/\s+/).filter(Boolean);
+}
+
+export function accountCanWrite(account: DriveAccount): boolean {
+  return grantedScopes(account.credentials.scope).includes(WRITE_SCOPE);
+}
+
+export interface AuthorizationRequest {
+  write: boolean;
+  loginHint?: string;
+}
+
+export function beginAuthorization(ownerId: string, returnTo: string | null, request: AuthorizationRequest): AuthorizationStart {
   pruneExpired();
   const state = randomBytes(24).toString("base64url");
   const browserKey = randomBytes(32).toString("base64url");
-  pendingAuthorizations.set(state, { ownerId, returnTo, expiresAt: Date.now() + STATE_TTL_MS, browserKeyHash: sha256(browserKey) });
+  pendingAuthorizations.set(state, { ownerId, returnTo, write: request.write, expiresAt: Date.now() + STATE_TTL_MS, browserKeyHash: sha256(browserKey) });
   const authUrl = oauthClient().generateAuthUrl({
     access_type: "offline",
     prompt: "consent select_account",
-    scope: [DRIVE_SCOPE],
+    scope: [request.write ? WRITE_SCOPE : READ_SCOPE],
+    include_granted_scopes: true,
+    ...(request.loginHint ? { login_hint: request.loginHint } : {}),
     state,
   });
   return { authUrl, cookieName: authorizationCookieName(state), browserKey, maxAgeMs: STATE_TTL_MS };
@@ -81,10 +98,15 @@ export function claimAuthorization(state: string, browserKey: string | null): Au
   return { status: "ok", pending };
 }
 
-export async function completeAuthorization(ownerId: string, code: string): Promise<DriveAccount> {
+export async function completeAuthorization(pending: PendingAuthorization, code: string): Promise<DriveAccount> {
+  const { ownerId } = pending;
   const client = oauthClient();
   const { tokens } = await client.getToken(code);
-  if (!(tokens.scope ?? "").split(/\s+/).includes(DRIVE_SCOPE)) {
+  const granted = grantedScopes(tokens.scope);
+  if (pending.write && !granted.includes(WRITE_SCOPE)) {
+    throw new Error("Write access to Google Drive was not granted. Try again and allow Claudemar to see, edit, create and delete your Google Drive files.");
+  }
+  if (!granted.includes(READ_SCOPE) && !granted.includes(WRITE_SCOPE)) {
     throw new Error("Google Drive access was not granted. Connect again and allow Claudemar to see your Google Drive files.");
   }
   client.setCredentials(tokens);

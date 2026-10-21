@@ -338,7 +338,7 @@ test("manifests round-trip and unreadable manifests start fresh", async () => {
   const path = join(workDir, "manifests", "link.json");
   const manifest: Manifest = { files: [], skipped: [{ id: "x", path: "x.form", reason: "Google Forms files cannot be downloaded" }], signature: "abc" };
   await writeManifest(path, manifest);
-  assert.deepEqual(await readManifest(path), manifest);
+  assert.deepEqual(await readManifest(path), { ...manifest, folders: [], baseline: true });
   await writeFile(path, "{not json");
   assert.deepEqual(await readManifest(path), emptyManifest);
   assert.deepEqual(await readManifest(join(workDir, "missing.json")), emptyManifest);

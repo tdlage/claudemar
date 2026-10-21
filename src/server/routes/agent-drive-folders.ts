@@ -14,7 +14,9 @@ import {
   mirroredFile,
   mirroredFiles,
   requestSync,
+  setFolderAccess,
 } from "../../google-drive/service.js";
+import { isDriveAccess } from "../../google-drive/store.js";
 import { driveRoute } from "./google-drive.js";
 
 function agentName(req: Request): string {
@@ -43,10 +45,17 @@ export function registerDriveFolderRoutes(router: Router): void {
 
   router.post("/:name/drive-folders", driveRoute(async (req, res) => {
     const name = agentName(req);
-    const { accountId, folderId } = (req.body ?? {}) as { accountId?: unknown; folderId?: unknown };
+    const { accountId, folderId, access = "read" } = (req.body ?? {}) as { accountId?: unknown; folderId?: unknown; access?: unknown };
     if (typeof accountId !== "string" || !accountId) throw new DriveRequestError(400, "accountId is required");
     if (typeof folderId !== "string" || !DRIVE_ID_PATTERN.test(folderId)) throw new DriveRequestError(400, "Invalid folderId");
-    res.status(201).json(await connectFolder(req.ctx!, name, accountId, folderId));
+    if (!isDriveAccess(access)) throw new DriveRequestError(400, "access must be read or write");
+    res.status(201).json(await connectFolder(req.ctx!, name, accountId, folderId, access));
+  }));
+
+  router.patch("/:name/drive-folders/:id", driveRoute(async (req, res) => {
+    const { access } = (req.body ?? {}) as { access?: unknown };
+    if (!isDriveAccess(access)) throw new DriveRequestError(400, "access must be read or write");
+    res.json(await setFolderAccess(req.ctx!, agentName(req), param(req, "id"), access));
   }));
 
   router.post("/:name/drive-folders/:id/sync", driveRoute(async (req, res) => {

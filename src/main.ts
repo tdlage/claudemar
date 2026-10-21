@@ -109,6 +109,14 @@ executionManager.on("complete", drainQueue);
 executionManager.on("error", drainQueue);
 executionManager.on("cancel", drainQueue);
 
+function uploadAgentDriveChanges(_id: string, info: ExecutionInfo) {
+  if (info.targetType === "agent") driveSync.afterAgentRun(info.targetName);
+}
+
+executionManager.on("complete", uploadAgentDriveChanges);
+executionManager.on("error", uploadAgentDriveChanges);
+executionManager.on("cancel", uploadAgentDriveChanges);
+
 const httpServer = createDashboardServer();
 
 httpServer.listen(config.dashboardPort, "0.0.0.0", () => {

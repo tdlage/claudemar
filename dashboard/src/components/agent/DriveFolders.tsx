@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Download, Eye, FileText, HardDrive, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { api } from "../../lib/api";
@@ -10,7 +10,8 @@ import { Modal } from "../shared/Modal";
 import { useToast } from "../shared/Toast";
 import { FilePreviewModal } from "../shared/FilePreviewModal";
 import { ConnectDriveFolderModal } from "./ConnectDriveFolderModal";
-import type { DriveFolderFiles, DriveFolderLink, DriveFoldersResponse, DriveMirroredFile } from "../../lib/types";
+import { listenDriveAuthorization, openDriveAuthorization } from "../../lib/googleDriveAuth";
+import type { DriveAccess, DriveFolderFiles, DriveFolderLink, DriveFoldersResponse, DriveMirroredFile } from "../../lib/types";
 
 interface DriveFoldersProps {
   agentName: string;
@@ -18,6 +19,8 @@ interface DriveFoldersProps {
 }
 
 const POLL_MS = 3000;
+const GRANT_TIMEOUT_MS = 5 * 60_000;
+const ACCESS_LABELS: Record<DriveAccess, string> = { read: "Read only", write: "Read & write" };
 const iconButton = "p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed";
 
 function fileName(path: string): string {
@@ -119,6 +122,8 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<DriveFolderLink | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [changingAccess, setChangingAccess] = useState<string | null>(null);
+  const stopGrantListener = useRef<(() => void) | null>(null);
   const basePath = `/agents/${agentName}/drive-folders`;
 
   const load = useCallback(() => {
@@ -126,6 +131,8 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
   }, [basePath]);
 
   useEffect(load, [load]);
+
+  useEffect(() => () => stopGrantListener.current?.(), []);
 
   const syncing = state?.folders.some((folder) => folder.syncing) ?? false;
   useEffect(() => {
@@ -146,6 +153,55 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
     } catch (err) {
       addToast("error", errorMessage(err, "Failed to start sync"));
     }
+  };
+
+  const replaceFolder = (updated: DriveFolderLink) => {
+    setState((previous) => previous && { ...previous, folders: previous.folders.map((f) => (f.id === updated.id ? updated : f)) });
+  };
+
+  const applyAccess = async (folder: DriveFolderLink, access: DriveAccess) => {
+    setChangingAccess(folder.id);
+    try {
+      replaceFolder(await api.patch<DriveFolderLink>(`${basePath}/${folder.id}`, { access }));
+      addToast("success", `"${folder.folderName}" is now ${ACCESS_LABELS[access].toLowerCase()} for this agent`);
+    } catch (err) {
+      addToast("error", errorMessage(err, "Failed to change the permission"));
+    } finally {
+      setChangingAccess(null);
+    }
+  };
+
+  const grantWriteThenApply = async (folder: DriveFolderLink, accountId: string) => {
+    stopGrantListener.current?.();
+    const stopListening = listenDriveAuthorization((event) => {
+      if (event.type !== "connected" && event.type !== "error") return;
+      stop();
+      if (event.type === "connected") void applyAccess(folder, "write");
+      else addToast("error", event.message || "Google authorization failed");
+    });
+    const timeout = setTimeout(() => stop(), GRANT_TIMEOUT_MS);
+    const stop = () => {
+      clearTimeout(timeout);
+      stopListening();
+      if (stopGrantListener.current === stop) stopGrantListener.current = null;
+    };
+    stopGrantListener.current = stop;
+    try {
+      await openDriveAuthorization({ agentName, write: true, accountId });
+      addToast("success", "Allow write access in the Google window to finish");
+    } catch (err) {
+      stop();
+      addToast("error", errorMessage(err, "Failed to start Google authorization"));
+    }
+  };
+
+  const changeAccess = (folder: DriveFolderLink, access: DriveAccess) => {
+    if (access === folder.access) return;
+    if (access === "write" && folder.accountCanWrite === false && folder.accountId) {
+      void grantWriteThenApply(folder, folder.accountId);
+      return;
+    }
+    void applyAccess(folder, access);
   };
 
   const remove = async () => {
@@ -201,7 +257,21 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
               {folder.folderName}
             </a>
             <StatusBadge folder={folder} />
+            {!folder.canManage && <Badge variant={folder.access === "write" ? "accent" : "default"}>{ACCESS_LABELS[folder.access]}</Badge>}
             <div className="ml-auto flex items-center gap-1 shrink-0">
+              {folder.canManage && (
+                <select
+                  aria-label={`Agent permission for ${folder.folderName}`}
+                  value={folder.access}
+                  disabled={changingAccess === folder.id}
+                  onChange={(e) => changeAccess(folder, e.target.value as DriveAccess)}
+                  title={folder.isOwner ? "Agent permission on this folder" : "Only the person who shared this folder can give the agent write permission"}
+                  className={`text-xs bg-transparent border rounded-md px-1.5 py-1 focus:outline-none focus:border-accent ${folder.access === "write" ? "border-accent/40 text-accent" : "border-border text-text-muted"}`}
+                >
+                  <option value="read">{ACCESS_LABELS.read}</option>
+                  <option value="write" disabled={!folder.isOwner}>{ACCESS_LABELS.write}</option>
+                </select>
+              )}
               <button
                 type="button"
                 onClick={() => syncNow(folder)}
@@ -255,6 +325,7 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
           <p className="text-sm text-text-secondary">
             Stop sharing <strong className="text-text-primary">{removeTarget?.folderName}</strong> with this agent? Its mirrored files are
             deleted from the agent's inputs. Nothing is deleted from Google Drive.
+            {removeTarget?.access === "write" && " Changes the agent has not uploaded yet are uploaded first."}
           </p>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" disabled={removing} onClick={() => setRemoveTarget(null)}>Cancel</Button>

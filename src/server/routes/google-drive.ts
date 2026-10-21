@@ -72,15 +72,14 @@ googleDriveRouter.get("/accounts", (req, res) => {
   });
 });
 
-googleDriveRouter.post("/accounts/connect", (req, res) => {
-  if (!driveOAuthConfigured()) {
-    res.status(400).json({ error: "Google Drive is not configured on this server" });
-    return;
-  }
-  const start = beginAuthorization(ownerIdOf(req.ctx!), returnPath(req.body?.returnTo));
+googleDriveRouter.post("/accounts/connect", driveRoute(async (req, res) => {
+  if (!driveOAuthConfigured()) throw new DriveRequestError(400, "Google Drive is not configured on this server");
+  const body = (req.body ?? {}) as { returnTo?: unknown; accountId?: unknown; write?: unknown };
+  const account = typeof body.accountId === "string" && body.accountId ? ownedAccount(req.ctx!, body.accountId) : null;
+  const start = beginAuthorization(ownerIdOf(req.ctx!), returnPath(body.returnTo), { write: body.write === true, loginHint: account?.email });
   res.cookie(start.cookieName, start.browserKey, { ...authorizationCookieOptions(req), maxAge: start.maxAgeMs });
   res.json({ authUrl: start.authUrl });
-});
+}));
 
 googleDriveRouter.delete("/accounts/:id", driveRoute(async (req, res) => {
   await disconnectAccount(req.ctx!, String(req.params.id));
@@ -178,7 +177,7 @@ googleDrivePublicRouter.get("/callback", driveRoute(async (req, res) => {
     return;
   }
   try {
-    const account = await completeAuthorization(pending.ownerId, code);
+    const account = await completeAuthorization(pending, code);
     resumeAccount(account.id);
     sendDriveCallback(res, 200, { ok: true, title: "Google Drive connected", message: `${account.email} is connected. You can close this window.`, returnTo, accountId: account.id });
   } catch (err) {

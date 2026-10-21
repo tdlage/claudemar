@@ -179,6 +179,7 @@ const TABLE_DEFINITIONS: string[] = [
     folder_name VARCHAR(1024) NOT NULL,
     drive_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
     local_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    access VARCHAR(8) NOT NULL DEFAULT 'read',
     status VARCHAR(16) NOT NULL DEFAULT 'pending',
     message TEXT DEFAULT NULL,
     file_count INT UNSIGNED NOT NULL DEFAULT 0,
@@ -581,8 +582,18 @@ export async function runDataMigrations(): Promise<void> {
   await ensureQueueColumns(pool);
   await ensureExecutionHistoryColumns(pool);
   await ensureScheduleColumns(pool);
+  await ensureDriveFolderColumns(pool);
 
   console.log("[data-migration] All data migrations completed");
+}
+
+async function ensureDriveFolderColumns(pool: ReturnType<typeof getPool>): Promise<void> {
+  const [rows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agent_drive_folders' AND COLUMN_NAME = 'access'",
+  );
+  if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE agent_drive_folders ADD COLUMN access VARCHAR(8) NOT NULL DEFAULT 'read' AFTER local_name");
+  }
 }
 
 async function ensureScheduleColumns(pool: ReturnType<typeof getPool>): Promise<void> {

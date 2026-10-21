@@ -20,6 +20,12 @@ export interface DriveAccount {
 
 export type DriveFolderStatus = "pending" | "ok" | "error";
 
+export type DriveAccess = "read" | "write";
+
+export function isDriveAccess(value: unknown): value is DriveAccess {
+  return value === "read" || value === "write";
+}
+
 export interface DriveFolderLink {
   id: string;
   agentName: string;
@@ -28,6 +34,7 @@ export interface DriveFolderLink {
   folderName: string;
   driveId: string | null;
   localName: string;
+  access: DriveAccess;
   status: DriveFolderStatus;
   message: string | null;
   fileCount: number;
@@ -59,6 +66,7 @@ interface FolderRow extends RowDataPacket {
   folder_name: string;
   drive_id: string | null;
   local_name: string;
+  access: string;
   status: string;
   message: string | null;
   file_count: number;
@@ -107,6 +115,7 @@ function toFolder(row: FolderRow): DriveFolderLink {
     folderName: row.folder_name,
     driveId: row.drive_id,
     localName: row.local_name,
+    access: row.access === "write" ? "write" : "read",
     status,
     message: row.message,
     fileCount: Number(row.file_count),
@@ -130,7 +139,7 @@ class DriveStore {
       "SELECT id, owner_id, email, display_name, credentials, reauth_required, created_at FROM google_drive_accounts",
     );
     const folderRows = await query<FolderRow[]>(
-      `SELECT id, agent_name, account_id, folder_id, folder_name, drive_id, local_name, status, message,
+      `SELECT id, agent_name, account_id, folder_id, folder_name, drive_id, local_name, access, status, message,
               file_count, skipped_count, total_bytes, last_synced_at, created_at
        FROM agent_drive_folders ORDER BY created_at`,
     );
@@ -220,7 +229,7 @@ class DriveStore {
     return this.allFolders().find((folder) => folder.agentName === agentName && folder.folderId === folderId);
   }
 
-  async createFolder(input: Pick<DriveFolderLink, "agentName" | "accountId" | "folderId" | "folderName" | "driveId" | "localName">): Promise<DriveFolderLink> {
+  async createFolder(input: Pick<DriveFolderLink, "agentName" | "accountId" | "folderId" | "folderName" | "driveId" | "localName" | "access">): Promise<DriveFolderLink> {
     const folder: DriveFolderLink = {
       ...input,
       id: randomUUID(),
@@ -234,9 +243,9 @@ class DriveStore {
       createdAt: now(),
     };
     await execute(
-      `INSERT INTO agent_drive_folders (id, agent_name, account_id, folder_id, folder_name, drive_id, local_name, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-      [folder.id, folder.agentName, folder.accountId, folder.folderId, folder.folderName, folder.driveId, folder.localName, toMySQLDatetime(folder.createdAt)],
+      `INSERT INTO agent_drive_folders (id, agent_name, account_id, folder_id, folder_name, drive_id, local_name, access, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      [folder.id, folder.agentName, folder.accountId, folder.folderId, folder.folderName, folder.driveId, folder.localName, folder.access, toMySQLDatetime(folder.createdAt)],
     );
     this.folders.set(folder.id, folder);
     return folder;
@@ -271,6 +280,13 @@ class DriveStore {
         id,
       ],
     );
+  }
+
+  async setAccess(id: string, access: DriveAccess): Promise<void> {
+    const folder = this.folders.get(id);
+    if (!folder) return;
+    await execute("UPDATE agent_drive_folders SET access = ? WHERE id = ?", [access, id]);
+    folder.access = access;
   }
 
   async deleteFolder(id: string): Promise<void> {
