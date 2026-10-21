@@ -5,6 +5,7 @@ import { executionManager, type ExecutionInfo } from "./execution-manager.js";
 import { getScheduleById } from "./agents/scheduler.js";
 import { getAgentPaths } from "./agents/manager.js";
 import { closePool } from "./database.js";
+import { driveStore } from "./google-drive/store.js";
 
 async function main(): Promise<number> {
   await refreshProviderCatalog();
@@ -25,6 +26,10 @@ async function main(): Promise<number> {
     console.error(`[schedule-run] agente "${schedule.agent}" não encontrado`);
     return 1;
   }
+
+  await driveStore.initialize().catch((err) => {
+    console.error(`[schedule-run] pastas do Google Drive indisponíveis: ${err instanceof Error ? err.message : String(err)}`);
+  });
 
   const startedAt = new Date().toISOString();
   console.log(`[schedule-run] ${startedAt} — executando agendamento ${id} (agente "${schedule.agent}")`);

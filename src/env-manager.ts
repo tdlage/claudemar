@@ -16,6 +16,7 @@ const LLM_GROUP = "Provedores LLM";
 const WHISPER_GROUP = "Transcrição de voz (Whisper)";
 const BRAIN_GROUP = "Second Brain";
 const JEV_GROUP = "Jev (TypeSafe)";
+const DRIVE_GROUP = "Google Drive (entradas dos agentes)";
 
 export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "OPENAI_API_KEY", label: "OpenAI API Key", group: WHISPER_GROUP, help: "Usada apenas pelo Whisper na transcrição de voz. Os modelos GPT rodam pela assinatura do ChatGPT (login do Codex em Configurações), nunca por esta chave.", required: false },
@@ -29,6 +30,8 @@ export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "BRAIN_ANTHROPIC_API_KEY", label: "Anthropic API Key (brain)", group: BRAIN_GROUP, help: "Chave da Anthropic dedicada ao pipeline do Second Brain (triagem/compilação). Separada de ANTHROPIC_API_KEY para não substituir a subscription do Claude.", required: false },
   { key: "GOOGLE_CLIENT_ID", label: "Google Client ID", group: BRAIN_GROUP, help: "OAuth client do Google Cloud para os conectores Gmail/Calendar. Redirect URI: <PUBLIC_BASE_URL>/api/brain/google/callback.", required: false },
   { key: "GOOGLE_CLIENT_SECRET", label: "Google Client Secret", group: BRAIN_GROUP, help: "Secret do OAuth client do Google Cloud.", required: false },
+  { key: "GOOGLE_DRIVE_CLIENT_ID", label: "Google Drive Client ID", group: DRIVE_GROUP, help: "OAuth client (tipo Web application) exclusivo das pastas do Google Drive nas Entradas dos agentes — separado do OAuth do Second Brain. Cada usuário conecta a própria conta Google. Ative a Google Drive API no projeto, inclua o escopo drive.readonly na tela de consentimento e cadastre o redirect URI <PUBLIC_BASE_URL>/api/google-drive/callback.", required: false },
+  { key: "GOOGLE_DRIVE_CLIENT_SECRET", label: "Google Drive Client Secret", group: DRIVE_GROUP, help: "Secret do OAuth client do Google Drive.", required: false },
   { key: "REDIS_URL", label: "Redis URL", group: BRAIN_GROUP, help: "Endpoint do Redis usado pelo brain (cursores, filas, dedup). Padrão: redis://127.0.0.1:6379.", required: false },
   { key: "R2_ENDPOINT", label: "R2 Endpoint", group: BRAIN_GROUP, help: "Endpoint S3 do Cloudflare R2 para anexos e originais. Vazio = armazenamento local em BRAIN_ROOT/attachments.", required: false },
   { key: "R2_ACCESS_KEY_ID", label: "R2 Access Key ID", group: BRAIN_GROUP, help: "Credencial de acesso do bucket R2.", required: false },

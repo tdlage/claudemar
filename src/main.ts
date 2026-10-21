@@ -25,6 +25,8 @@ import { initPipelineRunner } from "./pipeline-runner.js";
 import { initClaudeAuthWatch } from "./claude/claude-auth-state.js";
 import { ensureMemoryReady } from "./memory/session-memory.js";
 import { brainInit, brainShutdown } from "./brain/index.js";
+import { driveStore } from "./google-drive/store.js";
+import { driveSync } from "./google-drive/sync.js";
 import { closePool } from "./database.js";
 
 function migrateClaudeMdToAgentsMd(): void {
@@ -61,6 +63,9 @@ await runDataMigrations().catch((err) => {
 await refreshProviderCatalog();
 setInterval(() => { void refreshProviderCatalog().catch(() => {}); }, 60_000).unref();
 await usersManager.initialize();
+await driveStore.initialize()
+  .then(() => driveSync.start())
+  .catch((err) => console.error("[google-drive] Initialization failed:", err instanceof Error ? err.message : String(err)));
 await sessionNamesManager.initialize();
 await commandQueue.initialize();
 await runProcessManager.initialize();
@@ -123,6 +128,7 @@ async function shutdown() {
   executionManager.beginDrain();
   bot.stop();
   tokenManager.stop();
+  driveSync.stop();
 
   // Nunca encerrar com prompts em execução: o systemd (KillMode=mixed) só sinaliza o
   // processo principal, então as sessões SDK continuam vivas enquanto aguardamos aqui.

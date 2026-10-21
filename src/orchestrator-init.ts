@@ -47,6 +47,7 @@ ${config.basePath}/
 │       ├── AGENTS.md      # Agent persona and instructions
 │       ├── context/       # Reference docs (markdown files)
 │       ├── input/         # Input files for the agent
+│       │   └── google-drive/  # Read-only mirrors of Google Drive folders shared with the agent (managed by Claudemar)
 │       ├── output/        # Execution outputs and scheduled results
 │       └── schedules/     # Cron scripts and logs
 ├── projects/              # Project folders (may contain multiple repos)

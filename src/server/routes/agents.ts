@@ -19,6 +19,9 @@ import { purgeAgentData } from "../../target-cleanup.js";
 import { agentSecretsManager } from "../../secrets-manager.js";
 import { safeFilename, listFiles, listDirEntries, inputUploadParser } from "../route-utils.js";
 import { registerSecretsRoutes } from "./secrets.js";
+import { registerDriveFolderRoutes } from "./agent-drive-folders.js";
+import { DRIVE_INPUT_DIR } from "../../google-drive/paths.js";
+import { agentFolderCount } from "../../google-drive/service.js";
 
 export const agentsRouter = Router();
 
@@ -30,13 +33,17 @@ agentsRouter.param("name", (req, res, next) => {
   next();
 });
 
+function listInputFiles(inputDir: string) {
+  return listFiles(inputDir).filter((file) => file.name !== DRIVE_INPUT_DIR);
+}
+
 function resolveAgentFile(
   req: Request,
   res: Response,
   subdir: keyof Pick<AgentPaths, "output" | "input" | "context">,
 ): { paths: AgentPaths; filePath: string } | null {
   const { name, file } = req.params;
-  if (!isValidAgentName(name) || !safeFilename(file)) {
+  if (!isValidAgentName(name) || !safeFilename(file) || (subdir === "input" && file === DRIVE_INPUT_DIR)) {
     res.status(400).json({ error: "Invalid name or filename" });
     return null;
   }
@@ -120,7 +127,7 @@ agentsRouter.get("/:name", async (req, res) => {
   }
 
   const outputFiles = listDirEntries(paths.output);
-  const inputFiles = listFiles(paths.input);
+  const inputFiles = listInputFiles(paths.input);
 
   let contextFiles: string[] = [];
   try { contextFiles = readdirSync(paths.context).filter((f) => !f.startsWith(".")).sort(); } catch { }
@@ -138,6 +145,7 @@ agentsRouter.get("/:name", async (req, res) => {
     schedules,
     secrets,
     secretFiles,
+    driveFolderCount: agentFolderCount(name),
   });
 });
 
@@ -357,7 +365,7 @@ agentsRouter.get("/:name/input", (req, res) => {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
-  res.json(listFiles(paths.input));
+  res.json(listInputFiles(paths.input));
 });
 
 agentsRouter.post("/:name/input", inputUploadParser, (req, res) => {
@@ -375,6 +383,10 @@ agentsRouter.post("/:name/input", inputUploadParser, (req, res) => {
   const { filename } = req.query;
   if (!safeFilename(filename)) {
     res.status(400).json({ error: "Invalid or missing filename" });
+    return;
+  }
+  if (filename === DRIVE_INPUT_DIR) {
+    res.status(400).json({ error: `"${DRIVE_INPUT_DIR}" is reserved for Google Drive folders` });
     return;
   }
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
@@ -525,3 +537,4 @@ function resolveAgentOwner(req: Request, res: Response): string | null {
 }
 
 registerSecretsRoutes(agentsRouter, { manager: agentSecretsManager, ownerLabel: "agente", resolveOwner: resolveAgentOwner });
+registerDriveFolderRoutes(agentsRouter);

@@ -16,6 +16,7 @@ import { REPO_WORKTREES_ROOT, hiddenReposPath } from "./repositories.js";
 import { purgeTarget } from "./brain/claudemar/purge.js";
 import { agentSecretsManager, purgeProjectSecrets } from "./secrets-manager.js";
 import { purgePromptAttachments } from "./prompt-attachments.js";
+import { purgeAgentDriveFolders } from "./google-drive/service.js";
 
 async function purgeBrainTarget(target: { kind: "project" | "agent"; name: string }): Promise<void> {
   await purgeTarget(target).catch((err) => {
@@ -82,6 +83,7 @@ export async function purgeAgentData(agentName: string): Promise<void> {
 
   await agentSecretsManager.purge(agentName);
   await purgePromptAttachments("agent", agentName);
+  await purgeAgentDriveFolders(agentName);
   await execute(
     "DELETE FROM execution_history WHERE (target_type = 'agent' AND target_name = ?) OR agent_name = ?",
     [agentName, agentName],

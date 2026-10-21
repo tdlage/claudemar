@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Router } from "express";
+import type { Response } from "express";
 import { asyncHandler, safeFilename } from "../route-utils.js";
 import { brainRoot, rawDir, resolveInside, wikiDir } from "../../brain/paths.js";
 import { fileAtCommit, fileHistory } from "../../brain/git.js";
@@ -58,6 +59,7 @@ import { config } from "../../config.js";
 import { markTargetsDirty } from "../../brain/claudemar/connector.js";
 import { isTargetExcluded, parseTargetKey } from "../../brain/claudemar/targets.js";
 import { purgeTarget } from "../../brain/claudemar/purge.js";
+import { sendCallbackPage } from "../callback-page.js";
 import type { BrainSchedulerName, RawFrontmatter } from "../../brain/types.js";
 
 export const brainRouter = Router();
@@ -65,15 +67,6 @@ export const brainPublicRouter = Router();
 
 const FILTER_CONCURRENCY = 64;
 const FILTER_MAX_MATCHES = 500;
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function brainPath(raw: unknown, prefix: "raw/" | "wiki/", requireMd = true): string | null {
   const relPath = typeof raw === "string" ? raw : "";
@@ -83,12 +76,8 @@ function brainPath(raw: unknown, prefix: "raw/" | "wiki/", requireMd = true): st
   return resolveInside(brainRoot, relPath) ? relPath : null;
 }
 
-function closePage(rawTitle: string, rawMessage: string): string {
-  const title = escapeHtml(rawTitle);
-  const message = escapeHtml(rawMessage);
-  return `<!doctype html><html lang="pt"><head><meta charset="utf-8"><title>${title}</title>
-<style>body{font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}div{text-align:center;max-width:420px}</style>
-</head><body><div><h2>${title}</h2><p>${message}</p><p><small>Pode fechar esta janela.</small></p></div></body></html>`;
+function sendClosePage(res: Response, status: number, title: string, message: string): void {
+  sendCallbackPage(res, status, { lang: "pt", title, message, footer: "Pode fechar esta janela." });
 }
 
 brainPublicRouter.get(
@@ -97,21 +86,21 @@ brainPublicRouter.get(
     const code = typeof req.query.code === "string" ? req.query.code : "";
     const state = typeof req.query.state === "string" ? req.query.state : "";
     if (!code || !state || !/^[0-9a-f-]{36}$/.test(state)) {
-      res.status(400).send(closePage("Autorização inválida", "Parâmetros ausentes. Feche esta janela e tente de novo."));
+      sendClosePage(res, 400, "Autorização inválida", "Parâmetros ausentes. Feche esta janela e tente de novo.");
       return;
     }
     const consumed = await getRedis().getdel(KEYS.oauthState(state)).catch(() => null);
     if (!consumed) {
-      res.status(403).send(closePage("Autorização expirada", "O pedido de autorização expirou. Tente de novo pelo dashboard."));
+      sendClosePage(res, 403, "Autorização expirada", "O pedido de autorização expirou. Tente de novo pelo dashboard.");
       return;
     }
     try {
       const email = await handleCallback(code);
       brainEvents.emit("google", { connected: true, email });
-      res.send(closePage("Conta conectada", `${email} conectada ao Second Brain. Pode fechar esta janela.`));
+      sendClosePage(res, 200, "Conta conectada", `${email} conectada ao Second Brain.`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).send(closePage("Falha na conexão", msg));
+      sendClosePage(res, 500, "Falha na conexão", msg);
     }
   }),
 );

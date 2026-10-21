@@ -95,6 +95,77 @@ export interface AgentDetail extends AgentInfo {
   schedules: ScheduleEntry[];
   secrets: MaskedSecret[];
   secretFiles: SecretFile[];
+  driveFolderCount: number;
+}
+
+export type DriveFolderStatus = "pending" | "ok" | "error";
+
+export interface DriveFolderLink {
+  id: string;
+  folderId: string;
+  folderName: string;
+  folderUrl: string;
+  localPath: string;
+  ownerName: string;
+  accountEmail: string | null;
+  canManage: boolean;
+  status: DriveFolderStatus;
+  syncing: boolean;
+  message: string | null;
+  fileCount: number;
+  skippedCount: number;
+  totalBytes: number;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  reauthRequired: boolean;
+}
+
+export interface DriveFoldersResponse {
+  configured: boolean;
+  syncIntervalMinutes: number;
+  folders: DriveFolderLink[];
+}
+
+export interface DriveAccount {
+  id: string;
+  email: string;
+  displayName: string;
+  reauthRequired: boolean;
+  folderCount: number;
+}
+
+export interface DriveAccountsResponse {
+  configured: boolean;
+  redirectUri: string | null;
+  accounts: DriveAccount[];
+}
+
+export type DriveBrowseScope = "my" | "shared" | "drives";
+
+export interface DriveBrowseFolder {
+  id: string;
+  name: string;
+  driveId: string | null;
+}
+
+export interface DriveBrowseResponse {
+  folders: DriveBrowseFolder[];
+  nextPageToken: string | null;
+}
+
+export interface DriveMirroredFile {
+  id: string;
+  path: string;
+  size: number;
+  modifiedTime: string | null;
+  mimeType: string;
+  exportedAs: string | null;
+  webViewLink: string | null;
+}
+
+export interface DriveFolderFiles {
+  files: DriveMirroredFile[];
+  skipped: { id: string; path: string; reason: string }[];
 }
 
 export interface ScheduleEntry {

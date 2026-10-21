@@ -13,6 +13,7 @@ import { compactOutput, formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
 import { buildEmailHint, buildProjectSecretsHint, buildSecretsHint } from "./agents/agent-context.js";
+import { buildDriveFoldersHint } from "./google-drive/service.js";
 import { projectSecretsDir } from "./secrets-manager.js";
 import { existingPromptAttachmentsDir } from "./prompt-attachments.js";
 import { config } from "./config.js";
@@ -241,6 +242,7 @@ export class ExecutionManager extends EventEmitter {
     }
     if (opts.targetType === "agent") {
       suffix += buildSecretsHint(opts.targetName);
+      suffix += buildDriveFoldersHint(opts.targetName);
     }
     if (opts.targetType === "project") {
       const projectPath = safeProjectPath(opts.targetName);

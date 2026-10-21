@@ -159,6 +159,39 @@ const TABLE_DEFINITIONS: string[] = [
     emoji VARCHAR(16) DEFAULT NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
+  `CREATE TABLE IF NOT EXISTS google_drive_accounts (
+    id CHAR(36) PRIMARY KEY,
+    owner_id VARCHAR(64) NOT NULL,
+    email VARCHAR(320) NOT NULL,
+    display_name VARCHAR(255) NOT NULL DEFAULT '',
+    credentials TEXT NOT NULL,
+    reauth_required TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE KEY uk_owner_email (owner_id, email)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS agent_drive_folders (
+    id CHAR(36) PRIMARY KEY,
+    agent_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    account_id CHAR(36) NOT NULL,
+    folder_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    folder_name VARCHAR(1024) NOT NULL,
+    drive_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+    local_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+    message TEXT DEFAULT NULL,
+    file_count INT UNSIGNED NOT NULL DEFAULT 0,
+    skipped_count INT UNSIGNED NOT NULL DEFAULT 0,
+    total_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    last_synced_at DATETIME DEFAULT NULL,
+    created_at DATETIME NOT NULL,
+    UNIQUE KEY uk_agent_folder (agent_name, folder_id),
+    UNIQUE KEY uk_agent_local (agent_name, local_name),
+    INDEX idx_account (account_id),
+    CONSTRAINT fk_adf_account FOREIGN KEY (account_id) REFERENCES google_drive_accounts(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
   `DROP TABLE IF EXISTS squad_skills`,
   `DROP TABLE IF EXISTS squad_mcps`,
   `DROP TABLE IF EXISTS team_members`,

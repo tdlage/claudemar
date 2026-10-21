@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { usersManager } from "../../users-manager.js";
+import { pruneDriveOwnerAgents, purgeDriveOwner } from "../../google-drive/service.js";
 
 export const usersRouter = Router();
 
@@ -23,6 +24,7 @@ usersRouter.put("/:id", async (req, res) => {
     res.status(404).json({ error: "User not found" });
     return;
   }
+  if (req.body?.agents !== undefined) await pruneDriveOwnerAgents(updated.id, updated.agents);
   res.json(updated);
 });
 
@@ -32,5 +34,6 @@ usersRouter.delete("/:id", async (req, res) => {
     res.status(404).json({ error: "User not found" });
     return;
   }
+  await purgeDriveOwner(req.params.id);
   res.json({ deleted: true });
 });

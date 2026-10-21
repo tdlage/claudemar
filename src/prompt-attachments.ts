@@ -1,12 +1,13 @@
 import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
-import { Transform, type Readable } from "node:stream";
+import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { basename, resolve, sep } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { safeProjectPath } from "./session.js";
 import { getAgentPaths } from "./agents/manager.js";
+import { byteLimiter, formatSize, truncateUtf8 } from "./byte-utils.js";
 
 const ROOT = resolve(config.dataPath, "prompt-attachments");
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -51,18 +52,6 @@ export function existingPromptAttachmentsDir(targetType: string, targetName: str
   return dir && existsSync(dir) ? dir : null;
 }
 
-function truncateUtf8(value: string, maxBytes: number): string {
-  let out = "";
-  let bytes = 0;
-  for (const char of value) {
-    const size = Buffer.byteLength(char, "utf8");
-    if (bytes + size > maxBytes) break;
-    out += char;
-    bytes += size;
-  }
-  return out;
-}
-
 function sanitizeFilename(original: string): string {
   const name = basename(original.normalize("NFC"))
     .replace(/[^\p{L}\p{N}._ ()-]/gu, "_")
@@ -75,12 +64,6 @@ function sanitizeFilename(original: string): string {
   return truncateUtf8(name.slice(0, ext ? dot : undefined), MAX_FILENAME_BYTES - Buffer.byteLength(ext, "utf8")) + ext;
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 async function directorySize(dir: string): Promise<number> {
   let total = 0;
   for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
@@ -88,19 +71,6 @@ async function directorySize(dir: string): Promise<number> {
     total += entry.isDirectory() ? await directorySize(path) : (await stat(path)).size;
   }
   return total;
-}
-
-// Descarta o excedente em vez de falhar no meio: o request precisa ser lido até o fim
-// para a resposta de limite chegar ao cliente.
-function byteLimiter(maxBytes: number): Transform & { exceeded: () => boolean } {
-  let received = 0;
-  const limiter = new Transform({
-    transform(chunk: Buffer, _encoding, done) {
-      received += chunk.length;
-      done(null, received > maxBytes ? undefined : chunk);
-    },
-  });
-  return Object.assign(limiter, { exceeded: () => received > maxBytes });
 }
 
 export interface SaveAttachmentInput {

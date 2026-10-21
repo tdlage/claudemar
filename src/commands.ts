@@ -2,10 +2,7 @@ import type { Bot, Context } from "grammy";
 import { InlineKeyboard } from "grammy";
 import { tokenManager } from "./server/token-manager.js";
 import { checkForUpdates, performUpdate, restartService } from "./updater.js";
-
-function escapeHtml(text: string): string {
-  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+import { escapeHtml } from "./html.js";
 
 async function handleToken(ctx: Context): Promise<void> {
   const chatId = ctx.chat?.id;

@@ -1,6 +1,7 @@
 import { relative } from "node:path";
 import { watch, type FSWatcher } from "chokidar";
 import { config } from "../config.js";
+import { isDriveMirrorPath } from "../google-drive/paths.js";
 
 export type FileChangeEvent = "change" | "add" | "unlink";
 export type FileChangeCallback = (
@@ -45,7 +46,7 @@ export function startFileWatcher(callback: FileChangeCallback): void {
   ];
 
   watcher = watch(paths, {
-    ignored: [/node_modules/, /\.git/, /archived/],
+    ignored: [/node_modules/, /\.git/, /archived/, isDriveMirrorPath],
     depth: 5,
     ignoreInitial: true,
     persistent: true,

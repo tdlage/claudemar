@@ -15,6 +15,7 @@ import { Badge } from "../components/shared/Badge";
 import { ToggleButton } from "../components/shared/ToggleButton";
 import { OutputBrowser, type OutputFile } from "../components/agent/OutputBrowser";
 import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
+import { DriveFolders } from "../components/agent/DriveFolders";
 import { AgentConfig } from "../components/agent/AgentConfig";
 import { AgentSchedules } from "../components/agent/AgentSchedules";
 import { AgentContextFiles } from "../components/agent/AgentContextFiles";
@@ -142,7 +143,7 @@ export function AgentDetailPage() {
   const tabs: { key: TabKey; label: string }[] = [
     { key: "terminal", label: "Conversa" },
     { key: "code", label: "Código" },
-    { key: "input", label: `Entradas (${inputFiles.length})` },
+    { key: "input", label: `Entradas (${inputFiles.length + agent.driveFolderCount})` },
     { key: "output", label: `Saídas (${outputFiles.length})` },
     { key: "config", label: "Configurações" },
     { key: "scheduler", label: `Agendamentos (${agent.schedules.length})` },
@@ -326,7 +327,13 @@ export function AgentDetailPage() {
       )}
 
       {tab === "input" && (
-        <InputBrowser apiBasePath={`/agents/${agent.name}`} files={inputFiles} onRefresh={loadInputs} />
+        <div className="space-y-6">
+          <DriveFolders agentName={agent.name} onChanged={loadAgent} />
+          <section className="space-y-2" aria-label="Uploaded files">
+            <h3 className="text-sm font-medium">Uploaded files</h3>
+            <InputBrowser apiBasePath={`/agents/${agent.name}`} files={inputFiles} onRefresh={loadInputs} />
+          </section>
+        </div>
       )}
 
       {tab === "output" && (
