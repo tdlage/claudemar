@@ -158,6 +158,7 @@ export async function pushLocalChanges(ctx: PushContext, changes: LocalChanges):
   const remember = (path: string, file: RemoteFile, parentId: string, local: LocalFile, baseFingerprint = file.fingerprint) => {
     const entry: ManifestEntry = {
       id: file.id,
+      sourceId: file.sourceId,
       path,
       fingerprint: baseFingerprint,
       size: local.size,
@@ -244,7 +245,7 @@ export async function pushLocalChanges(ctx: PushContext, changes: LocalChanges):
   for (const { entry, local } of changes.modified) {
     const current = remote.get(entry.id);
     if (entry.readOnly) {
-      await saveAside(entry.path, "Copies of Google Docs, Sheets, Slides, Drawings and shortcuts are read-only, so this edit was not uploaded.", entry.id);
+      await saveAside(entry.path, "Copies of Google Docs, Sheets, Slides, Drawings and shortcuts are read-only (edit Google Docs, Sheets and Slides with the gdrive tools), so this edit was not uploaded.", entry.id);
       continue;
     }
     if (current && current.fingerprint === entry.fingerprint) {

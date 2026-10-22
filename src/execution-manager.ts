@@ -1,5 +1,5 @@
 import { resolveTargetModel, sessionModelSettings } from "./target-model-settings.js";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -12,8 +12,9 @@ import { resolveBypass, resolveStartPermissionMode } from "./claude/permission.j
 import { compactOutput, formatToolUse } from "./providers/format.js";
 import { type HistoryEntry, appendHistory, loadHistory } from "./history.js";
 import { buildAgentDefinitions } from "./agents/subagents.js";
-import { buildEmailHint, buildProjectSecretsHint, buildSecretsHint } from "./agents/agent-context.js";
-import { buildDriveFoldersHint } from "./google-drive/service.js";
+import { buildContextFilesHint, buildEmailHint, buildInstructionsBlock, buildProjectSecretsHint, buildSecretsHint, contextFilesSignature } from "./agents/agent-context.js";
+import { getAgentPaths } from "./agents/manager.js";
+import { buildDriveFoldersHint, driveSessionSignature } from "./google-drive/service.js";
 import { projectSecretsDir } from "./secrets-manager.js";
 import { existingPromptAttachmentsDir } from "./prompt-attachments.js";
 import { config } from "./config.js";
@@ -142,6 +143,7 @@ interface ActiveEntry {
 export class ExecutionManager extends EventEmitter {
   private sessionIsolation = new Map<string, boolean>();
   private sessionDirectories = new Map<string, string>();
+  private sessionKnowledge = new Map<string, string>();
   private sessionProfiles = new Map<string, string>();
   private active = new Map<string, ActiveEntry>();
   private draining = false;
@@ -232,14 +234,47 @@ export class ExecutionManager extends EventEmitter {
     this.sessionHistoryMap.set(key, filtered.slice(0, MAX_SESSION_HISTORY));
   }
 
-  private buildSystemSuffix(opts: StartExecutionOpts, profile: LlmProfile): string {
+  private agentsMdPath(opts: StartExecutionOpts): string | null {
+    if (opts.targetType === "orchestrator") return resolve(config.orchestratorPath, "AGENTS.md");
+    if (opts.targetType !== "agent") return null;
+    const paths = getAgentPaths(opts.targetName);
+    return paths ? resolve(paths.root, "AGENTS.md") : null;
+  }
+
+  // Codex carrega o AGENTS.md do cwd nativamente; o Claude Agent SDK só carrega CLAUDE.md.
+  private buildKnowledge(opts: StartExecutionOpts, profile: LlmProfile): string {
     if (opts.skipSystemPrompt) return "";
-    let suffix = "";
+    const agentsMdPath = this.agentsMdPath(opts);
+    if (!agentsMdPath) return "";
+    let knowledge = profile.runtime === "claude"
+      ? buildInstructionsBlock(agentsMdPath)
+      : `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions.]`;
     if (opts.targetType === "orchestrator" && profile.runtime === "claude") {
-      suffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions. To delegate a task to another agent, invoke it as a subagent via the Agent tool (the available agents are exposed automatically).]`;
-    } else if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
-      suffix += `\n[SYSTEM: Before executing, read your AGENTS.md for your role and instructions.]`;
+      knowledge += `\n[SYSTEM: To delegate a task to another agent, invoke it as a subagent via the Agent tool (the available agents are exposed automatically).]`;
     }
+    if (opts.targetType === "agent") knowledge += buildContextFilesHint(opts.targetName);
+    return knowledge;
+  }
+
+  // Barato o bastante para rodar a cada mensagem: só muda quando a sessão precisa ser recriada
+  // (instruções editadas, arquivos de contexto adicionados/removidos, pastas do Drive conectadas).
+  private knowledgeSignature(opts: StartExecutionOpts, profile: LlmProfile): string {
+    const parts: string[] = [profile.runtime];
+    const agentsMdPath = opts.skipSystemPrompt ? null : this.agentsMdPath(opts);
+    if (agentsMdPath && existsSync(agentsMdPath)) {
+      const info = statSync(agentsMdPath);
+      parts.push(`${info.mtimeMs}:${info.size}`);
+    }
+    if (opts.targetType === "agent") {
+      if (!opts.skipSystemPrompt) parts.push(contextFilesSignature(opts.targetName));
+      parts.push(driveSessionSignature(opts.targetName));
+    }
+    return parts.join("\n");
+  }
+
+  private buildSystemSuffix(opts: StartExecutionOpts, knowledge: string): string {
+    if (opts.skipSystemPrompt) return "";
+    let suffix = knowledge;
     if (opts.targetType === "agent") {
       suffix += buildSecretsHint(opts.targetName);
       suffix += buildDriveFoldersHint(opts.targetName);
@@ -295,6 +330,8 @@ export class ExecutionManager extends EventEmitter {
     const additionalDirectories = this.buildAdditionalDirectories(opts);
     const directoriesKey = (additionalDirectories ?? []).join("\n");
     const directoriesChanged = (this.sessionDirectories.get(sessionKey) ?? "") !== directoriesKey;
+    const knowledgeKey = this.knowledgeSignature(opts, profile);
+    const knowledgeChanged = (this.sessionKnowledge.get(sessionKey) ?? "") !== knowledgeKey;
     if (existing) {
       const planChanged = Boolean(opts.planMode) !== existing.planMode;
       const agentChanged = (opts.agentName ?? "") !== (existing.agentName ?? "");
@@ -305,7 +342,7 @@ export class ExecutionManager extends EventEmitter {
       // Per-call MCP servers/skills (ex.: pipeline) só se aplicam na criação da sessão; se um caller
       // não-agent traz extraMcpServers, recria para não herdar o MCP/skill da etapa anterior.
       const mcpChanged = opts.targetType !== "agent" && opts.extraMcpServers !== undefined;
-      if (!opts.taskMode && existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged && !isolationChanged && !directoriesChanged) {
+      if (!opts.taskMode && existing.isAlive() && !planChanged && !agentChanged && !schedulerChanged && !resumeChanged && !llmChanged && !modelChanged && !mcpChanged && !isolationChanged && !directoriesChanged && !knowledgeChanged) {
         return { session: existing, isNew: false };
       }
       this.retireSession(existing);
@@ -325,7 +362,7 @@ export class ExecutionManager extends EventEmitter {
       bypassPermissions: bypass,
       resumeSessionId: resumeId ?? null,
       effort: opts.effort,
-      systemAppend: this.buildSystemSuffix(opts, profile),
+      systemAppend: this.buildSystemSuffix(opts, this.buildKnowledge(opts, profile)),
       additionalDirectories,
       skipIsolationInstruction,
       subagents: this.buildSubagents(opts, profile),
@@ -340,6 +377,7 @@ export class ExecutionManager extends EventEmitter {
     this.sessionProfiles.set(sessionKey, profile.id);
     this.sessionIsolation.set(sessionKey, skipIsolationInstruction);
     this.sessionDirectories.set(sessionKey, directoriesKey);
+    this.sessionKnowledge.set(sessionKey, knowledgeKey);
     this.sessionGen.set(sessionKey, this.llmConfigGen);
     return { session, isNew: true };
   }

@@ -223,7 +223,7 @@ export function ConnectDriveFolderModal({ agentName, syncIntervalMinutes, onClos
               <>
                 <p className="text-xs text-text-muted">
                   Create an OAuth client of type <strong>Web application</strong> dedicated to Google Drive (separate from the Second Brain),
-                  enable the Google Drive API, add the <span className="font-mono">drive.readonly</span> scope (and <span className="font-mono">drive</span> for folders shared with write permission) to the consent screen, set
+                  enable the Google Drive, Docs, Sheets and Slides APIs, add the <span className="font-mono">drive.readonly</span> scope (and <span className="font-mono">drive</span> for folders shared with write permission) to the consent screen, set
                   GOOGLE_DRIVE_CLIENT_ID and GOOGLE_DRIVE_CLIENT_SECRET in Configurações → Chaves de API → Configurar chaves and restart the service. Authorized redirect URI:
                 </p>
                 <div className="flex items-center gap-2 bg-bg border border-border rounded-md px-3 py-2">

@@ -66,6 +66,7 @@ export interface MirrorPlan {
 
 export interface ManifestEntry {
   id: string;
+  sourceId?: string;
   path: string;
   fingerprint: string;
   size: number;
@@ -296,6 +297,7 @@ async function mirrorIntact(root: string, entries: ManifestEntry[], directories:
 function toEntry(file: PlannedFile, info: LocalFile, fingerprint = file.fingerprint): ManifestEntry {
   return {
     id: file.id,
+    sourceId: file.sourceId,
     path: file.path,
     fingerprint,
     size: info.size,

@@ -252,6 +252,7 @@ async function runSync(link: DriveFolderLink, signal: AbortSignal, options: Sync
 
 class DriveSyncEngine {
   private jobs = new Map<string, { controller: AbortController; done: Promise<void> }>();
+  private pendingResync = new Set<string>();
   private links = new Map<string, LinkState>();
   private accounts = new Map<string, AccountState>();
   private timers: NodeJS.Timeout[] = [];
@@ -297,9 +298,17 @@ class DriveSyncEngine {
         state.failed = true;
         console.error(`[google-drive] sync of ${link.agentName}/${link.localName} crashed:`, err instanceof Error ? err.stack ?? err.message : String(err));
       })
-      .finally(() => this.jobs.delete(linkId));
+      .finally(() => {
+        this.jobs.delete(linkId);
+        if (this.pendingResync.delete(linkId) && !controller.signal.aborted) void this.sync(linkId);
+      });
     this.jobs.set(linkId, { controller, done });
     return done;
+  }
+
+  resync(linkId: string): void {
+    if (this.jobs.has(linkId)) this.pendingResync.add(linkId);
+    else void this.sync(linkId);
   }
 
   async flush(linkId: string): Promise<void> {
@@ -322,6 +331,7 @@ class DriveSyncEngine {
   async cancel(linkId: string): Promise<void> {
     const running = this.jobs.get(linkId);
     this.links.delete(linkId);
+    this.pendingResync.delete(linkId);
     if (!running) return;
     running.controller.abort();
     await running.done;

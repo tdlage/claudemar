@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
-import { buildEmailHint, buildSecretsHint } from "./agent-context.js";
+import { buildContextFilesHint, buildEmailHint, buildSecretsHint } from "./agent-context.js";
 import { getAgentPaths, listAgents, summarizeAgentsMd } from "./manager.js";
 
 function buildDescription(name: string, agentsMd: string): string {
@@ -14,7 +14,7 @@ function buildPrompt(name: string, agentRoot: string, agentsMd: string): string 
   const persona = agentsMd.trim();
   const workspace = `Seu workspace é ${agentRoot}. Use ${agentRoot}/output para resultados, ${agentRoot}/context para referências e ${agentRoot}/input para entradas. Sempre use caminhos absolutos.`;
   const base = persona ? `${persona}\n\n${workspace}` : `Você é o agente ${name}.\n\n${workspace}`;
-  return `${base}${buildSecretsHint(name)}${buildEmailHint()}`;
+  return `${base}${buildSecretsHint(name)}${buildContextFilesHint(name)}${buildEmailHint()}`;
 }
 
 export function buildAgentDefinitions(excludeName?: string, allowList?: string[]): Record<string, AgentDefinition> {
