@@ -8,6 +8,7 @@ import { config } from "../../config.js";
 import { getAgentPaths, isValidAgentName } from "../../agents/manager.js";
 import { safeProjectPath } from "../../session.js";
 import { hasProjectTab } from "../middleware.js";
+import { attachmentDisposition } from "../route-utils.js";
 
 export const filesRouter = Router();
 
@@ -179,7 +180,7 @@ filesRouter.get("/download", (req, res) => {
   const stat = statSync(resolved);
   if (stat.isDirectory()) {
     const folderName = basename(resolved) || "download";
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(folderName)}.zip"`);
+    res.setHeader("Content-Disposition", attachmentDisposition(`${folderName}.zip`));
     res.setHeader("Content-Type", "application/zip");
     const archive = archiver("zip", { zlib: { level: 6 } });
     archive.on("error", (err) => {
@@ -194,7 +195,7 @@ filesRouter.get("/download", (req, res) => {
   }
 
   const filename = basename(resolved);
-  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
+  res.setHeader("Content-Disposition", attachmentDisposition(filename));
   res.setHeader("Content-Length", stat.size);
   res.setHeader("Content-Type", "application/octet-stream");
   createReadStream(resolved).pipe(res);

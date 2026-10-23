@@ -7,7 +7,7 @@ import { CodexAccountSection } from "../components/layout/CodexAccountSection";
 import { AutoEffortSection } from "../components/layout/AutoEffortSection";
 import { isAdmin } from "../hooks/useAuth";
 import { registerPasskey, getPasskeyCredentials, deletePasskey, isPasskeySupported } from "../lib/passkey";
-import type { RuntimeSettings, EmailProfileMasked, LlmProfile, AgentRuntime, AutoEffortOffset } from "../lib/types";
+import type { RuntimeSettings, EmailProfileMasked, EmailAudience, LlmProfile, AgentRuntime, AutoEffortOffset } from "../lib/types";
 
 interface ProfileFormState {
   awsAccessKeyId: string;
@@ -15,6 +15,48 @@ interface ProfileFormState {
   region: string;
   from: string;
   senderName: string;
+  audience: EmailAudience;
+  userId: string;
+}
+
+interface UserOption {
+  id: string;
+  name: string;
+}
+
+const EMPTY_PROFILE_FORM: ProfileFormState = { awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "", audience: "admin", userId: "" };
+
+function audienceLabel(profile: Pick<EmailProfileMasked, "audience" | "userId">, users: UserOption[]): string {
+  if (profile.audience === "all") return "All agents";
+  if (profile.audience === "admin") return "Admin only";
+  return `User: ${users.find((u) => u.id === profile.userId)?.name ?? "(removed)"}`;
+}
+
+function AudienceSelect({ form, users, onChange, className }: {
+  form: Pick<ProfileFormState, "audience" | "userId">;
+  users: UserOption[];
+  onChange: (next: Pick<ProfileFormState, "audience" | "userId">) => void;
+  className: string;
+}) {
+  const value = form.audience === "user" ? `user:${form.userId}` : form.audience;
+  const missingUser = form.audience === "user" && !users.some((u) => u.id === form.userId);
+  return (
+    <select
+      value={value}
+      onChange={(e) => {
+        const next = e.target.value;
+        onChange(next.startsWith("user:") ? { audience: "user", userId: next.slice(5) } : { audience: next as EmailAudience, userId: "" });
+      }}
+      className={className}
+    >
+      <option value="all">All agents and users</option>
+      <option value="admin">Admin only</option>
+      {users.map((u) => (
+        <option key={u.id} value={`user:${u.id}`}>User: {u.name}</option>
+      ))}
+      {missingUser && <option value={value}>User: (removed)</option>}
+    </select>
+  );
 }
 
 export function SettingsPage() {
@@ -33,11 +75,14 @@ export function SettingsPage() {
 
   const [profiles, setProfiles] = useState<EmailProfileMasked[]>([]);
   const [editingProfile, setEditingProfile] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<ProfileFormState>({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" });
+  const [editForm, setEditForm] = useState<ProfileFormState>(EMPTY_PROFILE_FORM);
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   const [creating, setCreating] = useState(false);
   const [createName, setCreateName] = useState("");
-  const [createForm, setCreateForm] = useState<ProfileFormState>({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" });
+  const [createForm, setCreateForm] = useState<ProfileFormState>(EMPTY_PROFILE_FORM);
+  const [createCredentialsFrom, setCreateCredentialsFrom] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
@@ -101,6 +146,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     api.get<RuntimeSettings>("/settings").then(setSettings).catch(() => {});
+    api.get<UserOption[]>("/users").then(setUsers).catch(() => {});
     loadProfiles();
   }, [loadProfiles]);
 
@@ -191,16 +237,24 @@ export function SettingsPage() {
     }
   };
 
+  const resetCreateForm = () => {
+    setCreating(false);
+    setCreateName("");
+    setCreateForm(EMPTY_PROFILE_FORM);
+    setCreateCredentialsFrom("");
+    setProfileError(null);
+  };
+
   const handleCreateProfile = async () => {
     if (!createName.trim() || saving) return;
     setSaving(true);
+    setProfileError(null);
     try {
-      await api.post("/settings/email/profiles", { name: createName.trim(), ...createForm });
-      setCreating(false);
-      setCreateName("");
-      setCreateForm({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" });
+      await api.post("/settings/email/profiles", { name: createName.trim(), ...createForm, credentialsFrom: createCredentialsFrom || undefined });
+      resetCreateForm();
       loadProfiles();
-    } catch {
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : "Failed to create profile");
     } finally {
       setSaving(false);
     }
@@ -208,17 +262,20 @@ export function SettingsPage() {
 
   const handleEditStart = (profile: EmailProfileMasked) => {
     setEditingProfile(profile.name);
-    setEditForm({ awsAccessKeyId: profile.awsAccessKeyId, awsSecretAccessKey: "", region: profile.region, from: profile.from, senderName: profile.senderName });
+    setProfileError(null);
+    setEditForm({ awsAccessKeyId: profile.awsAccessKeyId, awsSecretAccessKey: "", region: profile.region, from: profile.from, senderName: profile.senderName, audience: profile.audience, userId: profile.userId });
   };
 
   const handleEditSave = async (name: string) => {
     if (saving) return;
     setSaving(true);
+    setProfileError(null);
     try {
       await api.put(`/settings/email/profiles/${encodeURIComponent(name)}`, editForm);
       setEditingProfile(null);
       loadProfiles();
-    } catch {
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : "Failed to save profile");
     } finally {
       setSaving(false);
     }
@@ -565,7 +622,7 @@ export function SettingsPage() {
           <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-text-primary">New Profile</span>
-              <button onClick={() => { setCreating(false); setCreateName(""); setCreateForm({ awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" }); }} className="text-text-muted hover:text-text-primary">
+              <button onClick={resetCreateForm} className="text-text-muted hover:text-text-primary">
                 <X size={14} />
               </button>
             </div>
@@ -602,38 +659,63 @@ export function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-text-muted mb-1">AWS Access Key ID</label>
-                <input
-                  type="text"
-                  value={createForm.awsAccessKeyId}
-                  onChange={(e) => setCreateForm({ ...createForm, awsAccessKeyId: e.target.value })}
-                  className={inputMonoClass}
+                <label className="block text-xs font-medium text-text-muted mb-1">Available to</label>
+                <AudienceSelect
+                  form={createForm}
+                  users={users}
+                  onChange={(next) => setCreateForm({ ...createForm, ...next })}
+                  className={inputClass}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-text-muted mb-1">AWS Secret Key</label>
-                <input
-                  type="password"
-                  value={createForm.awsSecretAccessKey}
-                  onChange={(e) => setCreateForm({ ...createForm, awsSecretAccessKey: e.target.value })}
-                  className={inputMonoClass}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-text-muted mb-1">Region</label>
-                <input
-                  type="text"
-                  value={createForm.region}
-                  onChange={(e) => setCreateForm({ ...createForm, region: e.target.value })}
-                  placeholder="us-east-1"
-                  className={inputMonoClass}
-                />
-              </div>
+              {profiles.length > 0 && (
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-text-muted mb-1">AWS Credentials</label>
+                  <select value={createCredentialsFrom} onChange={(e) => setCreateCredentialsFrom(e.target.value)} className={inputClass}>
+                    <option value="">Enter new credentials</option>
+                    {profiles.map((p) => (
+                      <option key={p.name} value={p.name}>Reuse from [{p.name}] — {p.awsAccessKeyId} · {p.region}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {!createCredentialsFrom && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-text-muted mb-1">AWS Access Key ID</label>
+                    <input
+                      type="text"
+                      value={createForm.awsAccessKeyId}
+                      onChange={(e) => setCreateForm({ ...createForm, awsAccessKeyId: e.target.value })}
+                      className={inputMonoClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-muted mb-1">AWS Secret Key</label>
+                    <input
+                      type="password"
+                      value={createForm.awsSecretAccessKey}
+                      onChange={(e) => setCreateForm({ ...createForm, awsSecretAccessKey: e.target.value })}
+                      className={inputMonoClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-muted mb-1">Region</label>
+                    <input
+                      type="text"
+                      value={createForm.region}
+                      onChange={(e) => setCreateForm({ ...createForm, region: e.target.value })}
+                      placeholder="us-east-1"
+                      className={inputMonoClass}
+                    />
+                  </div>
+                </>
+              )}
             </div>
-            <div className="flex justify-end">
+            <div className="flex items-center justify-end gap-3">
+              {profileError && <span className="text-xs text-danger">{profileError}</span>}
               <button
                 onClick={handleCreateProfile}
-                disabled={saving || !createName.trim() || !createForm.awsAccessKeyId || !createForm.awsSecretAccessKey || !createForm.region || !createForm.from}
+                disabled={saving || !createName.trim() || !createForm.from || (createForm.audience === "user" && !createForm.userId) || (!createCredentialsFrom && (!createForm.awsAccessKeyId || !createForm.awsSecretAccessKey || !createForm.region))}
                 className={btnAccent}
               >
                 {saving ? "Creating..." : "Create"}
@@ -661,6 +743,7 @@ export function SettingsPage() {
                       {profile.senderName && <span className="text-xs text-text-secondary">{profile.senderName}</span>}
                       <span className="text-xs text-text-muted">{profile.from}</span>
                       <span className="text-xs text-text-muted">{profile.region}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-surface-hover text-text-muted">{audienceLabel(profile, users)}</span>
                     </div>
                     {profileTestMsg && (
                       <span className={`text-xs mt-0.5 block ${profileTestMsg.type === "ok" ? "text-success" : "text-danger"}`}>
@@ -747,8 +830,18 @@ export function SettingsPage() {
                           className={inputClass}
                         />
                       </div>
+                      <div>
+                        <label className="block text-xs font-medium text-text-muted mb-1">Available to</label>
+                        <AudienceSelect
+                          form={editForm}
+                          users={users}
+                          onChange={(next) => setEditForm({ ...editForm, ...next })}
+                          className={inputClass}
+                        />
+                      </div>
                     </div>
-                    <div className="flex justify-end gap-2 pt-1 border-t border-border">
+                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-border">
+                      {profileError && <span className="text-xs text-danger mr-auto">{profileError}</span>}
                       <button onClick={() => setEditingProfile(null)} className={btnCancel}>
                         Cancel
                       </button>

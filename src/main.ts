@@ -14,7 +14,7 @@ import { regenerateOrchestratorAgentsMd } from "./orchestrator-init.js";
 import { usersManager } from "./users-manager.js";
 import { sessionNamesManager } from "./session-names-manager.js";
 import { ensureAllAgentGitRepos, cleanupLegacyMailboxes } from "./agents/manager.js";
-import { generateSendEmailScript, ensureCredentialsDir } from "./email-init.js";
+import { removeLegacySendEmailScript, ensureCredentialsDir } from "./email-init.js";
 import { settingsManager } from "./settings-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
 import { agentSecretsManager, projectSecretsManager } from "./secrets-manager.js";
@@ -51,7 +51,7 @@ function migrateClaudeMdToAgentsMd(): void {
 migrateClaudeMdToAgentsMd();
 regenerateOrchestratorAgentsMd();
 ensureCredentialsDir();
-generateSendEmailScript();
+removeLegacySendEmailScript();
 ensureAllAgentGitRepos();
 cleanupLegacyMailboxes();
 await runPipelineMigrations().catch((err) => {

@@ -18,6 +18,7 @@ import {
 } from "../../google-drive/service.js";
 import { isDriveAccess } from "../../google-drive/store.js";
 import { driveRoute } from "./google-drive.js";
+import { attachmentDisposition } from "../route-utils.js";
 
 function agentName(req: Request): string {
   const { name } = req.params;
@@ -79,7 +80,7 @@ export function registerDriveFolderRoutes(router: Router): void {
       const info = await handle.stat();
       if (!info.isFile()) throw new DriveRequestError(404, "File not found");
       res.setHeader("Content-Type", "application/octet-stream");
-      res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`);
+      res.setHeader("Content-Disposition", attachmentDisposition(file.name));
       res.setHeader("Content-Length", info.size);
       await pipeline(handle.createReadStream({ autoClose: false }), res);
     } finally {

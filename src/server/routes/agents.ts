@@ -17,7 +17,7 @@ import { deleteAppearance, getAppearance, setAppearance } from "../../agents/app
 import { requireAdmin } from "../middleware.js";
 import { purgeAgentData } from "../../target-cleanup.js";
 import { agentSecretsManager } from "../../secrets-manager.js";
-import { safeFilename, listFiles, listDirEntries, inputUploadParser } from "../route-utils.js";
+import { attachmentDisposition, safeFilename, safePathSegment, listFiles, listDirEntries, inputUploadParser } from "../route-utils.js";
 import { registerSecretsRoutes } from "./secrets.js";
 import { registerDriveFolderRoutes } from "./agent-drive-folders.js";
 import { DRIVE_INPUT_DIR } from "../../google-drive/paths.js";
@@ -77,7 +77,7 @@ function resolveOutputPath(
   }
 
   const segments = relativePath.split("/");
-  if (segments.some((s) => !safeFilename(s))) {
+  if (segments.some((s) => !safePathSegment(s))) {
     res.status(400).json({ error: "Invalid path segment" });
     return null;
   }
@@ -312,7 +312,7 @@ agentsRouter.get("/:name/output-dl/{*wildcard}", (req, res) => {
   const basename = result.filePath.split(sep).pop()!;
   if (stat.isDirectory()) {
     res.setHeader("Content-Type", "application/zip");
-    res.setHeader("Content-Disposition", `attachment; filename="${basename}.zip"`);
+    res.setHeader("Content-Disposition", attachmentDisposition(`${basename}.zip`));
     const archive = archiver("zip", { zlib: { level: 6 } });
     archive.on("error", () => {
       if (!res.headersSent) res.status(500).json({ error: "Zip failed" });
@@ -331,7 +331,7 @@ agentsRouter.get("/:name/output-dl/{*wildcard}", (req, res) => {
   };
   const contentType = MIME[extname(basename).toLowerCase()] || "application/octet-stream";
   res.setHeader("Content-Type", contentType);
-  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(basename)}"`);
+  res.setHeader("Content-Disposition", attachmentDisposition(basename));
   res.setHeader("Content-Length", stat.size);
   createReadStream(result.filePath).pipe(res);
 });
@@ -418,7 +418,7 @@ agentsRouter.get("/:name/input/:file/download", (req, res) => {
 
   const stat = statSync(result.filePath);
   const filename = req.params.file;
-  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
+  res.setHeader("Content-Disposition", attachmentDisposition(filename));
   res.setHeader("Content-Length", stat.size);
   createReadStream(result.filePath).pipe(res);
 });

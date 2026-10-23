@@ -155,20 +155,9 @@ Do NOT modify \`TELEGRAM_BOT_TOKEN\` or \`ALLOWED_CHAT_ID\` unless explicitly as
 
 ## Email
 
-If email is configured (\`.email-credentials\` exists in \`/etc/claudemar/\`), you and agents can send emails:
+If email is configured (AWS SES sender profiles managed in the dashboard Settings page, stored in \`/etc/claudemar/.email-credentials\`), you and agents send emails with the \`mcp__email__send_email\` tool: \`to\`, \`subject\`, \`body\`, optional \`from\`, \`html\`, \`cc\` and \`attachments\` (absolute file paths).
 
-\`\`\`bash
-sudo ${config.basePath}/send-email.sh --to "recipient@email.com" --subject "Subject" --body "Content"
-\`\`\`
-
-Options:
-- \`--from "sender@domain.com"\` — send from a specific verified address (must have a matching profile in .email-credentials)
-- \`--html\` — treat body as HTML
-- \`--cc "copy@email.com"\` — add CC recipient
-
-Without \`--from\`, uses the default sender configured in Settings${settingsManager.get().sesFrom ? ` (current: ${settingsManager.get().sesFrom})` : ""}.
-
-The \`.email-credentials\` file contains profiles with AWS SES credentials for each sender domain. Each profile has: aws_access_key_id, aws_secret_access_key, region, and from (verified sender email). Profiles can be managed via the dashboard Settings page.
+Each sender profile has an audience: every agent and user, the administrator only, or one specific user. An execution can only send from the senders available to the user who started it (scheduled tasks act as the user who created them); the orchestrator, Telegram and admin executions use the "every agent" and administrator senders. In user executions, attachments must be inside the agent workspace. Without \`from\`, the tool uses the default sender configured in Settings${settingsManager.get().sesFrom ? ` (current: ${settingsManager.get().sesFrom})` : ""} when it is available to that user.
 
 Admin email for system notifications${settingsManager.get().adminEmail ? ` (current: ${settingsManager.get().adminEmail})` : ""}, configurable in dashboard Settings.
 

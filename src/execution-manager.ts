@@ -26,6 +26,9 @@ import { query } from "./database.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type { AgentRuntime, LlmProfile } from "./providers/llm.js";
 import { effortForModel } from "./model-effort.js";
+import { emailAccessFor } from "./email-mcp.js";
+import { emailSettingsManager } from "./email-settings-manager.js";
+import { requesterOf } from "./requester.js";
 
 export type ExecutionSource = "telegram" | "web" | "schedule" | "pipeline";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
@@ -45,6 +48,7 @@ export interface ExecutionInfo {
   providerId?: string;
   modelSelection?: string;
   username?: string;
+  userId?: string;
   prompt: string;
   cwd: string;
   status: ExecutionStatus;
@@ -76,6 +80,7 @@ export interface StartExecutionOpts {
   planMode?: boolean;
   agentName?: string;
   username?: string;
+  userId?: string;
   skipSystemPrompt?: boolean;
   skipIsolationInstruction?: boolean;
   blocks?: MessageBlock[];
@@ -269,6 +274,9 @@ export class ExecutionManager extends EventEmitter {
       if (!opts.skipSystemPrompt) parts.push(contextFilesSignature(opts.targetName));
       parts.push(driveSessionSignature(opts.targetName));
     }
+    if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
+      parts.push(emailSettingsManager.accessSignature(requesterOf(opts.username, opts.userId)));
+    }
     return parts.join("\n");
   }
 
@@ -298,7 +306,7 @@ export class ExecutionManager extends EventEmitter {
       }
     }
     if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
-      suffix += buildEmailHint();
+      suffix += buildEmailHint(emailAccessFor(requesterOf(opts.username, opts.userId), opts.cwd, this.buildAdditionalDirectories(opts)));
     }
     if (opts.schedulerMode && opts.targetType === "agent") {
       suffix += `\n[SYSTEM: MODO AGENDAMENTO ATIVO. Quando o usuário pedir uma tarefa recorrente ou para rodar em determinado horário, NÃO edite crontab nem arquivos manualmente: use a tool mcp__scheduler__schedule_task (passe a expressão cron, uma descrição legível do horário, o que a tarefa faz e o prompt completo a ser executado). Use mcp__scheduler__list_schedules e mcp__scheduler__remove_schedule para consultar/remover. Sempre confirme ao usuário o que foi agendado.]`;
@@ -356,6 +364,8 @@ export class ExecutionManager extends EventEmitter {
       cwd: opts.cwd,
       model,
       target: { targetType: opts.targetType, targetName: opts.targetName },
+      username: opts.username,
+      userId: opts.userId,
       agentName: opts.agentName,
       planMode: opts.planMode,
       permissionMode: opts.permissionMode,
@@ -443,6 +453,7 @@ export class ExecutionManager extends EventEmitter {
       providerId: profile.id,
       modelSelection: selection,
       username: opts.username,
+      userId: opts.userId,
       prompt: opts.prompt,
       cwd: opts.cwd,
       status: "running",

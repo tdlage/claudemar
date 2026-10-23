@@ -63,6 +63,7 @@ const TABLE_DEFINITIONS: string[] = [
     permission_mode VARCHAR(20) DEFAULT NULL,
     agent_name VARCHAR(255) DEFAULT NULL,
     username VARCHAR(255) DEFAULT NULL,
+    user_id CHAR(36) DEFAULT NULL,
     enqueued_at DATETIME NOT NULL,
     telegram_chat_id BIGINT DEFAULT NULL,
     skip_system_prompt TINYINT(1) NOT NULL DEFAULT 0,
@@ -89,6 +90,8 @@ const TABLE_DEFINITIONS: string[] = [
     cron_human TEXT NOT NULL,
     task TEXT NOT NULL,
     prompt TEXT DEFAULT NULL,
+    created_by VARCHAR(8) DEFAULT NULL,
+    created_by_user_id CHAR(36) DEFAULT NULL,
     script_path TEXT NOT NULL,
     created_at DATETIME NOT NULL,
     INDEX idx_agent (agent)
@@ -603,6 +606,13 @@ async function ensureScheduleColumns(pool: ReturnType<typeof getPool>): Promise<
   if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
     await pool.execute("ALTER TABLE schedules ADD COLUMN prompt TEXT DEFAULT NULL AFTER task");
   }
+
+  const [creatorRows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'schedules' AND COLUMN_NAME = 'created_by'",
+  );
+  if ((creatorRows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE schedules ADD COLUMN created_by VARCHAR(8) DEFAULT NULL AFTER prompt, ADD COLUMN created_by_user_id CHAR(36) DEFAULT NULL AFTER created_by");
+  }
 }
 
 async function ensureQueueColumns(pool: ReturnType<typeof getPool>): Promise<void> {
@@ -645,6 +655,12 @@ async function ensureQueueColumns(pool: ReturnType<typeof getPool>): Promise<voi
   );
   if ((imageRows as Array<{ cnt: number }>)[0].cnt === 0) {
     await pool.execute("ALTER TABLE queue_items ADD COLUMN images TEXT DEFAULT NULL");
+  }
+  const [userIdRows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'queue_items' AND COLUMN_NAME = 'user_id'",
+  );
+  if ((userIdRows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE queue_items ADD COLUMN user_id CHAR(36) DEFAULT NULL AFTER username");
   }
 }
 

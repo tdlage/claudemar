@@ -7,6 +7,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { query, execute, toMySQLDatetime } from "../database.js";
 import { config } from "../config.js";
 import { getAgentPaths, isValidAgentName } from "./manager.js";
+import type { Requester } from "../requester.js";
 import type { RowDataPacket } from "mysql2/promise";
 
 export interface ScheduleEntry {
@@ -26,11 +27,20 @@ interface ScheduleRow extends RowDataPacket {
   cron_human: string;
   task: string;
   prompt: string | null;
+  created_by: string | null;
+  created_by_user_id: string | null;
   script_path: string;
   created_at: string | Date;
 }
 
-const SELECT_COLUMNS = "id, agent, cron, cron_human, task, prompt, script_path, created_at";
+const SELECT_COLUMNS = "id, agent, cron, cron_human, task, prompt, created_by, created_by_user_id, script_path, created_at";
+
+// Agendamentos anteriores ao registro do criador (created_by NULL) não têm dono conhecido.
+function rowCreator(row: ScheduleRow): Requester | null {
+  if (row.created_by === "admin") return { role: "admin" };
+  if (row.created_by === "user") return { role: "user", userId: row.created_by_user_id };
+  return null;
+}
 
 function rowToEntry(row: ScheduleRow): ScheduleEntry {
   return {
@@ -87,10 +97,11 @@ export interface CreateScheduleInput {
   cronHuman: string;
   task: string;
   prompt: string;
+  createdBy: Requester;
 }
 
 export async function createSchedule(input: CreateScheduleInput): Promise<ScheduleEntry> {
-  const { agent, cron, cronHuman, task, prompt } = input;
+  const { agent, cron, cronHuman, task, prompt, createdBy } = input;
 
   if (!isValidAgentName(agent)) throw new Error("Nome de agente inválido");
   const paths = getAgentPaths(agent);
@@ -119,8 +130,8 @@ exec "${process.execPath}" "${runnerPath}" "${id}" >> "${logPath}" 2>&1
 
   const createdAt = new Date().toISOString();
   await execute(
-    "INSERT INTO schedules (id, agent, cron, cron_human, task, prompt, script_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    [id, agent, cron, cronHuman, task, prompt, scriptPath, toMySQLDatetime(createdAt)],
+    "INSERT INTO schedules (id, agent, cron, cron_human, task, prompt, created_by, created_by_user_id, script_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, agent, cron, cronHuman, task, prompt, createdBy.role, createdBy.role === "user" ? createdBy.userId : null, scriptPath, toMySQLDatetime(createdAt)],
   );
 
   installCron(cron, scriptPath);
@@ -128,14 +139,14 @@ exec "${process.execPath}" "${runnerPath}" "${id}" >> "${logPath}" 2>&1
   return { id, agent, cron, cronHuman, task, scriptPath, createdAt };
 }
 
-export async function getScheduleById(id: string): Promise<(ScheduleEntry & { prompt: string }) | null> {
+export async function getScheduleById(id: string): Promise<(ScheduleEntry & { prompt: string; createdBy: Requester | null }) | null> {
   const rows = await query<ScheduleRow[]>(
     `SELECT ${SELECT_COLUMNS} FROM schedules WHERE id = ?`,
     [id],
   );
   if (rows.length === 0) return null;
   const entry = rowToEntry(rows[0]);
-  return { ...entry, prompt: rows[0].prompt ?? rows[0].task };
+  return { ...entry, prompt: rows[0].prompt ?? rows[0].task, createdBy: rowCreator(rows[0]) };
 }
 
 export async function removeSchedule(id: string): Promise<boolean> {
@@ -181,7 +192,7 @@ export async function listSchedulesByAgent(agent: string): Promise<ScheduleEntry
   return rows.map(rowToEntry);
 }
 
-export function createSchedulerMcpServer(agent: string): ReturnType<typeof createSdkMcpServer> {
+export function createSchedulerMcpServer(agent: string, createdBy: Requester): ReturnType<typeof createSdkMcpServer> {
   const scheduleTool = tool(
     "schedule_task",
     "Agenda uma tarefa recorrente para este agente executar automaticamente via cron. Use sempre que o usuário pedir algo recorrente ou para rodar em determinado horário (ex.: 'todo dia às 9h faça X', 'toda segunda envie o relatório').",
@@ -199,6 +210,7 @@ export function createSchedulerMcpServer(agent: string): ReturnType<typeof creat
           cronHuman: args.schedule_human,
           task: args.task,
           prompt: args.prompt,
+          createdBy,
         });
         return {
           content: [{

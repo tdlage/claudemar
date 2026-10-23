@@ -388,6 +388,8 @@ export interface ProviderInfo {
   configured: boolean;
 }
 
+export type EmailAudience = "all" | "admin" | "user";
+
 export interface EmailProfileMasked {
   name: string;
   awsAccessKeyId: string;
@@ -395,6 +397,8 @@ export interface EmailProfileMasked {
   region: string;
   from: string;
   senderName: string;
+  audience: EmailAudience;
+  userId: string;
 }
 
 // ── CI / GitHub Actions ──

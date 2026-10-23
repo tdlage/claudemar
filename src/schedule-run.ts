@@ -6,6 +6,17 @@ import { getScheduleById } from "./agents/scheduler.js";
 import { getAgentPaths } from "./agents/manager.js";
 import { closePool } from "./database.js";
 import { driveStore } from "./google-drive/store.js";
+import { usersManager } from "./users-manager.js";
+import type { Requester } from "./requester.js";
+
+// Sem dono conhecido (agendamento legado ou usuário removido) roda com identidade sintética,
+// como o pipeline: nunca herda os remetentes de email do admin.
+function scheduleIdentity(scheduleId: string, createdBy: Requester | null): { username?: string; userId?: string } {
+  if (createdBy?.role === "admin") return {};
+  const owner = createdBy?.userId ? usersManager.get(createdBy.userId) : undefined;
+  if (owner) return { username: owner.name, userId: owner.id };
+  return { username: `schedule:${scheduleId}` };
+}
 
 async function main(): Promise<number> {
   await refreshProviderCatalog();
@@ -27,6 +38,7 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  await usersManager.initialize();
   await driveStore.initialize().catch((err) => {
     console.error(`[schedule-run] pastas do Google Drive indisponíveis: ${err instanceof Error ? err.message : String(err)}`);
   });
@@ -39,6 +51,7 @@ async function main(): Promise<number> {
     targetType: "agent",
     targetName: schedule.agent,
     prompt: schedule.prompt,
+    ...scheduleIdentity(id, schedule.createdBy),
     cwd: paths.root,
     autoApprove: true,
     noResume: true,

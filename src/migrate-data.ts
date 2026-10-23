@@ -35,7 +35,7 @@ if (config.installDir !== config.basePath) {
     }
   }
 
-  const FILES_TO_MIGRATE = ["send-email.sh", ".sync-agents.lock", ".update-notified"];
+  const FILES_TO_MIGRATE = [".sync-agents.lock", ".update-notified"];
   for (const file of FILES_TO_MIGRATE) {
     const oldFile = resolve(config.installDir, file);
     const newFile = resolve(config.basePath, file);

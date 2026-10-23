@@ -1,15 +1,18 @@
-import { execFileSync, execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import { getCredentialsPath, getEmailScriptPath, isEmailEnabled } from "./email-init.js";
-
-export interface EmailProfile {
-  name: string;
-  awsAccessKeyId: string;
-  awsSecretAccessKey: string;
-  region: string;
-  from: string;
-  senderName: string;
-}
+import { execFileSync } from "node:child_process";
+import { getCredentialsPath, isEmailEnabled } from "./email-init.js";
+import { sendEmail } from "./email-sender.js";
+import { settingsManager } from "./settings-manager.js";
+import { usersManager } from "./users-manager.js";
+import { requesterKey, type Requester } from "./requester.js";
+import {
+  defaultSender,
+  parseCredentials,
+  profileError,
+  profilesForRequester,
+  serializeCredentials,
+  type EmailAudience,
+  type EmailProfile,
+} from "./email-profiles.js";
 
 export interface EmailProfileMasked {
   name: string;
@@ -18,6 +21,16 @@ export interface EmailProfileMasked {
   region: string;
   from: string;
   senderName: string;
+  audience: EmailAudience;
+  userId: string;
+}
+
+export type EmailProfileInput = Partial<EmailProfile>;
+
+export class EmailProfileError extends Error {
+  constructor(message: string, readonly status: 400 | 404 | 409) {
+    super(message);
+  }
 }
 
 function maskKey(value: string): string {
@@ -25,48 +38,12 @@ function maskKey(value: string): string {
   return "****" + value.slice(-4);
 }
 
-function parseCredentials(raw: string): EmailProfile[] {
-  const profiles: EmailProfile[] = [];
-  let current: Partial<EmailProfile> | null = null;
-
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    const sectionMatch = trimmed.match(/^\[(.+)\]$/);
-    if (sectionMatch) {
-      if (current?.name) profiles.push(current as EmailProfile);
-      current = { name: sectionMatch[1], awsAccessKeyId: "", awsSecretAccessKey: "", region: "", from: "", senderName: "" };
-      continue;
-    }
-    if (!current) continue;
-    const kvMatch = trimmed.match(/^([^=]+)=(.*)$/);
-    if (!kvMatch) continue;
-    const [, key, value] = kvMatch;
-    if (key === "aws_access_key_id") current.awsAccessKeyId = value;
-    else if (key === "aws_secret_access_key") current.awsSecretAccessKey = value;
-    else if (key === "region") current.region = value;
-    else if (key === "from") current.from = value;
-    else if (key === "sender_name") current.senderName = value;
-  }
-  if (current?.name) profiles.push(current as EmailProfile);
-  return profiles;
-}
-
-function serializeCredentials(profiles: EmailProfile[]): string {
-  return profiles
-    .map((p) => {
-      let lines = `[${p.name}]\naws_access_key_id=${p.awsAccessKeyId}\naws_secret_access_key=${p.awsSecretAccessKey}\nregion=${p.region}\nfrom=${p.from}`;
-      if (p.senderName) lines += `\nsender_name=${p.senderName}`;
-      return lines;
-    })
-    .join("\n\n") + "\n";
-}
-
-function sudoRead(): string {
+function sudoRead(): string | null {
   try {
     return execFileSync("sudo", ["cat", getCredentialsPath()], { timeout: 5000, encoding: "utf-8" });
   } catch (err) {
     console.error("[email] Failed to read credentials:", err instanceof Error ? err.message : err);
-    return "";
+    return null;
   }
 }
 
@@ -84,15 +61,10 @@ function sudoDelete(): void {
   }
 }
 
-function loadProfiles(): EmailProfile[] {
+function readProfiles(): EmailProfile[] | null {
   if (!isEmailEnabled()) return [];
   const raw = sudoRead();
-  if (!raw) return [];
-  return parseCredentials(raw);
-}
-
-function saveProfiles(profiles: EmailProfile[]): void {
-  sudoWrite(serializeCredentials(profiles));
+  return raw === null ? null : parseCredentials(raw);
 }
 
 function toMasked(p: EmailProfile): EmailProfileMasked {
@@ -103,85 +75,111 @@ function toMasked(p: EmailProfile): EmailProfileMasked {
     region: p.region,
     from: p.from,
     senderName: p.senderName,
+    audience: p.audience,
+    userId: p.userId,
   };
 }
 
+function assertValid(profile: EmailProfile): void {
+  const error = profileError(profile);
+  if (error) throw new EmailProfileError(error, 400);
+}
+
 class EmailSettingsManager {
-  getProfiles(): EmailProfileMasked[] {
-    return loadProfiles().map(toMasked);
+  private cache: EmailProfile[] | null = null;
+
+  private profiles(): EmailProfile[] {
+    if (this.cache) return this.cache;
+    const loaded = readProfiles();
+    if (loaded) this.cache = loaded;
+    return loaded ?? [];
   }
 
-  createProfile(profile: EmailProfile): EmailProfileMasked {
-    const profiles = loadProfiles();
-    if (profiles.some((p) => p.name === profile.name)) {
-      throw new Error(`Profile '${profile.name}' already exists`);
+  private save(profiles: EmailProfile[]): void {
+    if (profiles.length === 0) sudoDelete();
+    else sudoWrite(serializeCredentials(profiles));
+    this.cache = profiles;
+  }
+
+  getProfiles(): EmailProfileMasked[] {
+    return this.profiles().map(toMasked);
+  }
+
+  sendersFor(requester: Requester): EmailProfile[] {
+    return profilesForRequester(this.profiles(), requester);
+  }
+
+  defaultSenderOf(senders: EmailProfile[]): EmailProfile | undefined {
+    return defaultSender(senders, settingsManager.get().sesFrom);
+  }
+
+  accessSignature(requester: Requester): string {
+    const senders = this.sendersFor(requester);
+    const fallback = this.defaultSenderOf(senders)?.from ?? "";
+    return [requesterKey(requester), fallback, ...senders.map((s) => `${s.name}|${s.from}|${s.senderName}`)].join("\n");
+  }
+
+  createProfile(input: EmailProfile, credentialsFrom?: string): EmailProfileMasked {
+    const profiles = this.profiles();
+    if (profiles.some((p) => p.name === input.name)) {
+      throw new EmailProfileError(`Profile '${input.name}' already exists`, 409);
     }
-    profiles.push(profile);
-    saveProfiles(profiles);
+    let profile: EmailProfile = { ...input, userId: input.audience === "user" ? input.userId : "" };
+    if (credentialsFrom) {
+      const source = profiles.find((p) => p.name === credentialsFrom);
+      if (!source) throw new EmailProfileError(`Profile '${credentialsFrom}' not found`, 400);
+      profile = { ...profile, awsAccessKeyId: source.awsAccessKeyId, awsSecretAccessKey: source.awsSecretAccessKey, region: source.region };
+    }
+    assertValid(profile);
+    if (profile.audience === "user" && !usersManager.get(profile.userId)) throw new EmailProfileError("User not found", 400);
+    this.save([...profiles, profile]);
     return toMasked(profile);
   }
 
-  updateProfile(name: string, updates: Partial<EmailProfile>): EmailProfileMasked | null {
-    const profiles = loadProfiles();
-    const idx = profiles.findIndex((p) => p.name === name);
-    if (idx === -1) return null;
-    const existing = profiles[idx];
+  // Valida o perfil resultante do merge: atualizações parciais são aceitas e um usuário já
+  // removido pode continuar atribuído enquanto a audiência não for alterada.
+  updateProfile(name: string, updates: EmailProfileInput): EmailProfileMasked {
+    const profiles = this.profiles();
+    const existing = profiles.find((p) => p.name === name);
+    if (!existing) throw new EmailProfileError("Profile not found", 404);
+    if (updates.name && updates.name !== name && profiles.some((p) => p.name === updates.name)) {
+      throw new EmailProfileError(`Profile '${updates.name}' already exists`, 409);
+    }
+    const audience = updates.audience ?? existing.audience;
     const updated: EmailProfile = {
       name: updates.name ?? existing.name,
       awsAccessKeyId: updates.awsAccessKeyId ?? existing.awsAccessKeyId,
-      awsSecretAccessKey: updates.awsSecretAccessKey && updates.awsSecretAccessKey !== ""
-        ? updates.awsSecretAccessKey
-        : existing.awsSecretAccessKey,
+      awsSecretAccessKey: updates.awsSecretAccessKey || existing.awsSecretAccessKey,
       region: updates.region ?? existing.region,
       from: updates.from ?? existing.from,
       senderName: updates.senderName ?? existing.senderName,
+      audience,
+      userId: audience === "user" ? updates.userId ?? existing.userId : "",
     };
-    profiles[idx] = updated;
-    saveProfiles(profiles);
+    assertValid(updated);
+    const userChanged = updated.audience === "user" && (existing.audience !== "user" || existing.userId !== updated.userId);
+    if (userChanged && !usersManager.get(updated.userId)) throw new EmailProfileError("User not found", 400);
+    this.save(profiles.map((p) => (p === existing ? updated : p)));
     return toMasked(updated);
   }
 
   deleteProfile(name: string): boolean {
-    const profiles = loadProfiles();
-    const filtered = profiles.filter((p) => p.name !== name);
-    if (filtered.length === profiles.length) return false;
-    if (filtered.length === 0) {
-      sudoDelete();
-    } else {
-      saveProfiles(filtered);
-    }
+    const profiles = this.profiles();
+    const remaining = profiles.filter((p) => p.name !== name);
+    if (remaining.length === profiles.length) return false;
+    this.save(remaining);
     return true;
   }
 
-  testProfile(name: string, to: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const scriptPath = getEmailScriptPath();
-      if (!existsSync(scriptPath)) {
-        reject(new Error("Email script not found. Restart the server to regenerate it."));
-        return;
-      }
-      const profiles = loadProfiles();
-      const profile = profiles.find((p) => p.name === name);
-      if (!profile) {
-        reject(new Error(`Profile '${name}' not found`));
-        return;
-      }
-      const args = [
-        "--to", to,
-        "--subject", "Claudemar email test",
-        "--body", `Test email from profile [${name}] at ${new Date().toISOString()}`,
-        "--from", profile.from,
-      ];
-      execFile(
-        scriptPath,
-        args,
-        { timeout: 15000 },
-        (err, stdout, stderr) => {
-          if (err) reject(new Error(stderr || err.message));
-          else resolve(stdout.trim());
-        },
-      );
+  async testProfile(name: string, to: string): Promise<string> {
+    const profile = this.profiles().find((p) => p.name === name);
+    if (!profile) throw new EmailProfileError(`Profile '${name}' not found`, 404);
+    const messageId = await sendEmail(profile, {
+      to: [to],
+      subject: "Claudemar email test",
+      body: `Test email from profile [${name}] at ${new Date().toISOString()}`,
     });
+    return `Email sent from ${profile.from} to ${to} (MessageId ${messageId})`;
   }
 }
 

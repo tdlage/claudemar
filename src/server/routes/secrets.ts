@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import type { Request, Response, Router } from "express";
 import type { SecretsManager } from "../../secrets-manager.js";
-import { safeFilename } from "../route-utils.js";
+import { attachmentDisposition, safeFilename } from "../route-utils.js";
 import { reauthLimiter, verifyReauthentication } from "../reauth.js";
 
 const MAX_SECRET_FILE_BYTES = 10 * 1024 * 1024;
@@ -101,7 +101,7 @@ export function registerSecretsRoutes(router: Router, { manager, ownerLabel, res
       return;
     }
     const stat = statSync(filePath);
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file)}"`);
+    res.setHeader("Content-Disposition", attachmentDisposition(file));
     res.setHeader("Content-Length", stat.size);
     res.setHeader("Content-Type", "application/octet-stream");
     createReadStream(filePath).pipe(res);

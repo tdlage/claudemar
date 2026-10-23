@@ -50,6 +50,8 @@ export interface AgentSessionInit {
   profile: LlmProfile;
   cwd: string;
   target: MemoryTarget;
+  username?: string;
+  userId?: string;
   model?: string;
   agentName?: string;
   planMode?: boolean;

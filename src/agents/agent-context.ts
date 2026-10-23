@@ -3,9 +3,9 @@ import { extname, resolve } from "node:path";
 import { getAgentPaths } from "./manager.js";
 import { formatSize } from "../byte-utils.js";
 import { agentSecretsManager, projectSecretsManager } from "../secrets-manager.js";
-import { isEmailEnabled, getEmailScriptPath } from "../email-init.js";
-import { settingsManager } from "../settings-manager.js";
 import { emailSettingsManager } from "../email-settings-manager.js";
+import { formatSender } from "../email-profiles.js";
+import type { EmailAccess } from "../email-mcp.js";
 
 export function buildSecretsHint(agentName: string): string {
   const secretsJsonPath = agentSecretsManager.secretsJsonPath(agentName);
@@ -94,12 +94,11 @@ export function buildProjectSecretsHint(projectName: string): string {
   return `\n[SYSTEM: This project has secrets configured. Read ${secretsJsonPath} for credentials, API keys, and secret file paths. You are authorized to read this file and the secret files it lists, even though they are outside your working directory. Never write their values into the repository.]`;
 }
 
-export function buildEmailHint(): string {
-  if (!isEmailEnabled()) return "";
-  const scriptPath = getEmailScriptPath();
-  const { sesFrom } = settingsManager.get();
-  const defaultFrom = sesFrom ? ` Default sender: ${sesFrom}.` : "";
-  const senderList = emailSettingsManager.getProfiles().map((p) => p.from).join(", ");
-  const availableSenders = senderList ? ` Available senders: ${senderList}.` : "";
-  return `\n[SYSTEM: You can send emails. Usage: ${scriptPath} --to <email> --subject "<subject>" --body "<body>" [--from <sender-email>] [--html] [--cc <email>] [--attachment <filepath> ...]. Multiple --attachment flags supported.${defaultFrom}${availableSenders}]`;
+export function buildEmailHint(access: EmailAccess): string {
+  const senders = emailSettingsManager.sendersFor(access.requester);
+  if (senders.length === 0) return "";
+  const fallback = emailSettingsManager.defaultSenderOf(senders);
+  const defaultFrom = fallback ? ` Without from, it sends as ${fallback.from}.` : " Always pass from.";
+  const attachmentScope = access.attachmentRoots ? ` Attachments must be files inside ${access.attachmentRoots.join(" or ")}.` : "";
+  return `\n[SYSTEM: You can send emails with the mcp__email__send_email tool (to, subject, body, optional from, html, cc, and attachments as absolute file paths). Senders available to you: ${senders.map(formatSender).join(", ")}.${defaultFrom}${attachmentScope} Use only these senders and send emails only through this tool.]`;
 }

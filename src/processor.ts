@@ -30,6 +30,7 @@ function executionOpts(item: QueueItem) {
     permissionMode: item.permissionMode,
     agentName: item.agentName,
     username: item.username,
+    userId: item.userId,
     skipSystemPrompt: item.skipSystemPrompt,
     skipIsolationInstruction: item.skipIsolationInstruction,
     effort: item.effort,

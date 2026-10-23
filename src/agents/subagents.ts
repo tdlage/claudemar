@@ -10,15 +10,16 @@ function buildDescription(name: string, agentsMd: string): string {
   return summary.replace(/\*\*/g, "").replace(/\n+/g, " ").trim();
 }
 
-function buildPrompt(name: string, agentRoot: string, agentsMd: string): string {
+function buildPrompt(name: string, agentRoot: string, agentsMd: string, emailHint: string): string {
   const persona = agentsMd.trim();
   const workspace = `Seu workspace é ${agentRoot}. Use ${agentRoot}/output para resultados, ${agentRoot}/context para referências e ${agentRoot}/input para entradas. Sempre use caminhos absolutos.`;
   const base = persona ? `${persona}\n\n${workspace}` : `Você é o agente ${name}.\n\n${workspace}`;
-  return `${base}${buildSecretsHint(name)}${buildContextFilesHint(name)}${buildEmailHint()}`;
+  return `${base}${buildSecretsHint(name)}${buildContextFilesHint(name)}${emailHint}`;
 }
 
 export function buildAgentDefinitions(excludeName?: string, allowList?: string[]): Record<string, AgentDefinition> {
   const allowed = allowList ? new Set(allowList) : null;
+  const emailHint = buildEmailHint({ requester: { role: "admin" }, attachmentRoots: null });
   const definitions: Record<string, AgentDefinition> = {};
   for (const name of listAgents()) {
     if (name === excludeName) continue;
@@ -38,7 +39,7 @@ export function buildAgentDefinitions(excludeName?: string, allowList?: string[]
 
     definitions[name] = {
       description: buildDescription(name, agentsMd),
-      prompt: buildPrompt(name, paths.root, agentsMd),
+      prompt: buildPrompt(name, paths.root, agentsMd, emailHint),
     };
   }
   return definitions;

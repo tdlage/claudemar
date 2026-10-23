@@ -186,6 +186,7 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
 
   const effectiveTargetName = targetName || "orchestrator";
   const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
+  const userId = req.ctx?.role === "user" ? req.ctx.userId : undefined;
   const validModes = ["default", "acceptEdits", "bypassPermissions", "plan"];
   const requestedMode = typeof permissionMode === "string" && validModes.includes(permissionMode) ? (permissionMode as PermissionMode) : undefined;
   let selectedModel: string;
@@ -215,6 +216,7 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
     permissionMode: requestedMode,
     agentName,
     username,
+    userId,
     skipSystemPrompt: skipSystemPrompt || false,
     skipIsolationInstruction: skipIsolationInstruction === true,
     effort: resolvedEffort,

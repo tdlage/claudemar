@@ -36,6 +36,7 @@ export function UsersPage() {
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const copyToken = (userId: string, token: string) => {
@@ -57,13 +58,15 @@ export function UsersPage() {
   const handleCreate = async () => {
     if (!newName.trim() || !newEmail.trim() || saving) return;
     setSaving(true);
+    setFormError(null);
     try {
       await api.post("/users", { name: newName.trim(), email: newEmail.trim() });
       setCreating(false);
       setNewName("");
       setNewEmail("");
       loadUsers();
-    } catch {
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to create user");
     } finally {
       setSaving(false);
     }
@@ -82,6 +85,7 @@ export function UsersPage() {
   };
 
   const handleSelect = (user: User) => {
+    setFormError(null);
     if (selectedId === user.id) {
       setSelectedId(null);
       setEditing(null);
@@ -100,12 +104,14 @@ export function UsersPage() {
   const handleSave = async () => {
     if (!selectedId || !editing || saving) return;
     setSaving(true);
+    setFormError(null);
     try {
       await api.put(`/users/${selectedId}`, editing);
       loadUsers();
       setSelectedId(null);
       setEditing(null);
-    } catch {
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to save user");
     } finally {
       setSaving(false);
     }
@@ -158,7 +164,7 @@ export function UsersPage() {
         <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-text-primary">New User</span>
-            <button onClick={() => { setCreating(false); setNewName(""); setNewEmail(""); }} className="text-text-muted hover:text-text-primary">
+            <button onClick={() => { setCreating(false); setNewName(""); setNewEmail(""); setFormError(null); }} className="text-text-muted hover:text-text-primary">
               <X size={14} />
             </button>
           </div>
@@ -180,7 +186,8 @@ export function UsersPage() {
               className="bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
             />
           </div>
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-3">
+            {formError && <span className="text-xs text-danger">{formError}</span>}
             <button
               onClick={handleCreate}
               disabled={!newName.trim() || !newEmail.trim() || saving}
@@ -346,7 +353,8 @@ export function UsersPage() {
                     </div>
                   </div>
 
-                  <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                    {formError && <span className="text-xs text-danger mr-auto">{formError}</span>}
                     <button
                       onClick={() => { setSelectedId(null); setEditing(null); }}
                       className="px-3 py-1.5 text-xs rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"

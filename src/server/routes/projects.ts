@@ -5,7 +5,7 @@ import { rm } from "node:fs/promises";
 import archiver from "archiver";
 import type { Request, Response } from "express";
 import { Router } from "express";
-import { safeFilename, listFiles, listDirEntries, inputUploadParser, asyncHandler } from "../route-utils.js";
+import { attachmentDisposition, safeFilename, safePathSegment, listFiles, listDirEntries, inputUploadParser, asyncHandler } from "../route-utils.js";
 import {
   isValidProjectName,
   listProjects,
@@ -515,7 +515,7 @@ function resolveProjectOutputPath(req: Request, res: Response): string | null {
   }
 
   const segments = relativePath.split("/");
-  if (segments.some((s) => !safeFilename(s))) {
+  if (segments.some((s) => !safePathSegment(s))) {
     res.status(400).json({ error: "Invalid path segment" });
     return null;
   }
@@ -566,7 +566,7 @@ projectsRouter.get("/:name/output-dl/{*wildcard}", (req, res) => {
   const basename = filePath.split(sep).pop()!;
   if (stat.isDirectory()) {
     res.setHeader("Content-Type", "application/zip");
-    res.setHeader("Content-Disposition", `attachment; filename="${basename}.zip"`);
+    res.setHeader("Content-Disposition", attachmentDisposition(`${basename}.zip`));
     const archive = archiver("zip", { zlib: { level: 6 } });
     archive.on("error", () => {
       if (!res.headersSent) res.status(500).json({ error: "Zip failed" });
@@ -585,7 +585,7 @@ projectsRouter.get("/:name/output-dl/{*wildcard}", (req, res) => {
   };
   const contentType = MIME[extname(basename).toLowerCase()] || "application/octet-stream";
   res.setHeader("Content-Type", contentType);
-  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(basename)}"`);
+  res.setHeader("Content-Disposition", attachmentDisposition(basename));
   res.setHeader("Content-Length", stat.size);
   createReadStream(filePath).pipe(res);
 });
@@ -665,7 +665,7 @@ projectsRouter.get("/:name/input/:file/download", (req, res) => {
   }
 
   const stat = statSync(filePath);
-  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file)}"`);
+  res.setHeader("Content-Disposition", attachmentDisposition(file));
   res.setHeader("Content-Length", stat.size);
   createReadStream(filePath).pipe(res);
 });

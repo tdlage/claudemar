@@ -21,6 +21,7 @@ export interface QueueItem {
   permissionMode?: PermissionMode;
   agentName?: string;
   username?: string;
+  userId?: string;
   skipSystemPrompt?: boolean;
   skipIsolationInstruction?: boolean;
   effort?: Effort;
@@ -46,6 +47,7 @@ interface QueueRow extends RowDataPacket {
   permission_mode: string | null;
   agent_name: string | null;
   username: string | null;
+  user_id: string | null;
   skip_system_prompt: number;
   skip_isolation_instruction: number;
   effort: string | null;
@@ -71,6 +73,7 @@ function rowToItem(row: QueueRow): QueueItem {
     permissionMode: (row.permission_mode as PermissionMode) ?? undefined,
     agentName: row.agent_name ?? undefined,
     username: row.username ?? undefined,
+    userId: row.user_id ?? undefined,
     skipSystemPrompt: row.skip_system_prompt === 1 ? true : undefined,
     skipIsolationInstruction: row.skip_isolation_instruction === 1,
     effort: (row.effort as Effort) ?? undefined,
@@ -112,12 +115,12 @@ class CommandQueue extends EventEmitter {
     let result;
     try {
       result = await execute(
-        `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, permission_mode, agent_name, username, skip_system_prompt, skip_isolation_instruction, effort, effort_auto, enqueued_at, telegram_chat_id, images)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO queue_items (id, target_type, target_name, prompt, source, cwd, resume_session_id, model, plan_mode, permission_mode, agent_name, username, user_id, skip_system_prompt, skip_isolation_instruction, effort, effort_auto, enqueued_at, telegram_chat_id, images)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, opts.targetType, opts.targetName, opts.prompt, opts.source, opts.cwd,
          opts.resumeSessionId ?? null, opts.model ?? null, opts.planMode ? 1 : 0,
          opts.permissionMode ?? null,
-         opts.agentName ?? null, opts.username ?? null,
+         opts.agentName ?? null, opts.username ?? null, opts.userId ?? null,
          opts.skipSystemPrompt ? 1 : 0, opts.skipIsolationInstruction === true && opts.username === "admin" ? 1 : 0, opts.effort ?? null, opts.effortAuto ? 1 : 0,
          toMySQLDatetime(enqueuedAt), opts.telegramChatId ?? null, images.length > 0 ? JSON.stringify(images) : null],
       );
