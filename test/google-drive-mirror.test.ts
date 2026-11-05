@@ -21,7 +21,7 @@ import {
   type MirrorOptions,
   type PlannedFile,
 } from "../src/google-drive/mirror.js";
-import { changeAffects, driveErrorInfo, FileTooLargeError, fileErrorMessage, isFileLevelError } from "../src/google-drive/drive-api.js";
+import { changeAffects, driveErrorInfo, fileErrorMessage, isFileLevelError } from "../src/google-drive/drive-api.js";
 
 const output = resolve(import.meta.dirname, "../../.output/google-drive-mirror-test");
 await mkdir(output, { recursive: true });
@@ -79,8 +79,6 @@ function options(plan: ReturnType<typeof planMirror>, previous: Manifest, overri
     previous,
     download: contentDownload,
     concurrency: 3,
-    maxFileBytes: 0,
-    maxTotalBytes: 0,
     ...overrides,
   };
 }
@@ -249,26 +247,29 @@ test("a failed update keeps the previous version and is retried only when the fi
   assert.equal(forced.skipped.length, 0);
 });
 
-test("files skipped for size are not downloaded again while nothing changes", async () => {
+test("large files and folders are mirrored without size or count limits", async () => {
+  const files = [
+    file("big", "big.bin", { size: 5 * 1024 * 1024 * 1024 }),
+    ...Array.from({ length: 6000 }, (_, i) => file(`f${i}`, `f${i}.txt`, { size: 1024 * 1024 })),
+  ];
+  const result = await sync(files, emptyManifest, [], { download: async (planned, destination) => { downloads.push(planned.id); await writeFile(destination, ""); }, concurrency: 16 });
+  assert.equal(result.files.length, 6001);
+  assert.equal(result.skipped.length, 0);
+  assert.ok(downloads.includes("big"));
+});
+
+test("files skipped by the old size limits are downloaded on the next sync", async () => {
   const doc = file("doc", "deck", { extension: ".pdf", exportMimeType: "application/pdf", fingerprint: "export:pdf:5" });
-  const first = await sync([file("a", "a.txt"), doc], emptyManifest, [], { maxFileBytes: 10 });
-  assert.deepEqual(downloads.sort(), ["a", "doc"]);
-  assert.deepEqual(first.skipped.map((entry) => [entry.path, entry.cause, entry.size]), [["deck.pdf", "file-size", 16]]);
-
+  const first = await sync([file("a", "a.txt")], emptyManifest);
+  const legacy = {
+    ...first.manifest,
+    skipped: [{ id: "doc", path: "deck.pdf", reason: "Larger than the 100.0 MB file limit", cause: "file-size", retryKey: "export:pdf:5|1|104857600", size: 16 }],
+  } as unknown as Manifest;
   downloads = [];
-  const second = await sync([file("a", "a.txt"), doc], first.manifest, [], { maxFileBytes: 10 });
-  assert.equal(second.changed, false);
-  assert.deepEqual(downloads, []);
-  assert.deepEqual(second.skipped.map((entry) => entry.path), ["deck.pdf"]);
-
-  const third = await sync([file("a", "a.txt"), doc, file("b", "b.txt")], second.manifest, [], { maxFileBytes: 10 });
-  assert.equal(third.changed, true);
-  assert.deepEqual(downloads, ["b"]);
-  assert.deepEqual(third.skipped.map((entry) => entry.path), ["deck.pdf"]);
-
-  downloads = [];
-  await sync([file("a", "a.txt"), doc, file("b", "b.txt")], third.manifest, [], { maxFileBytes: 1024 });
+  const second = await sync([file("a", "a.txt"), doc], legacy);
   assert.deepEqual(downloads, ["doc"]);
+  assert.deepEqual(second.files.map((f) => f.path), ["a.txt", "deck.pdf"]);
+  assert.deepEqual(second.skipped, []);
 });
 
 test("new files that fail to download are reported as skipped", async () => {
@@ -278,7 +279,7 @@ test("new files that fail to download are reported as skipped", async () => {
   };
   const result = await sync([file("a", "a.txt"), file("b", "b.txt")], emptyManifest, [], { download: failing });
   assert.deepEqual(result.files.map((f) => f.id), ["a"]);
-  assert.deepEqual(result.skipped, [{ id: "b", path: "b.txt", reason: "Google flagged this file as malware or spam", cause: "download", retryKey: "md5:b-1|1|0" }]);
+  assert.deepEqual(result.skipped, [{ id: "b", path: "b.txt", reason: "Google flagged this file as malware or spam", cause: "download", retryKey: "md5:b-1|1" }]);
   assert.deepEqual(await readdir(root), ["a.txt"]);
 });
 
@@ -313,27 +314,6 @@ test("cancelled syncs stop before replacing the mirror", async () => {
   assert.deepEqual(await readdir(workDir), ["Folder"]);
 });
 
-test("per-file and per-folder size limits skip files", async () => {
-  const result = await sync(
-    [
-      file("big", "big.bin", { size: 2048 }),
-      file("a", "a.txt", { size: 9 }),
-      file("b", "b.txt", { size: 9 }),
-      file("doc", "doc", { extension: ".md", exportMimeType: "text/markdown", fingerprint: "export:text/markdown:7" }),
-    ],
-    emptyManifest,
-    [],
-    { maxFileBytes: 1024, maxTotalBytes: 20, concurrency: 1 },
-  );
-  assert.ok(!downloads.includes("big"));
-  assert.deepEqual(result.files.map((f) => f.path), ["a.txt", "b.txt"]);
-  assert.deepEqual(
-    result.skipped.map((s) => [s.path, s.reason]),
-    [["big.bin", "Larger than the 1.0 KB file limit"], ["doc.md", "Folder size limit (20 B) reached"]],
-  );
-  assert.ok(result.totalBytes <= 20);
-});
-
 test("manifests round-trip and unreadable manifests start fresh", async () => {
   const path = join(workDir, "manifests", "link.json");
   const manifest: Manifest = { files: [], skipped: [{ id: "x", path: "x.form", reason: "Google Forms files cannot be downloaded" }], signature: "abc" };
@@ -356,8 +336,8 @@ test("shared byte helpers truncate UTF-8, format sizes and limit streams", async
   assert.equal(discarding.exceeded(), true);
 
   await assert.rejects(
-    pipeline(Readable.from([Buffer.from("abc"), Buffer.from("defgh")]), byteLimiter(4, () => new FileTooLargeError("too big")), sink()),
-    FileTooLargeError,
+    pipeline(Readable.from([Buffer.from("abc"), Buffer.from("defgh")]), byteLimiter(4, () => new RangeError("too big")), sink()),
+    RangeError,
   );
 });
 
@@ -383,7 +363,6 @@ test("Drive API errors are classified per file or as fatal", () => {
   assert.equal(isFileLevelError(apiError(429, "rateLimitExceeded")), false);
   assert.equal(isFileLevelError(apiError(401, "authError")), false);
   assert.equal(isFileLevelError(apiError(503, "backendError")), false);
-  assert.equal(isFileLevelError(new FileTooLargeError("Larger than the 100 MB file limit")), true);
   assert.equal(isFileLevelError(Object.assign(new Error("socket hang up"), { code: "ECONNRESET" })), false);
 
   const streamed = { status: 403, response: { status: 403, data: JSON.stringify({ error: { message: "Export too large", errors: [{ reason: "exportSizeLimitExceeded" }] } }) } };

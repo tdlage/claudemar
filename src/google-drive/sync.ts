@@ -33,7 +33,6 @@ import {
 import { detectLocalChanges, hasLocalChanges, isMassDeletion, pushLocalChanges, salvageAfterSwap } from "./two-way.js";
 import { DRIVE_INPUT_DIR, excludeFromAgentGit, manifestPath } from "./paths.js";
 
-const MB = 1024 * 1024;
 const TICK_MS = 60_000;
 const FIRST_TICK_MS = 15_000;
 const DOWNLOAD_CONCURRENCY = 4;
@@ -46,12 +45,6 @@ const UPLOAD_NOTE_TTL_MS = 7 * 24 * 60 * 60_000;
 const NETWORK_ERROR_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT"]);
 
 export const REAUTH_MESSAGE = "Google authorization expired or was revoked. The owner must reconnect this Google account.";
-
-const limits = {
-  maxFiles: config.googleDriveMaxFiles,
-  maxFileBytes: config.googleDriveMaxFileMb * MB,
-  maxFolderBytes: config.googleDriveMaxFolderMb * MB,
-};
 
 interface LinkState {
   index: Set<string> | null;
@@ -143,7 +136,7 @@ async function runSync(link: DriveFolderLink, signal: AbortSignal, options: Sync
       return idle;
     }
 
-    const tree = await listFolderTree(drive, { id: folder.id, driveId: folder.driveId }, { maxFiles: limits.maxFiles, signal });
+    const tree = await listFolderTree(drive, { id: folder.id, driveId: folder.driveId }, { signal });
     const manifestFile = manifestPath(link.id);
     const previous = await readManifest(manifestFile);
     await mkdir(workDir, { recursive: true });
@@ -152,7 +145,6 @@ async function runSync(link: DriveFolderLink, signal: AbortSignal, options: Sync
     const now = Date.now();
     const notes = previous.skipped.filter((entry) => entry.cause === "upload" && entry.notedAt && now - Date.parse(entry.notedAt) < UPLOAD_NOTE_TTL_MS);
     const messages: string[] = [];
-    if (tree.truncated) messages.push(`Only the first ${limits.maxFiles} files are synced (GOOGLE_DRIVE_MAX_FILES).`);
     let snapshot: LocalTree | null = null;
     let rescued = false;
 
@@ -190,8 +182,6 @@ async function runSync(link: DriveFolderLink, signal: AbortSignal, options: Sync
       plan,
       previous,
       concurrency: DOWNLOAD_CONCURRENCY,
-      maxFileBytes: limits.maxFileBytes,
-      maxTotalBytes: limits.maxFolderBytes,
       retrySkipped: options.force === true,
       signal,
       canCommit: () => driveStore.getFolder(link.id) !== undefined,
@@ -208,7 +198,7 @@ async function runSync(link: DriveFolderLink, signal: AbortSignal, options: Sync
         : undefined,
       download: async (file, destination) => {
         try {
-          await downloadFile(drive, file, destination, { maxBytes: limits.maxFileBytes, signal });
+          await downloadFile(drive, file, destination, { signal });
         } catch (err) {
           if (isFileLevelError(err)) throw new Error(fileErrorMessage(err));
           throw new FatalSyncError(describeFailure(err), { cause: err });

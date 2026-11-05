@@ -101,14 +101,12 @@ async function mirror(folders: MirrorFolder[], files: MirrorFile[], contents: Re
     plan,
     previous: { files: [], skipped: [], signature: null },
     concurrency: 2,
-    maxFileBytes: 0,
-    maxTotalBytes: 0,
     fileMode: (entry) => (entry.readOnly ? 0o444 : 0o644),
     download: async (file, destination) => writeFile(destination, contents[file.id]),
   });
   return {
     manifest: { files: result.files, skipped: [], folders: plan.folders, signature: result.signature, baseline: true },
-    tree: { folders: [...folders], files: [...files], skipped: [], truncated: false },
+    tree: { folders: [...folders], files: [...files], skipped: [] },
   };
 }
 
@@ -294,8 +292,6 @@ test("a sync aborts without touching the folder when local files change before t
     plan,
     previous: state.manifest,
     concurrency: 1,
-    maxFileBytes: 0,
-    maxTotalBytes: 0,
     download: async (_file, destination) => writeFile(destination, "alpha v2 from drive"),
     beforeCommit: async () => {
       throw new Error("Local files changed during the sync");
@@ -322,8 +318,6 @@ test("after pushing, rebuilding the mirror reuses the uploaded files without dow
     plan: planMirror("root", state.tree.folders, state.tree.files),
     previous: { ...state.manifest, signature: null },
     concurrency: 2,
-    maxFileBytes: 0,
-    maxTotalBytes: 0,
     fileMode: (entry) => (entry.readOnly ? 0o444 : 0o644),
     download: async (file, destination) => {
       downloads.push(file.id);

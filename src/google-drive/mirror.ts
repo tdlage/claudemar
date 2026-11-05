@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { chmod, copyFile, link, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join, posix } from "node:path";
-import { formatSize, truncateUtf8 } from "../byte-utils.js";
+import { truncateUtf8 } from "../byte-utils.js";
 
 export interface MirrorFolder {
   id: string;
@@ -37,9 +37,7 @@ export interface PlannedFile extends MirrorFile {
   path: string;
 }
 
-export type SkipCause = "file-size" | "folder-size" | "download" | "upload";
-
-const MIRROR_SKIP_CAUSES = new Set<SkipCause>(["file-size", "folder-size", "download"]);
+export type SkipCause = "download" | "upload";
 
 export interface SkippedEntry {
   id: string;
@@ -47,7 +45,6 @@ export interface SkippedEntry {
   reason: string;
   cause?: SkipCause;
   retryKey?: string;
-  size?: number;
   keptPrevious?: boolean;
   notedAt?: string;
 }
@@ -106,8 +103,6 @@ export interface MirrorOptions {
   previous: Manifest;
   download: (file: PlannedFile, destination: string) => Promise<void>;
   concurrency: number;
-  maxFileBytes: number;
-  maxTotalBytes: number;
   retrySkipped?: boolean;
   signal?: AbortSignal;
   canCommit?: () => boolean;
@@ -213,18 +208,16 @@ export function planMirror(rootId: string, folders: MirrorFolder[], files: Mirro
   return plan;
 }
 
-function planSignature(plan: MirrorPlan, options: MirrorOptions): string {
+function planSignature(plan: MirrorPlan): string {
   const content = JSON.stringify([
-    options.maxFileBytes,
-    options.maxTotalBytes,
     plan.directories,
     plan.files.map((file) => [file.id, file.path, file.fingerprint, file.revision]),
   ]);
   return createHash("sha256").update(content).digest("hex");
 }
 
-function retryKey(file: PlannedFile, options: MirrorOptions): string {
-  return `${file.fingerprint}|${file.revision}|${options.maxFileBytes}`;
+function retryKey(file: PlannedFile): string {
+  return `${file.fingerprint}|${file.revision}`;
 }
 
 function errorCode(err: unknown): string | undefined {
@@ -388,8 +381,8 @@ async function swapInto(staging: string, root: string, workDir: string, key: str
 export async function applyMirror(options: MirrorOptions): Promise<MirrorResult> {
   const { root, plan, previous } = options;
   await removeLeftovers(options.workDir, options.key);
-  const signature = planSignature(plan, options);
-  const previousSkips = previous.skipped.filter((entry) => entry.cause !== undefined && MIRROR_SKIP_CAUSES.has(entry.cause));
+  const signature = planSignature(plan);
+  const previousSkips = previous.skipped.filter((entry) => entry.cause === "download");
 
   const disk = !options.retrySkipped && previous.signature === signature ? await mirrorIntact(root, previous.files, plan.directories) : null;
   if (disk) {
@@ -417,9 +410,6 @@ export async function applyMirror(options: MirrorOptions): Promise<MirrorResult>
     const files: ManifestEntry[] = [];
     const skipped: SkippedEntry[] = [];
     let totalBytes = 0;
-    const fits = (bytes: number) => options.maxTotalBytes <= 0 || totalBytes + bytes <= options.maxTotalBytes;
-    const tooLarge = `Larger than the ${formatSize(options.maxFileBytes)} file limit`;
-    const folderLimit = `Folder size limit (${formatSize(options.maxTotalBytes)}) reached`;
 
     const place = async (file: PlannedFile, source: ManifestEntry, destination: string, fingerprint?: string) => {
       await linkOrCopy(join(root, source.path), destination);
@@ -428,7 +418,7 @@ export async function applyMirror(options: MirrorOptions): Promise<MirrorResult>
 
     const keepPreviousOrSkip = async (file: PlannedFile, destination: string, key: string, reason: string) => {
       const stale = previousById.get(file.id);
-      if (stale && fits(stale.size) && (await intact(root, stale))) {
+      if (stale && (await intact(root, stale))) {
         totalBytes += stale.size;
         await place(file, stale, destination, stale.fingerprint);
         skipped.push({ id: file.id, path: file.path, reason, cause: "download", retryKey: key, keptPrevious: true });
@@ -440,49 +430,28 @@ export async function applyMirror(options: MirrorOptions): Promise<MirrorResult>
     await forEachLimit(plan.files, options.concurrency, async (file) => {
       throwIfAborted(options.signal);
       const destination = join(staging, file.path);
-      const key = retryKey(file, options);
+      const key = retryKey(file);
       const kept = reusable.get(file.id);
       const memo = remembered.get(file.id);
-      const known = memo?.retryKey === key ? memo : undefined;
-      const knownSize = file.size ?? kept?.size ?? known?.size ?? null;
-      const sized = knownSize === null ? {} : { size: knownSize };
-      if (knownSize !== null && options.maxFileBytes > 0 && knownSize > options.maxFileBytes) {
-        skipped.push({ id: file.id, path: file.path, reason: tooLarge, cause: "file-size", retryKey: key, ...sized });
-        return;
-      }
-      const expected = knownSize ?? 0;
-      if (!fits(expected)) {
-        skipped.push({ id: file.id, path: file.path, reason: folderLimit, cause: "folder-size", retryKey: key, ...sized });
-        return;
-      }
       if (kept) {
-        totalBytes += expected;
+        totalBytes += kept.size;
         await place(file, kept, destination);
         return;
       }
-      if (known?.cause === "download") {
-        await keepPreviousOrSkip(file, destination, key, known.reason);
+      if (memo?.retryKey === key) {
+        await keepPreviousOrSkip(file, destination, key, memo.reason);
         return;
       }
-      totalBytes += expected;
       try {
         await options.download(file, destination);
       } catch (err) {
-        totalBytes -= expected;
         await rm(destination, { force: true });
         if (err instanceof FatalSyncError || options.signal?.aborted) throw err;
         await keepPreviousOrSkip(file, destination, key, errorMessage(err));
         return;
       }
       const info = await stat(destination);
-      totalBytes += info.size - expected;
-      const overFile = options.maxFileBytes > 0 && info.size > options.maxFileBytes;
-      if (overFile || (options.maxTotalBytes > 0 && totalBytes > options.maxTotalBytes)) {
-        totalBytes -= info.size;
-        await rm(destination, { force: true });
-        skipped.push({ id: file.id, path: file.path, reason: overFile ? tooLarge : folderLimit, cause: overFile ? "file-size" : "folder-size", retryKey: key, size: info.size });
-        return;
-      }
+      totalBytes += info.size;
       files.push(toEntry(file, info));
     });
 

@@ -4,7 +4,6 @@ import { pipeline } from "node:stream/promises";
 import { google, type drive_v3 } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
 import { lookup as lookupMimeType } from "mime-types";
-import { byteLimiter, formatSize } from "../byte-utils.js";
 import type { MirrorFile, MirrorFolder, TreeSkip } from "./mirror.js";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
@@ -76,7 +75,6 @@ export interface DriveTree {
   folders: MirrorFolder[];
   files: MirrorFile[];
   skipped: TreeSkip[];
-  truncated: boolean;
 }
 
 export interface DriveChange {
@@ -93,8 +91,6 @@ export interface DriveErrorInfo {
   reason: string | null;
   message: string;
 }
-
-export class FileTooLargeError extends Error {}
 
 export function driveClient(auth: OAuth2Client): drive_v3.Drive {
   return google.drive({ version: "v3", auth });
@@ -128,7 +124,6 @@ export function driveErrorInfo(err: unknown): DriveErrorInfo {
 }
 
 export function isFileLevelError(err: unknown): boolean {
-  if (err instanceof FileTooLargeError) return true;
   const { status, reason } = driveErrorInfo(err);
   if (reason && RATE_LIMIT_REASONS.has(reason)) return false;
   return status !== null && status >= 400 && status < 500 && status !== 401 && status !== 408 && status !== 429;
@@ -144,7 +139,6 @@ function isInaccessibleTarget(err: unknown): boolean {
 }
 
 export function fileErrorMessage(err: unknown): string {
-  if (err instanceof FileTooLargeError) return err.message;
   const { reason, message } = driveErrorInfo(err);
   return (reason && FILE_ERROR_MESSAGES[reason]) || message;
 }
@@ -291,9 +285,9 @@ async function resolveItem(
 export async function listFolderTree(
   drive: drive_v3.Drive,
   root: { id: string; driveId: string | null },
-  options: { maxFiles: number; signal?: AbortSignal },
+  options: { signal?: AbortSignal },
 ): Promise<DriveTree> {
-  const tree: DriveTree = { folders: [], files: [], skipped: [], truncated: false };
+  const tree: DriveTree = { folders: [], files: [], skipped: [] };
   const visited = new Set([root.id]);
   const seen = new Set<string>();
   const queue = [root.id];
@@ -326,10 +320,6 @@ export async function listFolderTree(
         }
         if (seen.has(item.id)) continue;
         seen.add(item.id);
-        if (options.maxFiles > 0 && tree.files.length >= options.maxFiles) {
-          tree.truncated = true;
-          return tree;
-        }
         const resolved = await resolveItem(drive, item, options.signal);
         if ("reason" in resolved) tree.skipped.push({ id: item.id, parentId: folderId, name, reason: resolved.reason });
         else tree.files.push({ ...resolved, parentId: folderId });
@@ -344,19 +334,14 @@ export async function downloadFile(
   drive: drive_v3.Drive,
   file: Pick<MirrorFile, "sourceId" | "exportMimeType">,
   destination: string,
-  options: { maxBytes: number; signal?: AbortSignal },
+  options: { signal?: AbortSignal },
 ): Promise<void> {
   const request = { responseType: "stream" as const, signal: options.signal, timeout: DOWNLOAD_TIMEOUT_MS };
   const response = file.exportMimeType
     ? await drive.files.export({ fileId: file.sourceId, mimeType: file.exportMimeType }, request)
     : await drive.files.get({ fileId: file.sourceId, alt: "media", supportsAllDrives: true }, request);
   const body: Readable = response.data;
-  if (options.maxBytes > 0) {
-    const limiter = byteLimiter(options.maxBytes, () => new FileTooLargeError(`Larger than the ${formatSize(options.maxBytes)} file limit`));
-    await pipeline(body, limiter, createWriteStream(destination));
-  } else {
-    await pipeline(body, createWriteStream(destination));
-  }
+  await pipeline(body, createWriteStream(destination));
 }
 
 export async function getStartPageToken(drive: drive_v3.Drive): Promise<string> {
