@@ -2,8 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rename } from "node:fs/promises";
 import { resolve } from "node:path";
 import { config } from "../config.js";
-import { getAgentPaths } from "../agents/manager.js";
-import { driveStore, type DriveAccount, type DriveFolderLink } from "./store.js";
+import { driveStore, linkTarget, targetKey, type DriveAccount, type DriveFolderLink, type DriveTarget } from "./store.js";
 import { authorizedClient, isReauthError } from "./oauth.js";
 import {
   changeAffects,
@@ -31,7 +30,7 @@ import {
   type LocalTree,
 } from "./mirror.js";
 import { detectLocalChanges, hasLocalChanges, isMassDeletion, pushLocalChanges, salvageAfterSwap } from "./two-way.js";
-import { DRIVE_INPUT_DIR, excludeFromAgentGit, manifestPath } from "./paths.js";
+import { DRIVE_INPUT_DIR, driveTargetPaths, excludeMirrorFromGit, manifestPath } from "./paths.js";
 
 const TICK_MS = 60_000;
 const FIRST_TICK_MS = 15_000;
@@ -81,7 +80,7 @@ function describeFailure(err: unknown): string {
 }
 
 function mirrorLocation(link: DriveFolderLink) {
-  const paths = getAgentPaths(link.agentName);
+  const paths = driveTargetPaths(linkTarget(link));
   if (!paths) return null;
   const workDir = resolve(paths.input, DRIVE_INPUT_DIR);
   return {
@@ -89,7 +88,7 @@ function mirrorLocation(link: DriveFolderLink) {
     workDir,
     root: resolve(workDir, link.localName),
     unsyncedDir: resolve(paths.output, "google-drive-unsynced", link.localName),
-    unsyncedLabel: `output/google-drive-unsynced/${link.localName}`,
+    unsyncedLabel: `${paths.outputLabel}/google-drive-unsynced/${link.localName}`,
   };
 }
 
@@ -140,7 +139,7 @@ async function runSync(link: DriveFolderLink, signal: AbortSignal, options: Sync
     const manifestFile = manifestPath(link.id);
     const previous = await readManifest(manifestFile);
     await mkdir(workDir, { recursive: true });
-    await excludeFromAgentGit(paths.root);
+    await excludeMirrorFromGit(paths);
 
     const now = Date.now();
     const notes = previous.skipped.filter((entry) => entry.cause === "upload" && entry.notedAt && now - Date.parse(entry.notedAt) < UPLOAD_NOTE_TTL_MS);
@@ -170,7 +169,7 @@ async function runSync(link: DriveFolderLink, signal: AbortSignal, options: Sync
         snapshot = await scanLocalTree(root);
       } else if (local) {
         const recovered = await setAsideLostState(root, resolve(paths.output, "google-drive-unsynced"), link.localName);
-        messages.push(`The sync state was missing, so the existing local copy was moved to output/google-drive-unsynced/${recovered} before downloading the folder again.`);
+        messages.push(`The sync state was missing, so the existing local copy was moved to ${paths.outputLabel}/google-drive-unsynced/${recovered} before downloading the folder again.`);
       }
     }
 
@@ -234,7 +233,7 @@ async function runSync(link: DriveFolderLink, signal: AbortSignal, options: Sync
       return idle;
     }
     const message = err instanceof FatalSyncError ? err.message : describeFailure(cause);
-    console.error(`[google-drive] sync of ${link.agentName}/${link.localName} failed: ${message}`);
+    console.error(`[google-drive] sync of ${targetKey(linkTarget(link))}/${link.localName} failed: ${message}`);
     await driveStore.recordSync(link.id, { status: "error", message });
     return { index: null, localPending: false };
   }
@@ -286,7 +285,7 @@ class DriveSyncEngine {
       .catch((err) => {
         state.dirty = true;
         state.failed = true;
-        console.error(`[google-drive] sync of ${link.agentName}/${link.localName} crashed:`, err instanceof Error ? err.stack ?? err.message : String(err));
+        console.error(`[google-drive] sync of ${targetKey(linkTarget(link))}/${link.localName} crashed:`, err instanceof Error ? err.stack ?? err.message : String(err));
       })
       .finally(() => {
         this.jobs.delete(linkId);
@@ -306,8 +305,8 @@ class DriveSyncEngine {
     await this.sync(linkId, { flush: true });
   }
 
-  afterAgentRun(agentName: string): void {
-    const writable = driveStore.foldersOf(agentName).filter((link) => link.access === "write");
+  afterRun(target: DriveTarget): void {
+    const writable = driveStore.foldersOf(target).filter((link) => link.access === "write");
     if (writable.length === 0) return;
     const timer = setTimeout(() => {
       for (const link of writable) {

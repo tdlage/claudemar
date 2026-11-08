@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { isValidAgentName } from "../../agents/manager.js";
+import { isValidProjectName } from "../../session.js";
 import {
   authorizationCookieName,
   authorizedClient,
@@ -59,8 +60,10 @@ function driveIdParam(req: Request, key: string): string | null {
 
 function returnPath(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const match = /^\/agents\/([^/]+)$/.exec(value);
-  return match && isValidAgentName(match[1]) ? value : null;
+  const match = /^\/(agents|projects)\/([^/]+)$/.exec(value);
+  if (!match) return null;
+  const valid = match[1] === "agents" ? isValidAgentName(match[2]) : isValidProjectName(match[2]);
+  return valid ? value : null;
 }
 
 googleDriveRouter.get("/accounts", (req, res) => {

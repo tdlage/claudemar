@@ -15,6 +15,7 @@ import { buildAgentDefinitions } from "./agents/subagents.js";
 import { buildContextFilesHint, buildEmailHint, buildInstructionsBlock, buildProjectSecretsHint, buildSecretsHint, contextFilesSignature } from "./agents/agent-context.js";
 import { getAgentPaths } from "./agents/manager.js";
 import { buildDriveFoldersHint, driveSessionSignature } from "./google-drive/service.js";
+import { DRIVE_INPUT_DIR } from "./google-drive/paths.js";
 import { projectSecretsDir } from "./secrets-manager.js";
 import { existingPromptAttachmentsDir } from "./prompt-attachments.js";
 import { config } from "./config.js";
@@ -270,9 +271,9 @@ export class ExecutionManager extends EventEmitter {
       const info = statSync(agentsMdPath);
       parts.push(`${info.mtimeMs}:${info.size}`);
     }
-    if (opts.targetType === "agent") {
-      if (!opts.skipSystemPrompt) parts.push(contextFilesSignature(opts.targetName));
-      parts.push(driveSessionSignature(opts.targetName));
+    if (opts.targetType === "agent" && !opts.skipSystemPrompt) parts.push(contextFilesSignature(opts.targetName));
+    if (opts.targetType === "agent" || opts.targetType === "project") {
+      parts.push(driveSessionSignature({ type: opts.targetType, name: opts.targetName }));
     }
     if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
       parts.push(emailSettingsManager.accessSignature(requesterOf(opts.username, opts.userId)));
@@ -285,16 +286,17 @@ export class ExecutionManager extends EventEmitter {
     let suffix = knowledge;
     if (opts.targetType === "agent") {
       suffix += buildSecretsHint(opts.targetName);
-      suffix += buildDriveFoldersHint(opts.targetName);
+      suffix += buildDriveFoldersHint({ type: "agent", name: opts.targetName });
     }
     if (opts.targetType === "project") {
       const projectPath = safeProjectPath(opts.targetName);
       if (projectPath) {
         suffix += buildProjectSecretsHint(opts.targetName);
+        suffix += buildDriveFoldersHint({ type: "project", name: opts.targetName });
         const projectInputDir = resolve(projectPath, ".input");
         if (existsSync(projectInputDir)) {
           try {
-            const files = readdirSync(projectInputDir).filter((f) => !f.startsWith("."));
+            const files = readdirSync(projectInputDir).filter((f) => !f.startsWith(".") && f !== DRIVE_INPUT_DIR);
             if (files.length > 0) {
               suffix += `\n[SYSTEM: You have ${files.length} reference file(s) in ${projectInputDir}/. Check them if relevant to your task.]`;
             }

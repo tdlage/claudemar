@@ -3,18 +3,18 @@ import { ChevronDown, ChevronRight, Download, Eye, FileText, HardDrive, Loader2,
 import { formatDistanceToNow } from "date-fns";
 import { api } from "../../lib/api";
 import { formatBytes } from "../../lib/format";
-import { Card } from "../shared/Card";
-import { Button } from "../shared/Button";
-import { Badge } from "../shared/Badge";
-import { Modal } from "../shared/Modal";
-import { useToast } from "../shared/Toast";
-import { FilePreviewModal } from "../shared/FilePreviewModal";
+import { Card } from "./Card";
+import { Button } from "./Button";
+import { Badge } from "./Badge";
+import { Modal } from "./Modal";
+import { useToast } from "./Toast";
+import { FilePreviewModal } from "./FilePreviewModal";
 import { ConnectDriveFolderModal } from "./ConnectDriveFolderModal";
-import { listenDriveAuthorization, openDriveAuthorization } from "../../lib/googleDriveAuth";
-import type { DriveAccess, DriveFolderFiles, DriveFolderLink, DriveFoldersResponse, DriveMirroredFile } from "../../lib/types";
+import { driveTargetPath, listenDriveAuthorization, openDriveAuthorization } from "../../lib/googleDriveAuth";
+import type { DriveAccess, DriveFolderFiles, DriveFolderLink, DriveFoldersResponse, DriveMirroredFile, DriveTargetRef } from "../../lib/types";
 
 interface DriveFoldersProps {
-  agentName: string;
+  target: DriveTargetRef;
   onChanged: () => void;
 }
 
@@ -115,7 +115,8 @@ function FolderFiles({ basePath, folder }: { basePath: string; folder: DriveFold
   );
 }
 
-export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
+export function DriveFolders({ target, onChanged }: DriveFoldersProps) {
+  const kind = target.kind;
   const { addToast } = useToast();
   const [state, setState] = useState<DriveFoldersResponse | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -124,7 +125,7 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
   const [removing, setRemoving] = useState(false);
   const [changingAccess, setChangingAccess] = useState<string | null>(null);
   const stopGrantListener = useRef<(() => void) | null>(null);
-  const basePath = `/agents/${agentName}/drive-folders`;
+  const basePath = `${driveTargetPath(target)}/drive-folders`;
 
   const load = useCallback(() => {
     api.get<DriveFoldersResponse>(basePath).then(setState).catch(() => {});
@@ -163,7 +164,7 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
     setChangingAccess(folder.id);
     try {
       replaceFolder(await api.patch<DriveFolderLink>(`${basePath}/${folder.id}`, { access }));
-      addToast("success", `"${folder.folderName}" is now ${ACCESS_LABELS[access].toLowerCase()} for this agent`);
+      addToast("success", `"${folder.folderName}" is now ${ACCESS_LABELS[access].toLowerCase()} for this ${kind}`);
     } catch (err) {
       addToast("error", errorMessage(err, "Failed to change the permission"));
     } finally {
@@ -187,7 +188,7 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
     };
     stopGrantListener.current = stop;
     try {
-      await openDriveAuthorization({ agentName, write: true, accountId });
+      await openDriveAuthorization({ target, write: true, accountId });
       addToast("success", "Allow write access in the Google window to finish");
     } catch (err) {
       stop();
@@ -235,7 +236,7 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
       {state && folders.length === 0 && (
         <p className="text-sm text-text-muted">
           {state.configured
-            ? "No Google Drive folders connected. Share a folder from your Drive and its files become inputs for this agent."
+            ? `No Google Drive folders connected. Share a folder from your Drive and its files become inputs for this ${kind}.`
             : "Google Drive is not configured on this server."}
         </p>
       )}
@@ -261,11 +262,11 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
             <div className="ml-auto flex items-center gap-1 shrink-0">
               {folder.canManage && (
                 <select
-                  aria-label={`Agent permission for ${folder.folderName}`}
+                  aria-label={`${kind === "agent" ? "Agent" : "Project"} permission for ${folder.folderName}`}
                   value={folder.access}
                   disabled={changingAccess === folder.id}
                   onChange={(e) => changeAccess(folder, e.target.value as DriveAccess)}
-                  title={folder.isOwner ? "Agent permission on this folder" : "Only the person who shared this folder can give the agent write permission"}
+                  title={folder.isOwner ? `${kind === "agent" ? "Agent" : "Project"} permission on this folder` : `Only the person who shared this folder can give the ${kind} write permission`}
                   className={`text-xs bg-transparent border rounded-md px-1.5 py-1 focus:outline-none focus:border-accent ${folder.access === "write" ? "border-accent/40 text-accent" : "border-border text-text-muted"}`}
                 >
                   <option value="read">{ACCESS_LABELS.read}</option>
@@ -313,7 +314,7 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
 
       {connectOpen && state && (
         <ConnectDriveFolderModal
-          agentName={agentName}
+          target={target}
           syncIntervalMinutes={state.syncIntervalMinutes}
           onClose={() => setConnectOpen(false)}
           onChanged={refreshAll}
@@ -323,9 +324,9 @@ export function DriveFolders({ agentName, onChanged }: DriveFoldersProps) {
       <Modal open={removeTarget !== null} onClose={() => setRemoveTarget(null)} title="Remove Google Drive folder" dismissible={!removing}>
         <div className="space-y-4">
           <p className="text-sm text-text-secondary">
-            Stop sharing <strong className="text-text-primary">{removeTarget?.folderName}</strong> with this agent? Its mirrored files are
-            deleted from the agent's inputs. Nothing is deleted from Google Drive.
-            {removeTarget?.access === "write" && " Changes the agent has not uploaded yet are uploaded first."}
+            Stop sharing <strong className="text-text-primary">{removeTarget?.folderName}</strong> with this {kind}? Its mirrored files are
+            deleted from the {kind}'s inputs. Nothing is deleted from Google Drive.
+            {removeTarget?.access === "write" && ` Changes not uploaded yet are uploaded first.`}
           </p>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" disabled={removing} onClick={() => setRemoveTarget(null)}>Cancel</Button>

@@ -2,14 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ChevronRight, Copy, Eye, Folder, HardDrive, Loader2, PencilLine, Plus, Search, Unplug } from "lucide-react";
 import { api } from "../../lib/api";
 import { useDebounce } from "../../hooks/useDebounce";
-import { listenDriveAuthorization, openDriveAuthorization } from "../../lib/googleDriveAuth";
-import { Modal } from "../shared/Modal";
-import { Button } from "../shared/Button";
-import { useToast } from "../shared/Toast";
-import type { DriveAccess, DriveAccount, DriveAccountsResponse, DriveBrowseFolder, DriveBrowseResponse, DriveBrowseScope } from "../../lib/types";
+import { driveTargetPath, listenDriveAuthorization, openDriveAuthorization } from "../../lib/googleDriveAuth";
+import { Modal } from "./Modal";
+import { Button } from "./Button";
+import { useToast } from "./Toast";
+import type { DriveAccess, DriveAccount, DriveAccountsResponse, DriveBrowseFolder, DriveBrowseResponse, DriveBrowseScope, DriveTargetRef } from "../../lib/types";
 
 interface ConnectDriveFolderModalProps {
-  agentName: string;
+  target: DriveTargetRef;
   syncIntervalMinutes: number;
   onClose: () => void;
   onChanged: () => void;
@@ -23,10 +23,16 @@ const SCOPES: { key: DriveBrowseScope; label: string }[] = [
 const AUTH_TIMEOUT_MS = 5 * 60_000;
 const AUTH_POLL_MS = 2500;
 
-const ACCESS_OPTIONS: { key: DriveAccess; label: string; description: string }[] = [
-  { key: "read", label: "Read only", description: "The agent reads a local copy of the files. Nothing is changed in Google Drive." },
-  { key: "write", label: "Read and write", description: "Files the agent creates, edits, renames or deletes in this folder are synced back to Google Drive (deleted files go to the Drive trash)." },
-];
+const ACCESS_OPTIONS: Record<DriveTargetRef["kind"], { key: DriveAccess; label: string; description: string }[]> = {
+  agent: [
+    { key: "read", label: "Read only", description: "The agent reads a local copy of the files. Nothing is changed in Google Drive." },
+    { key: "write", label: "Read and write", description: "Files the agent creates, edits, renames or deletes in this folder are synced back to Google Drive (deleted files go to the Drive trash)." },
+  ],
+  project: [
+    { key: "read", label: "Read only", description: "Project executions read a local copy of the files. Nothing is changed in Google Drive." },
+    { key: "write", label: "Read and write", description: "Files that project executions create, edit, rename or delete in this folder are synced back to Google Drive (deleted files go to the Drive trash)." },
+  ],
+};
 
 const inputClass = "w-full bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent";
 
@@ -34,7 +40,7 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
-export function ConnectDriveFolderModal({ agentName, syncIntervalMinutes, onClose, onChanged }: ConnectDriveFolderModalProps) {
+export function ConnectDriveFolderModal({ target, syncIntervalMinutes, onClose, onChanged }: ConnectDriveFolderModalProps) {
   const { addToast } = useToast();
   const [accountsState, setAccountsState] = useState<DriveAccountsResponse | null>(null);
   const [accountsError, setAccountsError] = useState<string | null>(null);
@@ -125,7 +131,7 @@ export function ConnectDriveFolderModal({ agentName, syncIntervalMinutes, onClos
   const startAuthorization = async (request: { write?: boolean; accountId?: string } = {}) => {
     knownAccounts.current = new Map(accounts.map((a) => [a.id, a]));
     try {
-      if ((await openDriveAuthorization({ agentName, ...request })) === "popup") setAuthorizing(true);
+      if ((await openDriveAuthorization({ target, ...request })) === "popup") setAuthorizing(true);
     } catch (err) {
       addToast("error", errorMessage(err, "Failed to start Google authorization"));
     }
@@ -177,7 +183,7 @@ export function ConnectDriveFolderModal({ agentName, syncIntervalMinutes, onClos
     if (!account || !current) return;
     setConnecting(true);
     try {
-      await api.post(`/agents/${agentName}/drive-folders`, { accountId: account.id, folderId: current.id, access });
+      await api.post(`${driveTargetPath(target)}/drive-folders`, { accountId: account.id, folderId: current.id, access });
       addToast("success", `Connected "${current.name}" (${access === "write" ? "read and write" : "read only"})`);
       onChanged();
       onClose();
@@ -290,7 +296,7 @@ export function ConnectDriveFolderModal({ agentName, syncIntervalMinutes, onClos
                 <p className="text-sm text-text-secondary">
                   Disconnect <strong className="text-text-primary">{account.email}</strong>?
                   {account.folderCount > 0
-                    ? ` ${account.folderCount} folder(s) shared from this account will be removed from every agent.`
+                    ? ` ${account.folderCount} folder(s) shared from this account will be removed from every agent and project.`
                     : " No folders are shared from this account."}
                 </p>
                 <div className="flex justify-end gap-2">
@@ -378,9 +384,9 @@ export function ConnectDriveFolderModal({ agentName, syncIntervalMinutes, onClos
                 </div>
 
                 <fieldset>
-                  <legend className="text-xs font-medium text-text-secondary mb-2">Agent permission</legend>
+                  <legend className="text-xs font-medium text-text-secondary mb-2">{target.kind === "agent" ? "Agent" : "Project"} permission</legend>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {ACCESS_OPTIONS.map((option) => {
+                    {ACCESS_OPTIONS[target.kind].map((option) => {
                       const checked = access === option.key;
                       return (
                         <label
@@ -417,9 +423,9 @@ export function ConnectDriveFolderModal({ agentName, syncIntervalMinutes, onClos
                 )}
 
                 <p className="text-xs text-text-muted">
-                  Open the folder you want to share and connect it. Its files are copied into this agent's inputs
+                  Open the folder you want to share and connect it. Its files are copied into this {target.kind}'s inputs
                   {syncIntervalMinutes > 0 ? `, refreshed every ${syncIntervalMinutes} min` : ", refreshed when you click Sync"}, and are visible
-                  to everyone with access to this agent.
+                  to everyone with access to this {target.kind}.
                 </p>
 
                 <div className="flex justify-end gap-2">

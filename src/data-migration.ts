@@ -174,9 +174,10 @@ const TABLE_DEFINITIONS: string[] = [
     UNIQUE KEY uk_owner_email (owner_id, email)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
-  `CREATE TABLE IF NOT EXISTS agent_drive_folders (
+  `CREATE TABLE IF NOT EXISTS drive_folders (
     id CHAR(36) PRIMARY KEY,
-    agent_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    target_type VARCHAR(16) NOT NULL DEFAULT 'agent',
+    target_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     account_id CHAR(36) NOT NULL,
     folder_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     folder_name VARCHAR(1024) NOT NULL,
@@ -190,10 +191,10 @@ const TABLE_DEFINITIONS: string[] = [
     total_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
     last_synced_at DATETIME DEFAULT NULL,
     created_at DATETIME NOT NULL,
-    UNIQUE KEY uk_agent_folder (agent_name, folder_id),
-    UNIQUE KEY uk_agent_local (agent_name, local_name),
+    UNIQUE KEY uk_target_folder (target_type, target_name, folder_id),
+    UNIQUE KEY uk_target_local (target_type, target_name, local_name),
     INDEX idx_account (account_id),
-    CONSTRAINT fk_adf_account FOREIGN KEY (account_id) REFERENCES google_drive_accounts(id) ON DELETE CASCADE
+    CONSTRAINT fk_df_account FOREIGN KEY (account_id) REFERENCES google_drive_accounts(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `DROP TABLE IF EXISTS squad_skills`,
@@ -568,6 +569,7 @@ export async function runDataMigrations(): Promise<void> {
   relocateTrackerUploads();
   await dropTrackerTables(pool);
   await ensureUnicodeCollation(pool);
+  await generalizeDriveFolders(pool);
 
   for (const sql of TABLE_DEFINITIONS) {
     await pool.execute(sql);
@@ -590,12 +592,36 @@ export async function runDataMigrations(): Promise<void> {
   console.log("[data-migration] All data migrations completed");
 }
 
+async function tableExists(pool: ReturnType<typeof getPool>, table: string): Promise<boolean> {
+  const [rows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+    [table],
+  );
+  return (rows as Array<{ cnt: number }>)[0].cnt > 0;
+}
+
+// Pastas do Drive deixaram de ser só de agentes: agent_drive_folders vira drive_folders (agente ou projeto).
+async function generalizeDriveFolders(pool: ReturnType<typeof getPool>): Promise<void> {
+  if (!(await tableExists(pool, "agent_drive_folders")) || (await tableExists(pool, "drive_folders"))) return;
+  await pool.execute("RENAME TABLE agent_drive_folders TO drive_folders");
+  await pool.execute(
+    `ALTER TABLE drive_folders
+       CHANGE agent_name target_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+       ADD COLUMN target_type VARCHAR(16) NOT NULL DEFAULT 'agent' AFTER id,
+       DROP INDEX uk_agent_folder,
+       DROP INDEX uk_agent_local,
+       ADD UNIQUE KEY uk_target_folder (target_type, target_name, folder_id),
+       ADD UNIQUE KEY uk_target_local (target_type, target_name, local_name)`,
+  );
+  console.log("[data-migration] Renamed agent_drive_folders to drive_folders");
+}
+
 async function ensureDriveFolderColumns(pool: ReturnType<typeof getPool>): Promise<void> {
   const [rows] = await pool.execute(
-    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agent_drive_folders' AND COLUMN_NAME = 'access'",
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'drive_folders' AND COLUMN_NAME = 'access'",
   );
   if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
-    await pool.execute("ALTER TABLE agent_drive_folders ADD COLUMN access VARCHAR(8) NOT NULL DEFAULT 'read' AFTER local_name");
+    await pool.execute("ALTER TABLE drive_folders ADD COLUMN access VARCHAR(8) NOT NULL DEFAULT 'read' AFTER local_name");
   }
 }
 

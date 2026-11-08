@@ -263,7 +263,7 @@ export async function pushLocalChanges(ctx: PushContext, changes: LocalChanges):
         await rename(join(ctx.root, entry.path), join(ctx.root, copyPath));
         await uploadNew(copyPath, copyName, local);
         note(entry.path, `Changed both here and in Google Drive: this version was uploaded as "${copyName}".`, entry.id);
-      }, (message) => saveAside(copyPath, `Changed both here and in Google Drive and the agent version could not be uploaded: ${message}.`));
+      }, (message) => saveAside(copyPath, `Changed both here and in Google Drive and the local version could not be uploaded: ${message}.`));
       continue;
     }
     await run(async () => {

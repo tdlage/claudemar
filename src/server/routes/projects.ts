@@ -49,6 +49,9 @@ import { refreshProviderCatalog } from "../../provider-catalog.js";
 import { projectSecretsManager } from "../../secrets-manager.js";
 import { hasProjectTab } from "../middleware.js";
 import { registerSecretsRoutes } from "./secrets.js";
+import { registerDriveFolderRoutes } from "./drive-folders.js";
+import { DRIVE_INPUT_DIR } from "../../google-drive/paths.js";
+import { DriveRequestError, targetFolderCount } from "../../google-drive/service.js";
 
 export const projectsRouter = Router();
 
@@ -216,8 +219,14 @@ projectsRouter.get("/:name", asyncHandler(async (req, res) => {
 
   const projectName = String(req.params.name);
   const repos = await discoverRepos(projectPath, true);
-  const inputFiles = listFiles(inputDir(projectPath));
-  res.json({ name: projectName, repos, inputFiles, model: targetModelSettings.get("project", projectName) });
+  const inputFiles = listInputFiles(projectPath);
+  res.json({
+    name: projectName,
+    repos,
+    inputFiles,
+    driveFolderCount: targetFolderCount({ type: "project", name: projectName }),
+    model: targetModelSettings.get("project", projectName),
+  });
 }));
 
 projectsRouter.put("/:name/model", asyncHandler(async (req, res) => {
@@ -499,6 +508,10 @@ function inputDir(projectPath: string): string {
   return resolve(projectPath, ".input");
 }
 
+function listInputFiles(projectPath: string) {
+  return listFiles(inputDir(projectPath)).filter((file) => file.name !== DRIVE_INPUT_DIR);
+}
+
 function outputDir(projectPath: string): string {
   return resolve(projectPath, ".output");
 }
@@ -612,7 +625,7 @@ projectsRouter.get("/:name/input", (req, res) => {
   const projectPath = resolveProject(req, res);
   if (!projectPath) return;
 
-  res.json(listFiles(inputDir(projectPath)));
+  res.json(listInputFiles(projectPath));
 });
 
 projectsRouter.post("/:name/input", inputUploadParser, (req, res) => {
@@ -622,6 +635,10 @@ projectsRouter.post("/:name/input", inputUploadParser, (req, res) => {
   const { filename } = req.query;
   if (!safeFilename(filename)) {
     res.status(400).json({ error: "Invalid or missing filename" });
+    return;
+  }
+  if (filename === DRIVE_INPUT_DIR) {
+    res.status(400).json({ error: `"${DRIVE_INPUT_DIR}" is reserved for Google Drive folders` });
     return;
   }
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
@@ -648,7 +665,7 @@ projectsRouter.get("/:name/input/:file/download", (req, res) => {
   if (!projectPath) return;
 
   const { file } = req.params;
-  if (!safeFilename(file)) {
+  if (!safeFilename(file) || file === DRIVE_INPUT_DIR) {
     res.status(400).json({ error: "Invalid filename" });
     return;
   }
@@ -675,7 +692,7 @@ projectsRouter.delete("/:name/input/:file", (req, res) => {
   if (!projectPath) return;
 
   const { file } = req.params;
-  if (!safeFilename(file)) {
+  if (!safeFilename(file) || file === DRIVE_INPUT_DIR) {
     res.status(400).json({ error: "Invalid filename" });
     return;
   }
@@ -707,6 +724,15 @@ function resolveSecretsProject(req: Request, res: Response): string | null {
 }
 
 registerSecretsRoutes(projectsRouter, { manager: projectSecretsManager, ownerLabel: "projeto", resolveOwner: resolveSecretsProject });
+
+registerDriveFolderRoutes(projectsRouter, (req) => {
+  const { name } = req.params;
+  if (typeof name !== "string") throw new DriveRequestError(400, "Invalid project name");
+  const projectPath = safeProjectPath(name);
+  if (!projectPath || !existsSync(projectPath)) throw new DriveRequestError(404, "Project not found");
+  if (req.ctx?.role === "user" && !hasProjectTab(req.ctx, name, "input")) throw new DriveRequestError(403, "Forbidden");
+  return { type: "project", name };
+});
 
 function extractSkillDescription(content: string): string {
   const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);

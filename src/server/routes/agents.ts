@@ -19,9 +19,9 @@ import { purgeAgentData } from "../../target-cleanup.js";
 import { agentSecretsManager } from "../../secrets-manager.js";
 import { attachmentDisposition, safeFilename, safePathSegment, listFiles, listDirEntries, inputUploadParser } from "../route-utils.js";
 import { registerSecretsRoutes } from "./secrets.js";
-import { registerDriveFolderRoutes } from "./agent-drive-folders.js";
+import { registerDriveFolderRoutes } from "./drive-folders.js";
 import { DRIVE_INPUT_DIR } from "../../google-drive/paths.js";
-import { agentFolderCount } from "../../google-drive/service.js";
+import { DriveRequestError, targetFolderCount } from "../../google-drive/service.js";
 
 export const agentsRouter = Router();
 
@@ -145,7 +145,7 @@ agentsRouter.get("/:name", async (req, res) => {
     schedules,
     secrets,
     secretFiles,
-    driveFolderCount: agentFolderCount(name),
+    driveFolderCount: targetFolderCount({ type: "agent", name }),
   });
 });
 
@@ -537,4 +537,10 @@ function resolveAgentOwner(req: Request, res: Response): string | null {
 }
 
 registerSecretsRoutes(agentsRouter, { manager: agentSecretsManager, ownerLabel: "agente", resolveOwner: resolveAgentOwner });
-registerDriveFolderRoutes(agentsRouter);
+registerDriveFolderRoutes(agentsRouter, (req) => {
+  const { name } = req.params;
+  if (typeof name !== "string" || !isValidAgentName(name)) throw new DriveRequestError(400, "Invalid agent name");
+  const paths = getAgentPaths(name);
+  if (!paths || !existsSync(paths.root)) throw new DriveRequestError(404, "Agent not found");
+  return { type: "agent", name };
+});

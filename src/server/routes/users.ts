@@ -1,8 +1,17 @@
 import { Router } from "express";
-import { usersManager } from "../../users-manager.js";
-import { pruneDriveOwnerAgents, purgeDriveOwner } from "../../google-drive/service.js";
+import { DEFAULT_PROJECT_TABS, usersManager, type User } from "../../users-manager.js";
+import { pruneDriveOwnerTargets, purgeDriveOwner } from "../../google-drive/service.js";
+import type { DriveTarget } from "../../google-drive/store.js";
 
 export const usersRouter = Router();
+
+function driveTargetsOf(user: User): DriveTarget[] {
+  const projects = user.projects.filter((project) => (user.projectTabs[project] ?? DEFAULT_PROJECT_TABS).includes("input"));
+  return [
+    ...user.agents.map((name): DriveTarget => ({ type: "agent", name })),
+    ...projects.map((name): DriveTarget => ({ type: "project", name })),
+  ];
+}
 
 function normalizedName(name: string): string {
   return name.trim().toLowerCase();
@@ -45,7 +54,9 @@ usersRouter.put("/:id", async (req, res) => {
     res.status(404).json({ error: "User not found" });
     return;
   }
-  if (req.body?.agents !== undefined) await pruneDriveOwnerAgents(updated.id, updated.agents);
+  if (req.body?.agents !== undefined || req.body?.projects !== undefined || req.body?.projectTabs !== undefined) {
+    await pruneDriveOwnerTargets(updated.id, driveTargetsOf(updated));
+  }
   res.json(updated);
 });
 

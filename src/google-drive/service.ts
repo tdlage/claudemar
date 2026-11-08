@@ -2,13 +2,12 @@ import { rm } from "node:fs/promises";
 import { basename, resolve, sep } from "node:path";
 import type { RequestContext } from "../server/middleware.js";
 import { config } from "../config.js";
-import { getAgentPaths } from "../agents/manager.js";
 import { usersManager } from "../users-manager.js";
-import { ADMIN_OWNER_ID, driveStore, type DriveAccess, type DriveAccount, type DriveFolderLink, type DriveFolderStatus } from "./store.js";
+import { ADMIN_OWNER_ID, driveStore, linkTarget, targetKey, type DriveAccess, type DriveAccount, type DriveFolderLink, type DriveFolderStatus, type DriveTarget } from "./store.js";
 import { accountCanWrite, authorizedClient, driveOAuthConfigured, isReauthError, revokeAccess } from "./oauth.js";
 import { driveClient, getFolder, type DriveFolderInfo } from "./drive-api.js";
 import { linkDirectoryName, readManifest, removeMirror } from "./mirror.js";
-import { DRIVE_INPUT_DIR, driveInputRoot, manifestPath } from "./paths.js";
+import { DRIVE_INPUT_DIR, driveInputRoot, driveTargetPaths, manifestPath } from "./paths.js";
 import { driveSync, REAUTH_MESSAGE } from "./sync.js";
 
 export class DriveRequestError extends Error {
@@ -66,13 +65,14 @@ export interface MirroredFileView {
   webViewLink: string | null;
 }
 
-const agentLocks = new Map<string, Promise<unknown>>();
+const targetLocks = new Map<string, Promise<unknown>>();
 
-function withAgentLock<T>(agentName: string, task: () => Promise<T>): Promise<T> {
-  const run = (agentLocks.get(agentName) ?? Promise.resolve()).catch(() => {}).then(task);
-  agentLocks.set(agentName, run);
+function withTargetLock<T>(target: DriveTarget, task: () => Promise<T>): Promise<T> {
+  const key = targetKey(target);
+  const run = (targetLocks.get(key) ?? Promise.resolve()).catch(() => {}).then(task);
+  targetLocks.set(key, run);
   return run.finally(() => {
-    if (agentLocks.get(agentName) === run) agentLocks.delete(agentName);
+    if (targetLocks.get(key) === run) targetLocks.delete(key);
   });
 }
 
@@ -98,7 +98,7 @@ function folderView(ctx: RequestContext, link: DriveFolderLink): DriveFolderView
     folderId: link.folderId,
     folderName: link.folderName,
     folderUrl: `https://drive.google.com/drive/folders/${encodeURIComponent(link.folderId)}`,
-    localPath: `input/${DRIVE_INPUT_DIR}/${link.localName}`,
+    localPath: `${driveTargetPaths(linkTarget(link))?.inputLabel ?? "input"}/${DRIVE_INPUT_DIR}/${link.localName}`,
     access: link.access,
     ownerName: ownerName(account?.ownerId),
     accountEmail: manageable && account ? account.email : null,
@@ -118,19 +118,19 @@ function folderView(ctx: RequestContext, link: DriveFolderLink): DriveFolderView
   };
 }
 
-export function agentFolderViews(ctx: RequestContext, agentName: string): DriveFolderView[] {
-  return driveStore.foldersOf(agentName).map((link) => folderView(ctx, link));
+export function targetFolderViews(ctx: RequestContext, target: DriveTarget): DriveFolderView[] {
+  return driveStore.foldersOf(target).map((link) => folderView(ctx, link));
 }
 
-export function driveSessionSignature(agentName: string): string {
-  return driveStore.foldersOf(agentName)
+export function driveSessionSignature(target: DriveTarget): string {
+  return driveStore.foldersOf(target)
     .map((link) => `${link.id}:${link.access}:${link.lastSyncedAt ? "synced" : "pending"}`)
     .sort()
     .join(",");
 }
 
-export function agentFolderCount(agentName: string): number {
-  return driveStore.foldersOf(agentName).length;
+export function targetFolderCount(target: DriveTarget): number {
+  return driveStore.foldersOf(target).length;
 }
 
 export function accountViews(ctx: RequestContext): DriveAccountView[] {
@@ -150,9 +150,9 @@ export function ownedAccount(ctx: RequestContext, accountId: string): DriveAccou
   return account;
 }
 
-function agentLink(agentName: string, linkId: string): DriveFolderLink {
+function targetLink(target: DriveTarget, linkId: string): DriveFolderLink {
   const link = driveStore.getFolder(linkId);
-  if (!link || link.agentName !== agentName) throw new DriveRequestError(404, "Drive folder not found");
+  if (!link || link.targetType !== target.type || link.targetName !== target.name) throw new DriveRequestError(404, "Drive folder not found");
   return link;
 }
 
@@ -178,22 +178,23 @@ function assertEditableFolder(account: DriveAccount, folder: DriveFolderInfo): v
   if (!folder.canAddChildren) throw new DriveRequestError(403, `${account.email} can only view this folder in Google Drive, so it cannot be shared with write permission`);
 }
 
-export async function connectFolder(ctx: RequestContext, agentName: string, accountId: string, folderId: string, access: DriveAccess): Promise<DriveFolderView> {
+export async function connectFolder(ctx: RequestContext, target: DriveTarget, accountId: string, folderId: string, access: DriveAccess): Promise<DriveFolderView> {
   if (!driveOAuthConfigured()) throw new DriveRequestError(400, "Google Drive is not configured on this server");
   const account = ownedAccount(ctx, accountId);
   if (account.reauthRequired) throw new DriveRequestError(409, "Reconnect this Google account before connecting folders");
   if (access === "write") assertWriteScope(account);
   const folder = await lookupFolder(account, folderId);
   if (access === "write") assertEditableFolder(account, folder);
-  return withAgentLock(agentName, async () => {
-    const existing = driveStore.findFolder(agentName, folder.id);
+  return withTargetLock(target, async () => {
+    const existing = driveStore.findFolder(target, folder.id);
     if (existing) {
       const sharedBy = ownerName(driveStore.getAccount(existing.accountId)?.ownerId);
-      throw new DriveRequestError(409, `This folder is already connected to this agent (shared by ${sharedBy})`);
+      throw new DriveRequestError(409, `This folder is already connected to this ${target.type} (shared by ${sharedBy})`);
     }
-    const taken = new Set(driveStore.foldersOf(agentName).map((link) => link.localName));
+    const taken = new Set(driveStore.foldersOf(target).map((link) => link.localName));
     const link = await driveStore.createFolder({
-      agentName,
+      targetType: target.type,
+      targetName: target.name,
       accountId: account.id,
       folderId: folder.id,
       folderName: folder.name,
@@ -206,18 +207,18 @@ export async function connectFolder(ctx: RequestContext, agentName: string, acco
   });
 }
 
-export function requestSync(ctx: RequestContext, agentName: string, linkId: string): DriveFolderView {
-  const link = agentLink(agentName, linkId);
+export function requestSync(ctx: RequestContext, target: DriveTarget, linkId: string): DriveFolderView {
+  const link = targetLink(target, linkId);
   if (driveStore.getAccount(link.accountId)?.reauthRequired) throw new DriveRequestError(409, REAUTH_MESSAGE);
   void driveSync.sync(link.id, { force: true });
   return folderView(ctx, link);
 }
 
-export async function setFolderAccess(ctx: RequestContext, agentName: string, linkId: string, access: DriveAccess): Promise<DriveFolderView> {
-  const link = agentLink(agentName, linkId);
+export async function setFolderAccess(ctx: RequestContext, target: DriveTarget, linkId: string, access: DriveAccess): Promise<DriveFolderView> {
+  const link = targetLink(target, linkId);
   const account = driveStore.getAccount(link.accountId);
   const owner = account?.ownerId === ownerIdOf(ctx);
-  if (access === "write" && !owner) throw new DriveRequestError(403, "Only the person who shared this folder can give the agent write permission");
+  if (access === "write" && !owner) throw new DriveRequestError(403, `Only the person who shared this folder can give the ${target.type} write permission`);
   if (access === "read" && !canManage(ctx, link)) throw new DriveRequestError(403, "Only the person who shared this folder or an admin can change its permission");
   if (link.access === access) return folderView(ctx, link);
   if (access === "write") {
@@ -238,7 +239,7 @@ async function flushPendingChanges(link: DriveFolderLink): Promise<void> {
 
 async function discardMirror(link: DriveFolderLink): Promise<void> {
   await driveSync.cancel(link.id);
-  const workDir = driveInputRoot(link.agentName);
+  const workDir = driveInputRoot(linkTarget(link));
   if (workDir) await removeMirror(resolve(workDir, link.localName), workDir, link.id);
   await rm(manifestPath(link.id), { force: true });
 }
@@ -251,8 +252,8 @@ async function removeLinks(links: DriveFolderLink[]): Promise<void> {
   }
 }
 
-export async function disconnectFolder(ctx: RequestContext, agentName: string, linkId: string): Promise<void> {
-  const link = agentLink(agentName, linkId);
+export async function disconnectFolder(ctx: RequestContext, target: DriveTarget, linkId: string): Promise<void> {
+  const link = targetLink(target, linkId);
   if (!canManage(ctx, link)) throw new DriveRequestError(403, "Only the person who shared this folder or an admin can remove it");
   await removeLinks([link]);
 }
@@ -277,19 +278,20 @@ export async function purgeDriveOwner(ownerId: string): Promise<void> {
   for (const account of driveStore.accountsOf(ownerId)) await deleteAccount(account);
 }
 
-export async function pruneDriveOwnerAgents(ownerId: string, agents: string[]): Promise<void> {
-  const allowed = new Set(agents);
+// Remove as pastas que o usuário compartilhou com alvos aos quais ele perdeu acesso.
+export async function pruneDriveOwnerTargets(ownerId: string, allowed: DriveTarget[]): Promise<void> {
+  const keys = new Set(allowed.map(targetKey));
   await removeLinks(
-    driveStore.allFolders().filter((link) => !allowed.has(link.agentName) && driveStore.getAccount(link.accountId)?.ownerId === ownerId),
+    driveStore.allFolders().filter((link) => !keys.has(targetKey(linkTarget(link))) && driveStore.getAccount(link.accountId)?.ownerId === ownerId),
   );
 }
 
-export async function purgeAgentDriveFolders(agentName: string): Promise<void> {
-  await removeLinks(driveStore.foldersOf(agentName));
+export async function purgeTargetDriveFolders(target: DriveTarget): Promise<void> {
+  await removeLinks(driveStore.foldersOf(target));
 }
 
-export async function mirroredFiles(agentName: string, linkId: string): Promise<{ files: MirroredFileView[]; skipped: SkippedFileView[] }> {
-  const link = agentLink(agentName, linkId);
+export async function mirroredFiles(target: DriveTarget, linkId: string): Promise<{ files: MirroredFileView[]; skipped: SkippedFileView[] }> {
+  const link = targetLink(target, linkId);
   const manifest = await readManifest(manifestPath(link.id));
   return {
     files: manifest.files.map((entry) => ({
@@ -309,9 +311,9 @@ export async function mirroredFiles(agentName: string, linkId: string): Promise<
   };
 }
 
-export async function mirroredFile(agentName: string, linkId: string, fileId: string): Promise<{ absolutePath: string; name: string } | null> {
-  const link = agentLink(agentName, linkId);
-  const workDir = driveInputRoot(agentName);
+export async function mirroredFile(target: DriveTarget, linkId: string, fileId: string): Promise<{ absolutePath: string; name: string } | null> {
+  const link = targetLink(target, linkId);
+  const workDir = driveInputRoot(target);
   if (!workDir) return null;
   const entry = (await readManifest(manifestPath(link.id))).files.find((file) => file.id === fileId);
   if (!entry) return null;
@@ -321,9 +323,9 @@ export async function mirroredFile(agentName: string, linkId: string, fileId: st
   return { absolutePath, name: basename(entry.path) };
 }
 
-export function buildDriveFoldersHint(agentName: string): string {
-  const paths = getAgentPaths(agentName);
-  const links = driveStore.foldersOf(agentName).filter((link) => link.lastSyncedAt);
+export function buildDriveFoldersHint(target: DriveTarget): string {
+  const paths = driveTargetPaths(target);
+  const links = driveStore.foldersOf(target).filter((link) => link.lastSyncedAt);
   if (!paths || links.length === 0) return "";
   const root = resolve(paths.input, DRIVE_INPUT_DIR);
   const folders = links

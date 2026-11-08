@@ -126,6 +126,11 @@ export interface DriveFolderLink {
   reauthRequired: boolean;
 }
 
+export interface DriveTargetRef {
+  kind: "agent" | "project";
+  name: string;
+}
+
 export interface DriveFoldersResponse {
   configured: boolean;
   syncIntervalMinutes: number;
@@ -203,6 +208,7 @@ export interface ProjectDetail {
   name: string;
   repos: RepoInfo[];
   inputFiles: { name: string; size: number; mtime: string }[];
+  driveFolderCount: number;
   model?: string;
 }
 

@@ -4,12 +4,11 @@ import { z } from "zod";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { google } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
-import { getAgentPaths } from "../agents/manager.js";
-import { driveStore, type DriveAccount, type DriveFolderLink } from "./store.js";
+import { driveStore, type DriveAccount, type DriveFolderLink, type DriveTarget } from "./store.js";
 import { accountCanWrite, authorizedClient, isReauthError } from "./oauth.js";
 import { driveErrorInfo } from "./drive-api.js";
 import { localFileName, readManifest } from "./mirror.js";
-import { driveInputRoot, manifestPath } from "./paths.js";
+import { driveInputRoot, driveTargetPaths, manifestPath } from "./paths.js";
 import { driveSync, REAUTH_MESSAGE } from "./sync.js";
 import { DOC_MIME, SHEET_MIME, SLIDES_MIME, flattenDocTabs, formatDocBody, formatPresentation, formatSheetValues } from "./native-format.js";
 
@@ -34,7 +33,7 @@ class ToolError extends Error {}
 const createdFiles = new Map<string, { linkId: string; mimeType: string }>();
 
 const fileRef = {
-  path: z.string().optional().describe("Path of the converted copy in the mirrored Google Drive folder (e.g. input/google-drive/Reports/Plan.md), absolute or relative to your working directory"),
+  path: z.string().optional().describe("Path of the converted copy in the mirrored Google Drive folder (e.g. <mirror>/Reports/Plan.md), absolute or relative to your working directory"),
   file_id: z.string().optional().describe("Google Drive file id, for files created with create_google_file that are not mirrored yet"),
 };
 
@@ -49,24 +48,29 @@ function failure(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
-function mirrorRoot(agentName: string): string {
-  const root = driveInputRoot(agentName);
-  if (!root) throw new ToolError("This agent has no Google Drive folders.");
+function mirrorRoot(target: DriveTarget): string {
+  const root = driveInputRoot(target);
+  if (!root) throw new ToolError(`This ${target.type} has no Google Drive folders.`);
   return root;
 }
 
-function locate(agentName: string, path: string): { link: DriveFolderLink; relativePath: string } {
-  const paths = getAgentPaths(agentName);
-  const root = mirrorRoot(agentName);
-  const candidates = isAbsolute(path) ? [resolve(path)] : [resolve(paths!.root, path), resolve(root, path)];
+function targetPaths(target: DriveTarget) {
+  const paths = driveTargetPaths(target);
+  if (!paths) throw new ToolError(`This ${target.type} no longer exists.`);
+  return paths;
+}
+
+function locate(target: DriveTarget, path: string): { link: DriveFolderLink; relativePath: string } {
+  const root = mirrorRoot(target);
+  const candidates = isAbsolute(path) ? [resolve(path)] : [resolve(targetPaths(target).root, path), resolve(root, path)];
   for (const candidate of candidates) {
     const inside = relative(root, candidate);
     if (!inside || inside.startsWith("..") || isAbsolute(inside)) continue;
     const [localName, ...rest] = inside.split(sep);
-    const link = driveStore.foldersOf(agentName).find((folder) => folder.localName === localName);
+    const link = driveStore.foldersOf(target).find((folder) => folder.localName === localName);
     if (link) return { link, relativePath: rest.join("/") };
   }
-  throw new ToolError(`"${path}" is not inside a Google Drive folder shared with this agent.`);
+  throw new ToolError(`"${path}" is not inside a Google Drive folder shared with this ${target.type}.`);
 }
 
 function accountOf(link: DriveFolderLink): DriveAccount {
@@ -75,25 +79,25 @@ function accountOf(link: DriveFolderLink): DriveAccount {
   return account;
 }
 
-async function resolveFile(agentName: string, ref: { path?: string; file_id?: string }, kind: Kind): Promise<ResolvedFile> {
+async function resolveFile(target: DriveTarget, ref: { path?: string; file_id?: string }, kind: Kind): Promise<ResolvedFile> {
   const mimeType = KIND_MIME[kind];
   if (ref.file_id) {
     const created = createdFiles.get(ref.file_id);
     const createdLink = created && driveStore.getFolder(created.linkId);
-    if (createdLink && createdLink.agentName === agentName) {
+    if (createdLink && createdLink.targetType === target.type && createdLink.targetName === target.name) {
       if (created.mimeType !== mimeType) throw new ToolError(`File ${ref.file_id} is not a ${KIND_LABEL[kind]} file.`);
       return { link: createdLink, account: accountOf(createdLink), fileId: ref.file_id, shortcut: false };
     }
-    for (const link of driveStore.foldersOf(agentName)) {
+    for (const link of driveStore.foldersOf(target)) {
       const entry = (await readManifest(manifestPath(link.id))).files.find((file) => file.id === ref.file_id || file.sourceId === ref.file_id);
       if (!entry) continue;
       if (entry.mimeType !== mimeType) throw new ToolError(`File ${ref.file_id} is not a ${KIND_LABEL[kind]} file.`);
       return { link, account: accountOf(link), fileId: entry.sourceId ?? entry.id, shortcut: (entry.sourceId ?? entry.id) !== entry.id };
     }
-    throw new ToolError(`File ${ref.file_id} is not in a Google Drive folder shared with this agent.`);
+    throw new ToolError(`File ${ref.file_id} is not in a Google Drive folder shared with this ${target.type}.`);
   }
   if (!ref.path) throw new ToolError("Provide path or file_id.");
-  const { link, relativePath } = locate(agentName, ref.path);
+  const { link, relativePath } = locate(target, ref.path);
   const entry = (await readManifest(manifestPath(link.id))).files.find((file) => file.path === relativePath);
   if (!entry) throw new ToolError(`"${ref.path}" is not a synced file of "${link.folderName}". Sync the folder or check the path.`);
   if (entry.mimeType !== mimeType) {
@@ -104,7 +108,7 @@ async function resolveFile(agentName: string, ref: { path?: string; file_id?: st
 
 function requireWrite(file: ResolvedFile): void {
   if (file.link.access !== "write") {
-    throw new ToolError(`"${file.link.folderName}" is shared with this agent as read-only. Ask the person who shared it to give write permission in the dashboard.`);
+    throw new ToolError(`"${file.link.folderName}" is shared with this ${file.link.targetType} as read-only. Ask the person who shared it to give write permission in the dashboard.`);
   }
   if (!accountCanWrite(file.account)) throw new ToolError(`Write access to Google Drive was not granted for "${file.link.folderName}".`);
   if (file.shortcut) throw new ToolError("This file is a shortcut to a file stored outside the shared folder, so it can only be read.");
@@ -151,11 +155,11 @@ function quoteSheetTitle(title: string): string {
   return `'${title.replace(/'/g, "''")}'`;
 }
 
-export function hasGoogleFileTools(agentName: string): boolean {
-  return driveStore.foldersOf(agentName).length > 0;
+export function hasGoogleFileTools(target: DriveTarget): boolean {
+  return driveStore.foldersOf(target).length > 0;
 }
 
-export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof createSdkMcpServer> {
+export function createGoogleFilesMcpServer(target: DriveTarget): ReturnType<typeof createSdkMcpServer> {
   const docsRead = tool(
     "docs_read",
     "Reads a Google Doc from a shared Google Drive folder with the start/end index of every paragraph and table cell (indexes are UTF-16 code units), so you can edit it precisely with docs_batch_update. Lists the document tabs; reads the first tab unless tab_id is given.",
@@ -166,7 +170,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "doc");
+        const file = await resolveFile(target, args, "doc");
         context.account = file.account;
         const { data } = await api(file).docs.documents.get({ documentId: file.fileId, includeTabsContent: true }, options);
         const tabs = flattenDocTabs(data.tabs ?? undefined);
@@ -191,7 +195,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "doc");
+        const file = await resolveFile(target, args, "doc");
         context.account = file.account;
         requireWrite(file);
         const { data } = await api(file).docs.documents.batchUpdate({
@@ -218,7 +222,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     { ...fileRef, requests: apiRequests, required_revision_id: z.string().optional().describe("Fail instead of applying if the document changed since this revision") },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "doc");
+        const file = await resolveFile(target, args, "doc");
         context.account = file.account;
         requireWrite(file);
         const { data } = await api(file).docs.documents.batchUpdate({
@@ -241,7 +245,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "sheet");
+        const file = await resolveFile(target, args, "sheet");
         context.account = file.account;
         const { sheets } = api(file);
         const { data: meta } = await sheets.spreadsheets.get({
@@ -273,7 +277,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "sheet");
+        const file = await resolveFile(target, args, "sheet");
         context.account = file.account;
         requireWrite(file);
         const { data } = await api(file).sheets.spreadsheets.values.update({
@@ -299,7 +303,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "sheet");
+        const file = await resolveFile(target, args, "sheet");
         context.account = file.account;
         requireWrite(file);
         const { data } = await api(file).sheets.spreadsheets.values.append({
@@ -321,7 +325,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     { ...fileRef, range: z.string().describe("A1 range to clear") },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "sheet");
+        const file = await resolveFile(target, args, "sheet");
         context.account = file.account;
         requireWrite(file);
         const { data } = await api(file).sheets.spreadsheets.values.clear({ spreadsheetId: file.fileId, range: args.range, requestBody: {} }, options);
@@ -337,7 +341,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     { ...fileRef, requests: apiRequests },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "sheet");
+        const file = await resolveFile(target, args, "sheet");
         context.account = file.account;
         requireWrite(file);
         const { data } = await api(file).sheets.spreadsheets.batchUpdate({ spreadsheetId: file.fileId, requestBody: { requests: args.requests } }, options);
@@ -353,7 +357,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     { ...fileRef, slide_numbers: z.array(z.number().int().min(1)).optional().describe("Only these slides (1-based)") },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "slides");
+        const file = await resolveFile(target, args, "slides");
         context.account = file.account;
         const { data } = await api(file).slides.presentations.get({ presentationId: file.fileId }, options);
         return `${formatPresentation(data, args.slide_numbers?.length ? args.slide_numbers : null, MAX_READ_CHARS).text}\n(presentation id ${file.fileId})`;
@@ -373,7 +377,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "slides");
+        const file = await resolveFile(target, args, "slides");
         context.account = file.account;
         requireWrite(file);
         const { data } = await api(file).slides.presentations.batchUpdate({
@@ -400,7 +404,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     { ...fileRef, requests: apiRequests, required_revision_id: z.string().optional().describe("Fail instead of applying if the presentation changed since this revision") },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "slides");
+        const file = await resolveFile(target, args, "slides");
         context.account = file.account;
         requireWrite(file);
         const { data } = await api(file).slides.presentations.batchUpdate({
@@ -419,7 +423,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     { ...fileRef, slide_object_id: z.string().describe("objectId of the slide (from slides_read)") },
     async (args) => {
       return run(async (context) => {
-        const file = await resolveFile(agentName, args, "slides");
+        const file = await resolveFile(target, args, "slides");
         context.account = file.account;
         const { data } = await api(file).slides.presentations.pages.getThumbnail({
           presentationId: file.fileId,
@@ -430,12 +434,12 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
         if (!data.contentUrl) throw new ToolError("Google did not return the slide image.");
         const response = await fetch(data.contentUrl, { signal: AbortSignal.timeout(API_TIMEOUT_MS) });
         if (!response.ok) throw new ToolError(`Could not download the slide image (${response.status}).`);
-        const directory = resolve(getAgentPaths(agentName)!.output, "google-drive-previews");
+        const directory = resolve(targetPaths(target).output, "google-drive-previews");
         await mkdir(directory, { recursive: true });
-        const target = resolve(directory, localFileName(`${file.fileId}-${args.slide_object_id}`, ".png"));
-        await writeFile(target, Buffer.from(await response.arrayBuffer()));
-        return target;
-      }, (target) => `Slide image saved to ${target}`);
+        const imagePath = resolve(directory, localFileName(`${file.fileId}-${args.slide_object_id}`, ".png"));
+        await writeFile(imagePath, Buffer.from(await response.arrayBuffer()));
+        return imagePath;
+      }, (imagePath) => `Slide image saved to ${imagePath}`);
     },
   );
 
@@ -443,7 +447,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     "create_google_file",
     "Creates a new Google Doc (optionally from Markdown), Google Sheets spreadsheet (optionally from CSV) or empty Google Slides presentation inside a shared Google Drive folder with write permission. Returns the file id to use with the other tools; its converted copy appears in the mirrored folder after the next sync.",
     {
-      folder_path: z.string().describe("Folder in the mirrored Google Drive folder where the file is created (e.g. input/google-drive/Reports or a subfolder)"),
+      folder_path: z.string().describe("Folder in the mirrored Google Drive folder where the file is created (e.g. <mirror>/Reports or a subfolder)"),
       name: z.string().min(1).describe("File name without extension"),
       kind: z.enum(["doc", "sheet", "slides"]),
       markdown: z.string().optional().describe("Initial content of a Google Doc, in Markdown"),
@@ -451,7 +455,7 @@ export function createGoogleFilesMcpServer(agentName: string): ReturnType<typeof
     },
     async (args) => {
       return run(async (context) => {
-        const { link, relativePath } = locate(agentName, args.folder_path);
+        const { link, relativePath } = locate(target, args.folder_path);
         const owner = accountOf(link);
         context.account = owner;
         requireWrite({ link, account: owner, fileId: link.folderId, shortcut: false });

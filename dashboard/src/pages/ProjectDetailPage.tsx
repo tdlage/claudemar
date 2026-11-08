@@ -21,6 +21,7 @@ import { CITab } from "../components/project/CITab";
 import { PipelineBoard } from "../components/pipeline/PipelineBoard";
 import { SecretsPanel } from "../components/shared/SecretsPanel";
 import { InputBrowser, type InputFile } from "../components/agent/InputBrowser";
+import { DriveFolders } from "../components/shared/DriveFolders";
 import { OutputBrowser, type OutputFile } from "../components/agent/OutputBrowser";
 import { useCachedState } from "../hooks/useCachedState";
 import { useExecutionPage } from "../hooks/useExecutionPage";
@@ -156,7 +157,7 @@ export function ProjectDetailPage() {
 
   const tabs: { key: TabKey; label: string; badge?: number; badgeVariant?: "warning" }[] = [
     ...(tabEnabled("terminal") ? [{ key: "terminal" as const, label: "Conversa" }] : []),
-    ...(tabEnabled("input") ? [{ key: "input" as const, label: `Entradas (${inputFiles.length})` }] : []),
+    ...(tabEnabled("input") ? [{ key: "input" as const, label: `Entradas (${inputFiles.length + project.driveFolderCount})` }] : []),
     ...(tabEnabled("output") ? [{ key: "output" as const, label: `Saídas (${outputFiles.length})` }] : []),
     ...(tabEnabled("repositories") ? [{ key: "repositories" as const, label: "Repositórios", ...(changedRepoCount > 0 && { badge: changedRepoCount, badgeVariant: "warning" as const }) }] : []),
     ...(tabEnabled("files") ? [{ key: "files" as const, label: "Código" }] : []),
@@ -332,7 +333,13 @@ export function ProjectDetailPage() {
       )}
 
       {activeTab === "input" && (
-        <InputBrowser apiBasePath={`/projects/${project.name}`} files={inputFiles} onRefresh={loadInputs} />
+        <div className="space-y-6">
+          <DriveFolders target={{ kind: "project", name: project.name }} onChanged={loadProject} />
+          <section className="space-y-2" aria-label="Uploaded files">
+            <h3 className="text-sm font-medium">Uploaded files</h3>
+            <InputBrowser apiBasePath={`/projects/${project.name}`} files={inputFiles} onRefresh={loadInputs} />
+          </section>
+        </div>
       )}
 
       {activeTab === "output" && (

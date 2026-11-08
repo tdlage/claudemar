@@ -109,13 +109,13 @@ executionManager.on("complete", drainQueue);
 executionManager.on("error", drainQueue);
 executionManager.on("cancel", drainQueue);
 
-function uploadAgentDriveChanges(_id: string, info: ExecutionInfo) {
-  if (info.targetType === "agent") driveSync.afterAgentRun(info.targetName);
+function uploadDriveChanges(_id: string, info: ExecutionInfo) {
+  if (info.targetType === "agent" || info.targetType === "project") driveSync.afterRun({ type: info.targetType, name: info.targetName });
 }
 
-executionManager.on("complete", uploadAgentDriveChanges);
-executionManager.on("error", uploadAgentDriveChanges);
-executionManager.on("cancel", uploadAgentDriveChanges);
+executionManager.on("complete", uploadDriveChanges);
+executionManager.on("error", uploadDriveChanges);
+executionManager.on("cancel", uploadDriveChanges);
 
 const httpServer = createDashboardServer();
 
