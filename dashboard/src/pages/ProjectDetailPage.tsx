@@ -34,7 +34,7 @@ type TabKey = ProjectTabKey;
 export function ProjectDetailPage() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
-  const { projectActions } = useOutletContext<LayoutOutletContext>();
+  const { workspaceActions } = useOutletContext<LayoutOutletContext>();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -168,14 +168,14 @@ export function ProjectDetailPage() {
   const activeTab = tabs.some((t) => t.key === tab) ? tab : (tabs[0]?.key ?? "terminal");
 
   return (
-    <div className={`execution-page project-detail-page flex flex-col gap-4 ${activeTab === "terminal" ? "is-conversation" : ""} ${activeTab === "files" ? "h-full" : ""}`}>
-      {projectActions && createPortal(<>
-        <span className="project-repo-count"><Badge variant="default">{project.repos.length} repos</Badge></span>
+    <div className={`execution-page workspace-detail-page flex flex-col gap-4 ${activeTab === "terminal" ? "is-conversation" : ""} ${activeTab === "files" ? "h-full" : ""}`}>
+      {workspaceActions && createPortal(<>
+        <span className="workspace-header-badge"><Badge variant="default">{project.repos.length} repos</Badge></span>
         {admin && (
           <Button
             size="sm"
             variant="danger"
-            className="project-delete-button"
+            className="workspace-delete-button"
             aria-label="Excluir projeto"
             title="Excluir projeto"
             onClick={() => {
@@ -186,7 +186,7 @@ export function ProjectDetailPage() {
             <Trash2 size={14} /> <span className="hidden md:inline">Excluir</span>
           </Button>
         )}
-      </>, projectActions)}
+      </>, workspaceActions)}
 
       <Modal dismissible={!deleting} open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Excluir projeto">
         <div className="space-y-3">

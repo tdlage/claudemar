@@ -1,5 +1,7 @@
+import { createPortal } from "react-dom";
+import type { LayoutOutletContext } from "../components/layout/Layout";
 import { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useOutletContext } from "react-router-dom";
 import { ListOrdered, Zap, FileText, CalendarClock, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { ErrorState, LoadingState } from "../components/shared/PageState";
@@ -33,6 +35,7 @@ type TabKey = "terminal" | "code" | "input" | "output" | "config" | "scheduler" 
 
 export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
+  const { workspaceActions } = useOutletContext<LayoutOutletContext>();
   const navigate = useNavigate();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -152,34 +155,36 @@ export function AgentDetailPage() {
   ];
 
   return (
-    <div className={`execution-page flex flex-col gap-4 ${tab === "terminal" ? "is-conversation" : ""} ${tab === "code" ? "h-full" : ""}`}>
-      <div className="execution-page-header flex items-center gap-2 md:gap-3 flex-wrap">
+    <div className={`execution-page workspace-detail-page flex flex-col gap-4 ${tab === "terminal" ? "is-conversation" : ""} ${tab === "code" ? "h-full" : ""}`}>
+      {workspaceActions && createPortal(<>
         <button
           onClick={() => admin && setEditingAvatar(true)}
           disabled={!admin}
           title={admin ? "Editar avatar" : undefined}
+          aria-label={admin ? "Editar avatar" : undefined}
           className={admin ? "cursor-pointer hover:opacity-80 transition-opacity" : "cursor-default"}
         >
-          <AgentAvatar name={agent.name} appearance={appearance} size={32} />
+          <AgentAvatar name={agent.name} appearance={appearance} size={28} />
         </button>
-        <h1 className="text-base md:text-lg font-semibold">{agent.name}</h1>
         {agent.schedules.length > 0 && (
-          <Badge variant="info">{agent.schedules.length} schedules</Badge>
+          <span className="workspace-header-badge"><Badge variant="info">{agent.schedules.length} schedules</Badge></span>
         )}
         {admin && (
           <Button
             size="sm"
             variant="danger"
-            className="ml-auto"
+            className="workspace-delete-button"
+            aria-label="Excluir agente"
+            title="Excluir agente"
             onClick={() => {
               setDeleteConfirmName("");
               setDeleteOpen(true);
             }}
           >
-            <Trash2 size={13} className="mr-1" /> Excluir
+            <Trash2 size={14} /> <span className="hidden md:inline">Excluir</span>
           </Button>
         )}
-      </div>
+      </>, workspaceActions)}
 
       <Modal dismissible={!deleting} open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Excluir agente">
         <div className="space-y-3">

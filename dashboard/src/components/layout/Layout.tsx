@@ -13,14 +13,14 @@ import { LoadingState } from "../shared/PageState";
 import { ConnectionStatus } from "./ConnectionStatus";
 
 export interface LayoutOutletContext {
-  projectActions: HTMLDivElement | null;
+  workspaceActions: HTMLDivElement | null;
 }
 
 function LayoutInner() {
   useMobileViewport();
   const { collapsed, isMobile } = useSidebar();
   const { pathname } = useLocation();
-  const [projectActions, setProjectActions] = useState<HTMLDivElement | null>(null);
+  const [workspaceActions, setWorkspaceActions] = useState<HTMLDivElement | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
     mainRef.current?.scrollTo?.({ top: 0 });
@@ -38,7 +38,7 @@ function LayoutInner() {
         }`}
       >
         <ClaudeAuthBanner />
-        <Header projectActionsRef={setProjectActions} />
+        <Header workspaceActionsRef={setWorkspaceActions} />
         <ConnectionStatus />
         <main
           ref={mainRef}
@@ -47,7 +47,7 @@ function LayoutInner() {
           className="app-main flex-1 min-h-0 min-w-0 p-4 md:p-6 overflow-auto"
         >
           <Suspense fallback={<LoadingState label="Carregando página…" />}>
-            <Outlet context={{ projectActions } satisfies LayoutOutletContext} />
+            <Outlet context={{ workspaceActions } satisfies LayoutOutletContext} />
           </Suspense>
         </main>
         <MobileNavigation />

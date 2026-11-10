@@ -19,7 +19,7 @@ import { Button } from "../shared/Button";
 import { useToast } from "../shared/Toast";
 import { OPEN_SEARCH_EVENT } from "../../lib/workspaceEvents";
 
-export function Header({ projectActionsRef }: { projectActionsRef: Ref<HTMLDivElement> }) {
+export function Header({ workspaceActionsRef }: { workspaceActionsRef: Ref<HTMLDivElement> }) {
   const location = useLocation();
   const { isMobile, setMobileOpen } = useSidebar();
   const admin = isAdmin();
@@ -27,8 +27,8 @@ export function Header({ projectActionsRef }: { projectActionsRef: Ref<HTMLDivEl
   const systemRef = useRef<HTMLDetailsElement>(null);
   const { addToast } = useToast();
   const breadcrumbs = buildBreadcrumbs(location.pathname);
-  const projectName = /^\/projects\/([^/]+)\/?$/.exec(location.pathname)?.[1];
-  const title = safeDecode(projectName ?? breadcrumbs[breadcrumbs.length - 1]);
+  const workspaceName = /^\/(?:projects|agents)\/([^/]+)\/?$/.exec(location.pathname)?.[1];
+  const title = safeDecode(workspaceName ?? breadcrumbs[breadcrumbs.length - 1]);
   useEffect(() => {
     document.title = `${title} · Claudemar`;
   }, [title]);
@@ -97,8 +97,8 @@ export function Header({ projectActionsRef }: { projectActionsRef: Ref<HTMLDivEl
                     className="shrink-0 text-text-muted"
                   />
                 )}
-                {projectName && i === list.length - 1 ? (
-                  <h1 aria-current="page" className="project-breadcrumb-title truncate" title={title}>{title}</h1>
+                {workspaceName && i === list.length - 1 ? (
+                  <h1 aria-current="page" className="workspace-breadcrumb-title truncate" title={title}>{title}</h1>
                 ) : (
                   <span
                     aria-current={i === list.length - 1 ? "page" : undefined}
@@ -111,7 +111,7 @@ export function Header({ projectActionsRef }: { projectActionsRef: Ref<HTMLDivEl
             ),
           )}
         </nav>
-        {projectName && <div ref={projectActionsRef} className="project-header-actions" />}
+        {workspaceName && <div ref={workspaceActionsRef} className="workspace-header-actions" />}
       </div>
       <div className="header-actions">
         <button

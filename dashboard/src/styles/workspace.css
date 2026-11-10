@@ -1621,37 +1621,37 @@ kbd {
 }
 
 
-.project-breadcrumb-title {
+.workspace-breadcrumb-title {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
   line-height: 1.4;
   color: var(--color-text-primary);
 }
-.project-header-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-.project-delete-button { gap: 6px; }
-.project-repo-count { display: none; }
+.workspace-header-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.workspace-delete-button { gap: 6px; }
+.workspace-header-badge { display: none; }
 .conversation-stage { display: contents; }
-.app-main:has(> .project-detail-page) { padding-top: 12px; }
-.app-main:has(> .project-detail-page.is-conversation) { padding-bottom: 0; }
-.project-detail-page.is-conversation { height: 100%; gap: 12px; }
-.project-detail-page.is-conversation .conversation-workspace { flex: 1; min-height: 0; }
-.project-detail-page .conversation-stage {
+.app-main:has(> .workspace-detail-page) { padding-top: 12px; }
+.app-main:has(> .workspace-detail-page.is-conversation) { padding-bottom: 0; }
+.workspace-detail-page.is-conversation { height: 100%; gap: 12px; }
+.workspace-detail-page.is-conversation .conversation-workspace { flex: 1; min-height: 0; }
+.workspace-detail-page .conversation-stage {
   display: flex;
   flex-direction: column;
   gap: 12px;
   flex: 0 0 100%;
   min-height: 0;
 }
-.project-detail-page .conversation-terminal { flex: 1; height: auto; min-height: 0; }
-.project-detail-page .conversation-history { flex-shrink: 0; padding-bottom: 24px; }
+.workspace-detail-page .conversation-terminal { flex: 1; height: auto; min-height: 0; }
+.workspace-detail-page .conversation-history { flex-shrink: 0; padding-bottom: 24px; }
 @media (min-width: 1200px) {
-  .project-repo-count { display: inline-flex; }
+  .workspace-header-badge { display: inline-flex; }
 }
 @media (max-width: 767px) {
-  .project-breadcrumb-title { font-size: 16px; }
-  .project-header-actions { gap: 4px; }
-  .project-detail-page .conversation-stage { flex: 1; gap: 4px; }
+  .workspace-breadcrumb-title { font-size: 16px; }
+  .workspace-header-actions { gap: 4px; }
+  .workspace-detail-page .conversation-stage { flex: 1; gap: 4px; }
 }
 .needs-answer {
   position: relative;
