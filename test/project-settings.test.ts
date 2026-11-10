@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
@@ -44,11 +44,11 @@ test("setModel/getModel persistem a escolha e sobrevivem a nova instância", () 
   const { file, cleanup } = freshStore();
   try {
     const mgr = new ProjectSettingsManager(file);
-    mgr.setModel("proj-a", "claude-fable-5-1");
+    mgr.setModel("proj-a", "claude-fable-5-2");
     mgr.flush();
 
     const reloaded = new ProjectSettingsManager(file);
-    assert.equal(reloaded.getModel("proj-a"), "claude-fable-5-1");
+    assert.equal(reloaded.getModel("proj-a"), "claude-fable-5-2");
   } finally {
     cleanup();
   }
@@ -58,7 +58,7 @@ test("voltar ao default remove a entrada persistida", () => {
   const { file, cleanup } = freshStore();
   try {
     const mgr = new ProjectSettingsManager(file);
-    mgr.setModel("proj-a", "claude-fable-5-1");
+    mgr.setModel("proj-a", "claude-fable-5-2");
     mgr.setModel("proj-a", "claude-opus-5-5");
     mgr.flush();
 
@@ -73,8 +73,8 @@ test("a preferência de um projeto não afeta outro", () => {
   const { file, cleanup } = freshStore();
   try {
     const mgr = new ProjectSettingsManager(file);
-    mgr.setModel("proj-a", "claude-fable-5-1");
-    assert.equal(mgr.getModel("proj-a"), "claude-fable-5-1");
+    mgr.setModel("proj-a", "claude-fable-5-2");
+    assert.equal(mgr.getModel("proj-a"), "claude-fable-5-2");
     assert.equal(mgr.getModel("proj-b"), "claude-opus-5-5");
     mgr.flush();
   } finally {
@@ -97,12 +97,12 @@ test("mantém escolhas independentes para Anthropic e OpenAI", () => {
   const { file, cleanup } = freshStore();
   try {
     const mgr = new ProjectSettingsManager(file);
-    mgr.setModel("proj-a", "claude-fable-5-1");
+    mgr.setModel("proj-a", "claude-fable-5-2");
     mgr.setModel("proj-a", "gpt-5.6-luna", codexProfile);
     mgr.flush();
 
     const reloaded = new ProjectSettingsManager(file);
-    assert.equal(reloaded.getModel("proj-a"), "claude-fable-5-1");
+    assert.equal(reloaded.getModel("proj-a"), "claude-fable-5-2");
     assert.equal(reloaded.getModel("proj-a", codexProfile), "gpt-5.6-luna");
   } finally {
     cleanup();
@@ -117,6 +117,18 @@ test("OpenAI aceita apenas modelos do catálogo do perfil ativo", () => {
     mgr.setModel("proj-a", "gpt-6-astra", codexProfile);
     assert.equal(mgr.getModel("proj-a", codexProfile), "gpt-6-astra");
     mgr.flush();
+  } finally {
+    cleanup();
+  }
+});
+
+test("projetos salvos com Fable 5.1 passam a usar o Fable 5.2", () => {
+  const { file, cleanup } = freshStore();
+  try {
+    writeFileSync(file, JSON.stringify({ "proj-a": { models: { anthropic: "claude-fable-5-1" } }, "proj-b": { model: "claude-fable-5-1" } }));
+    const mgr = new ProjectSettingsManager(file);
+    assert.equal(mgr.getModel("proj-a"), "claude-fable-5-2");
+    assert.equal(mgr.getModel("proj-b"), "claude-fable-5-2");
   } finally {
     cleanup();
   }

@@ -33,7 +33,7 @@ test("legacy model ids resolve without choosing a global provider", () => {
 
 test("stored selections of retired Sonnet and Haiku versions resolve to Sonnet 5", () => {
   const models = modelsForProfiles(profiles).filter((m) => m.providerId === "anthropic").map((m) => m.modelId);
-  assert.deepEqual(models, ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5"]);
+  assert.deepEqual(models, ["claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5"]);
   for (const selection of ["anthropic::claude-sonnet-4-6", "anthropic::claude-haiku-4-5-20251001"]) {
     assert.equal(resolveModelSelection(selection, profiles).selection, "anthropic::claude-sonnet-5-5");
   }

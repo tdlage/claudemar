@@ -214,7 +214,7 @@ export interface ProjectDetail {
 
 export const PROJECT_SELECTABLE_MODELS: { model: string; displayName: string }[] = [
   { model: "claude-opus-5-5", displayName: "Opus 5.5" },
-  { model: "claude-fable-5-1", displayName: "Fable 5.1" },
+  { model: "claude-fable-5-2", displayName: "Fable 5.2" },
 ];
 
 export interface RepoInfo {

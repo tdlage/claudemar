@@ -16,7 +16,7 @@ test("uses the latest Activity for this target, including active executions", ()
 });
 
 test("keeps the exact model instead of replacing it with a runtime default", () => {
-  assert.equal(modelFromActivity({ ...base, model: "claude-fable-5-1", runtime: "claude" }, models, "codex"), "anthropic::claude-fable-5-1");
+  assert.equal(modelFromActivity({ ...base, model: "claude-fable-5-2", runtime: "claude" }, models, "codex"), "anthropic::claude-fable-5-2");
   assert.equal(modelFromActivity({ ...base, model: "k3", runtime: "claude" }, models, "codex"), "kimi::k3");
 });
 
