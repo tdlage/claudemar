@@ -37,6 +37,14 @@ export class JsonPersister {
     }, DEBOUNCE_MS);
   }
 
+  cancel(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.pending = false;
+  }
+
   /**
    * Sem alteração pendente não reescreve: gravar o snapshot em memória por cima destruiria,
    * em silêncio, qualquer edição feita no arquivo enquanto o processo rodava.

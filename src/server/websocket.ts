@@ -10,8 +10,9 @@ import { tokenManager } from "./token-manager.js";
 import { startFileWatcher, stopFileWatcher } from "./file-watcher.js";
 import { pipelineManager } from "../pipeline-manager.js";
 import { ciEventManager } from "../ci-events.js";
-import { brainEvents } from "../brain/events.js";
-import { getBrainStatus } from "../brain/status.js";
+import { brainEvents, type BrainOwnerEvent, type BrainOwnerEventName } from "../brain/events.js";
+import { connectionIssues, getBrainStatus, getTechnicalStatus } from "../brain/status.js";
+import { ADMIN_BRAIN, adminBrain, brainExists, isBrainOwnerId, userBrain, type BrainScope } from "../brain/scope.js";
 import { canAccessRunConfig } from "./run-config-access.js";
 
 const RATE_LIMIT_WINDOW_MS = 1000;
@@ -34,6 +35,16 @@ function applyRateLimit(socket: Socket): void {
       socket.disconnect(true);
     }
   });
+}
+
+function brainOwnerOf(ctx: RequestContext | undefined): string | null {
+  if (!ctx) return null;
+  return ctx.role === "admin" ? ADMIN_BRAIN : ctx.userId;
+}
+
+function scopeOfOwner(owner: string): BrainScope | null {
+  if (!isBrainOwnerId(owner)) return null;
+  return owner === ADMIN_BRAIN ? adminBrain() : userBrain(owner);
 }
 
 function canAccessExecution(ctx: RequestContext | undefined, info: ExecutionInfo | undefined): boolean {
@@ -64,6 +75,8 @@ export function setupWebSocket(io: SocketServer): void {
     const canAccess = (id: string): boolean => canAccessExecution(getCtx(), executionManager.getExecution(id));
 
     socket.join("executions");
+    const brainOwner = brainOwnerOf(getCtx());
+    if (brainOwner) socket.join(`brain-alerts:${brainOwner}`);
 
     socket.on("subscribe:execution", (id: string) => {
       if (!canAccess(id)) return;
@@ -217,13 +230,22 @@ export function setupWebSocket(io: SocketServer): void {
     });
 
     socket.on("subscribe:brain", () => {
-      const ctx = getCtx();
-      if (!ctx || ctx.role !== "admin") return;
-      socket.join("brain");
+      const owner = brainOwnerOf(getCtx());
+      if (owner) socket.join(`brain:${owner}`);
     });
 
     socket.on("unsubscribe:brain", () => {
-      socket.leave("brain");
+      const owner = brainOwnerOf(getCtx());
+      if (owner) socket.leave(`brain:${owner}`);
+    });
+
+    socket.on("subscribe:brain-observe", (owner: unknown) => {
+      if (getCtx()?.role !== "admin" || !isBrainOwnerId(owner)) return;
+      socket.join(`brain-observe:${owner}`);
+    });
+
+    socket.on("unsubscribe:brain-observe", (owner: unknown) => {
+      if (isBrainOwnerId(owner)) socket.leave(`brain-observe:${owner}`);
     });
   });
 
@@ -379,29 +401,41 @@ export function setupWebSocket(io: SocketServer): void {
     io.to("executions").emit("ci:workflow_run", data);
   });
 
-  brainEvents.on("activity", (data) => {
-    io.to("brain").emit("brain:activity", data);
-  });
-  brainEvents.on("google", (data) => {
-    io.to("brain").emit("brain:google", data);
-  });
-  brainEvents.on("backfill", (data) => {
-    io.to("brain").emit("brain:backfill", data);
-  });
+  const ownerEvents: BrainOwnerEventName[] = ["activity", "google", "slack", "backfill"];
+  for (const name of ownerEvents) {
+    brainEvents.on(name, (event: BrainOwnerEvent) => {
+      io.to(`brain:${event.owner}`).emit(`brain:${name}`, event.data);
+    });
+  }
 
-  let brainStatusTimer: ReturnType<typeof setTimeout> | null = null;
+  const roomSize = (room: string): number => io.sockets.adapter.rooms.get(room)?.size ?? 0;
+  const brainStatusTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const BRAIN_STATUS_DEBOUNCE_MS = 10_000;
-  brainEvents.on("status-changed", () => {
-    if (brainStatusTimer) return;
-    brainStatusTimer = setTimeout(() => {
-      brainStatusTimer = null;
-      if (io.sockets.adapter.rooms.get("brain")?.size) {
-        getBrainStatus()
-          .then((status) => io.to("brain").emit("brain:status", status))
-          .catch(() => {});
-      }
+  const publishBrainStatus = (owner: string): void => {
+    const scope = scopeOfOwner(owner);
+    if (!scope) return;
+    if (roomSize(`brain:${owner}`) > 0) {
+      getBrainStatus(scope)
+        .then((status) => io.to(`brain:${owner}`).emit("brain:status", status))
+        .catch(() => {});
+    }
+    if (roomSize(`brain-observe:${owner}`) > 0) {
+      getTechnicalStatus(scope)
+        .then((technical) => io.to(`brain-observe:${owner}`).emit("brain:observe", { owner, ...technical }))
+        .catch(() => {});
+    }
+    if (roomSize(`brain-alerts:${owner}`) > 0) {
+      io.to(`brain-alerts:${owner}`).emit("brain:connections", { issues: brainExists(scope) ? connectionIssues(scope) : [] });
+    }
+  };
+  brainEvents.on("status-changed", (owner: string) => {
+    if (brainStatusTimers.has(owner)) return;
+    const timer = setTimeout(() => {
+      brainStatusTimers.delete(owner);
+      publishBrainStatus(owner);
     }, BRAIN_STATUS_DEBOUNCE_MS);
-    brainStatusTimer.unref();
+    timer.unref();
+    brainStatusTimers.set(owner, timer);
   });
 
   startFileWatcher((event, base, path) => {

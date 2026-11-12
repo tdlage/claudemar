@@ -1,10 +1,10 @@
 import { existsSync, lstatSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { brainRoot } from "./paths.js";
+import { perScope, type BrainScope } from "./scope.js";
 
-const CONTRACT_PATH = resolve(brainRoot, "AGENTS.md");
-const LEGACY_CONTRACT_PATH = resolve(brainRoot, "CLAUDE.md");
+const contractPath = (scope: BrainScope): string => resolve(scope.root, "AGENTS.md");
+const legacyContractPath = (scope: BrainScope): string => resolve(scope.root, "CLAUDE.md");
 
 const DEFAULT_CONTRACT = `# Second Brain — contrato do compilador
 
@@ -94,42 +94,46 @@ Mudança de estado de um loop existente = nova entrada com \`supersedes\` aponta
 Toda compilação devolve \`log_entry\` de uma linha: \`## [YYYY-MM-DD] ingest | <resumo curto>\`.
 `;
 
-export function seedContract(): void {
-  const legacyExists = existsSync(LEGACY_CONTRACT_PATH);
+export function seedContract(scope: BrainScope): void {
+  const path = contractPath(scope);
+  const legacyPath = legacyContractPath(scope);
+  const legacyExists = existsSync(legacyPath);
   const agentsIsSymlink = (() => {
     try {
-      return lstatSync(CONTRACT_PATH).isSymbolicLink();
+      return lstatSync(path).isSymbolicLink();
     } catch {
       return false;
     }
   })();
 
-  if (agentsIsSymlink) rmSync(CONTRACT_PATH, { force: true });
-  if (legacyExists && !existsSync(CONTRACT_PATH)) {
-    renameSync(LEGACY_CONTRACT_PATH, CONTRACT_PATH);
-  } else if (legacyExists && !lstatSync(LEGACY_CONTRACT_PATH).isSymbolicLink()) {
-    rmSync(LEGACY_CONTRACT_PATH, { force: true });
+  if (agentsIsSymlink) rmSync(path, { force: true });
+  if (legacyExists && !existsSync(path)) {
+    renameSync(legacyPath, path);
+  } else if (legacyExists && !lstatSync(legacyPath).isSymbolicLink()) {
+    rmSync(legacyPath, { force: true });
   }
-  if (!existsSync(CONTRACT_PATH)) {
-    writeFileSync(CONTRACT_PATH, DEFAULT_CONTRACT, "utf-8");
+  if (!existsSync(path)) {
+    writeFileSync(path, DEFAULT_CONTRACT, "utf-8");
   }
 }
 
-let cached: { text: string; mtimeMs: number } | null = null;
+const contractCache = perScope((): { value: { text: string; mtimeMs: number } | null } => ({ value: null }));
 
-export function getContract(): string {
+export function getContract(scope: BrainScope): string {
+  const cache = contractCache(scope);
   try {
-    const stat = statSync(CONTRACT_PATH);
-    if (!cached || cached.mtimeMs !== stat.mtimeMs) {
-      cached = { text: readFileSync(CONTRACT_PATH, "utf-8"), mtimeMs: stat.mtimeMs };
+    const path = contractPath(scope);
+    const stat = statSync(path);
+    if (!cache.value || cache.value.mtimeMs !== stat.mtimeMs) {
+      cache.value = { text: readFileSync(path, "utf-8"), mtimeMs: stat.mtimeMs };
     }
-    return cached.text;
+    return cache.value.text;
   } catch {
     return DEFAULT_CONTRACT;
   }
 }
 
-export function updateContract(content: string): void {
-  writeFileSync(CONTRACT_PATH, content, "utf-8");
-  cached = null;
+export function updateContract(scope: BrainScope, content: string): void {
+  writeFileSync(contractPath(scope), content, "utf-8");
+  contractCache(scope).value = null;
 }

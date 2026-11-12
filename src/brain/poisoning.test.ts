@@ -10,7 +10,10 @@ process.env.CLAUDEMAR_DATA ??= mkdtempSync(resolve(tmpdir(), "claudemar-test-"))
 process.env.BRAIN_ROOT = mkdtempSync(resolve(tmpdir(), "brain-poison-test-"));
 process.env.REDIS_URL = "redis://127.0.0.1:63999";
 
-const { ensureBrainTree, brainRoot } = await import("./paths.js");
+const { ensureBrainTree } = await import("./paths.js");
+const { adminBrain } = await import("./scope.js");
+const scope = adminBrain();
+const brainRoot = scope.root;
 const { upsertMessage, annotateTriage, readThread } = await import("./raw-store.js");
 const { normalizeMessage } = await import("./normalize.js");
 const { validateCompileOutput, compileOutputSchema } = await import("./operations.js");
@@ -19,7 +22,7 @@ const { getRedis } = await import("./redis.js");
 type CompileOutput = import("./types.js").CompileOutput;
 type RawFrontmatter = import("./types.js").RawFrontmatter;
 
-ensureBrainTree();
+ensureBrainTree(scope);
 
 after(() => {
   getRedis().disconnect();
@@ -35,7 +38,7 @@ async function ingest(params: {
   channel?: "email" | "whatsapp";
 }): Promise<string> {
   const normalized = normalizeMessage(params.body, params.html);
-  const result = await upsertMessage({
+  const result = await upsertMessage(scope, {
     event: {
       channel: params.channel ?? "email",
       subchannel: params.subchannel ?? "direct",
@@ -59,7 +62,7 @@ async function ingest(params: {
 }
 
 const benignPath = await ingest(BENIGN_MESSAGE);
-await annotateTriage(benignPath, {
+await annotateTriage(scope, benignPath, {
   relevance: 3,
   tenant: "personal",
   tenant_parent: null,
@@ -74,7 +77,7 @@ await annotateTriage(benignPath, {
   classified_at: "2026-08-05T12:01:00.000Z",
   model: "test",
 });
-const benignFm: RawFrontmatter = (await readThread(benignPath))!.frontmatter;
+const benignFm: RawFrontmatter = (await readThread(scope, benignPath))!.frontmatter;
 
 const groupPath = await ingest({
   name: "grupo",
@@ -83,7 +86,7 @@ const groupPath = await ingest({
   subchannel: "group",
   channel: "whatsapp",
 });
-await annotateTriage(groupPath, {
+await annotateTriage(scope, groupPath, {
   relevance: 3,
   tenant: "personal",
   tenant_parent: null,
@@ -98,12 +101,12 @@ await annotateTriage(groupPath, {
   classified_at: "2026-08-05T12:01:00.000Z",
   model: "test",
 });
-const groupFm: RawFrontmatter = (await readThread(groupPath))!.frontmatter;
+const groupFm: RawFrontmatter = (await readThread(scope, groupPath))!.frontmatter;
 
 test("ataques de conteúdo entram como dado inerte, sem quebrar o formato raw", async () => {
   for (const attack of ATTACK_MESSAGES) {
     const relPath = await ingest(attack);
-    const thread = await readThread(relPath);
+    const thread = await readThread(scope, relPath);
     assert.ok(thread, `${attack.name}: raw file deve continuar parseável`);
     assert.equal(thread.blocks.length, 1, `${attack.name}: deve haver exatamente 1 bloco real`);
     assert.equal(thread.frontmatter.subject, attack.subject, `${attack.name}: frontmatter real preservado`);
@@ -115,7 +118,7 @@ test("ataques de conteúdo entram como dado inerte, sem quebrar o formato raw", 
 test("marcador forjado no corpo não cria mensagem fantasma", async () => {
   const attack = ATTACK_MESSAGES.find((a) => a.name === "injecao-de-marcador")!;
   const relPath = await ingest({ ...attack, name: "injecao-de-marcador-2" });
-  const parsed = (await readThread(relPath))!;
+  const parsed = (await readThread(scope, relPath))!;
   assert.equal(parsed.blocks.length, 1);
   assert.equal(parsed.blocks[0].externalId, "poison:injecao-de-marcador-2:m1");
   assert.ok(!parsed.blocks.some((b) => b.externalId === "fake-id"), "marcador forjado não vira bloco");
@@ -123,7 +126,7 @@ test("marcador forjado no corpo não cria mensagem fantasma", async () => {
 
 test("frontmatter injetado no corpo não sobrescreve o frontmatter real", async () => {
   const relPath = await ingest({ ...ATTACK_MESSAGES.find((a) => a.name === "frontmatter-injetado")!, name: "frontmatter-injetado-2" });
-  const parsed = (await readThread(relPath))!;
+  const parsed = (await readThread(scope, relPath))!;
   assert.equal(parsed.frontmatter.subject, "Notas");
   assert.ok(parsed.blocks[0].body.includes("type: decision"), "conteúdo injetado permanece como dado");
 });
@@ -139,7 +142,7 @@ test("todas as operações maliciosas são rejeitadas pelo validador", async () 
       log_entry: "",
       new_entities: [],
     }) as CompileOutput;
-    const result = await validateCompileOutput(output, fm);
+    const result = await validateCompileOutput(scope, output, fm);
     assert.equal(result.ok, false, `${set.name}: deveria ser rejeitado`);
     assert.ok(result.errors.length > 0, `${set.name}: deve reportar erro`);
   }
@@ -184,7 +187,7 @@ test("operação legítima não é falso positivo", async () => {
     log_entry: "## [2026-08-05] compile | teste",
     new_entities: [],
   }) as CompileOutput;
-  const result = await validateCompileOutput(output, benignFm);
+  const result = await validateCompileOutput(scope, output, benignFm);
   assert.deepEqual(result.errors, []);
   assert.equal(result.ok, true);
 });

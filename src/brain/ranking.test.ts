@@ -18,7 +18,9 @@ const {
   recencyWeight,
   utilityWeight,
 } = await import("./ranking.js");
-const { brainSettingsManager } = await import("./settings.js");
+const { brainSettings } = await import("./settings.js");
+const { adminBrain } = await import("./scope.js");
+const settingsManager = brainSettings(adminBrain());
 type Rankable = import("./ranking.js").Rankable;
 
 const NOW = Date.parse("2026-08-09T12:00:00Z");
@@ -87,7 +89,7 @@ test("utilidade começa neutra e aprende com o feedback", () => {
 });
 
 test("score de negócio compõe rerank × recência × tipo × saliência × utilidade", () => {
-  const settings = brainSettingsManager.get().retrieval;
+  const settings = settingsManager.get().retrieval;
   const recent = new Date(NOW).toISOString();
   const lesson = businessScore(
     0.8,
@@ -123,7 +125,7 @@ test("corte por limiar: pinado nunca é removido, shadow não corta", () => {
 });
 
 test("settings de retrieval: defaults, patch parcial e saneamento", () => {
-  const before = brainSettingsManager.get().retrieval;
+  const before = settingsManager.get().retrieval;
   assert.equal(before.rerankMinScore, 0);
   assert.equal(before.businessRanking, false);
   assert.equal(before.typeWeights.lesson, 1.35);
@@ -131,7 +133,7 @@ test("settings de retrieval: defaults, patch parcial e saneamento", () => {
   assert.equal(before.halfLifeDays.lesson, null);
   assert.equal(before.salienceBonus, 0.1);
 
-  const updated = brainSettingsManager.update({
+  const updated = settingsManager.updateSystem({
     retrieval: {
       businessRanking: true,
       rerankMinScore: 0.42,

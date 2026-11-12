@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { clearSeen, getRedis, KEYS, markSeen } from "./redis.js";
+import { brainKeys, clearSeen, getRedis, markSeen } from "./redis.js";
+import type { BrainScope } from "./scope.js";
 import { sha256Hex } from "./text.js";
 import type { CanonicalEvent } from "./types.js";
 
@@ -23,14 +24,14 @@ export const canonicalEventSchema = z.object({
 
 const EVENTS_MAXLEN = 100_000;
 
-export async function emitCanonicalEvent(event: CanonicalEvent): Promise<"emitted" | "duplicate"> {
+export async function emitCanonicalEvent(scope: BrainScope, event: CanonicalEvent): Promise<"emitted" | "duplicate"> {
   const hash = sha256Hex(`${event.channel}:${event.external_id}`);
-  const fresh = await markSeen(hash);
+  const fresh = await markSeen(scope, hash);
   if (!fresh) return "duplicate";
   try {
-    await getRedis().xadd(KEYS.events, "MAXLEN", "~", EVENTS_MAXLEN, "*", "e", JSON.stringify(event));
+    await getRedis().xadd(brainKeys(scope).events, "MAXLEN", "~", EVENTS_MAXLEN, "*", "e", JSON.stringify(event));
   } catch (err) {
-    await clearSeen(hash).catch(() => {});
+    await clearSeen(scope, hash).catch(() => {});
     throw err;
   }
   return "emitted";

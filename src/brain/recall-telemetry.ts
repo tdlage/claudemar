@@ -2,8 +2,8 @@ import { appendFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../config.js";
-import { telemetryDir } from "./paths.js";
 import { dayKeyInTz } from "./text.js";
+import type { BrainScope } from "./scope.js";
 import type { BrainDegraded } from "./types.js";
 
 export interface RecallLine {
@@ -53,22 +53,22 @@ export function buildRecallLine(params: {
   };
 }
 
-function monthFile(month: string): string {
-  return resolve(telemetryDir, `recall-${month}.jsonl`);
+function monthFile(scope: BrainScope, month: string): string {
+  return resolve(scope.telemetryDir, `recall-${month}.jsonl`);
 }
 
-export async function appendRecallLine(line: RecallLine): Promise<void> {
+export async function appendRecallLine(scope: BrainScope, line: RecallLine): Promise<void> {
   const month = dayKeyInTz(new Date(), config.brainTz).slice(0, 7);
   try {
-    await appendFile(monthFile(month), `${JSON.stringify(line)}\n`, "utf-8");
+    await appendFile(monthFile(scope, month), `${JSON.stringify(line)}\n`, "utf-8");
   } catch (err) {
     console.error("[brain:telemetry] falha ao gravar recall:", err instanceof Error ? err.message : String(err));
   }
 }
 
-export async function readRecallTail(month: string | undefined, limit: number): Promise<RecallLine[]> {
+export async function readRecallTail(scope: BrainScope, month: string | undefined, limit: number): Promise<RecallLine[]> {
   const target = month && /^\d{4}-\d{2}$/.test(month) ? month : dayKeyInTz(new Date(), config.brainTz).slice(0, 7);
-  const path = monthFile(target);
+  const path = monthFile(scope, target);
   if (!existsSync(path)) return [];
   const content = await readFile(path, "utf-8");
   const lines = content.split("\n").filter(Boolean);
@@ -97,12 +97,12 @@ function percentile(sorted: number[], ratio: number): number | null {
   return sorted[idx];
 }
 
-export async function readRecallDistribution(month: string | undefined): Promise<RecallDistribution> {
+export async function readRecallDistribution(scope: BrainScope, month: string | undefined): Promise<RecallDistribution> {
   const target = month && /^\d{4}-\d{2}$/.test(month) ? month : dayKeyInTz(new Date(), config.brainTz).slice(0, 7);
   const bins = Array.from({ length: BIN_COUNT }, (_, i) => ({ from: i / BIN_COUNT, to: (i + 1) / BIN_COUNT, count: 0 }));
   const scores: number[] = [];
   let total = 0;
-  const path = monthFile(target);
+  const path = monthFile(scope, target);
   if (existsSync(path)) {
     const content = await readFile(path, "utf-8");
     for (const raw of content.split("\n")) {

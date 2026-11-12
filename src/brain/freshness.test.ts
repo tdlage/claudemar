@@ -13,6 +13,8 @@ process.env.BRAIN_ROOT ??= mkdtempSync(resolve(tmpdir(), "brain-freshness-test-"
 process.env.REDIS_URL = "redis://127.0.0.1:63999";
 
 const { evaluateAlerts } = await import("./freshness.js");
+const { adminBrain } = await import("./scope.js");
+const scope = adminBrain();
 
 const minutesAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
 
@@ -24,12 +26,12 @@ const idleQueues = { events: 0, eventsPending: 0, triage: 0, compile: 0 };
 const withEmail: AlertInputs["metrics"] = [{ date: "hoje", fields: { "events:email": 3 } }, { date: "ontem", fields: {} }];
 
 test("alertas refletem o estado recebido: heartbeat recente e eventos recentes não alertam", () => {
-  assert.deepEqual(evaluateAlerts({ statuses: [gmail(minutesAgo(1))], queues: idleQueues, metrics: withEmail }), []);
+  assert.deepEqual(evaluateAlerts(scope, { statuses: [gmail(minutesAgo(1))], queues: idleQueues, metrics: withEmail }), []);
 });
 
 test("heartbeat vencido, fila acima do limite e conector mudo geram alerta", () => {
   const stale = minutesAgo(60);
-  const alerts = evaluateAlerts({
+  const alerts = evaluateAlerts(scope, {
     statuses: [gmail(stale)],
     queues: { ...idleQueues, triage: 501 },
     metrics: [{ date: "hoje", fields: {} }, { date: "ontem", fields: {} }],
@@ -43,6 +45,6 @@ test("heartbeat vencido, fila acima do limite e conector mudo geram alerta", () 
 
 test("conector mudo considera só a janela de 2 dias, mesmo recebendo mais dias de métricas", () => {
   const metrics: AlertInputs["metrics"] = [{ date: "hoje", fields: {} }, { date: "ontem", fields: {} }, { date: "anteontem", fields: { "events:email": 9 } }];
-  const alerts = evaluateAlerts({ statuses: [gmail(minutesAgo(1))], queues: idleQueues, metrics });
+  const alerts = evaluateAlerts(scope, { statuses: [gmail(minutesAgo(1))], queues: idleQueues, metrics });
   assert.deepEqual(alerts, ["conector email ligado mas sem nenhum evento nos últimos 2 dias"]);
 });

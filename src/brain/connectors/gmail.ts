@@ -1,10 +1,11 @@
 import { google, type gmail_v1 } from "googleapis";
 import { emitCanonicalEvent } from "../canonical.js";
 import { storeAttachment, storeOriginal } from "../attachments.js";
-import { getRedis, KEYS, incrMetric } from "../redis.js";
+import { brainKeys, getRedis, incrMetric } from "../redis.js";
 import { sha256Hex } from "../text.js";
 import { MAX_EVENT_CHARS } from "../normalize.js";
-import { brainSettingsManager } from "../settings.js";
+import { brainSettings } from "../settings.js";
+import type { BrainScope } from "../scope.js";
 import { buildCategoryQuery, detectBulk, matchesBlockedSender, skippedByLabels } from "../email-filter.js";
 import {
   getAuthorizedClient,
@@ -12,7 +13,7 @@ import {
   listConnectedEmails,
   markReauthRequired,
 } from "./google-auth.js";
-import type { CanonicalEvent, CanonicalParticipant, StoredAttachment } from "../types.js";
+import type { BrainSettings, CanonicalEvent, CanonicalParticipant, StoredAttachment } from "../types.js";
 
 const FETCH_PACE_MS = 60;
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -67,23 +68,23 @@ function walkParts(payload: gmail_v1.Schema$MessagePart | undefined, acc: MimeCo
   for (const part of payload.parts ?? []) walkParts(part, acc);
 }
 
-async function alreadySeen(externalId: string): Promise<boolean> {
+async function alreadySeen(scope: BrainScope, externalId: string): Promise<boolean> {
   try {
     const hash = sha256Hex(`email:${externalId}`);
-    return (await getRedis().exists(KEYS.seen(hash))) === 1;
+    return (await getRedis().exists(brainKeys(scope).seen(hash))) === 1;
   } catch {
     return false;
   }
 }
 
-async function markSkipped(externalId: string): Promise<void> {
+async function markSkipped(scope: BrainScope, externalId: string): Promise<void> {
   try {
     const hash = sha256Hex(`email:${externalId}`);
-    await getRedis().set(KEYS.seen(hash), "1", "EX", 400 * 24 * 60 * 60, "NX");
+    await getRedis().set(brainKeys(scope).seen(hash), "1", "EX", 400 * 24 * 60 * 60, "NX");
   } catch {}
 }
 
-function filterQuery(settings: ReturnType<typeof brainSettingsManager.get>): string {
+function filterQuery(settings: BrainSettings): string {
   return [settings.gmailQuery, buildCategoryQuery(settings.emailFilter.skipCategories)]
     .filter(Boolean)
     .join(" ");
@@ -110,29 +111,30 @@ function isMessageGone(err: unknown): boolean {
 }
 
 async function processMessage(
+  scope: BrainScope,
   gmail: gmail_v1.Gmail,
   account: string,
   messageId: string,
 ): Promise<"emitted" | "duplicate" | "skipped" | "filtered"> {
   const externalId = `gmail:${account}:${messageId}`;
-  if (await alreadySeen(externalId)) return "skipped";
+  if (await alreadySeen(scope, externalId)) return "skipped";
 
-  const settings = brainSettingsManager.get();
+  const settings = brainSettings(scope).get();
   const res = await gmail.users.messages.get({ userId: "me", id: messageId, format: "full" });
   const msg = res.data;
   const headers = msg.payload?.headers;
 
   const skipReason = skippedByLabels(msg.labelIds ?? undefined, settings.emailFilter.skipCategories);
   if (skipReason) {
-    await markSkipped(externalId);
-    await incrMetric(`email_filtered:${skipReason}`);
+    await markSkipped(scope, externalId);
+    await incrMetric(scope, `email_filtered:${skipReason}`);
     return "filtered";
   }
 
   const fromParticipant = parseAddressList(header(headers, "From"), "from")[0];
   if (fromParticipant?.handle && matchesBlockedSender(fromParticipant.handle, settings.emailFilter.blockedSenders)) {
-    await markSkipped(externalId);
-    await incrMetric("email_filtered:blocked_sender");
+    await markSkipped(scope, externalId);
+    await incrMetric(scope, "email_filtered:blocked_sender");
     return "filtered";
   }
 
@@ -157,7 +159,7 @@ async function processMessage(
         id: part.attachmentId,
       });
       if (att.data.data) {
-        attachments.push(await storeAttachment(Buffer.from(att.data.data, "base64url"), part.filename));
+        attachments.push(await storeAttachment(scope, Buffer.from(att.data.data, "base64url"), part.filename));
       }
       await sleep(FETCH_PACE_MS);
     } catch (err) {
@@ -173,12 +175,12 @@ async function processMessage(
   let bodyText = content.text;
   let rawRef: string | undefined;
   if (bodyText.length > MAX_EVENT_CHARS) {
-    rawRef = await storeOriginal(bodyText, threadKey, "txt");
+    rawRef = await storeOriginal(scope, bodyText, threadKey, "txt");
     bodyText = bodyText.slice(0, MAX_EVENT_CHARS);
   }
   let bodyHtml = content.html || undefined;
   if (bodyHtml && bodyHtml.length > MAX_EVENT_CHARS * 4) {
-    if (!rawRef) rawRef = await storeOriginal(bodyHtml, threadKey, "html");
+    if (!rawRef) rawRef = await storeOriginal(scope, bodyHtml, threadKey, "html");
     bodyHtml = bodyHtml.slice(0, MAX_EVENT_CHARS * 4);
   }
 
@@ -202,11 +204,11 @@ async function processMessage(
     ...(bulkReason ? { bulk: true } : {}),
   };
 
-  const result = await emitCanonicalEvent(event);
+  const result = await emitCanonicalEvent(scope, event);
   if (result === "emitted") {
-    await incrMetric("events:email");
+    await incrMetric(scope, "events:email");
     if (msg.internalDate) {
-      const key = KEYS.cursorGmailWatermark(account);
+      const key = brainKeys(scope).cursorGmailWatermark(account);
       const current = Number((await getRedis().get(key).catch(() => "0")) ?? 0);
       if (Number(msg.internalDate) > current) {
         await getRedis().set(key, msg.internalDate).catch(() => {});
@@ -227,17 +229,18 @@ async function listMessageIds(gmail: gmail_v1.Gmail, q: string): Promise<string[
   return ids;
 }
 
-async function pollAccount(account: string): Promise<GmailPollSummary> {
+async function pollAccount(scope: BrainScope, account: string): Promise<GmailPollSummary> {
   const summary: GmailPollSummary = { account, fetched: 0, emitted: 0, error: "" };
-  const auth = getAuthorizedClient(account);
+  const auth = getAuthorizedClient(scope, account);
   if (!auth) {
     summary.error = "sem credencial válida";
     return summary;
   }
   const gmail = google.gmail({ version: "v1", auth });
   const redis = getRedis();
-  const settings = brainSettingsManager.get();
-  const cursorKey = KEYS.cursorGmail(account);
+  const keys = brainKeys(scope);
+  const settings = brainSettings(scope).get();
+  const cursorKey = keys.cursorGmail(account);
 
   try {
     const cursor = await redis.get(cursorKey);
@@ -272,7 +275,7 @@ async function pollAccount(account: string): Promise<GmailPollSummary> {
       } catch (err) {
         const status = (err as { status?: number; code?: number }).status ?? (err as { code?: number }).code;
         if (status === 404) {
-          const watermark = Number((await redis.get(KEYS.cursorGmailWatermark(account))) ?? 0);
+          const watermark = Number((await redis.get(keys.cursorGmailWatermark(account))) ?? 0);
           const profile = await gmail.users.getProfile({ userId: "me" });
           nextCursor = String(profile.data.historyId ?? "");
           let window = BOOTSTRAP_QUERY;
@@ -296,7 +299,7 @@ async function pollAccount(account: string): Promise<GmailPollSummary> {
     let gone = 0;
     for (const id of unique) {
       try {
-        const result = await processMessage(gmail, account, id);
+        const result = await processMessage(scope, gmail, account, id);
         summary.fetched += 1;
         if (result === "emitted") summary.emitted += 1;
       } catch (err) {
@@ -311,7 +314,7 @@ async function pollAccount(account: string): Promise<GmailPollSummary> {
       }
       await sleep(FETCH_PACE_MS);
     }
-    if (gone > 0) await incrMetric("gmail:gone", gone);
+    if (gone > 0) await incrMetric(scope, "gmail:gone", gone);
     if (retryable > 0) {
       summary.error = `${retryable} mensagem(ns) falharam — cursor mantido para nova tentativa: ${summary.error}`;
     } else if (nextCursor) {
@@ -319,7 +322,7 @@ async function pollAccount(account: string): Promise<GmailPollSummary> {
     }
   } catch (err) {
     if (isInvalidGrant(err)) {
-      markReauthRequired(account);
+      markReauthRequired(scope, account);
       summary.error = "reauth_required";
     } else {
       summary.error = err instanceof Error ? err.message : String(err);
@@ -328,41 +331,42 @@ async function pollAccount(account: string): Promise<GmailPollSummary> {
   return summary;
 }
 
-export async function pollGmail(): Promise<GmailPollSummary[]> {
+export async function pollGmail(scope: BrainScope): Promise<GmailPollSummary[]> {
   const summaries: GmailPollSummary[] = [];
-  for (const account of listConnectedEmails()) {
-    summaries.push(await pollAccount(account));
+  for (const account of listConnectedEmails(scope)) {
+    summaries.push(await pollAccount(scope, account));
   }
   return summaries;
 }
 
 export async function backfillGmailRange(
+  scope: BrainScope,
   account: string,
   afterDate: string,
   beforeDate: string,
   shouldStop: () => Promise<boolean>,
 ): Promise<GmailPollSummary> {
   const summary: GmailPollSummary = { account, fetched: 0, emitted: 0, error: "" };
-  const auth = getAuthorizedClient(account);
+  const auth = getAuthorizedClient(scope, account);
   if (!auth) {
     summary.error = "sem credencial válida";
     return summary;
   }
   const gmail = google.gmail({ version: "v1", auth });
-  const settings = brainSettingsManager.get();
+  const settings = brainSettings(scope).get();
   try {
     const q = [`after:${afterDate}`, `before:${beforeDate}`, filterQuery(settings)].filter(Boolean).join(" ");
     const ids = await listMessageIds(gmail, q);
     for (const id of ids) {
       if (await shouldStop()) break;
       try {
-        const result = await processMessage(gmail, account, id);
+        const result = await processMessage(scope, gmail, account, id);
         summary.fetched += 1;
         if (result === "emitted") summary.emitted += 1;
       } catch (err) {
         if (isInvalidGrant(err)) throw err;
         if (isMessageGone(err)) {
-          await incrMetric("gmail:gone");
+          await incrMetric(scope, "gmail:gone");
           continue;
         }
         summary.error = err instanceof Error ? err.message : String(err);
@@ -372,7 +376,7 @@ export async function backfillGmailRange(
     }
   } catch (err) {
     if (isInvalidGrant(err)) {
-      markReauthRequired(account);
+      markReauthRequired(scope, account);
       summary.error = "reauth_required";
     } else {
       summary.error = err instanceof Error ? err.message : String(err);

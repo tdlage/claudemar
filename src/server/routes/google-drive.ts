@@ -17,6 +17,7 @@ import { accountViews, disconnectAccount, DriveRequestError, ownedAccount, owner
 import { driveStore } from "../../google-drive/store.js";
 import { REAUTH_MESSAGE } from "../../google-drive/sync.js";
 import { sendCallbackPage } from "../callback-page.js";
+import { readCookie } from "../route-utils.js";
 
 export const googleDriveRouter = Router();
 export const googleDrivePublicRouter = Router();
@@ -128,20 +129,6 @@ function sendDriveCallback(res: Response, status: number, page: DriveCallbackPag
     link: { href: page.returnTo, label: "Return to Claudemar" },
     script: `try{var channel=new BroadcastChannel(${JSON.stringify(BROADCAST_CHANNEL)});channel.postMessage(${event});channel.close();setTimeout(function(){window.close()},700)}catch(e){}`,
   });
-}
-
-function readCookie(req: Request, name: string): string | null {
-  for (const part of (req.headers.cookie ?? "").split(";")) {
-    const separator = part.indexOf("=");
-    if (separator > 0 && part.slice(0, separator).trim() === name) {
-      try {
-        return decodeURIComponent(part.slice(separator + 1).trim());
-      } catch {
-        return null;
-      }
-    }
-  }
-  return null;
 }
 
 function authorizationCookieOptions(req: Request) {

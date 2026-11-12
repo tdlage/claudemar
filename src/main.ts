@@ -27,6 +27,8 @@ import { ensureMemoryReady } from "./memory/session-memory.js";
 import { brainInit, brainShutdown } from "./brain/index.js";
 import { driveStore } from "./google-drive/store.js";
 import { driveSync } from "./google-drive/sync.js";
+import { integrationStore } from "./integrations/store.js";
+import { startIntegrationKeepalive } from "./integrations/service.js";
 import { closePool } from "./database.js";
 
 function migrateClaudeMdToAgentsMd(): void {
@@ -66,6 +68,9 @@ await usersManager.initialize();
 await driveStore.initialize()
   .then(() => driveSync.start())
   .catch((err) => console.error("[google-drive] Initialization failed:", err instanceof Error ? err.message : String(err)));
+await integrationStore.initialize()
+  .then(() => startIntegrationKeepalive())
+  .catch((err) => console.error("[integrations] Initialization failed:", err instanceof Error ? err.message : String(err)));
 await sessionNamesManager.initialize();
 await commandQueue.initialize();
 await runProcessManager.initialize();

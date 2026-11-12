@@ -33,6 +33,9 @@ import { useDialogFocus } from "../../hooks/useDialogFocus";
 import { Brand } from "../shared/Brand";
 import { NeedsAnswerBadge } from "../shared/NeedsAnswerBadge";
 import { usePendingQuestionTargets } from "../../hooks/usePendingQuestionTargets";
+import { useBrainConnections } from "../../hooks/useBrain";
+import { BrainAlertBadge } from "../brain/BrainAlertBadge";
+import { brainIssuesTitle } from "../../lib/brainIssues";
 import {
   WORKSPACES_CHANGED_EVENT,
   openCreateWorkspace,
@@ -153,6 +156,7 @@ export function Sidebar() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [targetStatus, setTargetStatus] = useState<TargetStatus>({});
   const pendingQuestions = usePendingQuestionTargets();
+  const brainIssues = useBrainConnections();
   const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
@@ -310,16 +314,22 @@ export function Sidebar() {
               </>
             )}
           </NavLink>
-          {admin && (
-            <NavLink
-              to="/second-brain"
-              className={linkClass}
-              title="Second Brain"
-            >
+          <NavLink
+            to="/second-brain"
+            className={linkClass}
+            title={brainIssues.length > 0 ? `Second Brain\n${brainIssuesTitle(brainIssues)}` : "Second Brain"}
+          >
+            <span className="relative inline-flex">
               <Brain size={18} />
-              {expanded && "Second Brain"}
-            </NavLink>
-          )}
+              {!expanded && brainIssues.length > 0 && <span className="brain-alert-dot" aria-hidden="true" />}
+            </span>
+            {expanded && (
+              <>
+                <span className="flex-1">Second Brain</span>
+                <BrainAlertBadge issues={brainIssues} />
+              </>
+            )}
+          </NavLink>
         </>
       ),
     },

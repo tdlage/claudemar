@@ -2,12 +2,12 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { appendFileSync, closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../config.js";
+import { ADMIN_BRAIN, isBrainOwnerId, type BrainScope } from "./scope.js";
 
 const KEY_PREFIX = "cmb_";
 const KEY_PATTERN = /^cmb_[A-Za-z0-9_-]{43}$/;
 const LAST_USED_RESOLUTION_MS = 60_000;
 const KEYS_PATH = resolve(config.dataPath, "brain-api-keys.json");
-const AUDIT_PATH = resolve(config.dataPath, "brain-mcp-audit.jsonl");
 const FILE_MODE = 0o600;
 
 export interface BrainApiKeyInfo {
@@ -20,6 +20,12 @@ export interface BrainApiKeyInfo {
 
 interface StoredKey extends BrainApiKeyInfo {
   hash: string;
+  owner: string;
+}
+
+export interface AuthenticatedBrainKey {
+  info: BrainApiKeyInfo;
+  owner: string;
 }
 
 export interface BrainMcpAuditEntry {
@@ -49,6 +55,7 @@ function parseStored(): unknown {
   }
 }
 
+/** Chaves anteriores ao brain por usuário não têm dono gravado: eram todas do admin. */
 function load(): StoredKey[] {
   if (!existsSync(KEYS_PATH)) return [];
   const raw = parseStored();
@@ -63,10 +70,15 @@ function load(): StoredKey[] {
           typeof e.prefix === "string" &&
           typeof e.hash === "string" &&
           /^[0-9a-f]{64}$/.test(e.hash) &&
-          typeof e.createdAt === "string",
+          typeof e.createdAt === "string" &&
+          (e.owner === undefined || isBrainOwnerId(e.owner)),
       );
     })
-    .map((e) => ({ ...e, lastUsedAt: typeof e.lastUsedAt === "string" ? e.lastUsedAt : null }));
+    .map((e) => ({
+      ...e,
+      owner: e.owner ?? ADMIN_BRAIN,
+      lastUsedAt: typeof e.lastUsedAt === "string" ? e.lastUsedAt : null,
+    }));
 }
 
 function info(key: StoredKey): BrainApiKeyInfo {
@@ -84,11 +96,12 @@ class BrainApiKeys {
     this.keys = next;
   }
 
-  list(): BrainApiKeyInfo[] {
-    return this.keys.map(info);
+  list(owner: string): BrainApiKeyInfo[] {
+    return this.keys.filter((k) => k.owner === owner).map(info);
   }
 
-  create(name: string): { key: string; info: BrainApiKeyInfo } {
+  create(owner: string, name: string): { key: string; info: BrainApiKeyInfo } {
+    if (!isBrainOwnerId(owner)) throw new Error("dono de brain inválido");
     const label = name.trim().slice(0, 80);
     if (!label) throw new Error("nome da chave é obrigatório");
     const secret = `${KEY_PREFIX}${randomBytes(32).toString("base64url")}`;
@@ -99,19 +112,27 @@ class BrainApiKeys {
       hash: digest(secret).toString("hex"),
       createdAt: new Date().toISOString(),
       lastUsedAt: null,
+      owner,
     };
     this.save([...this.keys, stored]);
     return { key: secret, info: info(stored) };
   }
 
-  revoke(id: string): boolean {
-    const next = this.keys.filter((k) => k.id !== id);
+  revoke(owner: string, id: string): boolean {
+    const next = this.keys.filter((k) => !(k.id === id && k.owner === owner));
     if (next.length === this.keys.length) return false;
     this.save(next);
     return true;
   }
 
-  authenticate(candidate: string): BrainApiKeyInfo | null {
+  revokeAll(owner: string): number {
+    const next = this.keys.filter((k) => k.owner !== owner);
+    const removed = this.keys.length - next.length;
+    if (removed > 0) this.save(next);
+    return removed;
+  }
+
+  authenticate(candidate: string): AuthenticatedBrainKey | null {
     if (!KEY_PATTERN.test(candidate)) return null;
     const hashed = digest(candidate);
     const match = this.keys.find((k) => timingSafeEqual(Buffer.from(k.hash, "hex"), hashed));
@@ -125,20 +146,20 @@ class BrainApiKeys {
         console.error("[brain:api-keys] falha ao registrar uso:", err instanceof Error ? err.message : String(err));
       }
     }
-    return info(this.keys.find((k) => k.id === match.id) ?? match);
+    return { info: info(this.keys.find((k) => k.id === match.id) ?? match), owner: match.owner };
   }
 
-  audit(entry: BrainMcpAuditEntry): void {
+  audit(scope: BrainScope, entry: BrainMcpAuditEntry): void {
     try {
-      appendFileSync(AUDIT_PATH, `${JSON.stringify(entry)}\n`, { encoding: "utf-8", mode: FILE_MODE });
+      appendFileSync(scope.mcpAuditFile, `${JSON.stringify(entry)}\n`, { encoding: "utf-8", mode: FILE_MODE });
     } catch (err) {
       console.error("[brain:api-keys] falha na auditoria:", err instanceof Error ? err.message : String(err));
     }
   }
 
-  readAudit(limit: number): BrainMcpAuditEntry[] {
-    if (!existsSync(AUDIT_PATH)) return [];
-    const fd = openSync(AUDIT_PATH, "r");
+  readAudit(scope: BrainScope, limit: number): BrainMcpAuditEntry[] {
+    if (!existsSync(scope.mcpAuditFile)) return [];
+    const fd = openSync(scope.mcpAuditFile, "r");
     let lines: string[];
     try {
       const size = fstatSync(fd).size;

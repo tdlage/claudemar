@@ -5,7 +5,8 @@ import { query } from "../../database.js";
 import { listProjects } from "../../session.js";
 import { listAgents } from "../../agents/manager.js";
 import { PIPELINE_WORKTREES_ROOT } from "../../pipeline-worktree.js";
-import { brainSettingsManager } from "../settings.js";
+import { brainSettings } from "../settings.js";
+import type { BrainScope } from "../scope.js";
 import { canonicalTenant, resolveTenantName, ROOT_TENANT } from "../tenants.js";
 import { slugify } from "../text.js";
 
@@ -90,19 +91,19 @@ export function listTargets(): ClaudemarTarget[] {
   ];
 }
 
-export function isTargetExcluded(target: ClaudemarTarget): boolean {
-  return brainSettingsManager.get().claudemar.excludedTargets.includes(targetKey(target));
+export function isTargetExcluded(scope: BrainScope, target: ClaudemarTarget): boolean {
+  return brainSettings(scope).get().claudemar.excludedTargets.includes(targetKey(target));
 }
 
 /**
  * Contexto fixo por alvo: sessões do mesmo projeto precisam cair na mesma árvore de contexto,
  * senão a validação de isolamento rejeita as compilações que atualizam a página do alvo.
  */
-export async function targetTenant(target: ClaudemarTarget): Promise<string> {
-  const mapped = brainSettingsManager.get().claudemar.tenants[targetKey(target)];
-  if (mapped) return canonicalTenant(mapped);
+export async function targetTenant(scope: BrainScope, target: ClaudemarTarget): Promise<string> {
+  const mapped = brainSettings(scope).get().claudemar.tenants[targetKey(target)];
+  if (mapped) return canonicalTenant(scope, mapped);
   if (target.kind !== "orchestrator") {
-    const byName = await resolveTenantName(target.name);
+    const byName = await resolveTenantName(scope, target.name);
     if (byName) return byName;
   }
   return ROOT_TENANT;

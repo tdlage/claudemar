@@ -13,13 +13,14 @@ import { runProcessManager } from "./run-process-manager.js";
 import { projectSettingsManager } from "./project-settings.js";
 import { usersManager } from "./users-manager.js";
 import { REPO_WORKTREES_ROOT, hiddenReposPath } from "./repositories.js";
-import { purgeTarget } from "./brain/claudemar/purge.js";
+import { purgeTargetEverywhere } from "./brain/claudemar/purge.js";
 import { agentSecretsManager, purgeProjectSecrets } from "./secrets-manager.js";
 import { purgePromptAttachments } from "./prompt-attachments.js";
 import { purgeTargetDriveFolders } from "./google-drive/service.js";
+import { purgeAgentIntegrations } from "./integrations/service.js";
 
 async function purgeBrainTarget(target: { kind: "project" | "agent"; name: string }): Promise<void> {
-  await purgeTarget(target).catch((err) => {
+  await purgeTargetEverywhere(target).catch((err) => {
     console.error(`[cleanup] falha ao remover ${target.kind} ${target.name} do Second Brain:`, err instanceof Error ? err.message : String(err));
   });
 }
@@ -85,6 +86,7 @@ export async function purgeAgentData(agentName: string): Promise<void> {
   await agentSecretsManager.purge(agentName);
   await purgePromptAttachments("agent", agentName);
   await purgeTargetDriveFolders({ type: "agent", name: agentName });
+  await purgeAgentIntegrations(agentName);
   await execute(
     "DELETE FROM execution_history WHERE (target_type = 'agent' AND target_name = ?) OR agent_name = ?",
     [agentName, agentName],

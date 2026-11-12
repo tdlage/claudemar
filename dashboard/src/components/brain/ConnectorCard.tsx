@@ -34,10 +34,12 @@ export function ConnectorCard({
   scheduler,
   accounts,
   onChanged,
+  readOnly = false,
 }: {
   scheduler: BrainSchedulerStatus;
   accounts: GoogleAccountStatus[];
-  onChanged: () => void;
+  onChanged?: () => void;
+  readOnly?: boolean;
 }) {
   const { addToast } = useToast();
   const [busy, setBusy] = useState(false);
@@ -56,7 +58,7 @@ export function ConnectorCard({
     try {
       await api.post(`/brain/connectors/${scheduler.name}/${verb}`, {});
       if (verb === "run-now") addToast("success", `${LABELS[scheduler.name]}: execução concluída`);
-      onChanged();
+      onChanged?.();
     } catch (e) {
       addToast("error", e instanceof Error ? e.message : String(e));
     } finally {
@@ -72,22 +74,26 @@ export function ConnectorCard({
         <span className="text-sm font-medium text-text-primary flex-1">{LABELS[scheduler.name]}</span>
         {scheduler.inFlight && <Badge variant="accent">executando</Badge>}
         {!scheduler.enabled && <Badge>pausado</Badge>}
-        <button
-          title={scheduler.enabled ? "Pausar" : "Retomar"}
-          disabled={busy}
-          onClick={() => action(scheduler.enabled ? "pause" : "resume")}
-          className="p-1.5 rounded text-text-muted hover:bg-accent/10 transition-colors disabled:opacity-50"
-        >
-          {scheduler.enabled ? <Pause size={14} /> : <Play size={14} />}
-        </button>
-        <button
-          title="Executar agora"
-          disabled={busy || scheduler.inFlight}
-          onClick={() => action("run-now")}
-          className="p-1.5 rounded text-text-muted hover:bg-accent/10 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
-        </button>
+        {!readOnly && (
+          <>
+            <button
+              title={scheduler.enabled ? "Pausar" : "Retomar"}
+              disabled={busy}
+              onClick={() => action(scheduler.enabled ? "pause" : "resume")}
+              className="p-1.5 rounded text-text-muted hover:bg-accent/10 transition-colors disabled:opacity-50"
+            >
+              {scheduler.enabled ? <Pause size={14} /> : <Play size={14} />}
+            </button>
+            <button
+              title="Executar agora"
+              disabled={busy || scheduler.inFlight}
+              onClick={() => action("run-now")}
+              className="p-1.5 rounded text-text-muted hover:bg-accent/10 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
+            </button>
+          </>
+        )}
       </div>
       {scheduler.disabledReason && <p className="text-xs text-warning">{scheduler.disabledReason}</p>}
       {scheduler.lastError && !scheduler.disabledReason && (
@@ -110,7 +116,7 @@ export function ConnectorCard({
                 }`}
               />
               <span className="text-text-secondary truncate flex-1">{account.email}</span>
-              <Badge variant={tenantVariant(account.tenant)}>{account.tenant}</Badge>
+              {account.tenant && <Badge variant={tenantVariant(account.tenant)}>{account.tenant}</Badge>}
               {account.reauthRequired && <Badge variant="danger">reautorizar</Badge>}
             </div>
           ))}

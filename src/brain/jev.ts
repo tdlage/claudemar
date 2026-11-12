@@ -1,5 +1,5 @@
 import { isJevConfigured, jevDecide, type JevDecision, type JevQuestion } from "../jev/client.js";
-import { brainSettingsManager } from "./settings.js";
+import { systemSettings } from "./settings.js";
 import type { BrainSettings, TriageRelevance } from "./types.js";
 
 const FLAG_ESCALATION = 0.5;
@@ -34,11 +34,11 @@ export interface JevTriageVerdict {
 }
 
 export function jevTriageEnabled(): boolean {
-  return brainSettingsManager.get().jev.triagePrefilter && isJevConfigured();
+  return systemSettings().jev.triagePrefilter && isJevConfigured();
 }
 
 export function jevSelectorEnabled(): boolean {
-  return brainSettingsManager.get().jev.selector && isJevConfigured();
+  return systemSettings().jev.selector && isJevConfigured();
 }
 
 type TriageAnswers = JevDecision<typeof TRIAGE_QUESTIONS>["answers"];
@@ -60,7 +60,7 @@ export function lowValueVerdict(answers: TriageAnswers, model: string, settings:
 
 export async function jevLowValueVerdict(conversation: string): Promise<JevTriageVerdict | null> {
   const { model, answers } = await jevDecide(conversation, TRIAGE_QUESTIONS);
-  return lowValueVerdict(answers, model, brainSettingsManager.get());
+  return lowValueVerdict(answers, model, systemSettings());
 }
 
 export function selectedIndices(probabilities: (number | undefined)[], threshold: number, limit: number): number[] {
@@ -79,7 +79,7 @@ export interface JevSelectorItem {
 
 /** Índices dos itens que respondem à consulta, na ordem original do ranking. */
 export async function jevSelectIndices(query: string, items: JevSelectorItem[], limit: number): Promise<number[]> {
-  const threshold = brainSettingsManager.get().jev.selectorThreshold;
+  const threshold = systemSettings().jev.selectorThreshold;
   const questions: Record<string, Extract<JevQuestion, { type: "noul" }>> = Object.fromEntries(
     items.map((item, i) => [
       `c${i}`,

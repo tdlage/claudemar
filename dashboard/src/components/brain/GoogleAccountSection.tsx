@@ -6,6 +6,7 @@ import { Modal } from "../shared/Modal";
 import { useToast } from "../shared/Toast";
 import { useGoogleAccounts, useTenants } from "../../hooks/useBrain";
 import { api } from "../../lib/api";
+import { isAdmin } from "../../hooks/useAuth";
 
 const selectClass =
   "bg-bg border border-border rounded-md px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent";
@@ -14,11 +15,16 @@ export function GoogleAccountSection() {
   const { accounts, loading, connect, disconnect, updateAccount } = useGoogleAccounts();
   const { tenants } = useTenants();
   const [redirect, setRedirect] = useState("");
+  const [configured, setConfigured] = useState(true);
+  const admin = isAdmin();
 
   useEffect(() => {
     api
-      .get<{ redirectUri: string }>("/brain/google/redirect-uri")
-      .then((r) => setRedirect(r.redirectUri))
+      .get<{ redirectUri: string; configured: boolean }>("/brain/google/redirect-uri")
+      .then((r) => {
+        setRedirect(r.redirectUri);
+        setConfigured(r.configured);
+      })
       .catch(() => {});
   }, []);
   const { addToast } = useToast();
@@ -46,7 +52,10 @@ export function GoogleAccountSection() {
 
   return (
     <div className="space-y-3">
-      {redirect && (
+      {!configured && !admin && (
+        <p className="text-xs text-warning">O administrador ainda não configurou a conexão com o Google.</p>
+      )}
+      {redirect && admin && (
         <div className="bg-bg border border-border rounded-md px-3 py-2 space-y-1">
           <p className="text-xs text-text-muted">
             URI de redirecionamento que este servidor envia ao Google. Precisa estar cadastrada{" "}
@@ -104,7 +113,7 @@ export function GoogleAccountSection() {
               </option>
             ))}
           </select>
-          {account.reauthRequired ? (
+          {account.reauthRequired || !account.connected ? (
             <Button size="sm" variant="secondary" onClick={handleConnect}>
               Reconectar
             </Button>

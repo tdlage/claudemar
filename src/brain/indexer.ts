@@ -2,9 +2,9 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../config.js";
-import { getRedis, incrMetric, KEYS } from "./redis.js";
-import { brainRoot, wikiDir } from "./paths.js";
+import { brainKeys, getRedis, incrMetric } from "./redis.js";
 import { parseWikiFile } from "./frontmatter.js";
+import { perScope, type BrainScope } from "./scope.js";
 import { WIKI_DIRS } from "./wiki.js";
 import { sha256Hex } from "./text.js";
 import { brainSchedulers } from "./schedulers.js";
@@ -27,12 +27,12 @@ const FULL_WINDOW_HOURS: [number, number] = [3, 5];
 const INDEX_SCHEMA_VERSION = `2|tenant|bm25:${config.bm25NormalizeDiacritics ? "norm" : "raw"}`;
 const FULL_MIN_INTERVAL_MS = 20 * 60 * 60 * 1000;
 
-let reindexInFlight = false;
+const reindexState = perScope((): { inFlight: boolean } => ({ inFlight: false }));
 
-async function listWikiFiles(): Promise<string[]> {
+async function listWikiFiles(scope: BrainScope): Promise<string[]> {
   const files: string[] = [];
   for (const dir of WIKI_DIRS) {
-    const abs = resolve(wikiDir, dir);
+    const abs = resolve(scope.wikiDir, dir);
     if (!existsSync(abs)) continue;
     const entries = await readdir(abs).catch(() => [] as string[]);
     for (const entry of entries.filter((f) => f.endsWith(".md"))) {
@@ -56,33 +56,35 @@ export function diffFiles(current: Map<string, string>, tracked: Record<string, 
   return { changed, removed };
 }
 
-async function ensureIndexSchema(): Promise<void> {
+async function ensureIndexSchema(scope: BrainScope): Promise<void> {
   const redis = getRedis();
-  const stored = await redis.get(KEYS.indexSchema).catch(() => null);
+  const keys = brainKeys(scope);
+  const stored = await redis.get(keys.indexSchema).catch(() => null);
   if (stored === INDEX_SCHEMA_VERSION) return;
-  await redis.del(KEYS.indexFiles).catch(() => {});
-  await redis.set(KEYS.indexSchema, INDEX_SCHEMA_VERSION).catch(() => {});
+  await redis.del(keys.indexFiles).catch(() => {});
+  await redis.set(keys.indexSchema, INDEX_SCHEMA_VERSION).catch(() => {});
   if (stored) {
-    emitActivity({
+    emitActivity(scope, {
       kind: "index",
       label: "esquema do índice mudou — reindexando o wiki inteiro",
     });
   }
 }
 
-export async function incrementalTick(): Promise<{ indexed: number; removed: number }> {
+export async function incrementalTick(scope: BrainScope): Promise<{ indexed: number; removed: number }> {
   await ensureBrainIndex();
-  await ensureIndexSchema();
+  await ensureIndexSchema(scope);
   const redis = getRedis();
+  const keys = brainKeys(scope);
 
-  const files = await listWikiFiles();
-  const tracked = (await redis.hgetall(KEYS.indexFiles).catch(() => ({}))) as Record<string, string>;
+  const files = await listWikiFiles(scope);
+  const tracked = (await redis.hgetall(keys.indexFiles).catch(() => ({}))) as Record<string, string>;
 
   const current = new Map<string, string>();
   const contents = new Map<string, string>();
   for (const relPath of files) {
     try {
-      const abs = resolve(brainRoot, relPath);
+      const abs = resolve(scope.root, relPath);
       const info = await stat(abs);
       const stamp = `${Math.round(info.mtimeMs)}:${info.size}`;
       const previous = tracked[relPath];
@@ -100,7 +102,7 @@ export async function incrementalTick(): Promise<{ indexed: number; removed: num
 
   let indexed = 0;
   for (const relPath of changed) {
-    const content = contents.get(relPath) ?? (await readFile(resolve(brainRoot, relPath), "utf-8").catch(() => null));
+    const content = contents.get(relPath) ?? (await readFile(resolve(scope.root, relPath), "utf-8").catch(() => null));
     if (!content) continue;
     const parsed = parseWikiFile(content);
     if (!parsed) {
@@ -108,19 +110,19 @@ export async function incrementalTick(): Promise<{ indexed: number; removed: num
       continue;
     }
     const stamped = current.get(relPath)!;
-    await upsertWikiPage(relPath, parsed.frontmatter, parsed.body, stamped.split("|")[0]);
-    await redis.hset(KEYS.indexFiles, relPath, stamped);
+    await upsertWikiPage(scope, relPath, parsed.frontmatter, parsed.body, stamped.split("|")[0]);
+    await redis.hset(keys.indexFiles, relPath, stamped);
     indexed += 1;
   }
 
   if (removed.length > 0) {
-    for (const relPath of removed) await deleteBySourceKey(relPath);
-    await redis.hdel(KEYS.indexFiles, ...removed).catch(() => {});
+    for (const relPath of removed) await deleteBySourceKey(scope, relPath);
+    await redis.hdel(keys.indexFiles, ...removed).catch(() => {});
   }
 
   if (indexed > 0 || removed.length > 0) {
-    await incrMetric("index:pages", indexed);
-    emitActivity({
+    await incrMetric(scope, "index:pages", indexed);
+    emitActivity(scope, {
       kind: "index",
       label: `índice T3: ${indexed} página(s) indexada(s)${removed.length > 0 ? `, ${removed.length} removida(s)` : ""}`,
     });
@@ -128,30 +130,31 @@ export async function incrementalTick(): Promise<{ indexed: number; removed: num
   return { indexed, removed: removed.length };
 }
 
-async function nightlyFullIfDue(): Promise<void> {
+async function nightlyFullIfDue(scope: BrainScope): Promise<void> {
   const redis = getRedis();
+  const keys = brainKeys(scope);
   const hour = Number(
     new Intl.DateTimeFormat("en-GB", { timeZone: config.brainTz, hour: "2-digit", hour12: false }).format(new Date()),
   );
   if (hour < FULL_WINDOW_HOURS[0] || hour >= FULL_WINDOW_HOURS[1]) return;
-  const lastFull = await redis.get(KEYS.indexLastFull).catch(() => null);
+  const lastFull = await redis.get(keys.indexLastFull).catch(() => null);
   if (lastFull && Date.now() - new Date(lastFull).getTime() < FULL_MIN_INTERVAL_MS) return;
 
-  const files = new Set(await listWikiFiles());
-  const inQdrant = await listCurrentSourceKeys();
+  const files = new Set(await listWikiFiles(scope));
+  const inQdrant = await listCurrentSourceKeys(scope);
   let orphans = 0;
   for (const sourceKey of inQdrant) {
     if (!files.has(sourceKey)) {
-      await deleteBySourceKey(sourceKey);
-      await redis.hdel(KEYS.indexFiles, sourceKey);
+      await deleteBySourceKey(scope, sourceKey);
+      await redis.hdel(keys.indexFiles, sourceKey);
       orphans += 1;
     }
   }
-  const pruned = await pruneOldVersions().catch(() => 0);
+  const pruned = await pruneOldVersions(scope).catch(() => 0);
 
-  await redis.set(KEYS.indexLastFull, new Date().toISOString()).catch(() => {});
+  await redis.set(keys.indexLastFull, new Date().toISOString()).catch(() => {});
   if (orphans > 0 || pruned > 0) {
-    emitActivity({
+    emitActivity(scope, {
       kind: "index",
       label: `reconcile noturno: ${orphans} órfão(s), ${pruned} versão(ões) antiga(s) podada(s)`,
     });
@@ -159,54 +162,57 @@ async function nightlyFullIfDue(): Promise<void> {
 
 }
 
-export async function forceReindex(full: boolean): Promise<{ indexed: number; removed: number }> {
-  if (reindexInFlight) throw new Error("reindex já em execução");
-  reindexInFlight = true;
+export async function forceReindex(scope: BrainScope, full: boolean): Promise<{ indexed: number; removed: number }> {
+  const state = reindexState(scope);
+  if (state.inFlight) throw new Error("reindex já em execução");
+  state.inFlight = true;
   try {
     if (full) {
-      const files = new Set(await listWikiFiles());
-      for (const sourceKey of await listCurrentSourceKeys()) {
-        if (!files.has(sourceKey)) await deleteBySourceKey(sourceKey);
+      const files = new Set(await listWikiFiles(scope));
+      for (const sourceKey of await listCurrentSourceKeys(scope)) {
+        if (!files.has(sourceKey)) await deleteBySourceKey(scope, sourceKey);
       }
-      await getRedis().del(KEYS.indexFiles).catch(() => {});
+      await getRedis().del(brainKeys(scope).indexFiles).catch(() => {});
     }
-    return await incrementalTick();
+    return await incrementalTick(scope);
   } finally {
-    reindexInFlight = false;
+    state.inFlight = false;
   }
 }
 
-export function reindexRunning(): boolean {
-  return reindexInFlight;
+export function reindexRunning(scope: BrainScope): boolean {
+  return reindexState(scope).inFlight;
 }
 
-export async function indexStatus(): Promise<{
+export async function indexStatus(scope: BrainScope): Promise<{
   enabled: boolean;
   trackedFiles: number;
   lastFull: string | null;
   reindexRunning: boolean;
 }> {
   const redis = getRedis();
+  const keys = brainKeys(scope);
   const [trackedFiles, lastFull] = await Promise.all([
-    redis.hlen(KEYS.indexFiles).catch(() => 0),
-    redis.get(KEYS.indexLastFull).catch(() => null),
+    redis.hlen(keys.indexFiles).catch(() => 0),
+    redis.get(keys.indexLastFull).catch(() => null),
   ]);
-  return { enabled: brainIndexEnabled(), trackedFiles, lastFull, reindexRunning: reindexInFlight };
+  return { enabled: brainIndexEnabled(), trackedFiles, lastFull, reindexRunning: reindexRunning(scope) };
 }
 
 brainSchedulers.register({
   name: "index",
   cadenceMs: (s) => s.cadences.indexMs,
   disabledReason: () => (brainIndexEnabled() ? null : "QDRANT_URL/QDRANT_API_KEY ausentes"),
-  run: async () => {
-    if (reindexInFlight) return "reindex manual em execução";
-    reindexInFlight = true;
+  run: async (scope) => {
+    const state = reindexState(scope);
+    if (state.inFlight) return "reindex manual em execução";
+    state.inFlight = true;
     try {
-      const result = await incrementalTick();
-      await nightlyFullIfDue();
+      const result = await incrementalTick(scope);
+      await nightlyFullIfDue(scope);
       return `${result.indexed} indexadas, ${result.removed} removidas`;
     } finally {
-      reindexInFlight = false;
+      state.inFlight = false;
     }
   },
 });

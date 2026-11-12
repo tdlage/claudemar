@@ -14,6 +14,20 @@ export function asyncHandler(
   };
 }
 
+export function readCookie(req: Request, name: string): string | null {
+  for (const part of (req.headers.cookie ?? "").split(";")) {
+    const separator = part.indexOf("=");
+    if (separator > 0 && part.slice(0, separator).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(separator + 1).trim());
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
 export const MAX_INPUT_FILE_BYTES = 100 * 1024 * 1024;
 
 export const inputUploadParser = raw({ type: "application/octet-stream", limit: MAX_INPUT_FILE_BYTES });

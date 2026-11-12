@@ -11,7 +11,9 @@ process.env.BRAIN_ROOT ??= mkdtempSync(resolve(tmpdir(), "brain-jev-test-"));
 process.env.REDIS_URL = "redis://127.0.0.1:63999";
 
 const { lowValueVerdict, selectedIndices } = await import("./jev.js");
-const { brainSettingsManager } = await import("./settings.js");
+const { brainSettings } = await import("./settings.js");
+const { adminBrain } = await import("./scope.js");
+const settingsManager = brainSettings(adminBrain());
 
 const settings = { compile: { minRelevance: 2, maxSectionChars: 4000, contextPages: 6, batchSize: 20, maxPerTick: 100 }, jev: { triagePrefilter: true, triageMinConfidence: 0.8, selector: true, selectorThreshold: 0.5 } };
 
@@ -42,7 +44,7 @@ test("seletor Jev mantém a ordem do ranking, aplica o limiar e o limite", () =>
 });
 
 test("settings do Jev: defaults, patch parcial e saneamento", () => {
-  assert.deepEqual(brainSettingsManager.get().jev, settings.jev);
-  const updated = brainSettingsManager.update({ jev: { selector: false, triageMinConfidence: 0.9, selectorThreshold: 3 } });
+  assert.deepEqual(settingsManager.get().jev, settings.jev);
+  const updated = settingsManager.updateSystem({ jev: { selector: false, triageMinConfidence: 0.9, selectorThreshold: 3 } });
   assert.deepEqual(updated.jev, { triagePrefilter: true, triageMinConfidence: 0.9, selector: false, selectorThreshold: 0.5 });
 });

@@ -105,12 +105,15 @@ export const config = Object.freeze({
   webAuthnRpName: stringEnv("WEBAUTHN_RP_NAME", "Claudemar"),
   redisUrl: stringEnv("REDIS_URL", "redis://127.0.0.1:6379"),
   brainRoot: process.env.BRAIN_ROOT ? resolve(process.env.BRAIN_ROOT) : resolve(basePath, "brain"),
+  brainUsersRoot: process.env.BRAIN_USERS_ROOT ? resolve(process.env.BRAIN_USERS_ROOT) : resolve(basePath, "brain-users"),
   brainTz: stringEnv("BRAIN_TZ", "Europe/Madrid"),
   googleClientId: stringEnv("GOOGLE_CLIENT_ID", ""),
   googleClientSecret: stringEnv("GOOGLE_CLIENT_SECRET", ""),
   googleDriveClientId: stringEnv("GOOGLE_DRIVE_CLIENT_ID", ""),
   googleDriveClientSecret: stringEnv("GOOGLE_DRIVE_CLIENT_SECRET", ""),
   googleDriveSyncIntervalMinutes: numericEnv("GOOGLE_DRIVE_SYNC_INTERVAL_MINUTES", 10),
+  asanaClientId: stringEnv("ASANA_CLIENT_ID", ""),
+  asanaClientSecret: stringEnv("ASANA_CLIENT_SECRET", ""),
   r2Endpoint: stringEnv("R2_ENDPOINT", ""),
   r2AccessKeyId: stringEnv("R2_ACCESS_KEY_ID", ""),
   r2SecretAccessKey: stringEnv("R2_SECRET_ACCESS_KEY", ""),
@@ -119,7 +122,8 @@ export const config = Object.freeze({
   whatsappBridgeAuth: stringEnv("WHATSAPP_BRIDGE_AUTH", ""),
   brainWhatsappWebhookSecret: stringEnv("BRAIN_WHATSAPP_WEBHOOK_SECRET", ""),
   slackAppToken: stringEnv("SLACK_APP_TOKEN", ""),
-  slackBotToken: stringEnv("SLACK_BOT_TOKEN", ""),
+  slackClientId: stringEnv("SLACK_CLIENT_ID", ""),
+  slackClientSecret: stringEnv("SLACK_CLIENT_SECRET", ""),
   bm25NormalizeDiacritics: booleanEnv("BM25_NORMALIZE_DIACRITICS", true),
   rerankMinScore: numericEnv("RERANK_MIN_SCORE", 0),
   selectorMinPool: numericEnv("SELECTOR_MIN_POOL", 12),
@@ -137,3 +141,4 @@ mkdirSync(config.projectsPath, { recursive: true });
 mkdirSync(config.agentsPath, { recursive: true });
 mkdirSync(resolve(config.dataPath, "pipeline-worktrees"), { recursive: true });
 mkdirSync(config.brainRoot, { recursive: true });
+mkdirSync(config.brainUsersRoot, { recursive: true, mode: 0o700 });

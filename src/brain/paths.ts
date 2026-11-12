@@ -1,38 +1,35 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { config } from "../config.js";
+import type { BrainScope } from "./scope.js";
 
-export const brainRoot = config.brainRoot;
-export const rawDir = resolve(brainRoot, "raw");
-export const wikiDir = resolve(brainRoot, "wiki");
-export const stateDir = resolve(brainRoot, "state");
-export const quarantineDir = resolve(stateDir, "quarantine");
-export const quarantineDiscardedDir = resolve(quarantineDir, ".discarded");
-export const attachmentsDir = resolve(brainRoot, "attachments");
-export const telemetryDir = resolve(stateDir, "telemetry");
-
-export function ensureBrainTree(): void {
+export function ensureBrainTree(scope: BrainScope): void {
+  if (!scope.isAdmin) {
+    mkdirSync(scope.privateDir, { recursive: true, mode: 0o700 });
+    chmodSync(scope.privateDir, 0o700);
+    mkdirSync(scope.root, { recursive: true, mode: 0o700 });
+    chmodSync(scope.root, 0o700);
+  }
   const dirs = [
-    rawDir,
-    wikiDir,
-    resolve(wikiDir, "people"),
-    resolve(wikiDir, "orgs"),
-    resolve(wikiDir, "projects"),
-    resolve(wikiDir, "topics"),
-    resolve(wikiDir, "threads"),
-    resolve(wikiDir, "lessons"),
-    stateDir,
-    quarantineDir,
-    quarantineDiscardedDir,
-    resolve(stateDir, "digest"),
-    resolve(stateDir, "lint"),
-    telemetryDir,
-    attachmentsDir,
+    scope.rawDir,
+    scope.wikiDir,
+    resolve(scope.wikiDir, "people"),
+    resolve(scope.wikiDir, "orgs"),
+    resolve(scope.wikiDir, "projects"),
+    resolve(scope.wikiDir, "topics"),
+    resolve(scope.wikiDir, "threads"),
+    resolve(scope.wikiDir, "lessons"),
+    scope.stateDir,
+    scope.quarantineDir,
+    scope.quarantineDiscardedDir,
+    resolve(scope.stateDir, "digest"),
+    resolve(scope.stateDir, "lint"),
+    scope.telemetryDir,
+    scope.attachmentsDir,
   ];
   for (const dir of dirs) mkdirSync(dir, { recursive: true });
-  const gitignore = resolve(brainRoot, ".gitignore");
+  const gitignore = resolve(scope.root, ".gitignore");
   if (!existsSync(gitignore)) writeFileSync(gitignore, "attachments/\n*.tmp\n");
-  const pins = resolve(stateDir, "pins.md");
+  const pins = resolve(scope.stateDir, "pins.md");
   if (!existsSync(pins)) {
     writeFileSync(
       pins,

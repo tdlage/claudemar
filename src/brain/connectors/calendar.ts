@@ -1,6 +1,7 @@
 import { google, type calendar_v3 } from "googleapis";
 import { emitCanonicalEvent } from "../canonical.js";
-import { getRedis, KEYS, incrMetric } from "../redis.js";
+import { brainKeys, getRedis, incrMetric } from "../redis.js";
+import type { BrainScope } from "../scope.js";
 import {
   getAuthorizedClient,
   isInvalidGrant,
@@ -57,7 +58,7 @@ function describeEvent(event: calendar_v3.Schema$Event): string {
   return lines.join("\n");
 }
 
-async function processEvent(account: string, event: calendar_v3.Schema$Event): Promise<"emitted" | "duplicate"> {
+async function processEvent(scope: BrainScope, account: string, event: calendar_v3.Schema$Event): Promise<"emitted" | "duplicate"> {
   const id = event.id ?? "";
   if (!id) return "duplicate";
   const revision = event.updated ?? event.created ?? "";
@@ -73,21 +74,21 @@ async function processEvent(account: string, event: calendar_v3.Schema$Event): P
     body_text: describeEvent(event),
     attachments: [],
   };
-  const result = await emitCanonicalEvent(canonical);
-  if (result === "emitted") await incrMetric("events:calendar");
+  const result = await emitCanonicalEvent(scope, canonical);
+  if (result === "emitted") await incrMetric(scope, "events:calendar");
   return result;
 }
 
-async function pollAccount(account: string): Promise<CalendarPollSummary> {
+async function pollAccount(scope: BrainScope, account: string): Promise<CalendarPollSummary> {
   const summary: CalendarPollSummary = { account, fetched: 0, emitted: 0, error: "" };
-  const auth = getAuthorizedClient(account);
+  const auth = getAuthorizedClient(scope, account);
   if (!auth) {
     summary.error = "sem credencial válida";
     return summary;
   }
   const calendar = google.calendar({ version: "v3", auth });
   const redis = getRedis();
-  const cursorKey = KEYS.cursorCalendar(account);
+  const cursorKey = brainKeys(scope).cursorCalendar(account);
 
   const listPage = (
     params: calendar_v3.Params$Resource$Events$List,
@@ -141,14 +142,14 @@ async function pollAccount(account: string): Promise<CalendarPollSummary> {
     }
 
     for (const event of items) {
-      const result = await processEvent(account, event);
+      const result = await processEvent(scope, account, event);
       summary.fetched += 1;
       if (result === "emitted") summary.emitted += 1;
     }
     if (newSyncToken) await redis.set(cursorKey, newSyncToken);
   } catch (err) {
     if (isInvalidGrant(err)) {
-      markReauthRequired(account);
+      markReauthRequired(scope, account);
       summary.error = "reauth_required";
     } else {
       summary.error = err instanceof Error ? err.message : String(err);
@@ -157,21 +158,22 @@ async function pollAccount(account: string): Promise<CalendarPollSummary> {
   return summary;
 }
 
-export async function pollCalendar(): Promise<CalendarPollSummary[]> {
+export async function pollCalendar(scope: BrainScope): Promise<CalendarPollSummary[]> {
   const summaries: CalendarPollSummary[] = [];
-  for (const account of listConnectedEmails()) {
-    summaries.push(await pollAccount(account));
+  for (const account of listConnectedEmails(scope)) {
+    summaries.push(await pollAccount(scope, account));
   }
   return summaries;
 }
 
 export async function backfillCalendarRange(
+  scope: BrainScope,
   account: string,
   timeMin: string,
   timeMax: string,
 ): Promise<CalendarPollSummary> {
   const summary: CalendarPollSummary = { account, fetched: 0, emitted: 0, error: "" };
-  const auth = getAuthorizedClient(account);
+  const auth = getAuthorizedClient(scope, account);
   if (!auth) {
     summary.error = "sem credencial válida";
     return summary;
@@ -190,7 +192,7 @@ export async function backfillCalendarRange(
         pageToken,
       });
       for (const event of res.data.items ?? []) {
-        const result = await processEvent(account, event);
+        const result = await processEvent(scope, account, event);
         summary.fetched += 1;
         if (result === "emitted") summary.emitted += 1;
       }
@@ -198,7 +200,7 @@ export async function backfillCalendarRange(
     } while (pageToken);
   } catch (err) {
     if (isInvalidGrant(err)) {
-      markReauthRequired(account);
+      markReauthRequired(scope, account);
       summary.error = "reauth_required";
     } else {
       summary.error = err instanceof Error ? err.message : String(err);

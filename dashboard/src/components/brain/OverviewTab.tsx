@@ -8,6 +8,7 @@ import { TriageBar } from "./TriageBar";
 import { HeartbeatList } from "./HeartbeatList";
 import { BrainActivityFeed } from "./BrainActivityFeed";
 import { BackfillProgressCard } from "./BackfillProgressCard";
+import { ConnectionIssuesCard } from "./ConnectionIssuesCard";
 
 export function OverviewTab() {
   const { status, loading, error, refresh } = useBrainStatus();
@@ -39,6 +40,7 @@ export function OverviewTab() {
 
   return (
     <div className="space-y-4">
+      <ConnectionIssuesCard issues={status.connections} onOpenSettings={() => navigate("/second-brain/settings")} />
       {status.alerts.length > 0 && (
         <div className="bg-warning/10 border border-warning/30 rounded-md px-3 py-2 space-y-1">
           <div className="flex items-center gap-2 text-xs font-semibold text-warning">

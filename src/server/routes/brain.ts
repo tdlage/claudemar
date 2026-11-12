@@ -3,12 +3,13 @@ import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Router } from "express";
-import type { Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { asyncHandler, safeFilename } from "../route-utils.js";
-import { brainRoot, rawDir, resolveInside, wikiDir } from "../../brain/paths.js";
+import { requireAdmin, type RequestContext } from "../middleware.js";
+import { resolveInside } from "../../brain/paths.js";
 import { fileAtCommit, fileHistory } from "../../brain/git.js";
-import { brainSettingsManager } from "../../brain/settings.js";
-import { getBackfillState, getBrainStatus } from "../../brain/status.js";
+import { brainSettings } from "../../brain/settings.js";
+import { connectionIssues, getBackfillState, getBrainStatus, getTechnicalStatus } from "../../brain/status.js";
 import { cancelBackfill, estimateBackfill, startBackfill } from "../../brain/backfill.js";
 import { forceReindex, indexStatus, reindexRunning } from "../../brain/indexer.js";
 import { countBrainPoints } from "../../brain/brain-index.js";
@@ -23,7 +24,7 @@ import { generateLintReport, listLintReports, readLintReport } from "../../brain
 import { buildAdhocTriageRequest, parseTriageResult } from "../../brain/triage.js";
 import { runStageJson, stageDisabledReason } from "../../brain/llm.js";
 import { ATTACK_MESSAGES } from "../../brain/poisoning.fixtures.js";
-import { getRedis, KEYS, getActivity, getChatterSamples } from "../../brain/redis.js";
+import { getActivity, getChatterSamples, getRedis, GLOBAL_KEYS } from "../../brain/redis.js";
 import { brainSchedulers } from "../../brain/schedulers.js";
 import { getContract, updateContract } from "../../brain/contract.js";
 import { parseRawFile, parseWikiFrontmatterLoose } from "../../brain/frontmatter.js";
@@ -42,23 +43,47 @@ import {
   handleCallback,
   redirectUri,
 } from "../../brain/connectors/google-auth.js";
-import { brainEvents } from "../../brain/events.js";
+import { emitBrainEvent, emitStatusChanged } from "../../brain/events.js";
 import {
+  disconnectWhatsapp,
   handleWebhook,
+  listWhatsappChats,
   startWhatsappBridge,
   verifyWebhookSignature,
+  whatsappDeviceOf,
   whatsappQr,
   whatsappStatus,
+  whatsappWebhookOwner,
 } from "../../brain/connectors/whatsapp.js";
+import {
+  buildSlackAuthUrl,
+  disconnectSlack,
+  handleSlackCallback,
+  listSlackConnections,
+  slackConfigured,
+  slackRedirectUri,
+  slackSocket,
+} from "../../brain/connectors/slack.js";
 import { exportToEvents } from "../../brain/whatsapp-export.js";
-import { slackManager } from "../../brain/connectors/slack.js";
 import { emitCanonicalEvent } from "../../brain/canonical.js";
 import { describeTarget, describeTargets, retenantTargetPages } from "../../brain/claudemar/pages.js";
+import { claudemarAccess } from "../../brain/claudemar/access.js";
 import { brainApiKeys } from "../../brain/api-keys.js";
 import { config } from "../../config.js";
 import { markTargetsDirty } from "../../brain/claudemar/connector.js";
 import { isTargetExcluded, parseTargetKey } from "../../brain/claudemar/targets.js";
 import { purgeTarget } from "../../brain/claudemar/purge.js";
+import { activateBrain } from "../../brain/index.js";
+import {
+  ADMIN_BRAIN,
+  adminBrain,
+  brainExists,
+  brainOwnerLabel,
+  isBrainOwnerId,
+  listBrainOwners,
+  userBrain,
+  type BrainScope,
+} from "../../brain/scope.js";
 import { sendCallbackPage } from "../callback-page.js";
 import type { BrainSchedulerName, RawFrontmatter } from "../../brain/types.js";
 
@@ -67,36 +92,78 @@ export const brainPublicRouter = Router();
 
 const FILTER_CONCURRENCY = 64;
 const FILTER_MAX_MATCHES = 500;
+const OAUTH_STATE_TTL_SECONDS = 600;
 
-function brainPath(raw: unknown, prefix: "raw/" | "wiki/", requireMd = true): string | null {
+/** O brain de uma requisição é sempre o de quem está logado: nenhuma rota de conteúdo aceita outro dono. */
+function ownBrain(ctx: RequestContext | undefined): BrainScope | null {
+  if (!ctx) return null;
+  return ctx.role === "admin" ? adminBrain() : userBrain(ctx.userId);
+}
+
+function brain(res: Response): BrainScope {
+  return res.locals.brain as BrainScope;
+}
+
+function ownerScope(owner: string): BrainScope | null {
+  if (!isBrainOwnerId(owner)) return null;
+  return owner === ADMIN_BRAIN ? adminBrain() : userBrain(owner);
+}
+
+function brainPath(scope: BrainScope, raw: unknown, prefix: "raw/" | "wiki/", requireMd = true): string | null {
   const relPath = typeof raw === "string" ? raw : "";
   if (!relPath.startsWith(prefix)) return null;
   if (relPath.includes("..")) return null;
   if (requireMd && !relPath.endsWith(".md")) return null;
-  return resolveInside(brainRoot, relPath) ? relPath : null;
+  return resolveInside(scope.root, relPath) ? relPath : null;
 }
 
 function sendClosePage(res: Response, status: number, title: string, message: string): void {
   sendCallbackPage(res, status, { lang: "pt", title, message, footer: "Pode fechar esta janela." });
 }
 
+function paramStr(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+type OAuthProvider = "google" | "slack";
+
+async function createOAuthState(scope: BrainScope, provider: OAuthProvider): Promise<string> {
+  const state = randomUUID();
+  await getRedis().set(GLOBAL_KEYS.oauthState(state), JSON.stringify({ owner: scope.owner, provider }), "EX", OAUTH_STATE_TTL_SECONDS);
+  return state;
+}
+
+/** O state é de uso único e diz de qual brain partiu o pedido: o callback é público, então é ele que decide o dono. */
+async function consumeOAuthState(state: string, provider: OAuthProvider): Promise<BrainScope | null> {
+  if (!/^[0-9a-f-]{36}$/.test(state)) return null;
+  const raw = await getRedis().getdel(GLOBAL_KEYS.oauthState(state)).catch(() => null);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { owner?: unknown; provider?: unknown };
+    if (parsed.provider !== provider || typeof parsed.owner !== "string") return null;
+    return ownerScope(parsed.owner);
+  } catch {
+    return null;
+  }
+}
+
 brainPublicRouter.get(
   "/google/callback",
   asyncHandler(async (req, res) => {
-    const code = typeof req.query.code === "string" ? req.query.code : "";
-    const state = typeof req.query.state === "string" ? req.query.state : "";
-    if (!code || !state || !/^[0-9a-f-]{36}$/.test(state)) {
+    const code = paramStr(req.query.code);
+    const state = paramStr(req.query.state);
+    if (!code || !state) {
       sendClosePage(res, 400, "Autorização inválida", "Parâmetros ausentes. Feche esta janela e tente de novo.");
       return;
     }
-    const consumed = await getRedis().getdel(KEYS.oauthState(state)).catch(() => null);
-    if (!consumed) {
+    const scope = await consumeOAuthState(state, "google");
+    if (!scope) {
       sendClosePage(res, 403, "Autorização expirada", "O pedido de autorização expirou. Tente de novo pelo dashboard.");
       return;
     }
     try {
-      const email = await handleCallback(code);
-      brainEvents.emit("google", { connected: true, email });
+      const email = await handleCallback(scope, code);
+      emitBrainEvent(scope, "google", { connected: true, email });
       sendClosePage(res, 200, "Conta conectada", `${email} conectada ao Second Brain.`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -104,6 +171,101 @@ brainPublicRouter.get(
     }
   }),
 );
+
+brainPublicRouter.get(
+  "/slack/callback",
+  asyncHandler(async (req, res) => {
+    const code = paramStr(req.query.code);
+    const state = paramStr(req.query.state);
+    if (req.query.error) {
+      sendClosePage(res, 400, "Autorização recusada", "O Slack não autorizou a conexão. Feche esta janela e tente de novo.");
+      return;
+    }
+    if (!code || !state) {
+      sendClosePage(res, 400, "Autorização inválida", "Parâmetros ausentes. Feche esta janela e tente de novo.");
+      return;
+    }
+    const scope = await consumeOAuthState(state, "slack");
+    if (!scope) {
+      sendClosePage(res, 403, "Autorização expirada", "O pedido de autorização expirou. Tente de novo pelo dashboard.");
+      return;
+    }
+    try {
+      const connection = await handleSlackCallback(scope, code);
+      emitBrainEvent(scope, "slack", { connected: true, teamId: connection.teamId, userId: connection.userId });
+      sendClosePage(res, 200, "Slack conectado", `${connection.userName} (${connection.teamName}) conectado ao Second Brain.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      sendClosePage(res, 500, "Falha na conexão", msg);
+    }
+  }),
+);
+
+/** O badge do menu consulta isto em todo carregamento do dashboard: não cria nem liga o brain de quem nunca o abriu. */
+brainRouter.get("/connections", (req, res) => {
+  const scope = ownBrain(req.ctx);
+  if (!scope) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  res.json({ issues: brainExists(scope) ? connectionIssues(scope) : [] });
+});
+
+brainRouter.get("/owners", requireAdmin, (_req, res) => {
+  res.json(
+    listBrainOwners().map((owner) => {
+      const scope = ownerScope(owner);
+      const initialized = scope ? brainExists(scope) : false;
+      return {
+        owner,
+        name: brainOwnerLabel(owner),
+        initialized,
+        issues: scope && initialized ? connectionIssues(scope).length : 0,
+      };
+    }),
+  );
+});
+
+/** Saúde e números do brain de qualquer dono, sem conteúdo: é o que o admin enxerga dos outros usuários. */
+brainRouter.get(
+  "/owners/:owner/status",
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const scope = ownerScope(paramStr(req.params.owner));
+    if (!scope) {
+      res.status(404).json({ error: "usuário não encontrado" });
+      return;
+    }
+    const technical = await getTechnicalStatus(scope);
+    if (!technical.initialized) {
+      res.json({ owner: scope.owner, name: brainOwnerLabel(scope.owner), ...technical, index: null });
+      return;
+    }
+    const [index, points] = await Promise.all([indexStatus(scope), countBrainPoints(scope)]);
+    res.json({
+      owner: scope.owner,
+      name: brainOwnerLabel(scope.owner),
+      ...technical,
+      index: { ...index, points: points.total, currentPoints: points.current },
+    });
+  }),
+);
+
+brainRouter.use((req: Request, res: Response, next: NextFunction) => {
+  const scope = ownBrain(req.ctx);
+  if (!scope) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  activateBrain(scope)
+    .then(() => {
+      res.locals.brain = scope;
+      next();
+    })
+    .catch((err: unknown) => {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    });
+});
 
 brainRouter.post(
   "/chat",
@@ -125,17 +287,16 @@ brainRouter.post(
       return;
     }
     try {
-      res.json(await brainChat(messages));
+      res.json(await brainChat(brain(res), messages));
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   }),
 );
-
 brainRouter.get(
   "/tenants",
   asyncHandler(async (_req, res) => {
-    res.json(await listTenants());
+    res.json(await listTenants(brain(res)));
   }),
 );
 
@@ -149,9 +310,10 @@ brainRouter.post(
       return;
     }
     try {
-      const result = await mergeTenants(source, target);
-      const rewritten = await rewriteTenantReferences([result.source, result.target, ...result.reparented]);
-      brainEvents.emit("status-changed");
+      const scope = brain(res);
+      const result = await mergeTenants(scope, source, target);
+      const rewritten = await rewriteTenantReferences(scope, [result.source, result.target, ...result.reparented]);
+      emitStatusChanged(scope);
       res.json({ ...result, ...rewritten });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
@@ -165,9 +327,10 @@ brainRouter.patch(
     const label = typeof req.body?.label === "string" ? req.body.label : undefined;
     const parent = req.body?.parent === null ? null : typeof req.body?.parent === "string" ? req.body.parent : undefined;
     try {
-      const updated = await updateTenant(paramStr(req.params.id), { label, parent });
-      await rewriteTenantReferences([updated.id]);
-      brainEvents.emit("status-changed");
+      const scope = brain(res);
+      const updated = await updateTenant(scope, paramStr(req.params.id), { label, parent });
+      await rewriteTenantReferences(scope, [updated.id]);
+      emitStatusChanged(scope);
       res.json(updated);
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
@@ -176,12 +339,12 @@ brainRouter.patch(
 );
 
 brainRouter.get("/api-keys", (_req, res) => {
-  res.json({ endpointPath: "/api/brain/mcp", publicBaseUrl: config.publicBaseUrl, keys: brainApiKeys.list() });
+  res.json({ endpointPath: "/api/brain/mcp", publicBaseUrl: config.publicBaseUrl, keys: brainApiKeys.list(brain(res).owner) });
 });
 
 brainRouter.post("/api-keys", (req, res) => {
   try {
-    res.json(brainApiKeys.create(paramStr(req.body?.name)));
+    res.json(brainApiKeys.create(brain(res).owner, paramStr(req.body?.name)));
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -189,7 +352,7 @@ brainRouter.post("/api-keys", (req, res) => {
 
 brainRouter.delete("/api-keys/:id", (req, res) => {
   try {
-    if (!brainApiKeys.revoke(paramStr(req.params.id))) {
+    if (!brainApiKeys.revoke(brain(res).owner, paramStr(req.params.id))) {
       res.status(404).json({ error: "chave não encontrada" });
       return;
     }
@@ -202,22 +365,23 @@ brainRouter.delete("/api-keys/:id", (req, res) => {
 
 brainRouter.get("/api-keys/audit", (req, res) => {
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
-  res.json(brainApiKeys.readAudit(limit));
+  res.json(brainApiKeys.readAudit(brain(res), limit));
 });
 
 brainRouter.get(
   "/claudemar/targets",
   asyncHandler(async (_req, res) => {
-    res.json(await describeTargets());
+    res.json(await describeTargets(brain(res)));
   }),
 );
 
 brainRouter.put(
   "/claudemar/targets/:key",
   asyncHandler(async (req, res) => {
+    const scope = brain(res);
     const key = paramStr(req.params.key);
     const target = parseTargetKey(key);
-    const known = target ? (await describeTargets()).some((t) => t.key === key) : false;
+    const known = target ? (await describeTargets(scope)).some((t) => t.key === key) : false;
     if (!target || !known) {
       res.status(404).json({ error: "alvo desconhecido" });
       return;
@@ -231,39 +395,54 @@ brainRouter.put(
     }
     if (hasTenant) {
       const label = typeof body.tenant === "string" ? body.tenant.trim().slice(0, 80) : "";
-      brainSettingsManager.setClaudemarTenant(key, label ? await ensureTenant({ label }) : null);
-      await retenantTargetPages(target);
+      brainSettings(scope).setClaudemarTenant(key, label ? await ensureTenant(scope, { label }) : null);
+      await retenantTargetPages(scope, target);
     }
     if (hasExcluded) {
-      brainSettingsManager.setClaudemarExcluded(key, body.excluded as boolean);
-      if (body.excluded === true) await purgeTarget(target);
+      brainSettings(scope).setClaudemarExcluded(key, body.excluded as boolean);
+      if (body.excluded === true) await purgeTarget(scope, target);
     }
-    if (!isTargetExcluded(target)) await markTargetsDirty([target]).catch(() => {});
-    brainEvents.emit("status-changed");
-    res.json(await describeTarget(target));
+    if (!isTargetExcluded(scope, target) && claudemarAccess(scope).allows(target)) {
+      await markTargetsDirty(scope, [target]).catch(() => {});
+    }
+    emitStatusChanged(scope);
+    res.json(await describeTarget(scope, target));
   }),
 );
 
 brainRouter.get(
   "/status",
   asyncHandler(async (_req, res) => {
-    res.json(await getBrainStatus());
+    res.json(await getBrainStatus(brain(res)));
   }),
 );
 
 brainRouter.get("/settings", (_req, res) => {
-  res.json(brainSettingsManager.get());
+  res.json(brainSettings(brain(res)).getOwner());
 });
 
 brainRouter.put("/settings", (req, res) => {
-  const updated = brainSettingsManager.update(req.body);
+  const scope = brain(res);
+  const updated = brainSettings(scope).updateOwner(req.body);
+  brainSchedulers.reschedule(scope);
+  emitStatusChanged(scope);
+  res.json(updated);
+});
+
+brainRouter.get("/system-settings", requireAdmin, (_req, res) => {
+  res.json(brainSettings(adminBrain()).getSystem());
+});
+
+/** Provedores, modelos, cadências e ranking valem para todos os brains: muda o ritmo de todos os schedulers. */
+brainRouter.put("/system-settings", requireAdmin, (req, res) => {
+  const updated = brainSettings(adminBrain()).updateSystem(req.body);
   brainSchedulers.reschedule();
-  brainEvents.emit("status-changed");
+  emitStatusChanged(adminBrain());
   res.json(updated);
 });
 
 brainRouter.get("/contract", (_req, res) => {
-  res.json({ content: getContract() });
+  res.json({ content: getContract(brain(res)) });
 });
 
 brainRouter.put("/contract", (req, res) => {
@@ -272,8 +451,8 @@ brainRouter.put("/contract", (req, res) => {
     res.status(400).json({ error: "content é obrigatório" });
     return;
   }
-  updateContract(content);
-  res.json({ content: getContract() });
+  updateContract(brain(res), content);
+  res.json({ content: getContract(brain(res)) });
 });
 
 brainRouter.post(
@@ -281,12 +460,11 @@ brainRouter.post(
   asyncHandler(async (_req, res) => {
     if (!googleConfigured()) {
       res.status(400).json({
-        error: `Configure GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET em Settings. Redirect URI: ${redirectUri()}`,
+        error: `O administrador ainda não configurou GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET. Redirect URI: ${redirectUri()}`,
       });
       return;
     }
-    const state = randomUUID();
-    await getRedis().set(KEYS.oauthState(state), "1", "EX", 600);
+    const state = await createOAuthState(brain(res), "google");
     res.json({ authUrl: buildAuthUrl(state), redirectUri: redirectUri() });
   }),
 );
@@ -296,10 +474,11 @@ brainRouter.get("/google/redirect-uri", (_req, res) => {
 });
 
 brainRouter.get("/google/accounts", (_req, res) => {
-  res.json(getAccountsStatus());
+  res.json(getAccountsStatus(brain(res)));
 });
 
 brainRouter.post("/google/account", (req, res) => {
+  const scope = brain(res);
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
   if (!email) {
     res.status(400).json({ error: "email é obrigatório" });
@@ -307,27 +486,63 @@ brainRouter.post("/google/account", (req, res) => {
   }
   const tenant = paramStr(req.body?.tenant).trim() || undefined;
   const label = typeof req.body?.label === "string" && req.body.label.trim() ? req.body.label.trim() : undefined;
-  brainSettingsManager.upsertAccount(email, { ...(tenant ? { tenant } : {}), label });
-  res.json(getAccountsStatus());
+  brainSettings(scope).upsertAccount(email, { ...(tenant ? { tenant } : {}), label });
+  res.json(getAccountsStatus(scope));
 });
 
 brainRouter.post(
   "/google/disconnect",
   asyncHandler(async (req, res) => {
+    const scope = brain(res);
     const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
     if (!email) {
       res.status(400).json({ error: "email é obrigatório" });
       return;
     }
-    await disconnectAccount(email);
-    brainEvents.emit("google", { connected: false, email });
-    res.json({ disconnected: true, accounts: getAccountsStatus() });
+    await disconnectAccount(scope, email);
+    emitBrainEvent(scope, "google", { connected: false, email });
+    res.json({ disconnected: true, accounts: getAccountsStatus(scope) });
   }),
 );
 
-function paramStr(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
+brainRouter.get("/slack/status", (_req, res) => {
+  res.json({
+    configured: slackConfigured(),
+    redirectUri: slackRedirectUri(),
+    socketConnected: slackSocket.alive(),
+    lastError: slackSocket.lastError,
+    accounts: listSlackConnections(brain(res)),
+  });
+});
+
+brainRouter.post(
+  "/slack/start",
+  asyncHandler(async (_req, res) => {
+    if (!slackConfigured()) {
+      res.status(400).json({
+        error: `O administrador ainda não configurou o app Slack (SLACK_CLIENT_ID, SLACK_CLIENT_SECRET e SLACK_APP_TOKEN). Redirect URL: ${slackRedirectUri()}`,
+      });
+      return;
+    }
+    const state = await createOAuthState(brain(res), "slack");
+    res.json({ authUrl: buildSlackAuthUrl(state), redirectUri: slackRedirectUri() });
+  }),
+);
+
+brainRouter.post(
+  "/slack/disconnect",
+  asyncHandler(async (req, res) => {
+    const scope = brain(res);
+    const teamId = paramStr(req.body?.teamId);
+    const userId = paramStr(req.body?.userId);
+    if (!(await disconnectSlack(scope, teamId, userId))) {
+      res.status(404).json({ error: "conexão do Slack não encontrada" });
+      return;
+    }
+    emitBrainEvent(scope, "slack", { connected: false, teamId, userId });
+    res.json({ disconnected: true, accounts: listSlackConnections(scope) });
+  }),
+);
 
 function schedulerName(req: { params: Record<string, unknown> }): BrainSchedulerName | null {
   const name = paramStr(req.params.name);
@@ -335,41 +550,43 @@ function schedulerName(req: { params: Record<string, unknown> }): BrainScheduler
 }
 
 brainRouter.post("/connectors/:name/pause", (req, res) => {
+  const scope = brain(res);
   const name = schedulerName(req);
   if (!name) {
     res.status(404).json({ error: "scheduler desconhecido" });
     return;
   }
-  brainSettingsManager.setScheduler(name, false);
-  if (name === "slack") void slackManager.stop();
-  brainEvents.emit("status-changed");
+  brainSettings(scope).setScheduler(name, false);
+  emitStatusChanged(scope);
   res.json({ name, enabled: false });
 });
 
 brainRouter.post("/connectors/:name/resume", (req, res) => {
+  const scope = brain(res);
   const name = schedulerName(req);
   if (!name) {
     res.status(404).json({ error: "scheduler desconhecido" });
     return;
   }
-  brainSettingsManager.setScheduler(name, true);
-  brainEvents.emit("status-changed");
+  brainSettings(scope).setScheduler(name, true);
+  emitStatusChanged(scope);
   res.json({ name, enabled: true });
 });
 
 brainRouter.post(
   "/connectors/:name/run-now",
   asyncHandler(async (req, res) => {
+    const scope = brain(res);
     const name = schedulerName(req);
     if (!name) {
       res.status(404).json({ error: "scheduler desconhecido" });
       return;
     }
-    if (brainSchedulers.isInFlight(name)) {
+    if (brainSchedulers.isInFlight(scope, name)) {
       res.status(409).json({ error: "já em execução" });
       return;
     }
-    const result = await brainSchedulers.runNow(name);
+    const result = await brainSchedulers.runNow(scope, name);
     if (!result.ok) {
       res.status(500).json({ error: result.error ?? "falha" });
       return;
@@ -389,6 +606,7 @@ interface ChannelSummary {
 brainRouter.get(
   "/raw/channels",
   asyncHandler(async (_req, res) => {
+    const { rawDir } = brain(res);
     const out: ChannelSummary[] = [];
     const channels = existsSync(rawDir) ? await readdir(rawDir) : [];
     for (const channel of channels.filter((c) => !c.startsWith("."))) {
@@ -428,6 +646,7 @@ interface RawThreadListItem {
 brainRouter.get(
   "/raw/threads",
   asyncHandler(async (req, res) => {
+    const scope = brain(res);
     const channel = typeof req.query.channel === "string" ? req.query.channel : "";
     if (!safeFilename(channel)) {
       res.status(400).json({ error: "channel inválido" });
@@ -442,7 +661,7 @@ brainRouter.get(
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 25));
 
-    const channelDir = resolve(rawDir, channel);
+    const channelDir = resolve(scope.rawDir, channel);
     const filePaths: string[] = [];
     if (existsSync(channelDir)) {
       const years = month ? [month.slice(0, 4)] : (await readdir(channelDir).catch(() => [] as string[])).filter((y) => /^\d{4}$/.test(y));
@@ -465,7 +684,7 @@ brainRouter.get(
     const hasFilters = Boolean(q || relevance !== null || account);
     const parseItem = async (relPath: string): Promise<RawThreadListItem | null> => {
       try {
-        const parsed = parseRawFile(await readFile(resolve(brainRoot, relPath), "utf-8"));
+        const parsed = parseRawFile(await readFile(resolve(scope.root, relPath), "utf-8"));
         return parsed ? { path: relPath, frontmatter: parsed.frontmatter } : null;
       } catch {
         return null;
@@ -510,8 +729,9 @@ brainRouter.get(
 brainRouter.get(
   "/raw/thread",
   asyncHandler(async (req, res) => {
-    const relPath = brainPath(req.query.path, "raw/");
-    const abs = relPath ? resolveInside(brainRoot, relPath) : null;
+    const scope = brain(res);
+    const relPath = brainPath(scope, req.query.path, "raw/");
+    const abs = relPath ? resolveInside(scope.root, relPath) : null;
     if (!relPath || !abs || !existsSync(abs)) {
       res.status(404).json({ error: "thread não encontrada" });
       return;
@@ -539,6 +759,7 @@ interface WikiPageSummary {
 brainRouter.get(
   "/wiki/tree",
   asyncHandler(async (_req, res) => {
+    const { wikiDir } = brain(res);
     const sections: { dir: string; pages: WikiPageSummary[] }[] = [];
     for (const dir of WIKI_DIRS) {
       const abs = resolve(wikiDir, dir);
@@ -568,15 +789,16 @@ brainRouter.get(
 brainRouter.get(
   "/wiki/page",
   asyncHandler(async (req, res) => {
-    const relPath = brainPath(req.query.path, "wiki/");
-    const abs = relPath ? resolveInside(brainRoot, relPath) : null;
+    const scope = brain(res);
+    const relPath = brainPath(scope, req.query.path, "wiki/");
+    const abs = relPath ? resolveInside(scope.root, relPath) : null;
     if (!relPath || !abs) {
       res.status(400).json({ error: "path inválido" });
       return;
     }
     const ref = typeof req.query.ref === "string" ? req.query.ref : "";
     if (ref) {
-      const content = await fileAtCommit(relPath, ref);
+      const content = await fileAtCommit(scope, relPath, ref);
       if (content === null) {
         res.status(404).json({ error: "versão não encontrada" });
         return;
@@ -597,19 +819,20 @@ brainRouter.get(
 brainRouter.get(
   "/wiki/history",
   asyncHandler(async (req, res) => {
-    const relPath = brainPath(req.query.path, "wiki/");
+    const scope = brain(res);
+    const relPath = brainPath(scope, req.query.path, "wiki/");
     if (!relPath) {
       res.status(400).json({ error: "path inválido" });
       return;
     }
-    res.json(await fileHistory(relPath, 30));
+    res.json(await fileHistory(scope, relPath, 30));
   }),
 );
 
 brainRouter.get(
   "/state/open-loops",
   asyncHandler(async (req, res) => {
-    const entries = await readOpenLoops();
+    const entries = await readOpenLoops(brain(res));
     res.json(req.query.view === "all" ? entries : currentOpenLoops(entries));
   }),
 );
@@ -617,7 +840,7 @@ brainRouter.get(
 brainRouter.post(
   "/open-loops/:id/close",
   asyncHandler(async (req, res) => {
-    const transition = await appendOpenLoopTransition(paramStr(req.params.id), "done");
+    const transition = await appendOpenLoopTransition(brain(res), paramStr(req.params.id), "done");
     if (!transition) {
       res.status(404).json({ error: "loop não encontrado ou já concluído" });
       return;
@@ -629,7 +852,7 @@ brainRouter.post(
 brainRouter.post(
   "/open-loops/:id/reopen",
   asyncHandler(async (req, res) => {
-    const transition = await appendOpenLoopTransition(paramStr(req.params.id), "open");
+    const transition = await appendOpenLoopTransition(brain(res), paramStr(req.params.id), "open");
     if (!transition) {
       res.status(404).json({ error: "loop não encontrado ou já aberto" });
       return;
@@ -641,7 +864,7 @@ brainRouter.post(
 brainRouter.get(
   "/digest/list",
   asyncHandler(async (_req, res) => {
-    res.json(await listDigests());
+    res.json(await listDigests(brain(res)));
   }),
 );
 
@@ -649,7 +872,7 @@ brainRouter.get(
   "/digest",
   asyncHandler(async (req, res) => {
     const date = typeof req.query.date === "string" ? req.query.date : "";
-    const content = await readDigest(date);
+    const content = await readDigest(brain(res), date);
     if (content === null) {
       res.status(404).json({ error: "digest não encontrado" });
       return;
@@ -661,12 +884,13 @@ brainRouter.get(
 brainRouter.post(
   "/wiki/review",
   asyncHandler(async (req, res) => {
-    const relPath = brainPath(req.body?.path, "wiki/");
+    const scope = brain(res);
+    const relPath = brainPath(scope, req.body?.path, "wiki/");
     if (!relPath) {
       res.status(400).json({ error: "path inválido" });
       return;
     }
-    const ok = await markReviewed(relPath);
+    const ok = await markReviewed(scope, relPath);
     if (!ok) {
       res.status(404).json({ error: "página não encontrada ou frontmatter inválido" });
       return;
@@ -678,7 +902,7 @@ brainRouter.post(
 brainRouter.get(
   "/lint/list",
   asyncHandler(async (_req, res) => {
-    res.json(await listLintReports());
+    res.json(await listLintReports(brain(res)));
   }),
 );
 
@@ -686,7 +910,7 @@ brainRouter.get(
   "/lint",
   asyncHandler(async (req, res) => {
     const week = typeof req.query.week === "string" ? req.query.week : "";
-    const content = await readLintReport(week);
+    const content = await readLintReport(brain(res), week);
     if (content === null) {
       res.status(404).json({ error: "relatório não encontrado" });
       return;
@@ -698,12 +922,13 @@ brainRouter.get(
 brainRouter.post(
   "/lint/run",
   asyncHandler(async (_req, res) => {
-    res.json(await generateLintReport());
+    res.json(await generateLintReport(brain(res)));
   }),
 );
 
 brainRouter.post(
   "/dev/poison-run",
+  requireAdmin,
   asyncHandler(async (_req, res) => {
     if (process.env.BRAIN_DEV_TOOLS !== "1") {
       res.status(403).json({ error: "rota de desenvolvimento — exige BRAIN_DEV_TOOLS=1 no ambiente" });
@@ -717,7 +942,7 @@ brainRouter.post(
     const results: { name: string; relevance: number | null; reason: string }[] = [];
     for (const attack of ATTACK_MESSAGES) {
       try {
-        const raw = await runStageJson("triage", buildAdhocTriageRequest(attack.subject, attack.body));
+        const raw = await runStageJson(brain(res), "triage", buildAdhocTriageRequest(attack.subject, attack.body));
         const parsed = parseTriageResult(raw);
         results.push({ name: attack.name, relevance: parsed.relevance, reason: parsed.reason });
       } catch (err) {
@@ -741,14 +966,14 @@ brainRouter.post(
 brainRouter.get(
   "/quarantine",
   asyncHandler(async (_req, res) => {
-    res.json(await quarantineList());
+    res.json(await quarantineList(brain(res)));
   }),
 );
 
 brainRouter.get(
   "/quarantine/:id",
   asyncHandler(async (req, res) => {
-    const item = await quarantineRead(paramStr(req.params.id));
+    const item = await quarantineRead(brain(res), paramStr(req.params.id));
     if (!item) {
       res.status(404).json({ error: "item não encontrado" });
       return;
@@ -760,7 +985,7 @@ brainRouter.get(
 brainRouter.post(
   "/quarantine/:id/discard",
   asyncHandler(async (req, res) => {
-    const ok = await quarantineDiscard(paramStr(req.params.id));
+    const ok = await quarantineDiscard(brain(res), paramStr(req.params.id));
     if (!ok) {
       res.status(404).json({ error: "item não encontrado" });
       return;
@@ -772,7 +997,7 @@ brainRouter.post(
 brainRouter.post(
   "/quarantine/:id/retry",
   asyncHandler(async (req, res) => {
-    const queue = await quarantineRetry(paramStr(req.params.id));
+    const queue = await quarantineRetry(brain(res), paramStr(req.params.id));
     if (!queue) {
       res.status(400).json({ error: "item sem thread de origem — não é reprocessável" });
       return;
@@ -794,7 +1019,7 @@ brainRouter.post(
     const limit = Number(req.body?.limit) || undefined;
     const includePii = req.body?.includePii === true;
     try {
-      const result = await brainSearch({
+      const result = await brainSearch(brain(res), {
         query,
         tenant,
         type,
@@ -815,7 +1040,7 @@ brainRouter.get(
   asyncHandler(async (req, res) => {
     const month = typeof req.query.month === "string" ? req.query.month : undefined;
     const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
-    res.json(await readRecallTail(month, limit));
+    res.json(await readRecallTail(brain(res), month, limit));
   }),
 );
 
@@ -823,14 +1048,15 @@ brainRouter.get(
   "/telemetry/recall/distribution",
   asyncHandler(async (req, res) => {
     const month = typeof req.query.month === "string" ? req.query.month : undefined;
-    res.json(await readRecallDistribution(month));
+    res.json(await readRecallDistribution(brain(res), month));
   }),
 );
 
 brainRouter.get(
   "/index/status",
   asyncHandler(async (_req, res) => {
-    const [status, points] = await Promise.all([indexStatus(), countBrainPoints()]);
+    const scope = brain(res);
+    const [status, points] = await Promise.all([indexStatus(scope), countBrainPoints(scope)]);
     res.json({ ...status, points: points.total, currentPoints: points.current });
   }),
 );
@@ -838,13 +1064,14 @@ brainRouter.get(
 brainRouter.post(
   "/index/reindex",
   asyncHandler(async (req, res) => {
-    if (reindexRunning()) {
+    const scope = brain(res);
+    if (reindexRunning(scope)) {
       res.status(409).json({ error: "reindex já em execução" });
       return;
     }
     const full = req.body?.full === true;
-    forceReindex(full).catch((err) => {
-      console.error("[brain:index] reindex falhou:", err instanceof Error ? err.message : String(err));
+    forceReindex(scope, full).catch((err) => {
+      console.error(`[brain:${scope.owner}:index] reindex falhou:`, err instanceof Error ? err.message : String(err));
     });
     res.json({ started: true, full });
   }),
@@ -858,7 +1085,7 @@ brainRouter.post(
     const accounts = Array.isArray(req.body?.accounts)
       ? (req.body.accounts as unknown[]).filter((a): a is string => typeof a === "string")
       : undefined;
-    const result = await startBackfill({
+    const result = await startBackfill(brain(res), {
       monthsRaw,
       monthsCompile,
       accounts,
@@ -876,24 +1103,25 @@ brainRouter.post(
 brainRouter.get(
   "/backfill/status",
   asyncHandler(async (_req, res) => {
-    res.json(await getBackfillState());
+    res.json(await getBackfillState(brain(res)));
   }),
 );
 
 brainRouter.post(
   "/backfill/cancel",
   asyncHandler(async (_req, res) => {
-    res.json(await cancelBackfill());
+    res.json(await cancelBackfill(brain(res)));
   }),
 );
 
 brainRouter.get(
   "/backfill/estimate",
   asyncHandler(async (req, res) => {
-    const settings = brainSettingsManager.get();
+    const scope = brain(res);
+    const settings = brainSettings(scope).get();
     const monthsCompile = Number(req.query.monthsCompile) || settings.backfill.monthsCompile;
     const monthsRaw = Number(req.query.monthsRaw) || settings.backfill.monthsRaw;
-    res.json(await estimateBackfill(monthsCompile, monthsRaw));
+    res.json(await estimateBackfill(scope, monthsCompile, monthsRaw));
   }),
 );
 
@@ -918,13 +1146,19 @@ export const whatsappWebhookHandler = asyncHandler(async (req, res) => {
     res.status(400).json({ error: "payload não é JSON" });
     return;
   }
-  const result = await handleWebhook(parsed);
-  res.json({ result });
+  const scope = await whatsappWebhookOwner(parsed);
+  if (!scope) {
+    res.json({ result: "unrouted" });
+    return;
+  }
+  await activateBrain(scope);
+  res.json({ result: await handleWebhook(scope, parsed) });
 });
 
 brainRouter.post(
   "/whatsapp/import",
   asyncHandler(async (req, res) => {
+    const scope = brain(res);
     const filename = typeof req.body?.filename === "string" ? req.body.filename : "";
     const content = typeof req.body?.content === "string" ? req.body.content : "";
     if (!filename || !content) {
@@ -935,37 +1169,43 @@ brainRouter.post(
     const events = exportToEvents({ filename, content, account });
     let emitted = 0;
     for (const event of events) {
-      if ((await emitCanonicalEvent(event)) === "emitted") emitted += 1;
+      if ((await emitCanonicalEvent(scope, event)) === "emitted") emitted += 1;
     }
     const threads = new Set(events.map((e) => e.thread_key)).size;
     res.json({ parsed: events.length, emitted, threads });
-    void brainSchedulers.runNow("ingest");
+    void brainSchedulers.runNow(scope, "ingest");
   }),
 );
 
 brainRouter.get(
   "/whatsapp/status",
   asyncHandler(async (_req, res) => {
-    res.json(await whatsappStatus());
+    const scope = brain(res);
+    res.json({
+      ...(await whatsappStatus(scope)),
+      webhookConfigured: Boolean(config.brainWhatsappWebhookSecret),
+      selected: brainSettings(scope).get().whatsapp.chats.length,
+    });
   }),
 );
 
 brainRouter.post(
   "/whatsapp/start",
+  requireAdmin,
   asyncHandler(async (_req, res) => {
     const started = await startWhatsappBridge();
     if (!started.ok) {
       res.status(500).json({ error: `não foi possível subir o container: ${started.error ?? "falha desconhecida"}` });
       return;
     }
-    res.json(await whatsappStatus());
+    res.json(await whatsappStatus(brain(res)));
   }),
 );
 
 brainRouter.get(
   "/whatsapp/qr",
   asyncHandler(async (_req, res) => {
-    const qr = await whatsappQr();
+    const qr = await whatsappQr(brain(res));
     if ("error" in qr) {
       res.status(502).json(qr);
       return;
@@ -974,10 +1214,50 @@ brainRouter.get(
   }),
 );
 
+brainRouter.post(
+  "/whatsapp/disconnect",
+  asyncHandler(async (_req, res) => {
+    const scope = brain(res);
+    await disconnectWhatsapp(scope);
+    res.json(await whatsappStatus(scope));
+  }),
+);
+
+brainRouter.get(
+  "/whatsapp/chats",
+  asyncHandler(async (req, res) => {
+    const scope = brain(res);
+    if (!whatsappDeviceOf(scope)) {
+      res.status(409).json({ error: "pareie o WhatsApp antes de escolher as conversas" });
+      return;
+    }
+    try {
+      res.json(await listWhatsappChats(scope, paramStr(req.query.search).slice(0, 100)));
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }),
+);
+
+brainRouter.get("/whatsapp/selection", (_req, res) => {
+  res.json(brainSettings(brain(res)).get().whatsapp.chats);
+});
+
+brainRouter.put("/whatsapp/selection", (req, res) => {
+  const scope = brain(res);
+  if (!Array.isArray(req.body?.chats)) {
+    res.status(400).json({ error: "chats deve ser uma lista" });
+    return;
+  }
+  const chats = brainSettings(scope).setWhatsappChats(req.body.chats);
+  emitStatusChanged(scope);
+  res.json(chats);
+});
+
 brainRouter.get(
   "/chatter/samples",
   asyncHandler(async (_req, res) => {
-    res.json(await getChatterSamples());
+    res.json(await getChatterSamples(brain(res)));
   }),
 );
 
@@ -985,7 +1265,7 @@ brainRouter.get(
   "/activity",
   asyncHandler(async (req, res) => {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
-    res.json(await getActivity(limit));
+    res.json(await getActivity(brain(res), limit));
   }),
 );
 
@@ -993,7 +1273,7 @@ brainRouter.get(
   "/log",
   asyncHandler(async (req, res) => {
     const lines = Math.min(2000, Math.max(10, Number(req.query.lines) || 500));
-    const logPath = resolve(wikiDir, "log.md");
+    const logPath = resolve(brain(res).wikiDir, "log.md");
     if (!existsSync(logPath)) {
       res.json({ content: "" });
       return;

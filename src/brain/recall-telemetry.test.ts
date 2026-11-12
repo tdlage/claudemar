@@ -10,9 +10,13 @@ process.env.CLAUDEMAR_DATA ??= mkdtempSync(resolve(tmpdir(), "claudemar-test-"))
 process.env.BRAIN_ROOT = mkdtempSync(resolve(tmpdir(), "brain-recall-test-"));
 
 const { buildRecallLine, appendRecallLine, readRecallTail } = await import("./recall-telemetry.js");
-const { ensureBrainTree, telemetryDir, brainRoot } = await import("./paths.js");
+const { ensureBrainTree } = await import("./paths.js");
+const { adminBrain } = await import("./scope.js");
+const scope = adminBrain();
+const telemetryDir = scope.telemetryDir;
+const brainRoot = scope.root;
 
-ensureBrainTree();
+ensureBrainTree(scope);
 
 after(() => {
   rmSync(brainRoot, { recursive: true, force: true });
@@ -66,7 +70,7 @@ test("linha de recall segue exatamente o schema §13.4", () => {
 });
 
 test("append e tail funcionam, tolerando linha corrompida", async () => {
-  await appendRecallLine(
+  await appendRecallLine(scope, 
     buildRecallLine({
       surface: "dashboard",
       tool: "dashboard_search",
@@ -83,7 +87,7 @@ test("append e tail funcionam, tolerando linha corrompida", async () => {
   );
   const month = new Date().toISOString().slice(0, 7);
   appendFileSync(resolve(telemetryDir, `recall-${month}.jsonl`), "{corrompida\n");
-  await appendRecallLine(
+  await appendRecallLine(scope, 
     buildRecallLine({
       surface: "dashboard",
       tool: "dashboard_search",
@@ -98,7 +102,7 @@ test("append e tail funcionam, tolerando linha corrompida", async () => {
       degraded: ["no-rerank"],
     }),
   );
-  const tail = await readRecallTail(undefined, 10);
+  const tail = await readRecallTail(scope, undefined, 10);
   assert.equal(tail.length, 2);
   assert.equal(tail[0].query, "segunda");
   assert.equal(tail[1].query, "primeira");

@@ -11,12 +11,13 @@ import { Card } from "../shared/Card";
 import { Modal } from "../shared/Modal";
 import { useToast } from "../shared/Toast";
 import { useBrainData } from "../../hooks/useBrain";
+import { isAdmin } from "../../hooks/useAuth";
 import type {
   BrainIndexStatus,
   BrainRecallDistribution,
   BrainRecallLine,
   BrainSearchResult,
-  BrainSettings,
+  BrainSystemSettings,
   BrainTenant,
 } from "../../lib/types";
 
@@ -110,7 +111,7 @@ function CalibrationCard() {
     ? `/brain/telemetry/recall/distribution?month=${month}`
     : "/brain/telemetry/recall/distribution";
   const { data: dist, loading, refresh } = useBrainData<BrainRecallDistribution>(distQuery, [month]);
-  const { data: settings, refresh: refreshSettings } = useBrainData<BrainSettings>("/brain/settings");
+  const { data: settings, refresh: refreshSettings } = useBrainData<BrainSystemSettings>("/brain/system-settings");
   const [threshold, setThreshold] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -129,7 +130,7 @@ function CalibrationCard() {
   const saveRetrieval = async (patch: Record<string, unknown>, okMsg: string) => {
     setSaving(true);
     try {
-      await api.put("/brain/settings", { retrieval: patch });
+      await api.put("/brain/system-settings", { retrieval: patch });
       addToast("success", okMsg);
       refreshSettings();
     } catch (e) {
@@ -423,7 +424,7 @@ export function SearchTab() {
         </div>
       )}
 
-      <CalibrationCard />
+      {isAdmin() && <CalibrationCard />}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <IndexCard />

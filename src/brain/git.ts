@@ -4,71 +4,78 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { executeSpawn } from "../executor.js";
-import { brainRoot } from "./paths.js";
+import { perScope, type BrainScope } from "./scope.js";
 
 const COMMIT_MAX_FILES = 50;
 const COMMIT_INTERVAL_MS = 5 * 60 * 1000;
 const GIT_TIMEOUT_MS = 60_000;
 
-let lock: Promise<unknown> = Promise.resolve();
+interface RepoState {
+  lock: Promise<unknown>;
+  dirtyCount: number;
+  commitTimer: ReturnType<typeof setTimeout> | null;
+}
 
-export function brainWriteLock<T>(fn: () => Promise<T> | T): Promise<T> {
-  const run = lock.then(fn, fn);
-  lock = run.catch(() => {});
+const repoState = perScope((): RepoState => ({ lock: Promise.resolve(), dirtyCount: 0, commitTimer: null }));
+
+export function brainWriteLock<T>(scope: BrainScope, fn: () => Promise<T> | T): Promise<T> {
+  const state = repoState(scope);
+  const run = state.lock.then(fn, fn);
+  state.lock = run.catch(() => {});
   return run;
 }
 
-export function ensureBrainRepo(): void {
-  if (!existsSync(resolve(brainRoot, ".git"))) {
-    execFileSync("git", ["init"], { cwd: brainRoot, stdio: "ignore" });
+export function ensureBrainRepo(scope: BrainScope): void {
+  if (!existsSync(resolve(scope.root, ".git"))) {
+    execFileSync("git", ["init"], { cwd: scope.root, stdio: "ignore" });
   }
-  execFileSync("git", ["config", "user.email", "brain@claudemar.local"], { cwd: brainRoot, stdio: "ignore" });
-  execFileSync("git", ["config", "user.name", "Claudemar Brain"], { cwd: brainRoot, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "brain@claudemar.local"], { cwd: scope.root, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "Claudemar Brain"], { cwd: scope.root, stdio: "ignore" });
 }
 
-let dirtyCount = 0;
-let commitTimer: ReturnType<typeof setTimeout> | null = null;
-
-async function doCommit(reason: string): Promise<void> {
-  const add = await executeSpawn("git", ["add", "-A"], brainRoot, GIT_TIMEOUT_MS);
+async function doCommit(scope: BrainScope, reason: string): Promise<void> {
+  if (!existsSync(resolve(scope.root, ".git"))) return;
+  const state = repoState(scope);
+  const add = await executeSpawn("git", ["add", "-A"], scope.root, GIT_TIMEOUT_MS);
   if (add.exitCode !== 0) {
-    console.error("[brain] git add falhou:", add.output.slice(0, 500));
+    console.error(`[brain:${scope.owner}] git add falhou:`, add.output.slice(0, 500));
     return;
   }
-  dirtyCount = 0;
-  if (commitTimer) {
-    clearTimeout(commitTimer);
-    commitTimer = null;
+  state.dirtyCount = 0;
+  if (state.commitTimer) {
+    clearTimeout(state.commitTimer);
+    state.commitTimer = null;
   }
-  const status = await executeSpawn("git", ["status", "--porcelain"], brainRoot, GIT_TIMEOUT_MS);
+  const status = await executeSpawn("git", ["status", "--porcelain"], scope.root, GIT_TIMEOUT_MS);
   if (status.exitCode !== 0 || status.output.trim() === "") return;
   const commit = await executeSpawn(
     "git",
     ["commit", "-m", `brain: ${reason} (${new Date().toISOString()})`],
-    brainRoot,
+    scope.root,
     GIT_TIMEOUT_MS,
   );
   if (commit.exitCode !== 0) {
-    console.error("[brain] git commit falhou:", commit.output.slice(0, 500));
+    console.error(`[brain:${scope.owner}] git commit falhou:`, commit.output.slice(0, 500));
   }
 }
 
-function scheduleCommit(): void {
-  dirtyCount += 1;
-  if (dirtyCount >= COMMIT_MAX_FILES) {
-    void brainWriteLock(() => doCommit("batch"));
+function scheduleCommit(scope: BrainScope): void {
+  const state = repoState(scope);
+  state.dirtyCount += 1;
+  if (state.dirtyCount >= COMMIT_MAX_FILES) {
+    void brainWriteLock(scope, () => doCommit(scope, "batch"));
     return;
   }
-  if (!commitTimer) {
-    commitTimer = setTimeout(() => {
-      commitTimer = null;
-      void brainWriteLock(() => doCommit("interval"));
+  if (!state.commitTimer) {
+    state.commitTimer = setTimeout(() => {
+      state.commitTimer = null;
+      void brainWriteLock(scope, () => doCommit(scope, "interval"));
     }, COMMIT_INTERVAL_MS);
-    commitTimer.unref();
+    state.commitTimer.unref();
   }
 }
 
-export async function writeFileAtomic(path: string, content: string): Promise<void> {
+export async function writeFileAtomic(scope: BrainScope, path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${randomUUID()}.tmp`;
   try {
@@ -78,11 +85,21 @@ export async function writeFileAtomic(path: string, content: string): Promise<vo
     await unlink(tmp).catch(() => {});
     throw err;
   }
-  scheduleCommit();
+  scheduleCommit(scope);
 }
 
-export async function flushBrainGit(): Promise<void> {
-  await brainWriteLock(() => doCommit("flush"));
+export async function flushBrainGit(scope: BrainScope): Promise<void> {
+  await brainWriteLock(scope, () => doCommit(scope, "flush"));
+}
+
+/** Para o commit periódico de um brain que vai ser apagado, sem gravar nada. */
+export function cancelBrainGit(scope: BrainScope): void {
+  const state = repoState(scope);
+  if (state.commitTimer) {
+    clearTimeout(state.commitTimer);
+    state.commitTimer = null;
+  }
+  state.dirtyCount = 0;
 }
 
 export interface BrainGitVersion {
@@ -91,11 +108,11 @@ export interface BrainGitVersion {
   message: string;
 }
 
-export async function fileHistory(relPath: string, limit = 20): Promise<BrainGitVersion[]> {
+export async function fileHistory(scope: BrainScope, relPath: string, limit = 20): Promise<BrainGitVersion[]> {
   const result = await executeSpawn(
     "git",
     ["log", `--format=%H%x09%aI%x09%s`, "-n", String(limit), "--", relPath],
-    brainRoot,
+    scope.root,
     GIT_TIMEOUT_MS,
   );
   if (result.exitCode !== 0) return [];
@@ -109,16 +126,16 @@ export async function fileHistory(relPath: string, limit = 20): Promise<BrainGit
     .filter((v) => v.sha);
 }
 
-export async function fileAtCommit(relPath: string, sha: string): Promise<string | null> {
+export async function fileAtCommit(scope: BrainScope, relPath: string, sha: string): Promise<string | null> {
   if (!/^[0-9a-f]{6,40}$/i.test(sha)) return null;
-  const result = await executeSpawn("git", ["show", `${sha}:${relPath}`], brainRoot, GIT_TIMEOUT_MS);
+  const result = await executeSpawn("git", ["show", `${sha}:${relPath}`], scope.root, GIT_TIMEOUT_MS);
   return result.exitCode === 0 ? result.output : null;
 }
 
-export async function repoInfo(): Promise<{ head: string; dirty: number }> {
+export async function repoInfo(scope: BrainScope): Promise<{ head: string; dirty: number }> {
   const [head, status] = await Promise.all([
-    executeSpawn("git", ["rev-parse", "--short", "HEAD"], brainRoot, GIT_TIMEOUT_MS).catch(() => null),
-    executeSpawn("git", ["status", "--porcelain"], brainRoot, GIT_TIMEOUT_MS).catch(() => null),
+    executeSpawn("git", ["rev-parse", "--short", "HEAD"], scope.root, GIT_TIMEOUT_MS).catch(() => null),
+    executeSpawn("git", ["status", "--porcelain"], scope.root, GIT_TIMEOUT_MS).catch(() => null),
   ]);
   return {
     head: head && head.exitCode === 0 ? head.output.trim() : "",

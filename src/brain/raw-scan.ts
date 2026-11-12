@@ -1,8 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { rawDir } from "./paths.js";
 import { parseRawFile } from "./frontmatter.js";
+import type { BrainScope } from "./scope.js";
 
 export interface RawScanItem {
   relPath: string;
@@ -13,12 +13,12 @@ export interface RawScanItem {
   compiled: boolean;
 }
 
-export async function scanRawThreads(): Promise<RawScanItem[]> {
+export async function scanRawThreads(scope: BrainScope): Promise<RawScanItem[]> {
   const items: RawScanItem[] = [];
-  if (!existsSync(rawDir)) return items;
-  const channels = await readdir(rawDir).catch(() => [] as string[]);
+  if (!existsSync(scope.rawDir)) return items;
+  const channels = await readdir(scope.rawDir).catch(() => [] as string[]);
   for (const channel of channels.filter((c) => !c.startsWith("."))) {
-    const channelDir = resolve(rawDir, channel);
+    const channelDir = resolve(scope.rawDir, channel);
     const years = await readdir(channelDir).catch(() => [] as string[]);
     for (const year of years.filter((y) => /^\d{4}$/.test(y))) {
       const months = await readdir(resolve(channelDir, year)).catch(() => [] as string[]);

@@ -2,9 +2,9 @@ import { readFile, readdir, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { config } from "../config.js";
-import { brainRoot, rawDir } from "./paths.js";
 import { brainWriteLock, writeFileAtomic } from "./git.js";
-import { getRedis, KEYS } from "./redis.js";
+import { brainKeys, getRedis } from "./redis.js";
+import type { BrainScope } from "./scope.js";
 import { parseRawFile, serializeRawFile } from "./frontmatter.js";
 import { dateInTz, hash8, sha256Hex, slugify } from "./text.js";
 import type {
@@ -103,13 +103,13 @@ function mergeAttachments(existing: StoredAttachment[], incoming: StoredAttachme
   return [...bySha.values()].sort((a, b) => a.sha256.localeCompare(b.sha256, "en"));
 }
 
-async function findExistingPath(threadKey: string, channel: string): Promise<string | null> {
+async function findExistingPath(scope: BrainScope, threadKey: string, channel: string): Promise<string | null> {
   try {
-    const cached = await getRedis().hget(KEYS.threadFile, threadKey);
-    if (cached && existsSync(resolve(brainRoot, cached))) return cached;
+    const cached = await getRedis().hget(brainKeys(scope).threadFile, threadKey);
+    if (cached && existsSync(resolve(scope.root, cached))) return cached;
   } catch {}
   const suffix = `--${hash8(threadKey)}.md`;
-  const channelDir = resolve(rawDir, channel);
+  const channelDir = resolve(scope.rawDir, channel);
   if (!existsSync(channelDir)) return null;
   try {
     const years = await readdir(channelDir);
@@ -120,7 +120,7 @@ async function findExistingPath(threadKey: string, channel: string): Promise<str
         const monthDir = resolve(yearDir, month);
         const files = await readdir(monthDir).catch(() => [] as string[]);
         const found = files.find((f) => f.endsWith(suffix));
-        if (found) return relative(brainRoot, resolve(monthDir, found));
+        if (found) return relative(scope.root, resolve(monthDir, found));
       }
     }
   } catch {}
@@ -166,16 +166,16 @@ function canonicalRelPath(currentRelPath: string, occurredFrom: string, channel:
   return `raw/${channel}/${yyyy}/${mm}/${yyyy}-${mm}-${dd}--${match[1]}`;
 }
 
-export async function upsertMessage(msg: IncomingMessage): Promise<UpsertResult> {
-  return brainWriteLock(async () => {
+export async function upsertMessage(scope: BrainScope, msg: IncomingMessage): Promise<UpsertResult> {
+  return brainWriteLock(scope, async () => {
     const { event } = msg;
-    let relPath = await findExistingPath(event.thread_key, event.channel);
+    let relPath = await findExistingPath(scope, event.thread_key, event.channel);
     let frontmatter: RawFrontmatter;
     let chunks: string[] = [];
     let created = false;
 
     if (relPath) {
-      const content = await readFile(resolve(brainRoot, relPath), "utf-8");
+      const content = await readFile(resolve(scope.root, relPath), "utf-8");
       const parsed = parseRawFile(content);
       if (!parsed) throw new Error(`raw file ilegível: ${relPath}`);
       frontmatter = parsed.frontmatter;
@@ -231,41 +231,44 @@ export async function upsertMessage(msg: IncomingMessage): Promise<UpsertResult>
     if (event.subchannel === "group") frontmatter.subchannel = "group";
 
     const canonical = canonicalRelPath(relPath, frontmatter.occurred_from, event.channel);
-    await writeFileAtomic(resolve(brainRoot, canonical), serializeRawFile(frontmatter, body));
+    await writeFileAtomic(scope, resolve(scope.root, canonical), serializeRawFile(frontmatter, body));
     if (canonical !== relPath && !created) {
-      await unlink(resolve(brainRoot, relPath)).catch(() => {});
+      await unlink(resolve(scope.root, relPath)).catch(() => {});
     }
-    await getRedis().hset(KEYS.threadFile, event.thread_key, canonical).catch(() => {});
+    await getRedis().hset(brainKeys(scope).threadFile, event.thread_key, canonical).catch(() => {});
     return { relPath: canonical, added: true, substantive: msg.chatterRule === null, created };
   });
 }
 
-export async function annotateTriage(relPath: string, triage: TriageAnnotation): Promise<void> {
-  await brainWriteLock(async () => {
-    const abs = resolve(brainRoot, relPath);
+export async function annotateTriage(scope: BrainScope, relPath: string, triage: TriageAnnotation): Promise<void> {
+  await brainWriteLock(scope, async () => {
+    const abs = resolve(scope.root, relPath);
     const parsed = parseRawFile(await readFile(abs, "utf-8"));
     if (!parsed) throw new Error(`raw file ilegível: ${relPath}`);
     parsed.frontmatter.triage = triage;
     parsed.frontmatter.tenant = triage.tenant;
     parsed.frontmatter.contains_pii = triage.contains_pii;
-    await writeFileAtomic(abs, serializeRawFile(parsed.frontmatter, parsed.body));
+    await writeFileAtomic(scope, abs, serializeRawFile(parsed.frontmatter, parsed.body));
   });
 }
 
-export async function markCompiledInto(relPath: string, paths: string[]): Promise<void> {
-  await brainWriteLock(async () => {
-    const abs = resolve(brainRoot, relPath);
+export async function markCompiledInto(scope: BrainScope, relPath: string, paths: string[]): Promise<void> {
+  await brainWriteLock(scope, async () => {
+    const abs = resolve(scope.root, relPath);
     const parsed = parseRawFile(await readFile(abs, "utf-8"));
     if (!parsed) throw new Error(`raw file ilegível: ${relPath}`);
     const merged = new Set([...(parsed.frontmatter.compiled_into ?? []), ...paths]);
     parsed.frontmatter.compiled_into = [...merged].sort();
-    await writeFileAtomic(abs, serializeRawFile(parsed.frontmatter, parsed.body));
+    await writeFileAtomic(scope, abs, serializeRawFile(parsed.frontmatter, parsed.body));
   });
 }
 
-export async function readThread(relPath: string): Promise<{ frontmatter: RawFrontmatter; blocks: RawMessageBlock[] } | null> {
+export async function readThread(
+  scope: BrainScope,
+  relPath: string,
+): Promise<{ frontmatter: RawFrontmatter; blocks: RawMessageBlock[] } | null> {
   try {
-    const parsed = parseRawFile(await readFile(resolve(brainRoot, relPath), "utf-8"));
+    const parsed = parseRawFile(await readFile(resolve(scope.root, relPath), "utf-8"));
     if (!parsed) return null;
     return { frontmatter: parsed.frontmatter, blocks: parseBlocks(parsed.body) };
   } catch {
@@ -273,6 +276,6 @@ export async function readThread(relPath: string): Promise<{ frontmatter: RawFro
   }
 }
 
-export async function findThreadPath(threadKey: string, channel: string): Promise<string | null> {
-  return findExistingPath(threadKey, channel);
+export async function findThreadPath(scope: BrainScope, threadKey: string, channel: string): Promise<string | null> {
+  return findExistingPath(scope, threadKey, channel);
 }

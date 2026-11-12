@@ -1,10 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { config } from "../config.js";
-import { attachmentsDir } from "./paths.js";
 import { sha256Hex } from "./text.js";
+import type { BrainScope } from "./scope.js";
 import type { StoredAttachment } from "./types.js";
 
 let s3: S3Client | null = null;
@@ -32,14 +32,15 @@ function safeName(name: string): string {
   return cleaned || "arquivo";
 }
 
-async function store(buf: Buffer, key: string): Promise<string> {
+async function store(scope: BrainScope, buf: Buffer, key: string): Promise<string> {
   if (r2Enabled()) {
+    const objectKey = `${scope.objectPrefix}${key}`;
     await getS3().send(
-      new PutObjectCommand({ Bucket: config.r2BucketAttachments, Key: key, Body: buf }),
+      new PutObjectCommand({ Bucket: config.r2BucketAttachments, Key: objectKey, Body: buf }),
     );
-    return `r2://${config.r2BucketAttachments}/${key}`;
+    return `r2://${config.r2BucketAttachments}/${objectKey}`;
   }
-  const localPath = resolve(attachmentsDir, key);
+  const localPath = resolve(scope.attachmentsDir, key);
   if (!existsSync(localPath)) {
     await mkdir(dirname(localPath), { recursive: true });
     await writeFile(localPath, buf);
@@ -47,16 +48,40 @@ async function store(buf: Buffer, key: string): Promise<string> {
   return `file://${localPath}`;
 }
 
-export async function storeAttachment(buf: Buffer, name: string): Promise<StoredAttachment> {
+export async function storeAttachment(scope: BrainScope, buf: Buffer, name: string): Promise<StoredAttachment> {
   const sha256 = sha256Hex(buf);
   const key = `${sha256.slice(0, 2)}/${sha256}--${safeName(name)}`;
-  const uri = await store(buf, key);
+  const uri = await store(scope, buf, key);
   return { name, bytes: buf.length, sha256, uri };
 }
 
-export async function storeOriginal(content: Buffer | string, threadKey: string, kind: string): Promise<string> {
+export async function storeOriginal(scope: BrainScope, content: Buffer | string, threadKey: string, kind: string): Promise<string> {
   const buf = typeof content === "string" ? Buffer.from(content, "utf-8") : content;
   const sha256 = sha256Hex(buf);
   const key = `originals/${sha256.slice(0, 2)}/${sha256}--${safeName(threadKey)}.${kind}`;
-  return store(buf, key);
+  return store(scope, buf, key);
+}
+
+/** Remove os anexos de um brain de usuário guardados no bucket (os locais saem junto com a raiz do brain). */
+export async function deleteStoredObjects(scope: BrainScope): Promise<number> {
+  if (scope.isAdmin || !scope.objectPrefix || !r2Enabled()) return 0;
+  let removed = 0;
+  let token: string | undefined;
+  do {
+    const listed = await getS3().send(
+      new ListObjectsV2Command({ Bucket: config.r2BucketAttachments, Prefix: scope.objectPrefix, ContinuationToken: token }),
+    );
+    const keys = (listed.Contents ?? []).map((item) => item.Key).filter((key): key is string => Boolean(key));
+    if (keys.length > 0) {
+      await getS3().send(
+        new DeleteObjectsCommand({
+          Bucket: config.r2BucketAttachments,
+          Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+        }),
+      );
+      removed += keys.length;
+    }
+    token = listed.IsTruncated ? listed.NextContinuationToken : undefined;
+  } while (token);
+  return removed;
 }

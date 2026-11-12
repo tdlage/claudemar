@@ -1,11 +1,13 @@
 import { Link, useLocation } from "react-router-dom";
 import { Bot, Folder, House, Menu } from "lucide-react";
 import { isAdmin } from "../../hooks/useAuth";
+import { useBrainConnections } from "../../hooks/useBrain";
 import { useSidebar } from "./Sidebar";
 
 export function MobileNavigation() {
   const { pathname } = useLocation();
   const { mobileOpen, setMobileOpen } = useSidebar();
+  const brainIssues = useBrainConnections();
   const links = [
     { to: isAdmin() ? "/" : "/workspaces", label: "Início", icon: House, active: pathname === "/" || pathname === "/workspaces" },
     { to: "/workspaces/projects", label: "Projetos", icon: Folder, active: pathname.startsWith("/projects/") || pathname === "/workspaces/projects" },
@@ -19,8 +21,19 @@ export function MobileNavigation() {
           <span>{label}</span>
         </Link>
       ))}
-      <button type="button" onClick={() => setMobileOpen(!mobileOpen)} aria-expanded={mobileOpen} aria-controls="app-sidebar" className="text-text-secondary">
-        <Menu size={21} strokeWidth={1.7} /><span>Menu</span>
+      <button
+        type="button"
+        onClick={() => setMobileOpen(!mobileOpen)}
+        aria-expanded={mobileOpen}
+        aria-controls="app-sidebar"
+        className="text-text-secondary"
+        title={brainIssues.length > 0 ? "Second Brain: conexão precisa de atenção" : undefined}
+      >
+        <span className="relative inline-flex">
+          <Menu size={21} strokeWidth={1.7} />
+          {brainIssues.length > 0 && <span className="brain-alert-dot" aria-hidden="true" />}
+        </span>
+        <span>Menu</span>
       </button>
     </nav>
   );

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2, CheckCircle2, XCircle } from "lucide-react";
 import { api } from "../../lib/api";
-import type { BrainLlmProvider, BrainSettings } from "../../lib/types";
+import type { BrainLlmProvider, BrainSystemSettings } from "../../lib/types";
 
 const inputClass =
   "w-full bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent";
@@ -16,8 +16,8 @@ export function LlmProvidersSection({
   settings,
   patch,
 }: {
-  settings: BrainSettings;
-  patch: (updater: (prev: BrainSettings) => BrainSettings) => void;
+  settings: BrainSystemSettings;
+  patch: (updater: (prev: BrainSystemSettings) => BrainSystemSettings) => void;
 }) {
   const [envKeys, setEnvKeys] = useState<Record<string, boolean>>({});
 
@@ -83,7 +83,7 @@ export function LlmProvidersSection({
 
   const patchStage = (
     stage: "triage" | "compile" | "selector" | "distill" | "lint",
-    update: Partial<BrainSettings["llm"]["triage"]>,
+    update: Partial<BrainSystemSettings["llm"]["triage"]>,
   ) => {
     patch((prev) => ({
       ...prev,

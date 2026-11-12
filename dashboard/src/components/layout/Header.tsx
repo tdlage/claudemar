@@ -196,6 +196,7 @@ const BRAIN_SEGMENTS: Record<string, string> = {
   settings: "Configurações",
   log: "Log",
   quarantine: "Quarentena",
+  usuarios: "Usuários",
 };
 
 function buildBreadcrumbs(pathname: string): string[] {

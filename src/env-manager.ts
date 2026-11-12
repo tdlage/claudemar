@@ -17,6 +17,7 @@ const WHISPER_GROUP = "Transcrição de voz (Whisper)";
 const BRAIN_GROUP = "Second Brain";
 const JEV_GROUP = "Jev (TypeSafe)";
 const DRIVE_GROUP = "Google Drive (entradas dos agentes)";
+const INTEGRATIONS_GROUP = "Integrações dos agentes (Asana e Notion)";
 
 export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "OPENAI_API_KEY", label: "OpenAI API Key", group: WHISPER_GROUP, help: "Usada apenas pelo Whisper na transcrição de voz. Os modelos GPT rodam pela assinatura do ChatGPT (login do Codex em Configurações), nunca por esta chave.", required: false },
@@ -32,6 +33,8 @@ export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "GOOGLE_CLIENT_SECRET", label: "Google Client Secret", group: BRAIN_GROUP, help: "Secret do OAuth client do Google Cloud.", required: false },
   { key: "GOOGLE_DRIVE_CLIENT_ID", label: "Google Drive Client ID", group: DRIVE_GROUP, help: "OAuth client (tipo Web application) exclusivo das pastas do Google Drive nas Entradas dos agentes — separado do OAuth do Second Brain. Cada usuário conecta a própria conta Google. Ative no projeto a Google Drive API e, para os agentes lerem e editarem Docs, Sheets e Slides, as APIs Google Docs, Google Sheets e Google Slides; inclua os escopos drive.readonly e, para pastas com permissão de escrita, drive na tela de consentimento, e cadastre o redirect URI <PUBLIC_BASE_URL>/api/google-drive/callback.", required: false },
   { key: "GOOGLE_DRIVE_CLIENT_SECRET", label: "Google Drive Client Secret", group: DRIVE_GROUP, help: "Secret do OAuth client do Google Drive.", required: false },
+  { key: "ASANA_CLIENT_ID", label: "Asana Client ID", group: INTEGRATIONS_GROUP, help: "App do tipo \"MCP app\" criado em https://app.asana.com/0/my-apps. Na aba OAuth cadastre o Redirect URL <PUBLIC_BASE_URL>/api/integrations/asana/callback e em Manage distribution escolha \"Any workspace\" (ou os workspaces permitidos). Cada usuário conecta a própria conta do Asana na aba Integrações do agente. O Notion não precisa de chave: o Claudemar se registra sozinho no servidor MCP do Notion.", required: false },
+  { key: "ASANA_CLIENT_SECRET", label: "Asana Client Secret", group: INTEGRATIONS_GROUP, help: "Client secret do MCP app do Asana.", required: false },
   { key: "REDIS_URL", label: "Redis URL", group: BRAIN_GROUP, help: "Endpoint do Redis usado pelo brain (cursores, filas, dedup). Padrão: redis://127.0.0.1:6379.", required: false },
   { key: "R2_ENDPOINT", label: "R2 Endpoint", group: BRAIN_GROUP, help: "Endpoint S3 do Cloudflare R2 para anexos e originais. Vazio = armazenamento local em BRAIN_ROOT/attachments.", required: false },
   { key: "R2_ACCESS_KEY_ID", label: "R2 Access Key ID", group: BRAIN_GROUP, help: "Credencial de acesso do bucket R2.", required: false },
@@ -41,8 +44,9 @@ export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "WHATSAPP_BRIDGE_AUTH", label: "WhatsApp Bridge Auth", group: BRAIN_GROUP, help: "Basic auth do bridge no formato usuario:senha (APP_BASIC_AUTH do container).", required: false },
   { key: "WHATSAPP_BRIDGE_WEBHOOK", label: "WhatsApp Bridge Webhook", group: BRAIN_GROUP, help: "URL que o container do bridge chama ao receber mensagem. Padrão: http://host.docker.internal:<porta>/api/brain/whatsapp/webhook.", required: false },
   { key: "BRAIN_WHATSAPP_WEBHOOK_SECRET", label: "WhatsApp Webhook Secret", group: BRAIN_GROUP, help: "Segredo HMAC compartilhado com o bridge para validar webhooks de mensagem.", required: false },
-  { key: "SLACK_APP_TOKEN", label: "Slack App Token", group: BRAIN_GROUP, help: "Token xapp- (Socket Mode) do app Slack do brain.", required: false },
-  { key: "SLACK_BOT_TOKEN", label: "Slack Bot Token", group: BRAIN_GROUP, help: "Token xoxb- do bot Slack (Web API). O bot precisa ser convidado nos canais a ingerir.", required: false },
+  { key: "SLACK_CLIENT_ID", label: "Slack Client ID", group: BRAIN_GROUP, help: "Client ID do app Slack do brain. Cada usuário conecta a própria conta por OAuth (escopos de usuário channels:history, groups:history, im:history, mpim:history, channels:read, groups:read, im:read, mpim:read, users:read). Redirect URL: <PUBLIC_BASE_URL>/api/brain/slack/callback.", required: false },
+  { key: "SLACK_CLIENT_SECRET", label: "Slack Client Secret", group: BRAIN_GROUP, help: "Client Secret do app Slack do brain.", required: false },
+  { key: "SLACK_APP_TOKEN", label: "Slack App Token", group: BRAIN_GROUP, help: "Token xapp- (Socket Mode) do mesmo app, com os escopos connections:write e authorizations:read. Assine os eventos de usuário message.channels, message.groups, message.im e message.mpim.", required: false },
 ];
 
 export interface EnvKeyStatus extends ManagedEnvKey {

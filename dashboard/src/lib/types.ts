@@ -96,6 +96,46 @@ export interface AgentDetail extends AgentInfo {
   secrets: MaskedSecret[];
   secretFiles: SecretFile[];
   driveFolderCount: number;
+  integrationCount: number;
+}
+
+export type IntegrationProviderId = "asana" | "notion";
+
+export interface IntegrationProviderInfo {
+  id: IntegrationProviderId;
+  label: string;
+  configured: boolean;
+  redirectUri: string | null;
+  envKeys: string[] | null;
+}
+
+export interface IntegrationAccount {
+  id: string;
+  provider: IntegrationProviderId;
+  name: string;
+  detail: string;
+  reauthRequired: boolean;
+  agentCount: number;
+  createdAt: string;
+}
+
+export interface AgentIntegration {
+  id: string;
+  provider: IntegrationProviderId;
+  accountId: string | null;
+  accountName: string;
+  accountDetail: string | null;
+  ownerName: string;
+  isOwner: boolean;
+  canManage: boolean;
+  reauthRequired: boolean;
+  createdAt: string;
+}
+
+export interface AgentIntegrationsResponse {
+  providers: IntegrationProviderInfo[];
+  links: AgentIntegration[];
+  accounts: IntegrationAccount[];
 }
 
 export type DriveFolderStatus = "pending" | "ok" | "error";
@@ -752,6 +792,12 @@ export interface BackfillState {
   progress: BackfillProgress;
 }
 
+export interface BrainConnectionIssue {
+  connector: "google" | "whatsapp" | "slack";
+  account: string;
+  message: string;
+}
+
 export interface BrainStatus {
   redis: { reachable: boolean; lastError: string };
   google: { configured: boolean; accounts: GoogleAccountStatus[] };
@@ -763,6 +809,59 @@ export interface BrainStatus {
   git: { head: string; dirty: number };
   backfill: BackfillState;
   alerts: string[];
+  connections: BrainConnectionIssue[];
+}
+
+export interface BrainOwnerSummary {
+  owner: string;
+  name: string;
+  initialized: boolean;
+  issues: number;
+}
+
+export interface BrainObservedStatus {
+  owner: string;
+  name: string;
+  initialized: boolean;
+  status: BrainStatus | null;
+  index: BrainIndexStatus | null;
+}
+
+export interface BrainSlackAccount {
+  teamId: string;
+  teamName: string;
+  userId: string;
+  userName: string;
+  reauthRequired: boolean;
+  connectedAt: string;
+}
+
+export interface BrainSlackStatus {
+  configured: boolean;
+  redirectUri: string;
+  socketConnected: boolean;
+  lastError: string;
+  accounts: BrainSlackAccount[];
+}
+
+export interface BrainWhatsappChat {
+  jid: string;
+  name: string;
+  kind: "contact" | "group";
+}
+
+export interface BrainWhatsappChatOption extends BrainWhatsappChat {
+  lastMessageAt: string | null;
+}
+
+export interface BrainWhatsappStatus {
+  reachable: boolean;
+  paired: boolean;
+  connected: boolean;
+  loggedIn: boolean;
+  detail: string;
+  webhookConfigured: boolean;
+  selected: number;
 }
 
 export interface BrainLlmProvider {
@@ -804,17 +903,21 @@ export interface BrainAccountSetting {
 
 export interface BrainSettings {
   schedulers: Record<BrainSchedulerName, boolean>;
-  cadences: { gmailMs: number; calendarMs: number; ingestMs: number; triageMs: number; compileMs: number; indexMs: number; whatsappMs: number; slackMs: number; freshnessMs: number; claudemarMs: number };
   chatter: { minChars: number; extraConfirmations: string[]; samplePerWeek: number };
-  llm: { providers: BrainLlmProvider[]; triage: BrainStageLlm; compile: BrainStageLlm; selector: BrainStageLlm; distill: BrainStageLlm; lint: BrainStageLlm };
-  compile: { minRelevance: number; maxSectionChars: number; contextPages: number; batchSize: number; maxPerTick: number };
   accounts: BrainAccountSetting[];
   emailFilter: { skipCategories: string[]; blockedSenders: string[]; bulkAsNoise: boolean };
   gmailQuery: string;
   backfill: { monthsRaw: number; monthsCompile: number };
+  claudemar: BrainClaudemarSettings;
+  whatsapp: { chats: BrainWhatsappChat[] };
+}
+
+export interface BrainSystemSettings {
+  cadences: { gmailMs: number; calendarMs: number; ingestMs: number; triageMs: number; compileMs: number; indexMs: number; whatsappMs: number; slackMs: number; freshnessMs: number; claudemarMs: number };
+  llm: { providers: BrainLlmProvider[]; triage: BrainStageLlm; compile: BrainStageLlm; selector: BrainStageLlm; distill: BrainStageLlm; lint: BrainStageLlm };
+  compile: { minRelevance: number; maxSectionChars: number; contextPages: number; batchSize: number; maxPerTick: number };
   retrieval: BrainRetrievalSettings;
   jev: { triagePrefilter: boolean; triageMinConfidence: number; selector: boolean; selectorThreshold: number };
-  claudemar: BrainClaudemarSettings;
 }
 
 export interface BrainClaudemarSettings {
@@ -822,7 +925,6 @@ export interface BrainClaudemarSettings {
   excludedTargets: string[];
   transcripts: boolean;
   orphanSessions: boolean;
-  includeOtherUsers: boolean;
   pipeline: boolean;
   commits: boolean;
 }

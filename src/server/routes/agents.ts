@@ -22,6 +22,8 @@ import { registerSecretsRoutes } from "./secrets.js";
 import { registerDriveFolderRoutes } from "./drive-folders.js";
 import { DRIVE_INPUT_DIR } from "../../google-drive/paths.js";
 import { DriveRequestError, targetFolderCount } from "../../google-drive/service.js";
+import { registerAgentIntegrationRoutes } from "./integrations.js";
+import { agentIntegrationCount, IntegrationRequestError } from "../../integrations/service.js";
 
 export const agentsRouter = Router();
 
@@ -146,6 +148,7 @@ agentsRouter.get("/:name", async (req, res) => {
     secrets,
     secretFiles,
     driveFolderCount: targetFolderCount({ type: "agent", name }),
+    integrationCount: agentIntegrationCount(name),
   });
 });
 
@@ -543,4 +546,11 @@ registerDriveFolderRoutes(agentsRouter, (req) => {
   const paths = getAgentPaths(name);
   if (!paths || !existsSync(paths.root)) throw new DriveRequestError(404, "Agent not found");
   return { type: "agent", name };
+});
+registerAgentIntegrationRoutes(agentsRouter, (req) => {
+  const { name } = req.params;
+  if (typeof name !== "string" || !isValidAgentName(name)) throw new IntegrationRequestError(400, "Nome de agente inválido");
+  const paths = getAgentPaths(name);
+  if (!paths || !existsSync(paths.root)) throw new IntegrationRequestError(404, "Agente não encontrado");
+  return name;
 });

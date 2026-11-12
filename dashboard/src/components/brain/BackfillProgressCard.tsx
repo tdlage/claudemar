@@ -13,7 +13,7 @@ const PHASE_LABELS: Record<string, string> = {
   compile: "compilação",
 };
 
-export function BackfillProgressCard({ backfill }: { backfill: BackfillState }) {
+export function BackfillProgressCard({ backfill, readOnly = false }: { backfill: BackfillState; readOnly?: boolean }) {
   const { addToast } = useToast();
   const pct = backfill.progress.total > 0 ? Math.min(100, (backfill.progress.processed / backfill.progress.total) * 100) : 0;
 
@@ -36,7 +36,7 @@ export function BackfillProgressCard({ backfill }: { backfill: BackfillState }) 
         >
           {backfill.status}
         </Badge>
-        {backfill.status === "running" && (
+        {backfill.status === "running" && !readOnly && (
           <Button
             variant="ghost"
             size="sm"

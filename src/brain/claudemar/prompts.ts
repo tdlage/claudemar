@@ -2,6 +2,7 @@ import { config } from "../../config.js";
 import { ROOT_TENANT } from "../tenants.js";
 import { dayKeyInTz } from "../text.js";
 import type { RawFrontmatter, RawMessageBlock } from "../types.js";
+import type { BrainScope } from "../scope.js";
 import { clipMiddle } from "./execution-events.js";
 import { ACTIVITY_SECTION, PIPELINE_SECTION, claudemarThreadKind, type ClaudemarThreadKind } from "./managed.js";
 import { targetFromParticipants, targetLabel, targetPagePath, targetTenant, type ClaudemarTarget } from "./targets.js";
@@ -59,9 +60,9 @@ export function claudemarThreadTarget(frontmatter: RawFrontmatter): ClaudemarTar
   return targetFromParticipants(frontmatter.participants);
 }
 
-export async function claudemarThreadTenant(frontmatter: RawFrontmatter): Promise<string> {
+export async function claudemarThreadTenant(scope: BrainScope, frontmatter: RawFrontmatter): Promise<string> {
   const target = claudemarThreadTarget(frontmatter);
-  return target ? targetTenant(target) : ROOT_TENANT;
+  return target ? targetTenant(scope, target) : ROOT_TENANT;
 }
 
 function renderBlock(block: RawMessageBlock, body: string): string {
@@ -84,11 +85,12 @@ export function claudemarExcerpt(blocks: RawMessageBlock[], budget: number, head
 }
 
 export async function claudemarTriageInput(
+  scope: BrainScope,
   thread: { frontmatter: RawFrontmatter; blocks: RawMessageBlock[] },
 ): Promise<{ conversation: string; user: string; tenant: string }> {
   const kind = claudemarThreadKind(thread.frontmatter.thread_key);
   const target = claudemarThreadTarget(thread.frontmatter);
-  const tenant = await claudemarThreadTenant(thread.frontmatter);
+  const tenant = await claudemarThreadTenant(scope, thread.frontmatter);
   const conversation = [
     `Canal: claudemar · ${kind ? KIND_LABELS[kind] : "registro do claudemar"}`,
     `Alvo: ${target ? targetLabel(target) : "(sem alvo)"}`,

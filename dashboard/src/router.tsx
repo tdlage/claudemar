@@ -75,9 +75,9 @@ export const router = createBrowserRouter([
     children: [{ errorElement: <RouteError />, children: [
       { index: true, element: <AdminGuard><OverviewPage /></AdminGuard> },
       { path: "orchestrator", element: <AdminGuard><OrchestratorPage /></AdminGuard> },
-      { path: "second-brain", element: <AdminGuard><SecondBrainPage /></AdminGuard> },
-      { path: "second-brain/:tab", element: <AdminGuard><KeyedBrainPage /></AdminGuard> },
-      { path: "second-brain/:tab/*", element: <AdminGuard><KeyedBrainPage /></AdminGuard> },
+      { path: "second-brain", element: <SecondBrainPage /> },
+      { path: "second-brain/:tab", element: <KeyedBrainPage /> },
+      { path: "second-brain/:tab/*", element: <KeyedBrainPage /> },
       { path: "agents/:name", element: <KeyedAgentPage /> },
       { path: "workspaces", element: <WorkspacesPage /> },
       { path: "workspaces/:kind", element: <WorkspacesPage /> },

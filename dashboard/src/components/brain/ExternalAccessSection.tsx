@@ -74,8 +74,8 @@ export function ExternalAccessSection() {
     <div className="space-y-4">
       <p className="text-xs text-text-muted">
         Servidor MCP (Streamable HTTP, sem estado) para agentes externos, como o Grok pela API da xAI. As ferramentas
-        são só de leitura e enxergam o Brain inteiro — todos os canais, inclusive conteúdo com dados pessoais. O que for
-        consultado é enviado ao provedor do agente.
+        são só de leitura e enxergam o seu brain inteiro — todos os canais, inclusive conteúdo com dados pessoais —, nunca
+        o de outro usuário. O que for consultado é enviado ao provedor do agente.
       </p>
       <div className="flex items-center gap-2 bg-bg border border-border rounded-md px-3 py-2">
         <span className="text-xs text-text-muted shrink-0">Endpoint</span>

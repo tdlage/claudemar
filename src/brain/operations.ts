@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { parseWikiFrontmatterLoose } from "./frontmatter.js";
-import { brainRoot, resolveInside } from "./paths.js";
-import { brainSettingsManager } from "./settings.js";
+import { resolveInside } from "./paths.js";
+import { brainSettings } from "./settings.js";
+import type { BrainScope } from "./scope.js";
 import { canonicalTenant, tenantRoot } from "./tenants.js";
 import { sha256Hex, slugify } from "./text.js";
 import { candidateCount, noteCandidates } from "./entities.js";
@@ -229,16 +230,16 @@ export function computeDocKey(threadKey: string, op: CompileOperation): string {
   return sha256Hex(`${threadKey}|${op.path}|${op.op}|${discriminator}`).slice(0, 16);
 }
 
-function validPagePath(path: string): boolean {
+function validPagePath(scope: BrainScope, path: string): boolean {
   if (!path.startsWith("wiki/") || !path.endsWith(".md")) return false;
-  if (!resolveInside(brainRoot, path)) return false;
+  if (!resolveInside(scope.root, path)) return false;
   const parts = path.split("/");
   return parts.length === 3 && Object.values(TYPE_DIRS).includes(parts[1]);
 }
 
-function sourceExists(source: string): boolean {
+function sourceExists(scope: BrainScope, source: string): boolean {
   if (!source.startsWith("raw/")) return false;
-  const abs = resolveInside(brainRoot, source);
+  const abs = resolveInside(scope.root, source);
   return Boolean(abs && existsSync(abs));
 }
 
@@ -248,26 +249,27 @@ export interface ValidationResult {
 }
 
 export async function validateCompileOutput(
+  scope: BrainScope,
   output: CompileOutput,
   thread: RawFrontmatter,
 ): Promise<ValidationResult> {
-  const settings = brainSettingsManager.get();
+  const settings = brainSettings(scope).get();
   const errors: string[] = [];
   const threadTenant =
     thread.channel === "claudemar"
-      ? await claudemarThreadTenant(thread)
-      : await canonicalTenant(thread.triage?.tenant ?? thread.tenant);
-  const threadRoot = await tenantRoot(threadTenant);
+      ? await claudemarThreadTenant(scope, thread)
+      : await canonicalTenant(scope, thread.triage?.tenant ?? thread.tenant);
+  const threadRoot = await tenantRoot(scope, threadTenant);
   const isGroup = thread.subchannel === "group";
 
   for (const [i, op] of output.operations.entries()) {
     const label = `operations[${i}] (${op.op})`;
-    if (!validPagePath(op.path)) {
+    if (!validPagePath(scope, op.path)) {
       errors.push(`${label}: path "${op.path}" fora do padrão wiki/<tipo>/<slug>.md`);
       continue;
     }
     for (const source of op.sources) {
-      if (!sourceExists(source)) errors.push(`${label}: source "${source}" não existe em raw/`);
+      if (!sourceExists(scope, source)) errors.push(`${label}: source "${source}" não existe em raw/`);
     }
 
     if (op.op === "create_page" && MANAGED_PAGE_RE.test(op.path)) {
@@ -288,7 +290,7 @@ export async function validateCompileOutput(
       if (op.path.split("/")[1] !== expectedDir) {
         errors.push(`${label}: página do tipo ${op.page_type} deve ficar em wiki/${expectedDir}/`);
       }
-      if ((await tenantRoot(op.tenant)) !== threadRoot) {
+      if ((await tenantRoot(scope, op.tenant)) !== threadRoot) {
         errors.push(
           `${label}: contexto "${op.tenant}" está fora da árvore do contexto da thread ("${threadRoot}")`,
         );
@@ -305,10 +307,10 @@ export async function validateCompileOutput(
           errors.push(`${label}: seção "${section.section}" excede ${settings.compile.maxSectionChars} chars`);
         }
       }
-      if (existsSync(resolve(brainRoot, op.path))) {
+      if (existsSync(resolve(scope.root, op.path))) {
         errors.push(`${label}: página "${op.path}" já existe — use upsert_section`);
       } else if (thread.triage?.relevance !== 3) {
-        const seen = await candidateCount(op.title);
+        const seen = await candidateCount(scope, op.title);
         if (seen < 3) {
           errors.push(
             `${label}: criação de página exige entidade vista em ≥3 threads (visto ${seen}x) ou relevance 3`,
@@ -321,10 +323,10 @@ export async function validateCompileOutput(
       const createdInBatch = output.operations.some(
         (other) => other.op === "create_page" && other.path === op.path,
       );
-      const abs = resolve(brainRoot, op.path);
+      const abs = resolve(scope.root, op.path);
       if (!createdInBatch && existsSync(abs)) {
         const { data } = parseWikiFrontmatterLoose(await readFile(abs, "utf-8"));
-        const pageRoot = await tenantRoot(typeof data.tenant === "string" ? data.tenant : "");
+        const pageRoot = await tenantRoot(scope, typeof data.tenant === "string" ? data.tenant : "");
         if (pageRoot !== threadRoot) {
           errors.push(
             `${label}: página alvo pertence ao contexto "${pageRoot}", fora da árvore da thread ("${threadRoot}")`,
@@ -341,13 +343,13 @@ export async function validateCompileOutput(
         errors.push(`${label}: conteúdo excede ${settings.compile.maxSectionChars} chars`);
       }
       const isCreate = output.operations.some((other) => other.op === "create_page" && other.path === op.path);
-      if (!isCreate && !existsSync(resolve(brainRoot, op.path))) {
+      if (!isCreate && !existsSync(resolve(scope.root, op.path))) {
         errors.push(`${label}: página "${op.path}" não existe`);
       }
     }
 
     if (op.op === "add_relation" || op.op === "mark_superseded") {
-      if (!existsSync(resolve(brainRoot, op.path))) {
+      if (!existsSync(resolve(scope.root, op.path))) {
         errors.push(`${label}: página "${op.path}" não existe`);
       }
     }
@@ -358,7 +360,7 @@ export async function validateCompileOutput(
       errors.push(`open_loops[${i}]: thread de grupo não gera open-loop`);
       continue;
     }
-    if ((await tenantRoot(loop.tenant)) !== threadRoot) {
+    if ((await tenantRoot(scope, loop.tenant)) !== threadRoot) {
       errors.push(
         `open_loops[${i}]: contexto "${loop.tenant}" está fora da árvore do contexto da thread ("${threadRoot}")`,
       );
@@ -374,6 +376,7 @@ export interface ApplyResult {
 }
 
 export async function applyCompileOutput(
+  scope: BrainScope,
   threadKey: string,
   rawRelPath: string,
   output: CompileOutput,
@@ -390,13 +393,13 @@ export async function applyCompileOutput(
   for (const op of ordered) {
     const docKey = computeDocKey(threadKey, op);
     if (op.op === "create_page") {
-      await createWikiPage({
+      await createWikiPage(scope, {
         relPath: op.path,
         type: op.page_type,
         slug: slugify(op.path.split("/").pop()!.replace(/\.md$/, ""), 60),
         title: op.title,
-        tenant: await canonicalTenant(op.tenant),
-        tenantRoot: await tenantRoot(op.tenant),
+        tenant: await canonicalTenant(scope, op.tenant),
+        tenantRoot: await tenantRoot(scope, op.tenant),
         aliases: op.aliases,
         sections: op.sections,
         sources: op.sources,
@@ -404,33 +407,33 @@ export async function applyCompileOutput(
       });
       touched.add(op.path);
     } else if (op.op === "upsert_section") {
-      if (await upsertSection(op.path, op.section, op.content, op.sources)) touched.add(op.path);
+      if (await upsertSection(scope, op.path, op.section, op.content, op.sources)) touched.add(op.path);
     } else if (op.op === "append_history") {
-      if (await appendHistory(op.path, op.content, op.sources, docKey, day)) touched.add(op.path);
+      if (await appendHistory(scope, op.path, op.content, op.sources, docKey, day)) touched.add(op.path);
     } else if (op.op === "add_relation") {
-      if (await addRelation(op.path, op.related)) touched.add(op.path);
+      if (await addRelation(scope, op.path, op.related)) touched.add(op.path);
     } else if (op.op === "mark_superseded") {
-      if (await markSuperseded(op.path, op.superseded_by, op.reason, docKey)) touched.add(op.path);
+      if (await markSuperseded(scope, op.path, op.superseded_by, op.reason, docKey)) touched.add(op.path);
     }
   }
 
-  const openLoops = await appendOpenLoops(output.open_loops, threadSources, threadKey, day);
+  const openLoops = await appendOpenLoops(scope, output.open_loops, threadSources, threadKey, day);
   if (openLoops > 0) touched.add("state/open-loops.md");
 
   if (output.log_entry.trim()) {
-    await appendLog(output.log_entry, sha256Hex(`${threadKey}|log|${output.log_entry}`).slice(0, 16));
+    await appendLog(scope, output.log_entry, sha256Hex(`${threadKey}|log|${output.log_entry}`).slice(0, 16));
   }
   if (output.new_entities.length > 0) {
-    await noteCandidates(output.new_entities.map((e) => e.title));
+    await noteCandidates(scope, output.new_entities.map((e) => e.title));
   }
   if (containsPii === 1) {
     for (const path of touched) {
-      if (path.startsWith("wiki/")) await markPagePii(path);
+      if (path.startsWith("wiki/")) await markPagePii(scope, path);
     }
   }
   if (touched.size > 0) {
-    scheduleIndexRegeneration();
-    await markCompiledInto(rawRelPath, [...touched]);
+    scheduleIndexRegeneration(scope);
+    await markCompiledInto(scope, rawRelPath, [...touched]);
   }
   return { pages: [...touched], openLoops };
 }

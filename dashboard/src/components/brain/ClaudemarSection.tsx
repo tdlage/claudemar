@@ -5,6 +5,7 @@ import { api } from "../../lib/api";
 import { Badge } from "../shared/Badge";
 import { useToast } from "../shared/Toast";
 import { useBrainData, useTenants } from "../../hooks/useBrain";
+import { isAdmin } from "../../hooks/useAuth";
 import type { BrainClaudemarSettings, BrainClaudemarTarget, BrainSettings } from "../../lib/types";
 
 const KIND_LABELS: Record<BrainClaudemarTarget["kind"], string> = {
@@ -13,10 +14,9 @@ const KIND_LABELS: Record<BrainClaudemarTarget["kind"], string> = {
   agent: "agente",
 };
 
-const TOGGLES: { key: keyof Omit<BrainClaudemarSettings, "tenants" | "excludedTargets">; label: string }[] = [
+const TOGGLES: { key: keyof Omit<BrainClaudemarSettings, "tenants" | "excludedTargets">; label: string; adminOnly?: boolean }[] = [
   { key: "transcripts", label: "Ler os transcripts das sessões (Claude SDK e Codex) para mensagens intermediárias e ações detalhadas" },
-  { key: "orphanSessions", label: "Incluir sessões que só existem nos transcripts (ex.: Claude Code aberto direto no terminal)" },
-  { key: "includeOtherUsers", label: "Incluir execuções e cards do pipeline de outros usuários do dashboard" },
+  { key: "orphanSessions", label: "Incluir sessões que só existem nos transcripts (ex.: Claude Code aberto direto no terminal)", adminOnly: true },
   { key: "pipeline", label: "Sincronizar os cards do pipeline de cada projeto" },
   { key: "commits", label: "Ingerir commits dos repositórios dos projetos e agentes" },
 ];
@@ -36,6 +36,7 @@ export function ClaudemarSection({
   const { tenants } = useTenants();
   const { data, setData, loading, error } = useBrainData<BrainClaudemarTarget[]>("/brain/claudemar/targets");
   const [busy, setBusy] = useState<string | null>(null);
+  const admin = isAdmin();
 
   const update = async (target: BrainClaudemarTarget, body: { tenant?: string | null; excluded?: boolean }) => {
     setBusy(target.key);
@@ -52,13 +53,14 @@ export function ClaudemarSection({
   return (
     <div className="space-y-4">
       <p className="text-xs text-text-muted">
-        Cada execução do orquestrador, dos projetos e dos agentes vira uma thread em raw/claudemar (pedido, respostas e
-        ações), assim como os cards do pipeline e os commits. Cada alvo ganha uma página em wiki/projects com as
-        seções automáticas de atividade e de cards do pipeline; decisões e implementações entram pela compilação. O histórico
-        anterior vem pelo backfill. Marcar "ignorar" remove do brain tudo o que já veio do alvo.
+        Cada execução sua no orquestrador, nos projetos e nos agentes vira uma thread em raw/claudemar (pedido, respostas e
+        ações), assim como os cards do pipeline e os commits dos projetos a que você tem acesso. Execuções de outros
+        usuários nunca entram no seu brain. Cada alvo ganha uma página em wiki/projects com as seções automáticas de
+        atividade e de cards do pipeline; decisões e implementações entram pela compilação. O histórico anterior vem pelo
+        backfill. Marcar "ignorar" remove do brain tudo o que já veio do alvo.
       </p>
       <div className="space-y-2">
-        {TOGGLES.map((toggle) => (
+        {TOGGLES.filter((toggle) => admin || !toggle.adminOnly).map((toggle) => (
           <label key={toggle.key} className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
             <input
               type="checkbox"

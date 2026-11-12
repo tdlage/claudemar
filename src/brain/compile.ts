@@ -1,5 +1,6 @@
-import { claimPending, getRedis, incrMetric, KEYS, recoverInflight, releaseInflight, requeuePending } from "./redis.js";
-import { brainSettingsManager } from "./settings.js";
+import { brainKeys, claimPending, getRedis, incrMetric, recoverInflight, releaseInflight, requeuePending } from "./redis.js";
+import { brainSettings } from "./settings.js";
+import type { BrainScope } from "./scope.js";
 import { runStageJson, stageDisabledReason, type StageRequest } from "./llm.js";
 import { findThreadPath, readThread } from "./raw-store.js";
 import { getContract } from "./contract.js";
@@ -33,28 +34,28 @@ export interface BuiltCompileRequest {
   frontmatter: RawFrontmatter;
 }
 
-export async function buildCompileRequest(threadKey: string): Promise<BuiltCompileRequest | { error: string }> {
-  const relPath = await findThreadPath(threadKey, channelOfThreadKey(threadKey));
+export async function buildCompileRequest(scope: BrainScope, threadKey: string): Promise<BuiltCompileRequest | { error: string }> {
+  const relPath = await findThreadPath(scope, threadKey, channelOfThreadKey(threadKey));
   if (!relPath) return { error: "thread não encontrada em raw/" };
-  const thread = await readThread(relPath);
+  const thread = await readThread(scope, relPath);
   if (!thread) return { error: "arquivo raw ilegível" };
   if (!thread.frontmatter.triage) return { error: "thread sem triagem" };
 
-  const settings = brainSettingsManager.get();
+  const settings = brainSettings(scope).get();
   const triage = thread.frontmatter.triage;
   const entityNames = [
     ...triage.entities,
     ...triage.projects,
     ...thread.frontmatter.participants.map((p) => p.name).filter(Boolean),
   ];
-  const { paths } = await resolveEntities(entityNames);
+  const { paths } = await resolveEntities(scope, entityNames);
   const claudemar = thread.frontmatter.channel === "claudemar";
   const target = claudemar ? claudemarThreadTarget(thread.frontmatter) : null;
-  if (target && isTargetExcluded(target)) return { error: "alvo do claudemar excluído do brain" };
-  if (target) await ensureTargetPage(target, relPath);
+  if (target && isTargetExcluded(scope, target)) return { error: "alvo do claudemar excluído do brain" };
+  if (target) await ensureTargetPage(scope, target, relPath);
   const targetPage = target ? targetPagePath(target) : null;
   const contextPaths = targetPage ? [targetPage, ...paths.filter((p) => p !== targetPage)] : paths;
-  const related = await relatedPagesText(contextPaths, settings.compile.contextPages);
+  const related = await relatedPagesText(scope, contextPaths, settings.compile.contextPages);
 
   const substantive = thread.blocks.filter((b) => b.chatter === null);
   const header = [
@@ -89,7 +90,7 @@ export async function buildCompileRequest(threadKey: string): Promise<BuiltCompi
     relPath,
     frontmatter: thread.frontmatter,
     request: {
-      system: [{ text: getContract(), cacheable: true }],
+      system: [{ text: getContract(scope), cacheable: true }],
       user,
       schema: COMPILE_JSON_SCHEMA,
       maxTokens: 16_000,
@@ -102,30 +103,33 @@ export function parseCompileOutput(raw: unknown): CompileOutput {
 }
 
 export async function processCompileResult(
+  scope: BrainScope,
   threadKey: string,
   built: BuiltCompileRequest,
   output: CompileOutput,
 ): Promise<boolean> {
-  const validation = await validateCompileOutput(output, built.frontmatter);
+  const validation = await validateCompileOutput(scope, output, built.frontmatter);
   if (!validation.ok) {
     await quarantineWrite(
+      scope,
       "invalid_operations",
       `validação rejeitou a compilação: ${validation.errors.join(" | ")}`,
       output,
       threadKey,
     );
-    emitActivity({ kind: "quarantine", label: `compilação de ${threadKey} rejeitada na validação` });
+    emitActivity(scope, { kind: "quarantine", label: `compilação de ${threadKey} rejeitada na validação` });
     return false;
   }
   const result = await applyCompileOutput(
+    scope,
     threadKey,
     built.relPath,
     output,
     built.frontmatter.contains_pii === 1 ? 1 : 0,
     dayKeyInTz(new Date(built.frontmatter.occurred_to), config.brainTz),
   );
-  await incrMetric("compiled");
-  emitActivity({
+  await incrMetric(scope, "compiled");
+  emitActivity(scope, {
     kind: "compile",
     label:
       result.pages.length > 0
@@ -136,14 +140,15 @@ export async function processCompileResult(
   return true;
 }
 
-async function handleFailure(threadKey: string, err: unknown): Promise<boolean> {
+async function handleFailure(scope: BrainScope, threadKey: string, err: unknown): Promise<boolean> {
   const redis = getRedis();
+  const keys = brainKeys(scope);
   const message = err instanceof Error ? err.message : String(err);
-  const attempts = await redis.hincrby(KEYS.compileAttempts, threadKey, 1).catch(() => 0);
+  const attempts = await redis.hincrby(keys.compileAttempts, threadKey, 1).catch(() => 0);
   if (attempts > MAX_ATTEMPTS) {
-    await quarantineWrite("compile_failed", `compilação excedeu ${MAX_ATTEMPTS} tentativas: ${message}`, null, threadKey);
-    await redis.hdel(KEYS.compileAttempts, threadKey).catch(() => {});
-    emitActivity({ kind: "quarantine", label: `compilação de ${threadKey} em quarentena` });
+    await quarantineWrite(scope, "compile_failed", `compilação excedeu ${MAX_ATTEMPTS} tentativas: ${message}`, null, threadKey);
+    await redis.hdel(keys.compileAttempts, threadKey).catch(() => {});
+    emitActivity(scope, { kind: "quarantine", label: `compilação de ${threadKey} em quarentena` });
     return true;
   }
   return false;
@@ -151,31 +156,32 @@ async function handleFailure(threadKey: string, err: unknown): Promise<boolean> 
 
 const INFLIGHT_STALE_MS = 10 * 60 * 1000;
 
-export async function compileTick(): Promise<{ processed: number }> {
-  const settings = brainSettingsManager.get();
+export async function compileTick(scope: BrainScope): Promise<{ processed: number }> {
+  const settings = brainSettings(scope).get();
   const redis = getRedis();
-  await recoverInflight(KEYS.compilePending, KEYS.compileInflight, INFLIGHT_STALE_MS).catch(() => {});
-  const threadKeys = await redis.zrange(KEYS.compilePending, "0", String(settings.compile.maxPerTick - 1));
+  const keys = brainKeys(scope);
+  await recoverInflight(keys.compilePending, keys.compileInflight, INFLIGHT_STALE_MS).catch(() => {});
+  const threadKeys = await redis.zrange(keys.compilePending, "0", String(settings.compile.maxPerTick - 1));
 
   let processed = 0;
   for (const threadKey of threadKeys) {
-    await claimPending(KEYS.compilePending, KEYS.compileInflight, threadKey);
+    await claimPending(keys.compilePending, keys.compileInflight, threadKey);
     try {
-      const built = await buildCompileRequest(threadKey);
+      const built = await buildCompileRequest(scope, threadKey);
       if ("error" in built) {
-        await quarantineWrite("compile_failed", built.error, null, threadKey);
+        await quarantineWrite(scope, "compile_failed", built.error, null, threadKey);
         continue;
       }
-      const raw = await runStageJson("compile", built.request);
+      const raw = await runStageJson(scope, "compile", built.request);
       const output = parseCompileOutput(raw);
-      await processCompileResult(threadKey, built, output);
-      await redis.hdel(KEYS.compileAttempts, threadKey).catch(() => {});
+      await processCompileResult(scope, threadKey, built, output);
+      await redis.hdel(keys.compileAttempts, threadKey).catch(() => {});
       processed += 1;
     } catch (err) {
-      const dead = await handleFailure(threadKey, err);
-      if (!dead) await requeuePending(KEYS.compilePending, threadKey);
+      const dead = await handleFailure(scope, threadKey, err);
+      if (!dead) await requeuePending(keys.compilePending, threadKey);
     } finally {
-      await releaseInflight(KEYS.compileInflight, threadKey);
+      await releaseInflight(keys.compileInflight, threadKey);
     }
   }
   return { processed };
@@ -185,8 +191,8 @@ brainSchedulers.register({
   name: "compile",
   cadenceMs: (s) => s.cadences.compileMs,
   disabledReason: () => stageDisabledReason("compile"),
-  run: async () => {
-    const { processed } = await compileTick();
+  run: async (scope) => {
+    const { processed } = await compileTick(scope);
     return `${processed} compiladas`;
   },
 });

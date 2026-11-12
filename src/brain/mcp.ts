@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { bumpHelpfulBySourceKey } from "./brain-index.js";
+import type { BrainScope } from "./scope.js";
 import {
   CHANNELS,
   runBrainHistory,
@@ -40,7 +41,8 @@ Regras de comportamento com o brain:
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
-export function createBrainMcpServer(): ReturnType<typeof createSdkMcpServer> {
+/** O servidor nasce preso a um brain: a sessão de cada usuário só enxerga o brain de quem a abriu. */
+export function createBrainMcpServer(scope: BrainScope, surface: string): ReturnType<typeof createSdkMcpServer> {
   const searchTool = tool(
     "brain_search",
     "Busca semântica no wiki do Second Brain (conhecimento curado de emails, calendar e outros canais do usuário). Retorna páginas com sourceKey e data — cite-os ao usar um fato.",
@@ -60,13 +62,13 @@ export function createBrainMcpServer(): ReturnType<typeof createSdkMcpServer> {
     async (args) => {
       try {
         return text(
-          await runBrainSearch({
+          await runBrainSearch(scope, {
             query: args.query,
             tenant: args.tenant,
             type: args.type,
             limit: args.limit,
             include_pii: args.include_pii,
-            surface: "claudemar:orchestrator",
+            surface,
             tool: "brain_search",
           }),
         );
@@ -83,7 +85,7 @@ export function createBrainMcpServer(): ReturnType<typeof createSdkMcpServer> {
     "brain_read",
     "Lê uma página do wiki ou arquivo de estado do Second Brain. Apenas caminhos sob wiki/ e state/.",
     { path: z.string().describe('Caminho relativo, ex. "wiki/index.md", "wiki/projects/x.md" ou "state/open-loops.md"') },
-    async (args) => text(await runBrainRead(args.path)),
+    async (args) => text(await runBrainRead(scope, args.path)),
   );
 
   const historyTool = tool(
@@ -94,7 +96,7 @@ export function createBrainMcpServer(): ReturnType<typeof createSdkMcpServer> {
       sha: z.string().optional().describe("Commit para ler o conteúdo da versão"),
       limit: z.number().int().positive().max(50).optional(),
     },
-    async (args) => text(await runBrainHistory(args.path, args.sha, args.limit)),
+    async (args) => text(await runBrainHistory(scope, args.path, args.sha, args.limit)),
   );
 
   const grepTool = tool(
@@ -106,7 +108,7 @@ export function createBrainMcpServer(): ReturnType<typeof createSdkMcpServer> {
       from: z.string().regex(/^\d{4}-\d{2}$/).optional().describe("Mês inicial YYYY-MM (padrão: 3 meses atrás)"),
       to: z.string().regex(/^\d{4}-\d{2}$/).optional().describe("Mês final YYYY-MM (padrão: mês atual)"),
     },
-    async (args) => text(await runRawGrep(args)),
+    async (args) => text(await runRawGrep(scope, args)),
   );
 
   const helpfulTool = tool(
@@ -115,7 +117,7 @@ export function createBrainMcpServer(): ReturnType<typeof createSdkMcpServer> {
     { sourceKey: z.string().describe("O sourceKey da página (ex. wiki/projects/x.md)") },
     async (args) => {
       try {
-        const bumped = await bumpHelpfulBySourceKey(args.sourceKey);
+        const bumped = await bumpHelpfulBySourceKey(scope, args.sourceKey);
         return text(bumped > 0 ? `Marcado como útil (${bumped} ponto(s)).` : "sourceKey não encontrado no índice.");
       } catch (err) {
         return text(`Falha ao marcar: ${err instanceof Error ? err.message : String(err)}`);

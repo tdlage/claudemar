@@ -1,8 +1,9 @@
 import { canonicalEventSchema } from "./canonical.js";
 import { classifyChatter } from "./chatter.js";
 import { normalizeMessage } from "./normalize.js";
-import { getRedis, ensureConsumerGroup, incrMetric, KEYS, pushChatterSample } from "./redis.js";
-import { brainSettingsManager } from "./settings.js";
+import { brainKeys, getRedis, ensureConsumerGroup, incrMetric, INGEST_GROUP, pushChatterSample } from "./redis.js";
+import { brainSettings } from "./settings.js";
+import type { BrainScope } from "./scope.js";
 import { annotateTriage, readThread, upsertMessage } from "./raw-store.js";
 import { quarantineWrite } from "./quarantine.js";
 import { emitActivity } from "./events.js";
@@ -18,19 +19,19 @@ const MAX_DELIVERIES = 5;
  * Palpite antes da triagem, nunca a decisão final: domínio próprio primeiro, depois o nome da
  * origem (workspace do Slack, sessão do WhatsApp) e só então o contexto padrão da conta Google.
  */
-async function tenantHintFor(event: CanonicalEvent): Promise<BrainTenant> {
-  const settings = brainSettingsManager.get();
-  const byDomain = await resolveTenantByHandles(event.participants.map((p) => p.handle));
+async function tenantHintFor(scope: BrainScope, event: CanonicalEvent): Promise<BrainTenant> {
+  const settings = brainSettings(scope).get();
+  const byDomain = await resolveTenantByHandles(scope, event.participants.map((p) => p.handle));
   if (byDomain) return byDomain;
-  const byOrigin = await resolveTenantName(event.account);
+  const byOrigin = await resolveTenantName(scope, event.account);
   if (byOrigin) return byOrigin;
   const account = settings.accounts.find((a) => a.email === event.account.toLowerCase());
-  if (account) return canonicalTenant(account.tenant);
+  if (account) return canonicalTenant(scope, account.tenant);
   return ROOT_TENANT;
 }
 
-async function processEvent(event: CanonicalEvent): Promise<void> {
-  const settings = brainSettingsManager.get();
+async function processEvent(scope: BrainScope, event: CanonicalEvent): Promise<void> {
+  const settings = brainSettings(scope).get();
   const normalized = normalizeMessage(event.body_text, event.body_html, {
     conversational: event.channel !== "claudemar",
   });
@@ -40,8 +41,8 @@ async function processEvent(event: CanonicalEvent): Promise<void> {
   });
 
   if (verdict.chatter) {
-    await incrMetric("chatter_filtered");
-    await pushChatterSample({
+    await incrMetric(scope, "chatter_filtered");
+    await pushChatterSample(scope, {
       ts: new Date().toISOString(),
       channel: event.channel,
       threadKey: event.thread_key,
@@ -52,8 +53,8 @@ async function processEvent(event: CanonicalEvent): Promise<void> {
 
   const piiHint: 0 | 1 =
     event.channel === "claudemar" || (event.channel === "calendar" && event.subchannel === "direct") ? 0 : 1;
-  const tenantHint = await tenantHintFor(event);
-  const result = await upsertMessage({
+  const tenantHint = await tenantHintFor(scope, event);
+  const result = await upsertMessage(scope, {
     event,
     normalizedText: normalized.text,
     lang: normalized.lang,
@@ -63,32 +64,33 @@ async function processEvent(event: CanonicalEvent): Promise<void> {
   });
 
   if (result.added) {
-    await incrMetric(`ingested:${event.channel}`);
-    emitActivity({
+    await incrMetric(scope, `ingested:${event.channel}`);
+    emitActivity(scope, {
       kind: "ingest",
       label: `${event.channel} · ${event.subject || event.thread_key}`,
       path: result.relPath,
     });
     if (result.substantive) {
-      await routeTriage(event, result.relPath, tenantHint, piiHint);
+      await routeTriage(scope, event, result.relPath, tenantHint, piiHint);
     }
   }
 }
 
 async function routeTriage(
+  scope: BrainScope,
   event: CanonicalEvent,
   relPath: string,
   tenantHint: BrainTenant,
   piiHint: 0 | 1,
 ): Promise<void> {
-  const settings = brainSettingsManager.get();
+  const settings = brainSettings(scope).get();
   const bulkAsNoise = settings.emailFilter.bulkAsNoise;
 
   if (event.bulk && bulkAsNoise) {
-    const thread = await readThread(relPath);
+    const thread = await readThread(scope, relPath);
     const llmTriaged = thread?.frontmatter.triage && thread.frontmatter.triage.model !== "heuristic";
     if (!llmTriaged) {
-      await annotateTriage(relPath, {
+      await annotateTriage(scope, relPath, {
         relevance: 0,
         tenant: tenantHint,
         tenant_parent: null,
@@ -103,13 +105,13 @@ async function routeTriage(
         classified_at: new Date().toISOString(),
         model: "heuristic",
       });
-      await incrMetric("bulk_noise");
-      await incrMetric("relevance:0");
+      await incrMetric(scope, "bulk_noise");
+      await incrMetric(scope, "relevance:0");
       return;
     }
   }
 
-  await getRedis().zadd(KEYS.triagePending, "NX", Date.now(), event.thread_key).catch(() => {});
+  await getRedis().zadd(brainKeys(scope).triagePending, "NX", Date.now(), event.thread_key).catch(() => {});
 }
 
 type StreamEntry = [id: string, fields: string[]];
@@ -121,31 +123,33 @@ function entryPayload(fields: string[]): string | null {
   return null;
 }
 
-async function handleEntry(id: string, fields: string[]): Promise<void> {
+async function handleEntry(scope: BrainScope, id: string, fields: string[]): Promise<void> {
   const redis = getRedis();
+  const events = brainKeys(scope).events;
   const payload = entryPayload(fields);
   try {
     const parsed = canonicalEventSchema.safeParse(payload ? JSON.parse(payload) : null);
     if (!parsed.success) {
-      await quarantineWrite("malformed_event", parsed.error?.message ?? "payload inválido", payload);
-      emitActivity({ kind: "quarantine", label: "evento malformado descartado do stream" });
-      await redis.xack(KEYS.events, KEYS.ingestGroup, id);
+      await quarantineWrite(scope, "malformed_event", parsed.error?.message ?? "payload inválido", payload);
+      emitActivity(scope, { kind: "quarantine", label: "evento malformado descartado do stream" });
+      await redis.xack(events, INGEST_GROUP, id);
       return;
     }
-    await processEvent(parsed.data as CanonicalEvent);
-    await redis.xack(KEYS.events, KEYS.ingestGroup, id);
+    await processEvent(scope, parsed.data as CanonicalEvent);
+    await redis.xack(events, INGEST_GROUP, id);
   } catch (err) {
-    console.error("[brain:ingest] falha ao processar evento:", err instanceof Error ? err.message : err);
+    console.error(`[brain:${scope.owner}:ingest] falha ao processar evento:`, err instanceof Error ? err.message : err);
   }
 }
 
-async function reclaimStale(): Promise<number> {
+async function reclaimStale(scope: BrainScope): Promise<number> {
   const redis = getRedis();
+  const events = brainKeys(scope).events;
   let handled = 0;
   {
     const pending = (await redis.xpending(
-      KEYS.events,
-      KEYS.ingestGroup,
+      events,
+      INGEST_GROUP,
       "IDLE",
       PENDING_MIN_IDLE_MS,
       "-",
@@ -156,8 +160,8 @@ async function reclaimStale(): Promise<number> {
 
     for (const [id, , , deliveries] of pending) {
       const claimed = (await redis.xclaim(
-        KEYS.events,
-        KEYS.ingestGroup,
+        events,
+        INGEST_GROUP,
         CONSUMER,
         PENDING_MIN_IDLE_MS,
         id,
@@ -166,14 +170,15 @@ async function reclaimStale(): Promise<number> {
       if (!entry) continue;
       if (deliveries > MAX_DELIVERIES) {
         await quarantineWrite(
+          scope,
           "ingest_failed",
           `evento excedeu ${MAX_DELIVERIES} tentativas de ingestão`,
           entryPayload(entry[1]),
         );
-        emitActivity({ kind: "quarantine", label: "evento enviado à quarentena após retries" });
-        await redis.xack(KEYS.events, KEYS.ingestGroup, id);
+        emitActivity(scope, { kind: "quarantine", label: "evento enviado à quarentena após retries" });
+        await redis.xack(events, INGEST_GROUP, id);
       } else {
-        await handleEntry(entry[0], entry[1]);
+        await handleEntry(scope, entry[0], entry[1]);
       }
       handled += 1;
     }
@@ -181,36 +186,36 @@ async function reclaimStale(): Promise<number> {
   return handled;
 }
 
-export async function ingestTick(): Promise<{ processed: number }> {
+export async function ingestTick(scope: BrainScope): Promise<{ processed: number }> {
   const redis = getRedis();
   let processed = 0;
   let response: [string, StreamEntry[]][] | null;
   try {
     response = (await redis.xreadgroup(
       "GROUP",
-      KEYS.ingestGroup,
+      INGEST_GROUP,
       CONSUMER,
       "COUNT",
       READ_COUNT,
       "STREAMS",
-      KEYS.events,
+      brainKeys(scope).events,
       ">",
     )) as [string, StreamEntry[]][] | null;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (!msg.includes("NOGROUP")) throw err;
-    await ensureConsumerGroup();
+    await ensureConsumerGroup(scope);
     return { processed };
   }
 
   if (response) {
     for (const [, entries] of response) {
       for (const [id, fields] of entries) {
-        await handleEntry(id, fields);
+        await handleEntry(scope, id, fields);
         processed += 1;
       }
     }
   }
-  processed += await reclaimStale();
+  processed += await reclaimStale(scope);
   return { processed };
 }

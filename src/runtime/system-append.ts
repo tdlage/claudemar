@@ -1,9 +1,9 @@
-import { memoryEnabled, type MemoryTarget } from "../memory/session-memory.js";
+import { memoryEnabled } from "../memory/session-memory.js";
 import { BRAIN_SYSTEM_APPEND } from "../brain/mcp.js";
+import { sessionBrain, type SessionBrainParams } from "./session-brain.js";
 
-export interface SystemAppendParams {
+export interface SystemAppendParams extends SessionBrainParams {
   cwd: string;
-  target: MemoryTarget;
   systemAppend?: string;
   skipIsolationInstruction?: boolean;
 }
@@ -18,9 +18,7 @@ export function buildSystemAppend(params: SystemAppendParams): string {
       "Você tem memória de longo prazo de sessões ANTERIORES (fora desta conversa), guardada por projeto/agente. Esta sessão NÃO injeta esse histórico automaticamente: quando o pedido depender de algo discutido ou decidido antes que não esteja nesta conversa, use a tool mcp__memory__search_memory para buscar nas sessões anteriores deste mesmo alvo, e mcp__memory__memory_history para ver como um fato específico (sourceKey) evoluiu ao longo do tempo. Não invente histórico: se precisar, consulte a memória.",
     );
   }
-  if (params.target.targetType === "orchestrator") {
-    parts.push(BRAIN_SYSTEM_APPEND);
-  }
+  if (sessionBrain(params)) parts.push(BRAIN_SYSTEM_APPEND);
   if (params.systemAppend) parts.push(params.systemAppend);
   return parts.join("\n\n");
 }

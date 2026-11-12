@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { brainSettingsManager } from "./settings.js";
+import { systemSettings } from "./settings.js";
 import { incrMetric } from "./redis.js";
 import { sha256Hex } from "./text.js";
+import type { BrainScope } from "./scope.js";
 import type { BrainLlmProvider, BrainStageLlm } from "./types.js";
 
 export type BrainLlmStage = "triage" | "compile" | "selector" | "distill" | "lint" | "chat";
@@ -15,7 +16,7 @@ interface ResolvedStage {
 const clients = new Map<string, { apiKey: string; client: Anthropic }>();
 
 function resolveStage(stage: BrainLlmStage): ResolvedStage | { error: string } {
-  const settings = brainSettingsManager.get();
+  const settings = systemSettings();
   const stageConfig: BrainStageLlm = settings.llm[stage];
   const provider = settings.llm.providers.find((p) => p.id === stageConfig.providerId);
   if (!provider) return { error: `provedor "${stageConfig.providerId}" não existe nas settings` };
@@ -109,9 +110,9 @@ export function extractJson(text: string): unknown {
   throw new Error("resposta do modelo não contém JSON");
 }
 
-function parseResponse(stage: BrainLlmStage, model: string, response: Anthropic.Message): unknown {
-  void incrMetric(`tokens_in:${stage}`, response.usage.input_tokens);
-  void incrMetric(`tokens_out:${stage}`, response.usage.output_tokens);
+function parseResponse(scope: BrainScope, stage: BrainLlmStage, model: string, response: Anthropic.Message): unknown {
+  void incrMetric(scope, `tokens_in:${stage}`, response.usage.input_tokens);
+  void incrMetric(scope, `tokens_out:${stage}`, response.usage.output_tokens);
   if (response.stop_reason === "refusal") {
     throw new Error(`${model} recusou a requisição (stop_reason: refusal)`);
   }
@@ -125,12 +126,12 @@ function parseResponse(stage: BrainLlmStage, model: string, response: Anthropic.
   return extractJson(text);
 }
 
-export async function runStageJson(stage: BrainLlmStage, req: StageRequest): Promise<unknown> {
+export async function runStageJson(scope: BrainScope, stage: BrainLlmStage, req: StageRequest): Promise<unknown> {
   const resolved = resolveStage(stage);
   if ("error" in resolved) throw new Error(resolved.error);
   const client = getClient(resolved);
   const response = await client.messages.create(buildParams(resolved, req));
-  return parseResponse(stage, resolved.model, response);
+  return parseResponse(scope, stage, resolved.model, response);
 }
 
 export interface BatchRequestItem {
@@ -168,6 +169,7 @@ export async function stageBatchStatus(
 }
 
 export async function collectStageBatch(
+  scope: BrainScope,
   stage: BrainLlmStage,
   batchId: string,
   customIds: string[],
@@ -184,7 +186,7 @@ export async function collectStageBatch(
       try {
         out.set(customId, {
           ok: true,
-          value: parseResponse(stage, resolved.model, result.result.message),
+          value: parseResponse(scope, stage, resolved.model, result.result.message),
         });
       } catch (err) {
         out.set(customId, { ok: false, error: err instanceof Error ? err.message : String(err) });

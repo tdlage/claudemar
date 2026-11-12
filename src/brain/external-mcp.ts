@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { brainApiKeys, type BrainApiKeyInfo } from "./api-keys.js";
 import { incrMetric } from "./redis.js";
+import { ADMIN_BRAIN, adminBrain, userBrain, type BrainScope } from "./scope.js";
 import { describeTargets } from "./claudemar/pages.js";
 import { wikiFrontmatterSchema } from "./frontmatter.js";
 import {
@@ -50,6 +51,7 @@ const monthSchema = z.string().regex(/^\d{4}-\d{2}$/);
 const pathSchema = z.string().min(1).max(300);
 
 interface ToolAudit {
+  scope: BrainScope;
   key: BrainApiKeyInfo;
   ip: string;
   userAgent: string;
@@ -62,9 +64,9 @@ async function guarded(audit: ToolAudit, tool: string, args: unknown, run: () =>
     text = await run();
   } catch (err) {
     ok = false;
-    text = `Falha: ${safeErrorMessage(err)}`;
+    text = `Falha: ${safeErrorMessage(audit.scope, err)}`;
   }
-  brainApiKeys.audit({
+  brainApiKeys.audit(audit.scope, {
     at: new Date().toISOString(),
     keyId: audit.key.id,
     keyName: audit.key.name,
@@ -79,6 +81,7 @@ async function guarded(audit: ToolAudit, tool: string, args: unknown, run: () =>
 }
 
 export function createExternalBrainServer(audit: ToolAudit): McpServer {
+  const { scope } = audit;
   const server = new McpServer(
     { name: "claudemar-second-brain", version: "1.0.0" },
     { instructions: EXTERNAL_BRAIN_INSTRUCTIONS },
@@ -102,7 +105,7 @@ export function createExternalBrainServer(audit: ToolAudit): McpServer {
     },
     async (args) =>
       guarded(audit, "brain_search", args, () =>
-        runBrainSearch({ ...args, surface, tool: "brain_search" }),
+        runBrainSearch(scope, { ...args, surface, tool: "brain_search" }),
       ),
   );
 
@@ -113,7 +116,7 @@ export function createExternalBrainServer(audit: ToolAudit): McpServer {
       inputSchema: { path: pathSchema.describe("Caminho relativo sob wiki/ ou state/") },
       annotations: readOnly,
     },
-    async (args) => guarded(audit, "brain_read", args, () => runBrainRead(args.path)),
+    async (args) => guarded(audit, "brain_read", args, () => runBrainRead(scope, args.path)),
   );
 
   server.registerTool(
@@ -127,7 +130,7 @@ export function createExternalBrainServer(audit: ToolAudit): McpServer {
       },
       annotations: readOnly,
     },
-    async (args) => guarded(audit, "brain_history", args, () => runBrainHistory(args.path, args.sha, args.limit)),
+    async (args) => guarded(audit, "brain_history", args, () => runBrainHistory(scope, args.path, args.sha, args.limit)),
   );
 
   server.registerTool(
@@ -142,7 +145,7 @@ export function createExternalBrainServer(audit: ToolAudit): McpServer {
       },
       annotations: readOnly,
     },
-    async (args) => guarded(audit, "raw_list", args, () => runRawList(args)),
+    async (args) => guarded(audit, "raw_list", args, () => runRawList(scope, args)),
   );
 
   server.registerTool(
@@ -152,7 +155,7 @@ export function createExternalBrainServer(audit: ToolAudit): McpServer {
       inputSchema: { path: pathSchema },
       annotations: readOnly,
     },
-    async (args) => guarded(audit, "raw_thread", args, () => runRawThread(args.path)),
+    async (args) => guarded(audit, "raw_thread", args, () => runRawThread(scope, args.path)),
   );
 
   server.registerTool(
@@ -168,7 +171,7 @@ export function createExternalBrainServer(audit: ToolAudit): McpServer {
       },
       annotations: readOnly,
     },
-    async (args) => guarded(audit, "raw_grep", args, () => runRawGrep(args)),
+    async (args) => guarded(audit, "raw_grep", args, () => runRawGrep(scope, args)),
   );
 
   server.registerTool(
@@ -181,7 +184,7 @@ export function createExternalBrainServer(audit: ToolAudit): McpServer {
     },
     async (args) =>
       guarded(audit, "claudemar_targets", args, async () => {
-        const targets = (await describeTargets()).filter((t) => !t.excluded);
+        const targets = (await describeTargets(scope)).filter((t) => !t.excluded);
         if (targets.length === 0) return "Nenhum projeto ou agente registrado.";
         return untrusted(
           "claudemar (alvos)",
@@ -227,13 +230,20 @@ function release(keyId: string): void {
   if (entry) entry.running = Math.max(0, entry.running - 1);
 }
 
+/** A chave decide o brain: a de um usuário removido não resolve para escopo nenhum e é recusada. */
+function scopeOfKey(owner: string): BrainScope | null {
+  return owner === ADMIN_BRAIN ? adminBrain() : userBrain(owner);
+}
+
 function brainMcpAuth(req: Request, res: Response, next: NextFunction): void {
-  const key = brainApiKeys.authenticate(bearer(req));
-  if (!key) {
+  const authenticated = brainApiKeys.authenticate(bearer(req));
+  const scope = authenticated ? scopeOfKey(authenticated.owner) : null;
+  if (!authenticated || !scope) {
     res.setHeader("WWW-Authenticate", 'Bearer realm="claudemar-second-brain"');
     jsonRpcError(res, 401, "chave de API do Second Brain ausente ou inválida");
     return;
   }
+  const key = authenticated.info;
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     jsonRpcError(res, 405, "use POST (servidor MCP sem estado)");
@@ -250,12 +260,14 @@ function brainMcpAuth(req: Request, res: Response, next: NextFunction): void {
   }
   res.on("close", () => release(key.id));
   res.locals.brainApiKey = key;
+  res.locals.brainScope = scope;
   next();
 }
 
 /** MCP sem estado: cada POST cria servidor e transporte próprios, como exige um cliente remoto como a API da xAI. */
 async function brainMcpHandler(req: Request, res: Response): Promise<void> {
   const key = res.locals.brainApiKey as BrainApiKeyInfo;
+  const scope = res.locals.brainScope as BrainScope;
   const body: unknown = req.body;
   if (Array.isArray(body)) {
     jsonRpcError(res, 400, "lotes JSON-RPC não são aceitos: envie uma mensagem por requisição", -32600);
@@ -266,6 +278,7 @@ async function brainMcpHandler(req: Request, res: Response): Promise<void> {
     return;
   }
   const server = createExternalBrainServer({
+    scope,
     key,
     ip: req.ip ?? "",
     userAgent: String(req.headers["user-agent"] ?? "").slice(0, 200),
@@ -278,7 +291,7 @@ async function brainMcpHandler(req: Request, res: Response): Promise<void> {
   try {
     await server.connect(transport);
     await transport.handleRequest(req, res, body);
-    await incrMetric("external_mcp_requests").catch(() => {});
+    await incrMetric(scope, "external_mcp_requests").catch(() => {});
   } catch (err) {
     console.error("[brain:mcp] requisição falhou:", err instanceof Error ? err.message : String(err));
     if (!res.headersSent) jsonRpcError(res, 500, "erro interno do servidor MCP", -32603);

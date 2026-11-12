@@ -24,8 +24,24 @@ export interface HistoryEntry {
   sessionId?: string;
   planMode?: boolean;
   username?: string;
+  userId?: string;
   effort?: Effort;
   effortAuto?: boolean;
+}
+
+/**
+ * De quem é uma execução para o Second Brain. O admin fica com o que não tem usuário (dashboard do admin,
+ * Telegram, agendamentos do admin e pipeline); um usuário só com o que carrega o id dele — nunca pelo nome,
+ * que pode ser trocado e reaproveitado por outra pessoa.
+ */
+export type HistoryOwner = { kind: "admin" } | { kind: "user"; userId: string };
+
+function ownerClause(owner: HistoryOwner): { sql: string; params: string[] } {
+  if (owner.kind === "user") return { sql: "user_id = ?", params: [owner.userId] };
+  return {
+    sql: "(user_id IS NULL AND (username IS NULL OR username = 'admin' OR username LIKE 'pipeline%'))",
+    params: [],
+  };
 }
 
 interface HistoryRow extends RowDataPacket {
@@ -48,6 +64,7 @@ interface HistoryRow extends RowDataPacket {
   session_id: string | null;
   plan_mode: number;
   username: string | null;
+  user_id: string | null;
   effort: string | null;
   effort_auto: number | null;
 }
@@ -77,6 +94,7 @@ function rowToEntry(row: HistoryRow): HistoryEntry {
     sessionId: row.session_id ?? undefined,
     planMode: row.plan_mode === 1 ? true : undefined,
     username: row.username ?? undefined,
+    userId: row.user_id ?? undefined,
     effort: EFFORTS.includes(row.effort as Effort) ? (row.effort as Effort) : undefined,
     effortAuto: row.effort_auto === 1 ? true : undefined,
   };
@@ -84,14 +102,14 @@ function rowToEntry(row: HistoryRow): HistoryEntry {
 
 export function appendHistory(entry: HistoryEntry): void {
   execute(
-    `INSERT INTO execution_history (id, prompt, target_type, target_name, agent_name, model, runtime, status, started_at, completed_at, cost_usd, total_tokens, duration_ms, source, output, error, session_id, plan_mode, username, effort, effort_auto)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO execution_history (id, prompt, target_type, target_name, agent_name, model, runtime, status, started_at, completed_at, cost_usd, total_tokens, duration_ms, source, output, error, session_id, plan_mode, username, user_id, effort, effort_auto)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       entry.id, entry.prompt, entry.targetType, entry.targetName,
       entry.agentName ?? null, entry.model ?? null, entry.runtime ?? inferRuntimeFromModel(entry.model), entry.status, toMySQLDatetime(entry.startedAt), entry.completedAt ? toMySQLDatetime(entry.completedAt) : null,
       entry.costUsd ?? 0, entry.totalTokens ?? 0, entry.durationMs ?? 0, entry.source ?? "telegram",
       entry.output ?? null, entry.error ?? null, entry.sessionId ?? null,
-      entry.planMode ? 1 : 0, entry.username ?? null,
+      entry.planMode ? 1 : 0, entry.username ?? null, entry.userId ?? null,
       entry.effort ?? null, entry.effortAuto ? 1 : 0,
     ],
   ).catch((err) => console.error("[history] append failed:", err));
@@ -161,47 +179,53 @@ function batchLimit(limit: number): number {
   return Math.min(MAX_BATCH, Math.max(1, Math.floor(Number(limit))));
 }
 
-export async function loadHistoryFinishedSince(sinceIso: string, limit: number): Promise<HistoryEntry[]> {
+export async function loadHistoryFinishedSince(owner: HistoryOwner, sinceIso: string, limit: number): Promise<HistoryEntry[]> {
+  const clause = ownerClause(owner);
   const rows = await query<HistoryRow[]>(
     `SELECT * FROM execution_history
-     WHERE COALESCE(completed_at, started_at) >= ?
+     WHERE COALESCE(completed_at, started_at) >= ? AND ${clause.sql}
      ORDER BY COALESCE(completed_at, started_at) ASC, id ASC
      LIMIT ${batchLimit(limit)}`,
-    [toMySQLDatetime(sinceIso)],
+    [toMySQLDatetime(sinceIso), ...clause.params],
   );
   return rows.map(rowToEntry);
 }
 
 export async function loadHistoryStartedBetween(
+  owner: HistoryOwner,
   fromIso: string,
   toIso: string,
   afterId: string | null,
   limit: number,
 ): Promise<HistoryEntry[]> {
+  const clause = ownerClause(owner);
   const rows = await query<HistoryRow[]>(
     `SELECT * FROM execution_history
-     WHERE started_at >= ? AND started_at < ? AND (? IS NULL OR id > ?)
+     WHERE started_at >= ? AND started_at < ? AND (? IS NULL OR id > ?) AND ${clause.sql}
      ORDER BY id ASC
      LIMIT ${batchLimit(limit)}`,
-    [toMySQLDatetime(fromIso), toMySQLDatetime(toIso), afterId, afterId],
+    [toMySQLDatetime(fromIso), toMySQLDatetime(toIso), afterId, afterId, ...clause.params],
   );
   return rows.map(rowToEntry);
 }
 
-export async function countHistoryStartedSince(fromIso: string): Promise<number> {
+export async function countHistoryStartedSince(owner: HistoryOwner, fromIso: string): Promise<number> {
+  const clause = ownerClause(owner);
   const rows = await query<(RowDataPacket & { total: number })[]>(
-    "SELECT COUNT(*) AS total FROM execution_history WHERE started_at >= ?",
-    [toMySQLDatetime(fromIso)],
+    `SELECT COUNT(*) AS total FROM execution_history WHERE started_at >= ? AND ${clause.sql}`,
+    [toMySQLDatetime(fromIso), ...clause.params],
   );
   return Number(rows[0]?.total ?? 0);
 }
 
 export async function loadSessionPrompts(
+  owner: HistoryOwner,
   sessionId: string,
 ): Promise<{ id: string; prompt: string; completedAt: string | null }[]> {
+  const clause = ownerClause(owner);
   const rows = await query<(RowDataPacket & { id: string; prompt: string; completed_at: Date | string | null })[]>(
-    "SELECT id, prompt, completed_at FROM execution_history WHERE session_id = ? ORDER BY started_at ASC, id ASC",
-    [sessionId],
+    `SELECT id, prompt, completed_at FROM execution_history WHERE session_id = ? AND ${clause.sql} ORDER BY started_at ASC, id ASC`,
+    [sessionId, ...clause.params],
   );
   return rows.map((row) => ({
     id: row.id,
@@ -240,16 +264,18 @@ export function likeEscape(value: string): string {
 }
 
 export async function summarizeTargetHistory(
+  owner: HistoryOwner,
   targetType: string,
   targetName: string | null,
   recentLimit: number,
 ): Promise<TargetHistorySummary> {
+  const clause = ownerClause(owner);
   const where = targetName === null
-    ? "target_type = ?"
-    : "target_type = ? AND (target_name = ? OR target_name LIKE ?)";
+    ? `target_type = ? AND ${clause.sql}`
+    : `target_type = ? AND (target_name = ? OR target_name LIKE ?) AND ${clause.sql}`;
   const params = targetName === null
-    ? [targetType]
-    : [targetType, targetName, `${likeEscape(`__commitpush:${targetName}:`)}%`];
+    ? [targetType, ...clause.params]
+    : [targetType, targetName, `${likeEscape(`__commitpush:${targetName}:`)}%`, ...clause.params];
   const totals = await query<(RowDataPacket & {
     executions: number;
     sessions: number;

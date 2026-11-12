@@ -21,6 +21,7 @@ import { DriveFolders } from "../components/shared/DriveFolders";
 import { AgentConfig } from "../components/agent/AgentConfig";
 import { AgentSchedules } from "../components/agent/AgentSchedules";
 import { AgentContextFiles } from "../components/agent/AgentContextFiles";
+import { AgentIntegrations } from "../components/agent/AgentIntegrations";
 import { SecretsPanel } from "../components/shared/SecretsPanel";
 import { FilesBrowser } from "../components/project/FilesBrowser";
 import { useCachedState } from "../hooks/useCachedState";
@@ -31,7 +32,7 @@ import { AppearanceEditor } from "../components/agent/AppearanceEditor";
 import { isAdmin } from "../hooks/useAuth";
 import type { AgentDetail, AgentAppearance } from "../lib/types";
 
-type TabKey = "terminal" | "code" | "input" | "output" | "config" | "scheduler" | "context" | "secrets";
+type TabKey = "terminal" | "code" | "input" | "output" | "config" | "scheduler" | "context" | "secrets" | "integrations";
 
 export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -152,6 +153,7 @@ export function AgentDetailPage() {
     { key: "scheduler", label: `Agendamentos (${agent.schedules.length})` },
     { key: "context", label: `Contexto (${agent.contextFiles.length})` },
     { key: "secrets", label: `Credenciais (${agent.secrets.length})` },
+    { key: "integrations", label: `Integrações (${agent.integrationCount})` },
   ];
 
   return (
@@ -376,6 +378,10 @@ export function AgentDetailPage() {
           secretFiles={agent.secretFiles}
           onRefresh={loadAgent}
         />
+      )}
+
+      {tab === "integrations" && (
+        <AgentIntegrations agentName={agent.name} onChanged={loadAgent} />
       )}
 
       {editingAvatar && (

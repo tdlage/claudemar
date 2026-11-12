@@ -204,22 +204,7 @@ export interface BrainAccount {
   tenant: BrainTenant;
 }
 
-export interface BrainSettings {
-  schedulers: {
-    gmail: boolean;
-    calendar: boolean;
-    ingest: boolean;
-    triage: boolean;
-    compile: boolean;
-    index: boolean;
-    digest: boolean;
-    whatsapp: boolean;
-    slack: boolean;
-    distill: boolean;
-    lint: boolean;
-    freshness: boolean;
-    claudemar: boolean;
-  };
+export interface BrainSystemSettings {
   cadences: {
     gmailMs: number;
     calendarMs: number;
@@ -231,11 +216,6 @@ export interface BrainSettings {
     slackMs: number;
     freshnessMs: number;
     claudemarMs: number;
-  };
-  chatter: {
-    minChars: number;
-    extraConfirmations: string[];
-    samplePerWeek: number;
   };
   llm: {
     providers: BrainLlmProvider[];
@@ -253,6 +233,37 @@ export interface BrainSettings {
     batchSize: number;
     maxPerTick: number;
   };
+  retrieval: BrainRetrievalSettings;
+  jev: BrainJevSettings;
+}
+
+export interface BrainWhatsappChat {
+  jid: string;
+  name: string;
+  kind: "contact" | "group";
+}
+
+export interface BrainOwnerSettings {
+  schedulers: {
+    gmail: boolean;
+    calendar: boolean;
+    ingest: boolean;
+    triage: boolean;
+    compile: boolean;
+    index: boolean;
+    digest: boolean;
+    whatsapp: boolean;
+    slack: boolean;
+    distill: boolean;
+    lint: boolean;
+    freshness: boolean;
+    claudemar: boolean;
+  };
+  chatter: {
+    minChars: number;
+    extraConfirmations: string[];
+    samplePerWeek: number;
+  };
   accounts: BrainAccount[];
   emailFilter: {
     skipCategories: string[];
@@ -264,10 +275,11 @@ export interface BrainSettings {
     monthsRaw: number;
     monthsCompile: number;
   };
-  retrieval: BrainRetrievalSettings;
-  jev: BrainJevSettings;
   claudemar: BrainClaudemarSettings;
+  whatsapp: { chats: BrainWhatsappChat[] };
 }
+
+export type BrainSettings = BrainSystemSettings & BrainOwnerSettings;
 
 export interface BrainClaudemarSettings {
   /** targetKey ("orchestrator", "project:<nome>", "agent:<nome>") → id do contexto. */
@@ -275,7 +287,6 @@ export interface BrainClaudemarSettings {
   excludedTargets: string[];
   transcripts: boolean;
   orphanSessions: boolean;
-  includeOtherUsers: boolean;
   pipeline: boolean;
   commits: boolean;
 }
@@ -350,6 +361,12 @@ export interface BackfillState {
   progress: BackfillProgress;
 }
 
+export interface BrainConnectionIssue {
+  connector: "google" | "whatsapp" | "slack";
+  account: string;
+  message: string;
+}
+
 export interface BrainStatus {
   redis: { reachable: boolean; lastError: string };
   google: { configured: boolean; accounts: GoogleAccountStatus[] };
@@ -361,6 +378,12 @@ export interface BrainStatus {
   git: { head: string; dirty: number };
   backfill: BackfillState;
   alerts: string[];
+  connections: BrainConnectionIssue[];
+}
+
+export interface BrainTechnicalStatus {
+  initialized: boolean;
+  status: BrainStatus | null;
 }
 
 export type QuarantineKind =

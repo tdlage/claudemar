@@ -2,10 +2,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../config.js";
-import { stateDir } from "./paths.js";
 import { writeFileAtomic } from "./git.js";
 import { dayKeyInTz } from "./text.js";
-import { getRedis, KEYS } from "./redis.js";
+import { brainKeys, getRedis } from "./redis.js";
+import { perScope, type BrainScope } from "./scope.js";
 import { scanRawThreads } from "./raw-scan.js";
 import { currentOpenLoops, readOpenLoops } from "./wiki.js";
 import { brainSchedulers } from "./schedulers.js";
@@ -14,7 +14,7 @@ import type { OpenLoopEntry } from "./types.js";
 
 const DIGEST_AT = { hour: 7, minute: 0 };
 
-const digestDir = resolve(stateDir, "digest");
+const digestDir = (scope: BrainScope): string => resolve(scope.stateDir, "digest");
 
 function daysBetween(from: string, to: string): number {
   return Math.floor((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000);
@@ -26,36 +26,37 @@ function loopLine(loop: OpenLoopEntry, today: string): string {
   return `- [${loop.kind}] ${loop.title} · ${loop.counterparty}${due}${overdue}\n  próxima ação: ${loop.next_action}`;
 }
 
-let digestInFlight: Promise<{ relPath: string; sections: number }> | null = null;
+const digestRun = perScope((): { inFlight: Promise<{ relPath: string; sections: number }> | null } => ({ inFlight: null }));
 
-export function generateDigest(): Promise<{ relPath: string; sections: number }> {
-  if (!digestInFlight) {
-    digestInFlight = runDigest().finally(() => {
-      digestInFlight = null;
+export function generateDigest(scope: BrainScope): Promise<{ relPath: string; sections: number }> {
+  const state = digestRun(scope);
+  if (!state.inFlight) {
+    state.inFlight = runDigest(scope).finally(() => {
+      state.inFlight = null;
     });
   }
-  return digestInFlight;
+  return state.inFlight;
 }
 
-async function runDigest(): Promise<{ relPath: string; sections: number }> {
+async function runDigest(scope: BrainScope): Promise<{ relPath: string; sections: number }> {
   const today = dayKeyInTz(new Date(), config.brainTz);
   const now = Date.now();
 
-  const loops = currentOpenLoops(await readOpenLoops()).filter((l) => l.status === "open");
+  const loops = currentOpenLoops(await readOpenLoops(scope)).filter((l) => l.status === "open");
   const overdue = loops.filter((l) => l.due && l.due < today);
   const dueSoon = loops.filter((l) => l.due && l.due >= today && daysBetween(today, l.due) <= 3);
   const stalled = loops.filter(
     (l) => l.kind === "waiting_on" && daysBetween(l.last_movement, today) > 14,
   );
 
-  const scan = await scanRawThreads();
+  const scan = await scanRawThreads(scope);
   const critical = scan.filter(
     (t) => t.relevance === 3 && now - new Date(t.occurredTo).getTime() <= 24 * 60 * 60 * 1000,
   );
 
   let alerts: string[] = [];
   try {
-    alerts = await getRedis().lrange(KEYS.alerts, 0, 19);
+    alerts = await getRedis().lrange(brainKeys(scope).alerts, 0, 19);
   } catch {}
 
   const parts: string[] = [`# Digest — ${today}`, ""];
@@ -96,14 +97,15 @@ async function runDigest(): Promise<{ relPath: string; sections: number }> {
   }
 
   const relPath = `state/digest/${today}.md`;
-  await writeFileAtomic(resolve(digestDir, `${today}.md`), parts.join("\n"));
-  emitActivity({ kind: "digest", label: `digest de ${today} gerado (${sections} seção(ões))`, path: relPath });
+  await writeFileAtomic(scope, resolve(digestDir(scope), `${today}.md`), parts.join("\n"));
+  emitActivity(scope, { kind: "digest", label: `digest de ${today} gerado (${sections} seção(ões))`, path: relPath });
   return { relPath, sections };
 }
 
-export async function listDigests(): Promise<string[]> {
-  if (!existsSync(digestDir)) return [];
-  const files = await readdir(digestDir).catch(() => [] as string[]);
+export async function listDigests(scope: BrainScope): Promise<string[]> {
+  const dir = digestDir(scope);
+  if (!existsSync(dir)) return [];
+  const files = await readdir(dir).catch(() => [] as string[]);
   return files
     .filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
     .map((f) => f.replace(/\.md$/, ""))
@@ -111,9 +113,9 @@ export async function listDigests(): Promise<string[]> {
     .reverse();
 }
 
-export async function readDigest(date: string): Promise<string | null> {
+export async function readDigest(scope: BrainScope, date: string): Promise<string | null> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-  const path = resolve(digestDir, `${date}.md`);
+  const path = resolve(digestDir(scope), `${date}.md`);
   if (!existsSync(path)) return null;
   return readFile(path, "utf-8");
 }
@@ -121,8 +123,8 @@ export async function readDigest(date: string): Promise<string | null> {
 brainSchedulers.register({
   name: "digest",
   at: DIGEST_AT,
-  run: async () => {
-    const { sections } = await generateDigest();
+  run: async (scope) => {
+    const { sections } = await generateDigest(scope);
     return `${sections} seção(ões)`;
   },
 });

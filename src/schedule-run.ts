@@ -6,6 +6,7 @@ import { getScheduleById } from "./agents/scheduler.js";
 import { getAgentPaths } from "./agents/manager.js";
 import { closePool } from "./database.js";
 import { driveStore } from "./google-drive/store.js";
+import { integrationStore } from "./integrations/store.js";
 import { usersManager } from "./users-manager.js";
 import type { Requester } from "./requester.js";
 
@@ -41,6 +42,9 @@ async function main(): Promise<number> {
   await usersManager.initialize();
   await driveStore.initialize().catch((err) => {
     console.error(`[schedule-run] pastas do Google Drive indisponíveis: ${err instanceof Error ? err.message : String(err)}`);
+  });
+  await integrationStore.initialize().catch((err) => {
+    console.error(`[schedule-run] integrações (Asana/Notion) indisponíveis: ${err instanceof Error ? err.message : String(err)}`);
   });
 
   const startedAt = new Date().toISOString();

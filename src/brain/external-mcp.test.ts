@@ -17,11 +17,14 @@ process.env.REDIS_URL = "redis://127.0.0.1:63999";
 
 const { brainMcpRoute } = await import("./external-mcp.js");
 const { brainApiKeys } = await import("./api-keys.js");
-const { ensureBrainTree, brainRoot } = await import("./paths.js");
+const { ensureBrainTree } = await import("./paths.js");
+const { adminBrain } = await import("./scope.js");
+const scope = adminBrain();
+const brainRoot = scope.root;
 const { getRedis } = await import("./redis.js");
 const { config } = await import("../config.js");
 
-ensureBrainTree();
+ensureBrainTree(scope);
 mkdirSync(resolve(brainRoot, "state", "quarantine"), { recursive: true });
 writeFileSync(resolve(brainRoot, "state", "quarantine", "item.json"), '{"segredo":"quarentena"}');
 
@@ -71,7 +74,7 @@ function post(body: string, headers: Record<string, string>): Promise<Response> 
 }
 
 test("chave válida lista as ferramentas somente leitura, lê o brain e fica na auditoria", async () => {
-  const { key, info } = brainApiKeys.create("bot externo");
+  const { key, info } = brainApiKeys.create(scope.owner, "bot externo");
   const client = await connect(`Bearer ${key}`);
   try {
     const { tools } = await client.listTools();
@@ -90,13 +93,13 @@ test("chave válida lista as ferramentas somente leitura, lê o brain e fica na 
   } finally {
     await client.close();
   }
-  assert.ok(brainApiKeys.list().find((k) => k.id === info.id)?.lastUsedAt);
-  const audited = brainApiKeys.readAudit(50).filter((e) => e.keyId === info.id).map((e) => e.tool);
+  assert.ok(brainApiKeys.list(scope.owner).find((k) => k.id === info.id)?.lastUsedAt);
+  const audited = brainApiKeys.readAudit(scope, 50).filter((e) => e.keyId === info.id).map((e) => e.tool);
   assert.ok(audited.includes("brain_read") && audited.includes("claudemar_targets"));
 });
 
 test("a quarentena não é alcançável por caminhos equivalentes", async () => {
-  const { key } = brainApiKeys.create("quarentena");
+  const { key } = brainApiKeys.create(scope.owner, "quarentena");
   const client = await connect(`Bearer ${key}`);
   try {
     for (const path of ["state/quarantine", "state//quarantine/item.json", "state/./quarantine/item.json", "state/quarantine/item.json"]) {
@@ -112,7 +115,7 @@ test("a quarentena não é alcançável por caminhos equivalentes", async () => 
 });
 
 test("lote JSON-RPC, Content-Type malformado e corpo grande são recusados antes do SDK", async () => {
-  const { key } = brainApiKeys.create("limites");
+  const { key } = brainApiKeys.create(scope.owner, "limites");
   const auth = { authorization: `Bearer ${key}` };
   const batch = await post(JSON.stringify([initialize, { ...initialize, id: 2 }]), { ...auth, "content-type": "application/json" });
   assert.equal(batch.status, 400);
@@ -135,19 +138,19 @@ test("sem chave, com chave errada ou revogada a requisição é recusada, e a re
   assert.equal((await post("{quebrado", json)).status, 401);
   assert.equal((await post(JSON.stringify(initialize), { ...json, authorization: "Bearer cmb_inexistente" })).status, 401);
 
-  const { key, info } = brainApiKeys.create("temporária");
+  const { key, info } = brainApiKeys.create(scope.owner, "temporária");
   assert.equal((await post(JSON.stringify(initialize), { ...json, authorization: `Bearer ${key}` })).status, 200);
-  assert.equal(brainApiKeys.revoke(info.id), true);
+  assert.equal(brainApiKeys.revoke(scope.owner, info.id), true);
   assert.equal((await post(JSON.stringify(initialize), { ...json, authorization: `Bearer ${key}` })).status, 401);
   const stored = JSON.parse(readFileSync(resolve(config.dataPath, "brain-api-keys.json"), "utf-8")) as { id: string }[];
   assert.ok(!stored.some((k) => k.id === info.id));
 
-  const get = await fetch(url, { headers: { authorization: `Bearer ${brainApiKeys.create("get").key}` } });
+  const get = await fetch(url, { headers: { authorization: `Bearer ${brainApiKeys.create(scope.owner, "get").key}` } });
   assert.equal(get.status, 405);
 });
 
 test("a chave também é aceita sem o prefixo Bearer", async () => {
-  const { key } = brainApiKeys.create("sem bearer");
+  const { key } = brainApiKeys.create(scope.owner, "sem bearer");
   const client = await connect(key);
   try {
     assert.ok((await client.listTools()).tools.length > 0);

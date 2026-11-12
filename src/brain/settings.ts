@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { config } from "../config.js";
 import { JsonPersister } from "../json-persister.js";
 import { DEFAULT_HALF_LIFE_DAYS, DEFAULT_SALIENCE_BONUS, DEFAULT_TYPE_WEIGHTS } from "./ranking.js";
@@ -6,12 +7,16 @@ import { SCHEDULER_NAMES } from "./types.js";
 import { ROOT_TENANT } from "./tenants.js";
 import { slugify } from "./text.js";
 import { parseTargetKey } from "./claudemar/managed.js";
+import { adminBrain, onBrainScopeForgotten, type BrainScope } from "./scope.js";
 import type {
   BrainAccount,
   BrainLlmProvider,
+  BrainOwnerSettings,
   BrainSettings,
   BrainStageLlm,
+  BrainSystemSettings,
   BrainTenant,
+  BrainWhatsappChat,
   WikiPageType,
 } from "./types.js";
 
@@ -104,10 +109,10 @@ function defaults(): BrainSettings {
       excludedTargets: [],
       transcripts: true,
       orphanSessions: false,
-      includeOtherUsers: false,
       pipeline: true,
       commits: true,
     },
+    whatsapp: { chats: [] },
   };
 }
 
@@ -238,6 +243,64 @@ function deepMerge(base: Record<string, unknown>, patch: unknown): Record<string
   return out;
 }
 
+const WHATSAPP_JID_RE = /^[0-9A-Za-z._:-]{1,64}@(s\.whatsapp\.net|g\.us|lid|c\.us)$/;
+const MAX_WHATSAPP_CHATS = 1000;
+
+function sanitizeWhatsappChats(raw: unknown): BrainWhatsappChat[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const chats: BrainWhatsappChat[] = [];
+  for (const entry of raw) {
+    if (!isPlainObject(entry)) continue;
+    const jid = str(entry.jid, "").trim().toLowerCase();
+    if (!WHATSAPP_JID_RE.test(jid) || seen.has(jid)) continue;
+    seen.add(jid);
+    const kind = jid.endsWith("@g.us") ? "group" : "contact";
+    chats.push({ jid, name: str(entry.name, "").trim().slice(0, 200) || jid.split("@")[0], kind });
+    if (chats.length >= MAX_WHATSAPP_CHATS) break;
+  }
+  return chats;
+}
+
+export const SYSTEM_SECTIONS = ["cadences", "llm", "compile", "retrieval", "jev"] as const satisfies readonly (keyof BrainSystemSettings)[];
+
+function pickSystem(settings: BrainSettings): BrainSystemSettings {
+  return {
+    cadences: settings.cadences,
+    llm: settings.llm,
+    compile: settings.compile,
+    retrieval: settings.retrieval,
+    jev: settings.jev,
+  };
+}
+
+function pickOwner(settings: BrainSettings): BrainOwnerSettings {
+  return {
+    schedulers: settings.schedulers,
+    chatter: settings.chatter,
+    accounts: settings.accounts,
+    emailFilter: settings.emailFilter,
+    gmailQuery: settings.gmailQuery,
+    backfill: settings.backfill,
+    claudemar: settings.claudemar,
+    whatsapp: settings.whatsapp,
+  };
+}
+
+function withoutSystemSections(patch: unknown): Record<string, unknown> {
+  if (!isPlainObject(patch)) return {};
+  const out: Record<string, unknown> = { ...patch };
+  for (const section of SYSTEM_SECTIONS) delete out[section];
+  return out;
+}
+
+function onlySystemSections(patch: unknown): Record<string, unknown> {
+  if (!isPlainObject(patch)) return {};
+  const out: Record<string, unknown> = {};
+  for (const section of SYSTEM_SECTIONS) if (section in patch) out[section] = patch[section];
+  return out;
+}
+
 function sanitize(raw: unknown): BrainSettings {
   const d = defaults();
   if (!raw || typeof raw !== "object") return d;
@@ -252,6 +315,7 @@ function sanitize(raw: unknown): BrainSettings {
   const ret = (r.retrieval ?? {}) as Record<string, unknown>;
   const jev = (r.jev ?? {}) as Record<string, unknown>;
   const cm = (r.claudemar ?? {}) as Record<string, unknown>;
+  const wa = (r.whatsapp ?? {}) as Record<string, unknown>;
   const providers = sanitizeProviders(llm.providers);
   return {
     schedulers: Object.fromEntries(
@@ -323,15 +387,15 @@ function sanitize(raw: unknown): BrainSettings {
       excludedTargets: [...new Set(strArr(cm.excludedTargets).filter(validTargetKey))],
       transcripts: bool(cm.transcripts, d.claudemar.transcripts),
       orphanSessions: bool(cm.orphanSessions, d.claudemar.orphanSessions),
-      includeOtherUsers: bool(cm.includeOtherUsers, d.claudemar.includeOtherUsers),
       pipeline: bool(cm.pipeline, d.claudemar.pipeline),
       commits: bool(cm.commits, d.claudemar.commits),
     },
+    whatsapp: { chats: sanitizeWhatsappChats(wa.chats) },
   };
 }
 
-function clone(settings: BrainSettings): BrainSettings {
-  return JSON.parse(JSON.stringify(settings)) as BrainSettings;
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function deepFreeze<T>(value: T): T {
@@ -342,29 +406,57 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+/**
+ * O arquivo do admin guarda as duas partes (sistema e dono); o de um usuário só a parte de dono.
+ * A parte de sistema — provedores e modelos de LLM, cadências, compilação, ranking e Jev — é única e
+ * só o admin a altera: chaves de API e custo são da instalação, não de cada usuário.
+ */
 class BrainSettingsManager {
-  private data: BrainSettings = defaults();
-  private snapshot: BrainSettings = this.data;
-  private persister = new JsonPersister(resolve(config.dataPath, "brain-settings.json"), "brain-settings");
+  private data: BrainSettings;
+  private snapshot: BrainSettings;
+  private merged: { systemVersion: number; version: number; value: BrainSettings } | null = null;
+  private persister: JsonPersister;
+  version = 0;
 
-  constructor() {
+  constructor(private readonly scope: BrainScope) {
+    this.persister = new JsonPersister(scope.settingsFile, scope.isAdmin ? "brain-settings" : `brain-settings:${scope.owner}`);
     const raw = this.persister.readSync();
-    if (raw) this.data = sanitize(raw);
+    this.data = raw ? sanitize(raw) : defaults();
     this.snapshot = deepFreeze(clone(this.data));
   }
 
   private touched(): void {
+    this.version += 1;
     this.snapshot = deepFreeze(clone(this.data));
-    this.persister.scheduleWrite(() => this.data);
+    if (!this.scope.isAdmin) mkdirSync(dirname(this.scope.settingsFile), { recursive: true, mode: 0o700 });
+    this.persister.scheduleWrite(() => (this.scope.isAdmin ? this.data : pickOwner(this.data)));
   }
 
+  /** Visão completa usada pelo pipeline: parte de dono deste brain + parte de sistema do admin. */
   get(): BrainSettings {
-    return this.snapshot;
+    if (this.scope.isAdmin) return this.snapshot;
+    const system = brainSettings(adminBrain());
+    if (!this.merged || this.merged.systemVersion !== system.version || this.merged.version !== this.version) {
+      this.merged = {
+        systemVersion: system.version,
+        version: this.version,
+        value: deepFreeze({ ...clone(this.snapshot), ...clone(pickSystem(system.get())) }),
+      };
+    }
+    return this.merged.value;
+  }
+
+  getOwner(): BrainOwnerSettings {
+    return pickOwner(this.get());
+  }
+
+  getSystem(): BrainSystemSettings {
+    return pickSystem(this.get());
   }
 
   /** Mapeamento de contexto e exclusão de alvos só mudam pela rota dedicada, que também re-contextualiza e expurga. */
-  update(patch: unknown): BrainSettings {
-    const merged = deepMerge(this.data as unknown as Record<string, unknown>, patch);
+  updateOwner(patch: unknown): BrainOwnerSettings {
+    const merged = deepMerge(this.data as unknown as Record<string, unknown>, withoutSystemSections(patch));
     merged.claudemar = {
       ...(merged.claudemar as Record<string, unknown>),
       tenants: this.data.claudemar.tenants,
@@ -372,7 +464,14 @@ class BrainSettingsManager {
     };
     this.data = sanitize(merged);
     this.touched();
-    return clone(this.snapshot);
+    return clone(pickOwner(this.get()));
+  }
+
+  updateSystem(patch: unknown): BrainSystemSettings {
+    if (!this.scope.isAdmin) throw new Error("só o brain do admin guarda as configurações de sistema");
+    this.data = sanitize(deepMerge(this.data as unknown as Record<string, unknown>, onlySystemSections(patch)));
+    this.touched();
+    return clone(pickSystem(this.snapshot));
   }
 
   upsertAccount(email: string, patch?: Partial<BrainAccount>): void {
@@ -385,7 +484,7 @@ class BrainSettingsManager {
       this.data.accounts.push({
         email: normalized,
         label: patch?.label ?? normalized,
-        tenant: patch?.tenant ?? "personal",
+        tenant: patch?.tenant ?? ROOT_TENANT,
       });
     }
     this.touched();
@@ -418,9 +517,42 @@ class BrainSettingsManager {
     this.touched();
   }
 
+  setWhatsappChats(chats: unknown): BrainWhatsappChat[] {
+    this.data.whatsapp = { chats: sanitizeWhatsappChats(chats) };
+    this.touched();
+    return clone(this.snapshot).whatsapp.chats;
+  }
+
   flush(): void {
-    this.persister.flushSync(this.data);
+    this.persister.flushSync(this.scope.isAdmin ? this.data : pickOwner(this.data));
+  }
+
+  discard(): void {
+    this.persister.cancel();
   }
 }
 
-export const brainSettingsManager = new BrainSettingsManager();
+const managers = new Map<string, BrainSettingsManager>();
+
+onBrainScopeForgotten((owner) => {
+  managers.get(owner)?.discard();
+  managers.delete(owner);
+});
+
+export function brainSettings(scope: BrainScope): BrainSettingsManager {
+  let manager = managers.get(scope.owner);
+  if (!manager) {
+    manager = new BrainSettingsManager(scope);
+    managers.set(scope.owner, manager);
+  }
+  return manager;
+}
+
+/** Provedores, modelos, cadências, compilação, ranking e Jev: únicos na instalação e mantidos pelo admin. */
+export function systemSettings(): BrainSystemSettings {
+  return brainSettings(adminBrain()).getSystem();
+}
+
+export function flushBrainSettings(): void {
+  for (const manager of managers.values()) manager.flush();
+}

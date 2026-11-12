@@ -5,9 +5,13 @@ import { useSocketEvent } from "./useSocket";
 import type {
   BackfillState,
   BrainActivityItem,
+  BrainConnectionIssue,
+  BrainObservedStatus,
+  BrainOwnerSummary,
   BrainQuarantineItem,
   BrainSettings,
   BrainStatus,
+  BrainSystemSettings,
   BrainTenantEntry,
   GoogleAccountStatus,
 } from "../lib/types";
@@ -107,41 +111,42 @@ export function useBrainActivity() {
   return { activity: data ?? [], loading };
 }
 
-export function useBrainSettings() {
-  const [settings, setSettings] = useState<BrainSettings | null>(null);
-  const [loading, setLoading] = useState(true);
+function useEditableSettings<T extends object>(path: string, enabled: boolean, preserve?: (draft: T, current: T) => T) {
+  const [settings, setSettings] = useState<T | null>(null);
+  const [loading, setLoading] = useState(enabled);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
   const load = useCallback(() => {
+    if (!enabled) return;
     setLoading(true);
     api
-      .get<BrainSettings>("/brain/settings")
+      .get<T>(path)
       .then((s) => {
         setSettings(s);
         setDirty(false);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [path, enabled]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const patch = useCallback((updater: (prev: BrainSettings) => BrainSettings) => {
+  const patch = useCallback((updater: (prev: T) => T) => {
     setSettings((prev) => (prev ? updater(prev) : prev));
     setDirty(true);
   }, []);
 
   const save = useCallback(async (): Promise<boolean> => {
-    if (!settings) return false;
+    if (!settings || !dirty) return true;
     setSaving(true);
     try {
-      const current = await api.get<BrainSettings>("/brain/settings").catch(() => null);
-      const payload = current ? { ...settings, schedulers: current.schedulers } : settings;
-      const updated = await api.put<BrainSettings>("/brain/settings", payload);
+      const current = preserve ? await api.get<T>(path).catch(() => null) : null;
+      const payload = current && preserve ? preserve(settings, current) : settings;
+      const updated = await api.put<T>(path, payload);
       setSettings(updated);
       setDirty(false);
       return true;
@@ -151,9 +156,121 @@ export function useBrainSettings() {
     } finally {
       setSaving(false);
     }
-  }, [settings]);
+  }, [settings, dirty, path, preserve]);
 
   return { settings, patch, save, saving, loading, error, dirty, reload: load };
+}
+
+const keepLiveSchedulers = (draft: BrainSettings, current: BrainSettings): BrainSettings => ({
+  ...draft,
+  schedulers: current.schedulers,
+  whatsapp: current.whatsapp,
+});
+
+/** Configurações do brain de quem está logado (contas, filtros, conectores, claudemar). */
+export function useBrainSettings() {
+  return useEditableSettings<BrainSettings>("/brain/settings", true, keepLiveSchedulers);
+}
+
+/** Provedores, modelos, cadências, compilação, ranking e Jev — valem para todos os brains e só o admin altera. */
+export function useBrainSystemSettings(enabled: boolean) {
+  return useEditableSettings<BrainSystemSettings>("/brain/system-settings", enabled);
+}
+
+export function useBrainOwners(enabled: boolean) {
+  const { data, loading, refresh } = useBrainData<BrainOwnerSummary[]>(enabled ? "/brain/owners" : null);
+  useEffect(() => {
+    if (!enabled) return;
+    const id = setInterval(refresh, 60_000);
+    return () => clearInterval(id);
+  }, [enabled, refresh]);
+  return { owners: data ?? [], loading, refresh };
+}
+
+/** Status técnico, sem conteúdo, do brain de outro usuário — só para o admin. */
+export function useObservedBrain(owner: string) {
+  const { data, setData, loading, error, refresh } = useBrainData<BrainObservedStatus>(
+    `/brain/owners/${encodeURIComponent(owner)}/status`,
+    [owner],
+  );
+
+  useEffect(() => {
+    let socket = getSocket();
+    const subscribe = (): void => {
+      socket.emit("subscribe:brain-observe", owner);
+    };
+    subscribe();
+    socket.on("connect", subscribe);
+    const rebind = setInterval(() => {
+      const current = getSocket();
+      if (current === socket) return;
+      socket.off("connect", subscribe);
+      socket = current;
+      socket.on("connect", subscribe);
+      subscribe();
+    }, 5000);
+    return () => {
+      clearInterval(rebind);
+      socket.off("connect", subscribe);
+      socket.emit("unsubscribe:brain-observe", owner);
+    };
+  }, [owner]);
+
+  useSocketEvent<{ owner: string; initialized: boolean; status: BrainStatus | null }>("brain:observe", (event) => {
+    if (event.owner !== owner) return;
+    setData((prev) => (prev ? { ...prev, initialized: event.initialized, status: event.status } : prev));
+  });
+
+  useEffect(() => {
+    const id = setInterval(refresh, 60_000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  return { observed: data, loading, error, refresh };
+}
+
+const CONNECTIONS_POLL_MS = 5 * 60_000;
+
+let sharedIssues: BrainConnectionIssue[] = [];
+const issueListeners = new Set<(issues: BrainConnectionIssue[]) => void>();
+let issuesTimer: ReturnType<typeof setInterval> | null = null;
+
+function publishIssues(issues: BrainConnectionIssue[]): void {
+  sharedIssues = issues;
+  for (const listener of issueListeners) listener(issues);
+}
+
+function fetchIssues(): void {
+  api
+    .get<{ issues: BrainConnectionIssue[] }>("/brain/connections")
+    .then((res) => publishIssues(res.issues))
+    .catch(() => {});
+}
+
+/** Conexões do brain de quem está logado que precisam de ação (ex.: Gmail a reconectar) — alimenta o badge do menu. */
+export function useBrainConnections(): BrainConnectionIssue[] {
+  const [issues, setIssues] = useState(sharedIssues);
+
+  useEffect(() => {
+    issueListeners.add(setIssues);
+    if (issueListeners.size === 1) {
+      fetchIssues();
+      issuesTimer = setInterval(fetchIssues, CONNECTIONS_POLL_MS);
+    }
+    return () => {
+      issueListeners.delete(setIssues);
+      if (issueListeners.size === 0) {
+        if (issuesTimer) clearInterval(issuesTimer);
+        issuesTimer = null;
+        sharedIssues = [];
+      }
+    };
+  }, []);
+
+  useSocketEvent<{ issues: BrainConnectionIssue[] }>("brain:connections", (event) => publishIssues(event.issues));
+  useSocketEvent<BrainStatus>("brain:status", (status) => publishIssues(status.connections));
+
+  return issues;
 }
 
 export function useGoogleAccounts() {

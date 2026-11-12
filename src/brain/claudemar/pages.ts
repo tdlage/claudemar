@@ -3,10 +3,10 @@ import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { config } from "../../config.js";
 import { summarizeTargetHistory } from "../../history.js";
-import { brainRoot, wikiDir } from "../paths.js";
 import { parseWikiFrontmatterLoose } from "../frontmatter.js";
 import { findThreadPath, readThread } from "../raw-store.js";
-import { getRedis, KEYS } from "../redis.js";
+import { brainKeys, getRedis } from "../redis.js";
+import type { BrainScope } from "../scope.js";
 import { tenantRoot } from "../tenants.js";
 import { dayKeyInTz, sha256Hex } from "../text.js";
 import {
@@ -24,7 +24,6 @@ import { renderPipelineSection, type PipelineCard } from "./pipeline.js";
 import { createRedactor, maskPersonalData, type Redactor } from "./redact.js";
 import {
   isTargetExcluded,
-  listTargets,
   parseTargetKey,
   targetFromParticipants,
   targetHandle,
@@ -35,7 +34,8 @@ import {
   targetTenant,
   type ClaudemarTarget,
 } from "./targets.js";
-import { brainSettingsManager } from "../settings.js";
+import { brainSettings } from "../settings.js";
+import { claudemarAccess } from "./access.js";
 
 const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
 const MAX_INSTRUCTION_CHARS = 8000;
@@ -47,9 +47,9 @@ export function targetContextThreadKey(target: ClaudemarTarget): string {
   return `cm:target:${targetKey(target)}`;
 }
 
-export async function cachedThreadPath(threadKey: string): Promise<string | null> {
-  const path = await getRedis().hget(KEYS.threadFile, threadKey).catch(() => null);
-  return path && existsSync(resolve(brainRoot, path)) ? path : null;
+export async function cachedThreadPath(scope: BrainScope, threadKey: string): Promise<string | null> {
+  const path = await getRedis().hget(brainKeys(scope).threadFile, threadKey).catch(() => null);
+  return path && existsSync(resolve(scope.root, path)) ? path : null;
 }
 
 /** Instruções só de arquivos comuns dentro do próprio alvo: um symlink num repo clonado poderia apontar para qualquer arquivo do host. */
@@ -70,16 +70,16 @@ export async function instructionsOf(target: ClaudemarTarget, repoPaths: string[
   return null;
 }
 
-export async function targetContextEvent(target: ClaudemarTarget): Promise<CanonicalEvent> {
+/** Para um usuário o contexto do alvo é só a identificação: instruções, diretório e remotos são da instalação. */
+export async function targetContextEvent(scope: BrainScope, target: ClaudemarTarget): Promise<CanonicalEvent> {
+  const access = claudemarAccess(scope);
   const root = targetRoot(target);
   const present = existsSync(root);
-  const repos = present ? await targetRepos(target) : [];
-  const instructions = present ? await instructionsOf(target, repos.map((r) => r.path)) : null;
+  const repos = present && access.instructions ? await targetRepos(target) : [];
+  const instructions = present && access.instructions ? await instructionsOf(target, repos.map((r) => r.path)) : null;
   const redact = await createRedactor();
-  const lines = [
-    `${targetLabel(target)} no claudemar.`,
-    `Diretório: ${root}${present ? "" : " (não existe mais no disco)"}`,
-  ];
+  const lines = [`${targetLabel(target)} no claudemar.`];
+  if (access.instructions) lines.push(`Diretório: ${root}${present ? "" : " (não existe mais no disco)"}`);
   if (repos.length > 0) {
     lines.push(
       "",
@@ -110,23 +110,28 @@ export async function targetContextEvent(target: ClaudemarTarget): Promise<Canon
   };
 }
 
-export async function ensureTargetPage(target: ClaudemarTarget, sourcePath: string): Promise<boolean> {
+export async function ensureTargetPage(scope: BrainScope, target: ClaudemarTarget, sourcePath: string): Promise<boolean> {
   const relPath = targetPagePath(target);
-  if (isTargetExcluded(target) || existsSync(resolve(brainRoot, relPath))) return false;
-  const tenant = await targetTenant(target);
+  if (isTargetExcluded(scope, target) || existsSync(resolve(scope.root, relPath))) return false;
+  const tenant = await targetTenant(scope, target);
   const aliases = target.kind === "orchestrator"
     ? ["orquestrador", "orchestrator", targetHandle(target)]
     : [target.name, targetKey(target), targetHandle(target)];
-  await createWikiPage({
+  await createWikiPage(scope, {
     relPath,
     type: "project",
     slug: relPath.split("/").pop()!.replace(/\.md$/, ""),
     title: `${targetLabel(target)} (claudemar)`,
     tenant,
-    tenantRoot: await tenantRoot(tenant),
+    tenantRoot: await tenantRoot(scope, tenant),
     aliases,
     sections: [
-      { section: "Contexto", content: `${targetLabel(target)} do claudemar, diretório ${targetRoot(target)}.` },
+      {
+        section: "Contexto",
+        content: scope.isAdmin
+          ? `${targetLabel(target)} do claudemar, diretório ${targetRoot(target)}.`
+          : `${targetLabel(target)} do claudemar.`,
+      },
       { section: "Estado atual", content: "" },
       { section: "Decisões", content: "" },
       { section: "Histórico", content: "" },
@@ -136,7 +141,7 @@ export async function ensureTargetPage(target: ClaudemarTarget, sourcePath: stri
     sources: [sourcePath],
     containsPii: 0,
   });
-  scheduleIndexRegeneration();
+  scheduleIndexRegeneration(scope);
   return true;
 }
 
@@ -156,8 +161,10 @@ function counts(record: Record<string, number>): string {
     .join(" · ");
 }
 
-async function renderActivitySection(target: ClaudemarTarget, redact: Redactor): Promise<string> {
+async function renderActivitySection(scope: BrainScope, target: ClaudemarTarget, redact: Redactor): Promise<string> {
+  const access = claudemarAccess(scope);
   const summary = await summarizeTargetHistory(
+    access.history,
     target.kind,
     target.kind === "orchestrator" ? null : target.name,
     RECENT_EXECUTIONS,
@@ -173,13 +180,13 @@ async function renderActivitySection(target: ClaudemarTarget, redact: Redactor):
     if (summary.costUsd > 0) lines.push(`- Custo registrado: US$ ${summary.costUsd.toFixed(2)}`);
     lines.push("", "Últimas execuções:");
     for (const entry of summary.recent) {
-      const path = await cachedThreadPath(executionThreadKey(entry.id));
+      const path = await cachedThreadPath(scope, executionThreadKey(entry.id));
       lines.push(
         `- ${day(entry.startedAt)} · ${entry.runtime ?? "?"} · ${entry.status} — "${oneLine(maskPersonalData(redact(entry.prompt)), 110)}"${path ? ` → ${path}` : ""}`,
       );
     }
   }
-  const commits = await recentCommits(target, RECENT_COMMITS).catch(() => []);
+  const commits = access.commits(target) ? await recentCommits(target, RECENT_COMMITS).catch(() => []) : [];
   if (commits.length > 0) {
     lines.push(
       "",
@@ -192,29 +199,34 @@ async function renderActivitySection(target: ClaudemarTarget, redact: Redactor):
 
 export type PageSyncResult = "waiting" | "created" | "updated" | "unchanged";
 
+function pipelineSectionText(scope: BrainScope, target: ClaudemarTarget, cards: PipelineCard[] | null, redact: Redactor): string {
+  if (target.kind !== "project") return renderPipelineSection(target, []);
+  if (!claudemarAccess(scope).cards(target)) return "Sem acesso ao pipeline deste projeto.";
+  return cards
+    ? redact(renderPipelineSection(target, cards))
+    : "Sincronização dos cards do pipeline desligada nas configurações do Second Brain.";
+}
+
 export async function syncTargetPage(
+  scope: BrainScope,
   target: ClaudemarTarget,
   cards: PipelineCard[] | null,
 ): Promise<PageSyncResult> {
-  const identity = await findThreadPath(targetContextThreadKey(target), "claudemar");
+  const identity = await findThreadPath(scope, targetContextThreadKey(target), "claudemar");
   if (!identity) return "waiting";
-  const created = await ensureTargetPage(target, identity);
-  const tenant = await targetTenant(target);
+  const created = await ensureTargetPage(scope, target, identity);
+  const tenant = await targetTenant(scope, target);
   const redact = await createRedactor();
   const changed = await upsertManagedSections(
+    scope,
     targetPagePath(target),
     [
-      { name: ACTIVITY_SECTION, content: redact(await renderActivitySection(target, redact)) },
-      {
-        name: PIPELINE_SECTION,
-        content: cards
-          ? redact(renderPipelineSection(target, cards))
-          : "Sincronização dos cards do pipeline desligada nas configurações do Second Brain.",
-      },
+      { name: ACTIVITY_SECTION, content: redact(await renderActivitySection(scope, target, redact)) },
+      { name: PIPELINE_SECTION, content: pipelineSectionText(scope, target, cards, redact) },
     ],
-    { tenant, tenantRoot: await tenantRoot(tenant) },
+    { tenant, tenantRoot: await tenantRoot(scope, tenant) },
   );
-  if (changed) scheduleIndexRegeneration();
+  if (changed) scheduleIndexRegeneration(scope);
   return created ? "created" : changed ? "updated" : "unchanged";
 }
 
@@ -222,15 +234,15 @@ export async function syncTargetPage(
  * Após mudar o contexto de um alvo, leva junto as páginas cuja evidência vem só dele — senão as
  * próximas compilações do alvo seriam rejeitadas por tocar páginas de outra árvore de contexto.
  */
-export async function retenantTargetPages(target: ClaudemarTarget): Promise<number> {
-  const tenant = await targetTenant(target);
-  const root = await tenantRoot(tenant);
+export async function retenantTargetPages(scope: BrainScope, target: ClaudemarTarget): Promise<number> {
+  const tenant = await targetTenant(scope, target);
+  const root = await tenantRoot(scope, tenant);
   const key = targetKey(target);
   const owned = new Map<string, boolean>();
   const ownedByTarget = async (source: string): Promise<boolean> => {
     if (!source.startsWith("raw/claudemar/")) return false;
     if (!owned.has(source)) {
-      const thread = await readThread(source);
+      const thread = await readThread(scope, source);
       const owner = thread ? targetFromParticipants(thread.frontmatter.participants) : null;
       owned.set(source, owner !== null && targetKey(owner) === key);
     }
@@ -238,10 +250,10 @@ export async function retenantTargetPages(target: ClaudemarTarget): Promise<numb
   };
   let changed = 0;
   for (const dir of WIKI_DIRS) {
-    const files = (await readdir(resolve(wikiDir, dir)).catch(() => [] as string[])).filter((f) => f.endsWith(".md"));
+    const files = (await readdir(resolve(scope.wikiDir, dir)).catch(() => [] as string[])).filter((f) => f.endsWith(".md"));
     for (const file of files) {
       const relPath = `wiki/${dir}/${file}`;
-      const { data } = parseWikiFrontmatterLoose(await readFile(resolve(brainRoot, relPath), "utf-8").catch(() => ""));
+      const { data } = parseWikiFrontmatterLoose(await readFile(resolve(scope.root, relPath), "utf-8").catch(() => ""));
       const sources = Array.isArray(data.sources) ? data.sources.filter((v): v is string => typeof v === "string") : [];
       if (sources.length === 0) continue;
       let all = true;
@@ -251,10 +263,10 @@ export async function retenantTargetPages(target: ClaudemarTarget): Promise<numb
           break;
         }
       }
-      if (all && (await setPageTenant(relPath, tenant, root))) changed += 1;
+      if (all && (await setPageTenant(scope, relPath, tenant, root))) changed += 1;
     }
   }
-  if (changed > 0) scheduleIndexRegeneration();
+  if (changed > 0) scheduleIndexRegeneration(scope);
   return changed;
 }
 
@@ -270,7 +282,7 @@ export interface ClaudemarTargetInfo {
   pageExists: boolean;
 }
 
-export async function describeTarget(target: ClaudemarTarget): Promise<ClaudemarTargetInfo> {
+export async function describeTarget(scope: BrainScope, target: ClaudemarTarget): Promise<ClaudemarTargetInfo> {
   const key = targetKey(target);
   const pagePath = targetPagePath(target);
   return {
@@ -278,20 +290,24 @@ export async function describeTarget(target: ClaudemarTarget): Promise<Claudemar
     kind: target.kind,
     name: target.name,
     label: targetLabel(target),
-    tenant: await targetTenant(target),
-    mappedTenant: brainSettingsManager.get().claudemar.tenants[key] ?? null,
-    excluded: isTargetExcluded(target),
+    tenant: await targetTenant(scope, target),
+    mappedTenant: brainSettings(scope).get().claudemar.tenants[key] ?? null,
+    excluded: isTargetExcluded(scope, target),
     pagePath,
-    pageExists: existsSync(resolve(brainRoot, pagePath)),
+    pageExists: existsSync(resolve(scope.root, pagePath)),
   };
 }
 
-export async function describeTargets(): Promise<ClaudemarTargetInfo[]> {
-  const settings = brainSettingsManager.get().claudemar;
-  const byKey = new Map(listTargets().map((t) => [targetKey(t), t]));
-  for (const key of [...Object.keys(settings.tenants), ...settings.excludedTargets]) {
-    const target = parseTargetKey(key);
-    if (target && !byKey.has(key)) byKey.set(key, target);
+/** Só os alvos que o dono pode ver; o admin também vê alvos apagados que ainda aparecem nas próprias configurações. */
+export async function describeTargets(scope: BrainScope): Promise<ClaudemarTargetInfo[]> {
+  const access = claudemarAccess(scope);
+  const byKey = new Map(access.targets.map((t) => [targetKey(t), t]));
+  if (scope.isAdmin) {
+    const settings = brainSettings(scope).get().claudemar;
+    for (const key of [...Object.keys(settings.tenants), ...settings.excludedTargets]) {
+      const target = parseTargetKey(key);
+      if (target && !byKey.has(key)) byKey.set(key, target);
+    }
   }
-  return Promise.all([...byKey.values()].map(describeTarget));
+  return Promise.all([...byKey.values()].map((target) => describeTarget(scope, target)));
 }

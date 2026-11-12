@@ -1,26 +1,31 @@
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { wikiDir } from "./paths.js";
 import { parseWikiFrontmatterLoose } from "./frontmatter.js";
-import { getRedis, KEYS } from "./redis.js";
+import { brainKeys, getRedis } from "./redis.js";
 import { normalizeForIndex } from "./text.js";
+import { perScope, type BrainScope } from "./scope.js";
 
 const ENTITY_DIRS = ["people", "orgs", "projects", "topics"];
 
-let aliasCache: Map<string, string> | null = null;
-let aliasBuild: Promise<Map<string, string>> | null = null;
-let aliasGeneration = 0;
-
-export function invalidateAliasCache(): void {
-  aliasCache = null;
-  aliasGeneration += 1;
+interface AliasState {
+  cache: Map<string, string> | null;
+  build: Promise<Map<string, string>> | null;
+  generation: number;
 }
 
-async function buildAliasTable(): Promise<Map<string, string>> {
+const aliasState = perScope((): AliasState => ({ cache: null, build: null, generation: 0 }));
+
+export function invalidateAliasCache(scope: BrainScope): void {
+  const state = aliasState(scope);
+  state.cache = null;
+  state.generation += 1;
+}
+
+async function buildAliasTable(scope: BrainScope): Promise<Map<string, string>> {
   const table = new Map<string, string>();
   for (const dir of ENTITY_DIRS) {
-    const abs = resolve(wikiDir, dir);
+    const abs = resolve(scope.wikiDir, dir);
     if (!existsSync(abs)) continue;
     const files = (await readdir(abs).catch(() => [] as string[])).filter((f) => f.endsWith(".md"));
     for (const file of files) {
@@ -43,24 +48,25 @@ async function buildAliasTable(): Promise<Map<string, string>> {
   return table;
 }
 
-async function loadAliasTable(): Promise<Map<string, string>> {
-  if (aliasCache) return aliasCache;
-  if (!aliasBuild) {
-    const generation = aliasGeneration;
-    aliasBuild = buildAliasTable()
+async function loadAliasTable(scope: BrainScope): Promise<Map<string, string>> {
+  const state = aliasState(scope);
+  if (state.cache) return state.cache;
+  if (!state.build) {
+    const generation = state.generation;
+    state.build = buildAliasTable(scope)
       .then((table) => {
-        if (generation === aliasGeneration) aliasCache = table;
+        if (generation === state.generation) state.cache = table;
         return table;
       })
       .finally(() => {
-        aliasBuild = null;
+        state.build = null;
       });
   }
-  return aliasBuild;
+  return state.build;
 }
 
-export async function resolveEntities(names: string[]): Promise<{ paths: string[]; unknown: string[] }> {
-  const table = await loadAliasTable();
+export async function resolveEntities(scope: BrainScope, names: string[]): Promise<{ paths: string[]; unknown: string[] }> {
+  const table = await loadAliasTable(scope);
   const paths = new Set<string>();
   const unknown: string[] = [];
   for (const name of names) {
@@ -73,20 +79,20 @@ export async function resolveEntities(names: string[]): Promise<{ paths: string[
   return { paths: [...paths], unknown };
 }
 
-export async function noteCandidates(names: string[]): Promise<void> {
+export async function noteCandidates(scope: BrainScope, names: string[]): Promise<void> {
   if (names.length === 0) return;
   const redis = getRedis();
   try {
     for (const name of names) {
       const normalized = normalizeForIndex(name);
-      if (normalized) await redis.hincrby(KEYS.aliasCandidates, normalized, 1);
+      if (normalized) await redis.hincrby(brainKeys(scope).aliasCandidates, normalized, 1);
     }
   } catch {}
 }
 
-export async function candidateCount(name: string): Promise<number> {
+export async function candidateCount(scope: BrainScope, name: string): Promise<number> {
   try {
-    const value = await getRedis().hget(KEYS.aliasCandidates, normalizeForIndex(name));
+    const value = await getRedis().hget(brainKeys(scope).aliasCandidates, normalizeForIndex(name));
     return Number(value) || 0;
   } catch {
     return 0;

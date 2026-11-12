@@ -16,6 +16,7 @@ import { buildContextFilesHint, buildEmailHint, buildInstructionsBlock, buildPro
 import { getAgentPaths } from "./agents/manager.js";
 import { buildDriveFoldersHint, driveSessionSignature } from "./google-drive/service.js";
 import { DRIVE_INPUT_DIR } from "./google-drive/paths.js";
+import { buildIntegrationsHint, integrationSessionSignature } from "./integrations/service.js";
 import { projectSecretsDir } from "./secrets-manager.js";
 import { existingPromptAttachmentsDir } from "./prompt-attachments.js";
 import { config } from "./config.js";
@@ -30,6 +31,7 @@ import { effortForModel } from "./model-effort.js";
 import { emailAccessFor } from "./email-mcp.js";
 import { emailSettingsManager } from "./email-settings-manager.js";
 import { requesterOf } from "./requester.js";
+import { sessionBrain } from "./runtime/session-brain.js";
 
 export type ExecutionSource = "telegram" | "web" | "schedule" | "pipeline";
 export type ExecutionTargetType = "orchestrator" | "project" | "agent";
@@ -128,6 +130,7 @@ function buildHistoryEntry(info: ExecutionInfo, overrides?: Partial<Pick<History
     sessionId: info.result?.sessionId || undefined,
     planMode: info.planMode || undefined,
     username: info.username || undefined,
+    userId: info.userId || undefined,
     effort: info.effort,
     effortAuto: info.effortAuto || undefined,
   };
@@ -272,11 +275,14 @@ export class ExecutionManager extends EventEmitter {
       parts.push(`${info.mtimeMs}:${info.size}`);
     }
     if (opts.targetType === "agent" && !opts.skipSystemPrompt) parts.push(contextFilesSignature(opts.targetName));
+    if (opts.targetType === "agent") parts.push(integrationSessionSignature(opts.targetName));
     if (opts.targetType === "agent" || opts.targetType === "project") {
       parts.push(driveSessionSignature({ type: opts.targetType, name: opts.targetName }));
     }
     if (opts.targetType === "agent" || opts.targetType === "orchestrator") {
       parts.push(emailSettingsManager.accessSignature(requesterOf(opts.username, opts.userId)));
+      const brain = sessionBrain({ target: { targetType: opts.targetType, targetName: opts.targetName }, username: opts.username, userId: opts.userId });
+      parts.push(`brain:${brain?.owner ?? "-"}`);
     }
     return parts.join("\n");
   }
@@ -287,6 +293,7 @@ export class ExecutionManager extends EventEmitter {
     if (opts.targetType === "agent") {
       suffix += buildSecretsHint(opts.targetName);
       suffix += buildDriveFoldersHint({ type: "agent", name: opts.targetName });
+      suffix += buildIntegrationsHint(opts.targetName);
     }
     if (opts.targetType === "project") {
       const projectPath = safeProjectPath(opts.targetName);

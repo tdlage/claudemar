@@ -13,7 +13,9 @@ process.env.REDIS_URL = "redis://127.0.0.1:63999";
 const { computeDocKey } = await import("./operations.js");
 const { reviewOverdue } = await import("./lint.js");
 const { batchCustomId } = await import("./llm.js");
-const { brainSettingsManager } = await import("./settings.js");
+const { brainSettings } = await import("./settings.js");
+const { adminBrain } = await import("./scope.js");
+const settingsManager = brainSettings(adminBrain());
 const { getRedis } = await import("./redis.js");
 type CompileOperation = import("./types.js").CompileOperation;
 type WikiFrontmatter = import("./types.js").WikiFrontmatter;
@@ -84,12 +86,9 @@ test("custom_id de batch respeita o padrão da Batch API", () => {
 });
 
 test("patch parcial de settings preserva campos irmãos", () => {
-  brainSettingsManager.update({
-    cadences: { gmailMs: 45_000 },
-    emailFilter: { blockedSenders: ["spam@x.com"] },
-    llm: { triage: { model: "modelo-custom" } },
-  });
-  const after = brainSettingsManager.get();
+  settingsManager.updateSystem({ cadences: { gmailMs: 45_000 }, llm: { triage: { model: "modelo-custom" } } });
+  settingsManager.updateOwner({ emailFilter: { blockedSenders: ["spam@x.com"] } });
+  const after = settingsManager.get();
 
   assert.equal(after.cadences.gmailMs, 45_000);
   assert.equal(after.cadences.triageMs, 60_000);

@@ -10,7 +10,10 @@ process.env.CLAUDEMAR_DATA ??= mkdtempSync(resolve(tmpdir(), "claudemar-test-"))
 process.env.BRAIN_ROOT = mkdtempSync(resolve(tmpdir(), "brain-ops-test-"));
 process.env.REDIS_URL = "redis://127.0.0.1:63999";
 
-const { ensureBrainTree, brainRoot } = await import("./paths.js");
+const { ensureBrainTree } = await import("./paths.js");
+const { adminBrain } = await import("./scope.js");
+const scope = adminBrain();
+const brainRoot = scope.root;
 const { upsertMessage, annotateTriage, readThread } = await import("./raw-store.js");
 const { validateCompileOutput, applyCompileOutput, compileOutputSchema } = await import("./operations.js");
 const { getRedis } = await import("./redis.js");
@@ -18,14 +21,14 @@ const { flushIndexRegeneration } = await import("./wiki.js");
 type CompileOutput = import("./types.js").CompileOutput;
 type RawFrontmatter = import("./types.js").RawFrontmatter;
 
-ensureBrainTree();
+ensureBrainTree(scope);
 
 after(() => {
   getRedis().disconnect();
   rmSync(brainRoot, { recursive: true, force: true });
 });
 
-const upsert = await upsertMessage({
+const upsert = await upsertMessage(scope, {
   event: {
     channel: "email",
     subchannel: "direct",
@@ -46,7 +49,7 @@ const upsert = await upsertMessage({
   now: "2026-08-05T12:00:00.000Z",
 });
 const rawPath = upsert.relPath;
-await annotateTriage(rawPath, {
+await annotateTriage(scope, rawPath, {
   relevance: 3,
   tenant: "personal",
   tenant_parent: null,
@@ -61,7 +64,7 @@ await annotateTriage(rawPath, {
   classified_at: "2026-08-05T12:01:00.000Z",
   model: "claude-haiku-4-5-20251001",
 });
-const thread = (await readThread(rawPath))!;
+const thread = (await readThread(scope, rawPath))!;
 const fm: RawFrontmatter = thread.frontmatter;
 
 function baseOutput(overrides: Partial<CompileOutput>): CompileOutput {
@@ -94,7 +97,7 @@ test("path traversal e path fora de wiki/ são rejeitados", async () => {
       { op: "upsert_section", path: "state/open-loops.md", section: "X", content: "y", sources: [rawPath] },
     ] as CompileOutput["operations"],
   });
-  const result = await validateCompileOutput(out, fm);
+  const result = await validateCompileOutput(scope, out, fm);
   assert.equal(result.ok, false);
   assert.equal(result.errors.length, 2);
 });
@@ -103,7 +106,7 @@ test("source inexistente é rejeitado", async () => {
   const out = baseOutput({
     operations: [{ ...validCreate, sources: ["raw/email/2026/08/nao-existe.md"] }] as CompileOutput["operations"],
   });
-  const result = await validateCompileOutput(out, fm);
+  const result = await validateCompileOutput(scope, out, fm);
   assert.equal(result.ok, false);
   assert.ok(result.errors[0].includes("não existe em raw/"));
 });
@@ -112,7 +115,7 @@ test("contexto fora da árvore da thread é rejeitado", async () => {
   const out = baseOutput({
     operations: [{ ...validCreate, tenant: "outra-empresa" }] as CompileOutput["operations"],
   });
-  const result = await validateCompileOutput(out, fm);
+  const result = await validateCompileOutput(scope, out, fm);
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((e) => e.includes("contexto")));
 });
@@ -123,7 +126,7 @@ test("seção acima do limite é rejeitada", async () => {
       { ...validCreate, sections: [{ section: "Identidade", content: "x".repeat(5000) }] },
     ] as CompileOutput["operations"],
   });
-  const result = await validateCompileOutput(out, fm);
+  const result = await validateCompileOutput(scope, out, fm);
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((e) => e.includes("excede")));
 });
@@ -152,16 +155,16 @@ test("create_page com relevance 3 é aceito e aplicado; replay de append é idem
       },
     ],
   });
-  const validation = await validateCompileOutput(out, fm);
+  const validation = await validateCompileOutput(scope, out, fm);
   assert.deepEqual(validation.errors, []);
   assert.equal(validation.ok, true);
 
   const threadKey = "gmail:thiago@example.com:opsthread";
-  const first = await applyCompileOutput(threadKey, rawPath, out);
+  const first = await applyCompileOutput(scope, threadKey, rawPath, out);
   assert.ok(first.pages.includes("wiki/people/ivan.md"));
   assert.equal(first.openLoops, 1);
 
-  const second = await applyCompileOutput(threadKey, rawPath, out);
+  const second = await applyCompileOutput(scope, threadKey, rawPath, out);
   assert.equal(second.openLoops, 0);
 
   const page = readFileSync(resolve(brainRoot, "wiki/people/ivan.md"), "utf-8");
@@ -169,9 +172,9 @@ test("create_page com relevance 3 é aceito e aplicado; replay de append é idem
   assert.equal(occurrences, 1);
   assert.ok(page.includes("confidence: low"));
 
-  await flushIndexRegeneration();
+  await flushIndexRegeneration(scope);
   const index = readFileSync(resolve(brainRoot, "wiki/index.md"), "utf-8");
   assert.ok(index.includes("Ivan"));
-  const compiled = (await readThread(rawPath))!.frontmatter.compiled_into ?? [];
+  const compiled = (await readThread(scope, rawPath))!.frontmatter.compiled_into ?? [];
   assert.ok(compiled.includes("wiki/people/ivan.md"));
 });

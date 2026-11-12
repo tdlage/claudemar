@@ -1,4 +1,4 @@
-import type { BrainSchedulerName, BrainSettings } from "../../lib/types";
+import type { BrainSchedulerName, BrainSettings, BrainSystemSettings } from "../../lib/types";
 
 const LABELS: Record<BrainSchedulerName, { label: string; hint: string }> = {
   gmail: { label: "Gmail", hint: "polling incremental por conta (history.list)" },
@@ -16,7 +16,7 @@ const LABELS: Record<BrainSchedulerName, { label: string; hint: string }> = {
   claudemar: { label: "Claudemar", hint: "execuções, transcripts, tarefas e commits dos projetos e agentes" },
 };
 
-const CADENCE_KEYS: Partial<Record<BrainSchedulerName, keyof BrainSettings["cadences"]>> = {
+const CADENCE_KEYS: Partial<Record<BrainSchedulerName, keyof BrainSystemSettings["cadences"]>> = {
   gmail: "gmailMs",
   calendar: "calendarMs",
   ingest: "ingestMs",
@@ -35,12 +35,17 @@ const FIXED_TIMES: Partial<Record<BrainSchedulerName, string>> = {
   lint: "05:00 (semanal)",
 };
 
+/** Liga e desliga os schedulers deste brain; as cadências valem para todos os brains e só aparecem para o admin. */
 export function ConnectorSettings({
   settings,
   patch,
+  system,
+  patchSystem,
 }: {
   settings: BrainSettings;
   patch: (updater: (prev: BrainSettings) => BrainSettings) => void;
+  system: BrainSystemSettings | null;
+  patchSystem: (updater: (prev: BrainSystemSettings) => BrainSystemSettings) => void;
 }) {
   return (
     <div className="space-y-2">
@@ -61,22 +66,22 @@ export function ConnectorSettings({
             <span className="text-xs text-text-muted truncate">{LABELS[name].hint}</span>
           </label>
           <div className="flex items-center gap-1.5 shrink-0">
-            {CADENCE_KEYS[name] ? (
+            {CADENCE_KEYS[name] && system ? (
               <>
                 <input
                   type="number"
                   min={5}
-                  value={Math.round(settings.cadences[CADENCE_KEYS[name]!] / 1000)}
+                  value={Math.round(system.cadences[CADENCE_KEYS[name]!] / 1000)}
                   onChange={(e) => {
                     const seconds = Number(e.target.value);
                     if (!Number.isFinite(seconds) || seconds < 0) return;
-                    patch((prev) => ({
+                    patchSystem((prev) => ({
                       ...prev,
                       cadences: { ...prev.cadences, [CADENCE_KEYS[name]!]: seconds * 1000 },
                     }));
                   }}
                   onBlur={() =>
-                    patch((prev) => ({
+                    patchSystem((prev) => ({
                       ...prev,
                       cadences: {
                         ...prev.cadences,

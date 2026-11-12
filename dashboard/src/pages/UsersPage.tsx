@@ -72,7 +72,9 @@ export function UsersPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (user: User) => {
+    if (!confirm(`Delete ${user.name}? This also permanently erases their Second Brain: connected accounts, WhatsApp and Slack links, wiki and raw data.`)) return;
+    const id = user.id;
     try {
       await api.delete(`/users/${id}`);
       if (selectedId === id) {
@@ -245,7 +247,7 @@ export function UsersPage() {
                     <Pencil size={14} />
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleDelete(user.id); }}
+                    onClick={(e) => { e.stopPropagation(); void handleDelete(user); }}
                     className="p-1.5 rounded text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
                     title="Delete"
                   >

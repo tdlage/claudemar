@@ -26,6 +26,8 @@ import { webhooksRouter } from "./routes/webhooks.js";
 import { brainRouter, brainPublicRouter, whatsappWebhookHandler } from "./routes/brain.js";
 import { brainMcpRoute } from "../brain/external-mcp.js";
 import { googleDrivePublicRouter, googleDriveRouter } from "./routes/google-drive.js";
+import { integrationsPublicRouter, integrationsRouter } from "./routes/integrations.js";
+import { INTEGRATIONS_API_PATH } from "../integrations/providers.js";
 
 export function createDashboardServer() {
   const app = express();
@@ -97,6 +99,7 @@ export function createDashboardServer() {
   app.post("/api/brain/whatsapp/webhook", express.raw({ type: "*/*", limit: "2mb" }), whatsappWebhookHandler);
   app.use("/api/brain", brainPublicRouter);
   app.use("/api/google-drive", googleDrivePublicRouter);
+  app.use(INTEGRATIONS_API_PATH, integrationsPublicRouter);
   app.all("/api/brain/mcp", ...brainMcpRoute);
   app.use("/api", authMiddleware);
 
@@ -113,9 +116,10 @@ export function createDashboardServer() {
   app.use("/api/run-configs", jsonParser, runConfigsRouter);
   app.use("/api/users", jsonParser, requireAdmin, usersRouter);
   app.use("/api/settings", jsonParser, requireAdmin, settingsRouter);
-  app.post("/api/brain/whatsapp/import", requireAdmin, brainJsonParser);
-  app.use("/api/brain", requireAdmin, jsonParser, brainRouter);
+  app.post("/api/brain/whatsapp/import", brainJsonParser);
+  app.use("/api/brain", jsonParser, brainRouter);
   app.use("/api/google-drive", jsonParser, googleDriveRouter);
+  app.use(INTEGRATIONS_API_PATH, jsonParser, integrationsRouter);
   app.use("/api/transcribe", transcriptionRouter);
   // Acesso por projeto (admin ou user com a aba "pipeline" habilitada) é validado nos
   // param middlewares do próprio pipelineRouter.

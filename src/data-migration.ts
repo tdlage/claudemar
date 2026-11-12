@@ -117,8 +117,10 @@ const TABLE_DEFINITIONS: string[] = [
     session_id VARCHAR(255) DEFAULT NULL,
     plan_mode TINYINT(1) NOT NULL DEFAULT 0,
     username VARCHAR(255) DEFAULT NULL,
+    user_id CHAR(36) DEFAULT NULL,
     INDEX idx_target (target_type, target_name),
     INDEX idx_started_at (started_at),
+    INDEX idx_user_started (user_id, started_at),
     INDEX idx_target_started (target_type, target_name, started_at),
     INDEX idx_session_lookup (target_type, target_name, username, status, started_at),
     INDEX idx_agent_metrics (target_type, agent_name)
@@ -195,6 +197,42 @@ const TABLE_DEFINITIONS: string[] = [
     UNIQUE KEY uk_target_local (target_type, target_name, local_name),
     INDEX idx_account (account_id),
     CONSTRAINT fk_df_account FOREIGN KEY (account_id) REFERENCES google_drive_accounts(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS integration_clients (
+    provider VARCHAR(32) NOT NULL,
+    client_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    redirect_uri VARCHAR(1024) NOT NULL,
+    client_information TEXT NOT NULL,
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (provider, client_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS integration_accounts (
+    id CHAR(36) PRIMARY KEY,
+    owner_id VARCHAR(64) NOT NULL,
+    provider VARCHAR(32) NOT NULL,
+    external_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    name VARCHAR(255) NOT NULL DEFAULT '',
+    detail VARCHAR(320) NOT NULL DEFAULT '',
+    client_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    credentials TEXT NOT NULL,
+    reauth_required TINYINT(1) NOT NULL DEFAULT 0,
+    refreshed_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE KEY uk_owner_provider_external (owner_id, provider, external_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS agent_integrations (
+    id CHAR(36) PRIMARY KEY,
+    agent_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    provider VARCHAR(32) NOT NULL,
+    account_id CHAR(36) NOT NULL,
+    created_at DATETIME NOT NULL,
+    UNIQUE KEY uk_agent_provider (agent_name, provider),
+    INDEX idx_account (account_id),
+    CONSTRAINT fk_ai_account FOREIGN KEY (account_id) REFERENCES integration_accounts(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `DROP TABLE IF EXISTS squad_skills`,
@@ -717,6 +755,13 @@ async function ensureExecutionHistoryColumns(pool: ReturnType<typeof getPool>): 
   );
   if ((effortRows as Array<{ cnt: number }>)[0].cnt === 0) {
     await pool.execute("ALTER TABLE execution_history ADD COLUMN effort VARCHAR(20) DEFAULT NULL, ADD COLUMN effort_auto TINYINT(1) NOT NULL DEFAULT 0");
+  }
+
+  const [userIdRows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'execution_history' AND COLUMN_NAME = 'user_id'",
+  );
+  if ((userIdRows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE execution_history ADD COLUMN user_id CHAR(36) DEFAULT NULL AFTER username, ADD INDEX idx_user_started (user_id, started_at)");
   }
   await pool.execute(
     `UPDATE execution_history

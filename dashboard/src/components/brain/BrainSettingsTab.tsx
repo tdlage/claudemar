@@ -1,14 +1,16 @@
-import { KeyRound, Cpu, Plug, FileText, Filter, Users, DatabaseBackup, MailX, Gauge, Bot, Share2 } from "lucide-react";
+import { KeyRound, Cpu, Plug, FileText, Filter, Users, DatabaseBackup, MailX, Gauge, Bot, Share2, MessageCircle, Hammer } from "lucide-react";
 import { Button } from "../shared/Button";
 import { useToast } from "../shared/Toast";
-import { useBrainSettings } from "../../hooks/useBrain";
+import { useBrainSettings, useBrainSystemSettings } from "../../hooks/useBrain";
+import { isAdmin } from "../../hooks/useAuth";
 import { GoogleAccountSection } from "./GoogleAccountSection";
 import { LlmProvidersSection } from "./LlmProvidersSection";
 import { ConnectorSettings } from "./ConnectorSettings";
 import { ContractEditor } from "./ContractEditor";
 import { BackfillSection } from "./BackfillSection";
 import { TenantsSection } from "./TenantsSection";
-import { WhatsappSlackSection } from "./WhatsappSlackSection";
+import { WhatsappSection } from "./WhatsappSection";
+import { SlackSection } from "./SlackSection";
 import { ClaudemarSection } from "./ClaudemarSection";
 import { ExternalAccessSection } from "./ExternalAccessSection";
 
@@ -24,15 +26,18 @@ function SectionHeader({ icon: Icon, title }: { icon: typeof Cpu; title: string 
 }
 
 export function BrainSettingsTab() {
+  const admin = isAdmin();
   const { settings, patch, save, saving, loading, error, dirty } = useBrainSettings();
+  const system = useBrainSystemSettings(admin);
   const { addToast } = useToast();
 
   if (loading && !settings) return <p className="text-sm text-text-muted py-8 text-center">Carregando…</p>;
   if (error && !settings) return <p className="text-sm text-danger py-8 text-center">{error}</p>;
   if (!settings) return null;
 
+  const systemSettings = system.settings;
   const handleSave = async () => {
-    const ok = await save();
+    const ok = (await save()) && (await system.save());
     addToast(ok ? "success" : "error", ok ? "Configurações salvas" : "Falha ao salvar");
   };
 
@@ -44,8 +49,9 @@ export function BrainSettingsTab() {
       </section>
 
       <section className="space-y-4">
-        <SectionHeader icon={Plug} title="WhatsApp e Slack" />
-        <WhatsappSlackSection />
+        <SectionHeader icon={MessageCircle} title="WhatsApp e Slack" />
+        <WhatsappSection />
+        <SlackSection />
       </section>
 
       <section className="space-y-4">
@@ -58,77 +64,129 @@ export function BrainSettingsTab() {
         <ExternalAccessSection />
       </section>
 
-      <section className="space-y-4">
-        <SectionHeader icon={Cpu} title="Provedores de LLM do pipeline" />
-        <p className="text-xs text-text-muted">
-          Endpoints compatíveis com a API da Anthropic. Selecione o provedor e o modelo de cada etapa. Batch,
-          caching e structured outputs só funcionam em provedores que os suportam — sem eles o pipeline cai para
-          chamadas realtime com JSON validado.
-        </p>
-        <LlmProvidersSection settings={settings} patch={patch} />
-      </section>
+      {admin && systemSettings && (
+        <>
+          <section className="space-y-4">
+            <SectionHeader icon={Cpu} title="Provedores de LLM do pipeline" />
+            <p className="text-xs text-text-muted">
+              Endpoints compatíveis com a API da Anthropic. Selecione o provedor e o modelo de cada etapa. Batch,
+              caching e structured outputs só funcionam em provedores que os suportam — sem eles o pipeline cai para
+              chamadas realtime com JSON validado.
+            </p>
+            <LlmProvidersSection settings={systemSettings} patch={system.patch} />
+          </section>
 
-      <section className="space-y-4">
-        <SectionHeader icon={Gauge} title="Jev (TypeSafe)" />
-        <p className="text-xs text-text-muted">
-          Decisões estruturadas sem LLM, usando a JEV_API_KEY configurada em Chaves de API. O conteúdo das threads e
-          das buscas é enviado ao endpoint do Jev. Sem a chave, as etapas usam só o LLM.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.jev.triagePrefilter}
-                onChange={(e) => patch((prev) => ({ ...prev, jev: { ...prev.jev, triagePrefilter: e.target.checked } }))}
-              />
-              Pré-filtro da triagem: threads abaixo da relevância mínima dispensam o LLM
-            </label>
-            <label className="block text-xs font-medium text-text-muted mb-1">Confiança mínima do pré-filtro (%)</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={Math.round(settings.jev.triageMinConfidence * 100)}
-              onChange={(e) =>
-                patch((prev) => ({
-                  ...prev,
-                  jev: { ...prev.jev, triageMinConfidence: Math.min(100, Math.max(0, Number(e.target.value) || 0)) / 100 },
-                }))
-              }
-              className={inputClass}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.jev.selector}
-                onChange={(e) => patch((prev) => ({ ...prev, jev: { ...prev.jev, selector: e.target.checked } }))}
-              />
-              Seletor da busca pelo Jev (o LLM fica como reserva)
-            </label>
-            <label className="block text-xs font-medium text-text-muted mb-1">Probabilidade mínima para manter um resultado (%)</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={Math.round(settings.jev.selectorThreshold * 100)}
-              onChange={(e) =>
-                patch((prev) => ({
-                  ...prev,
-                  jev: { ...prev.jev, selectorThreshold: Math.min(100, Math.max(0, Number(e.target.value) || 0)) / 100 },
-                }))
-              }
-              className={inputClass}
-            />
-          </div>
-        </div>
-      </section>
+          <section className="space-y-4">
+            <SectionHeader icon={Gauge} title="Jev (TypeSafe)" />
+            <p className="text-xs text-text-muted">
+              Decisões estruturadas sem LLM, usando a JEV_API_KEY configurada em Chaves de API. O conteúdo das threads e
+              das buscas é enviado ao endpoint do Jev. Sem a chave, as etapas usam só o LLM.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={systemSettings.jev.triagePrefilter}
+                    onChange={(e) => system.patch((prev) => ({ ...prev, jev: { ...prev.jev, triagePrefilter: e.target.checked } }))}
+                  />
+                  Pré-filtro da triagem: threads abaixo da relevância mínima dispensam o LLM
+                </label>
+                <label className="block text-xs font-medium text-text-muted mb-1">Confiança mínima do pré-filtro (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={Math.round(systemSettings.jev.triageMinConfidence * 100)}
+                  onChange={(e) =>
+                    system.patch((prev) => ({
+                      ...prev,
+                      jev: { ...prev.jev, triageMinConfidence: Math.min(100, Math.max(0, Number(e.target.value) || 0)) / 100 },
+                    }))
+                  }
+                  className={inputClass}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={systemSettings.jev.selector}
+                    onChange={(e) => system.patch((prev) => ({ ...prev, jev: { ...prev.jev, selector: e.target.checked } }))}
+                  />
+                  Seletor da busca pelo Jev (o LLM fica como reserva)
+                </label>
+                <label className="block text-xs font-medium text-text-muted mb-1">Probabilidade mínima para manter um resultado (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={Math.round(systemSettings.jev.selectorThreshold * 100)}
+                  onChange={(e) =>
+                    system.patch((prev) => ({
+                      ...prev,
+                      jev: { ...prev.jev, selectorThreshold: Math.min(100, Math.max(0, Number(e.target.value) || 0)) / 100 },
+                    }))
+                  }
+                  className={inputClass}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <SectionHeader icon={Hammer} title="Compilação (vale para todos os brains)" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-1">Relevância mínima p/ compilar</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={3}
+                  value={systemSettings.compile.minRelevance}
+                  onChange={(e) =>
+                    system.patch((prev) => ({
+                      ...prev,
+                      compile: { ...prev.compile, minRelevance: Math.min(3, Math.max(0, Number(e.target.value) || 0)) },
+                    }))
+                  }
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-1">Máx. chars por seção</label>
+                <input
+                  type="number"
+                  min={200}
+                  value={systemSettings.compile.maxSectionChars}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    if (!Number.isFinite(value) || value < 0) return;
+                    system.patch((prev) => ({ ...prev, compile: { ...prev.compile, maxSectionChars: value } }));
+                  }}
+                  onBlur={() =>
+                    system.patch((prev) => ({
+                      ...prev,
+                      compile: { ...prev.compile, maxSectionChars: Math.max(200, prev.compile.maxSectionChars || 200) },
+                    }))
+                  }
+                  className={inputClass}
+                />
+              </div>
+            </div>
+          </section>
+
+        </>
+      )}
 
       <section className="space-y-4">
         <SectionHeader icon={Plug} title="Schedulers" />
-        <ConnectorSettings settings={settings} patch={patch} />
+        {admin && (
+          <p className="text-xs text-text-muted">
+            Ligar e desligar vale só para o seu brain; as cadências valem para os brains de todos os usuários.
+          </p>
+        )}
+        <ConnectorSettings settings={settings} patch={patch} system={admin ? systemSettings : null} patchSystem={system.patch} />
       </section>
 
       <section className="space-y-4">
@@ -207,10 +265,10 @@ export function BrainSettingsTab() {
       </section>
 
       <section className="space-y-4">
-        <SectionHeader icon={Filter} title="Filtro de chatter e triagem" />
+        <SectionHeader icon={Filter} title="Filtro de chatter e do Gmail" />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-medium text-text-muted mb-1">Mínimo de caracteres</label>
+            <label className="block text-xs font-medium text-text-muted mb-1">Mínimo de caracteres do chatter</label>
             <input
               type="number"
               min={1}
@@ -219,42 +277,6 @@ export function BrainSettingsTab() {
                 patch((prev) => ({
                   ...prev,
                   chatter: { ...prev.chatter, minChars: Math.max(1, Number(e.target.value) || 1) },
-                }))
-              }
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-muted mb-1">Relevância mínima p/ compilar</label>
-            <input
-              type="number"
-              min={0}
-              max={3}
-              value={settings.compile.minRelevance}
-              onChange={(e) =>
-                patch((prev) => ({
-                  ...prev,
-                  compile: { ...prev.compile, minRelevance: Math.min(3, Math.max(0, Number(e.target.value) || 0)) },
-                }))
-              }
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-muted mb-1">Máx. chars por seção</label>
-            <input
-              type="number"
-              min={200}
-              value={settings.compile.maxSectionChars}
-              onChange={(e) => {
-                const value = Number(e.target.value);
-                if (!Number.isFinite(value) || value < 0) return;
-                patch((prev) => ({ ...prev, compile: { ...prev.compile, maxSectionChars: value } }));
-              }}
-              onBlur={() =>
-                patch((prev) => ({
-                  ...prev,
-                  compile: { ...prev.compile, maxSectionChars: Math.max(200, prev.compile.maxSectionChars || 200) },
                 }))
               }
               className={inputClass}
@@ -310,11 +332,11 @@ export function BrainSettingsTab() {
         <ContractEditor />
       </section>
 
-      {dirty && (
+      {(dirty || system.dirty) && (
         <div className="fixed bottom-4 right-4 z-40 bg-surface border border-border rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
           <span className="text-sm text-text-secondary">Alterações não salvas</span>
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving ? "Salvando…" : "Salvar"}
+          <Button size="sm" onClick={handleSave} disabled={saving || system.saving}>
+            {saving || system.saving ? "Salvando…" : "Salvar"}
           </Button>
         </div>
       )}

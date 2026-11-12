@@ -3,20 +3,20 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { dump, load } from "js-yaml";
 import { config } from "../config.js";
-import { stateDir } from "./paths.js";
 import { brainWriteLock, writeFileAtomic } from "./git.js";
 import { dayKeyInTz, normalizeForIndex, slugify } from "./text.js";
+import { perScope, type BrainScope } from "./scope.js";
 import type { TenantEntry } from "./types.js";
 
 export const ROOT_TENANT = "personal";
 const MAX_DEPTH = 8;
 
-const REGISTRY_PATH = resolve(stateDir, "contexts.md");
+const registryPath = (scope: BrainScope): string => resolve(scope.stateDir, "contexts.md");
 
-let cache: TenantEntry[] | null = null;
+const registryCache = perScope((): { entries: TenantEntry[] | null } => ({ entries: null }));
 
-export function invalidateTenantCache(): void {
-  cache = null;
+export function invalidateTenantCache(scope: BrainScope): void {
+  registryCache(scope).entries = null;
 }
 
 function today(): string {
@@ -61,16 +61,18 @@ function normalizeEntry(raw: unknown): TenantEntry | null {
   };
 }
 
-async function readRegistry(): Promise<TenantEntry[]> {
-  if (cache) return cache;
-  if (!existsSync(REGISTRY_PATH)) {
-    cache = seed();
-    return cache;
+async function readRegistry(scope: BrainScope): Promise<TenantEntry[]> {
+  const cache = registryCache(scope);
+  if (cache.entries) return cache.entries;
+  const path = registryPath(scope);
+  if (!existsSync(path)) {
+    cache.entries = seed();
+    return cache.entries;
   }
-  const content = await readFile(REGISTRY_PATH, "utf-8");
+  const content = await readFile(path, "utf-8");
   if (!content.trim()) {
-    cache = seed();
-    return cache;
+    cache.entries = seed();
+    return cache.entries;
   }
   let parsed: unknown;
   try {
@@ -82,22 +84,22 @@ async function readRegistry(): Promise<TenantEntry[]> {
   }
   if (!Array.isArray(parsed)) throw new Error("state/contexts.md não contém uma lista de contextos");
   const entries = parsed.map(normalizeEntry).filter((e): e is TenantEntry => e !== null);
-  cache = entries.length > 0 ? entries : seed();
-  return cache;
+  cache.entries = entries.length > 0 ? entries : seed();
+  return cache.entries;
 }
 
-async function writeRegistry(entries: TenantEntry[]): Promise<void> {
+async function writeRegistry(scope: BrainScope, entries: TenantEntry[]): Promise<void> {
   const ordered = [...entries].sort((a, b) => a.id.localeCompare(b.id, "en"));
-  await writeFileAtomic(REGISTRY_PATH, dump(ordered, { lineWidth: -1, noRefs: true }));
-  cache = ordered;
+  await writeFileAtomic(scope, registryPath(scope), dump(ordered, { lineWidth: -1, noRefs: true }));
+  registryCache(scope).entries = ordered;
 }
 
-export async function listTenants(): Promise<TenantEntry[]> {
-  return [...(await readRegistry())];
+export async function listTenants(scope: BrainScope): Promise<TenantEntry[]> {
+  return [...(await readRegistry(scope))];
 }
 
-export async function tenantDescendants(id: string): Promise<string[]> {
-  const entries = await readRegistry();
+export async function tenantDescendants(scope: BrainScope, id: string): Promise<string[]> {
+  const entries = await readRegistry(scope);
   const canonical = follow(entries, slugify(id, 48));
   return [canonical, ...descendantsOf(entries, canonical)];
 }
@@ -141,18 +143,18 @@ function rootIn(entries: TenantEntry[], id: string): string {
  * Contexto ainda não registrado resolve para ele mesmo, nunca para a raiz padrão: cair no
  * default silenciosamente faria um contexto desconhecido passar pela validação de isolamento.
  */
-export async function canonicalTenant(id: string): Promise<string> {
+export async function canonicalTenant(scope: BrainScope, id: string): Promise<string> {
   if (!id.trim()) return ROOT_TENANT;
-  return follow(await readRegistry(), slugify(id, 48));
+  return follow(await readRegistry(scope), slugify(id, 48));
 }
 
-export async function tenantRoot(id: string): Promise<string> {
+export async function tenantRoot(scope: BrainScope, id: string): Promise<string> {
   if (!id.trim()) return ROOT_TENANT;
-  return rootIn(await readRegistry(), slugify(id, 48));
+  return rootIn(await readRegistry(scope), slugify(id, 48));
 }
 
-export async function tenantSubtree(id: string): Promise<string[]> {
-  const entries = await readRegistry();
+export async function tenantSubtree(scope: BrainScope, id: string): Promise<string[]> {
+  const entries = await readRegistry(scope);
   const root = follow(entries, slugify(id || ROOT_TENANT, 48));
   const ids = new Set<string>([root]);
   for (let i = 0; i < MAX_DEPTH; i++) {
@@ -172,10 +174,10 @@ export async function tenantSubtree(id: string): Promise<string[]> {
   return [...ids];
 }
 
-export async function resolveTenantName(name: string): Promise<string | null> {
+export async function resolveTenantName(scope: BrainScope, name: string): Promise<string | null> {
   const needle = normalizeForIndex(name);
   if (!needle) return null;
-  const entries = await readRegistry();
+  const entries = await readRegistry(scope);
   const slug = slugify(name, 48);
   const direct = entries.find((e) => e.id === slug);
   if (direct) return follow(entries, direct.id);
@@ -185,8 +187,8 @@ export async function resolveTenantName(name: string): Promise<string | null> {
   return byAlias ? follow(entries, byAlias.id) : null;
 }
 
-export async function resolveTenantByHandles(handles: string[]): Promise<string | null> {
-  const entries = await readRegistry();
+export async function resolveTenantByHandles(scope: BrainScope, handles: string[]): Promise<string | null> {
+  const entries = await readRegistry(scope);
   const domains = handles
     .map((h) => h.toLowerCase().trim())
     .map((h) => (h.includes("@") ? h.slice(h.lastIndexOf("@") + 1) : ""))
@@ -208,24 +210,24 @@ export interface TenantProposal {
   identifiers?: string[];
 }
 
-export async function ensureTenant(proposal: TenantProposal, depth = 0): Promise<string> {
+export async function ensureTenant(scope: BrainScope, proposal: TenantProposal, depth = 0): Promise<string> {
   const label = proposal.label.trim();
   if (!label) return ROOT_TENANT;
-  const existing = await resolveTenantName(label);
+  const existing = await resolveTenantName(scope, label);
   if (existing) {
-    await noteTenantEvidence(existing, proposal);
+    await noteTenantEvidence(scope, existing, proposal);
     return existing;
   }
   let parentId: string | null = null;
   if (proposal.parent) {
-    parentId = await resolveTenantName(proposal.parent);
+    parentId = await resolveTenantName(scope, proposal.parent);
     if (!parentId && depth < MAX_DEPTH) {
-      parentId = await ensureTenant({ label: proposal.parent }, depth + 1);
+      parentId = await ensureTenant(scope, { label: proposal.parent }, depth + 1);
     }
   }
-  return brainWriteLock(async () => {
-    invalidateTenantCache();
-    const entries = await readRegistry();
+  return brainWriteLock(scope, async () => {
+    invalidateTenantCache(scope);
+    const entries = await readRegistry(scope);
     const slug = slugify(label, 48);
     const already = entries.find((e) => e.id === slug);
     if (already) return follow(entries, already.id);
@@ -242,15 +244,15 @@ export async function ensureTenant(proposal: TenantProposal, depth = 0): Promise
       updated_at: today(),
       merged_into: null,
     };
-    await writeRegistry([...entries, entry]);
+    await writeRegistry(scope, [...entries, entry]);
     return entry.id;
   });
 }
 
-export async function noteTenantEvidence(id: string, proposal: TenantProposal): Promise<void> {
-  await brainWriteLock(async () => {
-    invalidateTenantCache();
-    const entries = await readRegistry();
+export async function noteTenantEvidence(scope: BrainScope, id: string, proposal: TenantProposal): Promise<void> {
+  await brainWriteLock(scope, async () => {
+    invalidateTenantCache(scope);
+    const entries = await readRegistry(scope);
     const canonical = follow(entries, id);
     const entry = entries.find((e) => e.id === canonical);
     if (!entry) return;
@@ -268,7 +270,7 @@ export async function noteTenantEvidence(id: string, proposal: TenantProposal): 
             updated_at: today(),
           },
     );
-    await writeRegistry(merged);
+    await writeRegistry(scope, merged);
   });
 }
 
@@ -278,10 +280,10 @@ export interface MergeResult {
   reparented: string[];
 }
 
-export async function mergeTenants(sourceId: string, targetId: string): Promise<MergeResult> {
-  return brainWriteLock(async () => {
-    invalidateTenantCache();
-    const entries = await readRegistry();
+export async function mergeTenants(scope: BrainScope, sourceId: string, targetId: string): Promise<MergeResult> {
+  return brainWriteLock(scope, async () => {
+    invalidateTenantCache(scope);
+    const entries = await readRegistry(scope);
     const source = follow(entries, slugify(sourceId, 48));
     const target = follow(entries, slugify(targetId, 48));
     if (source === target) throw new Error("origem e destino são o mesmo contexto");
@@ -312,18 +314,19 @@ export async function mergeTenants(sourceId: string, targetId: string): Promise<
       if (entry.parent === source && entry.id !== target) return { ...entry, parent: target, updated_at: today() };
       return entry;
     });
-    await writeRegistry(updated);
+    await writeRegistry(scope, updated);
     return { source, target, reparented };
   });
 }
 
 export async function updateTenant(
+  scope: BrainScope,
   id: string,
   patch: { label?: string; parent?: string | null },
 ): Promise<TenantEntry> {
-  return brainWriteLock(async () => {
-    invalidateTenantCache();
-    const entries = await readRegistry();
+  return brainWriteLock(scope, async () => {
+    invalidateTenantCache(scope);
+    const entries = await readRegistry(scope);
     const canonical = follow(entries, slugify(id, 48));
     const entry = entries.find((e) => e.id === canonical);
     if (!entry) throw new Error("contexto não encontrado");
@@ -345,13 +348,13 @@ export async function updateTenant(
       aliases: [...new Set([...entry.aliases, label])],
       updated_at: today(),
     };
-    await writeRegistry(entries.map((e) => (e.id === canonical ? updated : e)));
+    await writeRegistry(scope, entries.map((e) => (e.id === canonical ? updated : e)));
     return updated;
   });
 }
 
-export async function tenantRegistryPrompt(): Promise<string> {
-  const entries = (await readRegistry()).filter((e) => !e.merged_into);
+export async function tenantRegistryPrompt(scope: BrainScope): Promise<string> {
+  const entries = (await readRegistry(scope)).filter((e) => !e.merged_into);
   if (entries.length === 0) return "(nenhum contexto registrado ainda)";
   return entries
     .map((e) => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { claimPending, getRedis, incrMetric, KEYS, recoverInflight, releaseInflight, requeuePending } from "./redis.js";
-import { brainSettingsManager } from "./settings.js";
+import { brainKeys, claimPending, getRedis, incrMetric, recoverInflight, releaseInflight, requeuePending } from "./redis.js";
+import { brainSettings } from "./settings.js";
+import type { BrainScope } from "./scope.js";
 import { runStageJson, stageDisabledReason, type StageRequest } from "./llm.js";
 import { annotateTriage, findThreadPath, readThread } from "./raw-store.js";
 import { noteCandidates } from "./entities.js";
@@ -105,14 +106,14 @@ export interface BuiltTriage {
   tenantHint: BrainTenant;
 }
 
-export async function buildTriageRequest(threadKey: string): Promise<BuiltTriage | null> {
-  const relPath = await findThreadPath(threadKey, channelOfThreadKey(threadKey));
+export async function buildTriageRequest(scope: BrainScope, threadKey: string): Promise<BuiltTriage | null> {
+  const relPath = await findThreadPath(scope, threadKey, channelOfThreadKey(threadKey));
   if (!relPath) return null;
-  const thread = await readThread(relPath);
+  const thread = await readThread(scope, relPath);
   if (!thread) return null;
 
   if (thread.frontmatter.channel === "claudemar") {
-    const input = await claudemarTriageInput(thread);
+    const input = await claudemarTriageInput(scope, thread);
     return {
       relPath,
       conversation: input.conversation,
@@ -126,12 +127,12 @@ export async function buildTriageRequest(threadKey: string): Promise<BuiltTriage
     };
   }
 
-  const settings = brainSettingsManager.get();
+  const settings = brainSettings(scope).get();
   const account = settings.accounts.find((a) => a.email === thread.frontmatter.account.toLowerCase());
   const substantive = thread.blocks.filter((b) => b.chatter === null);
   const registry = [
     "# Contextos conhecidos (use o id, ou proponha um rótulo novo)",
-    await tenantRegistryPrompt(),
+    await tenantRegistryPrompt(scope),
     "",
   ].join("\n");
   const parts: string[] = [
@@ -169,7 +170,7 @@ export async function buildTriageRequest(threadKey: string): Promise<BuiltTriage
  * Pré-filtro pelo Jev: threads de baixo valor são anotadas sem LLM; as demais seguem para a triagem completa.
  * O canal claudemar não passa por ele: pedidos, respostas e comandos dos agentes não vão para o revendedor do Jev.
  */
-export async function prefilterTriage(threadKey: string, built: BuiltTriage): Promise<boolean> {
+export async function prefilterTriage(scope: BrainScope, threadKey: string, built: BuiltTriage): Promise<boolean> {
   if (!jevTriageEnabled() || channelOfThreadKey(threadKey) === "claudemar") return false;
   let verdict;
   try {
@@ -180,7 +181,7 @@ export async function prefilterTriage(threadKey: string, built: BuiltTriage): Pr
   }
   if (!verdict) return false;
   const confidence = Math.round(verdict.confidence * 100);
-  await applyTriageResult(threadKey, built.relPath, {
+  await applyTriageResult(scope, threadKey, built.relPath, {
     relevance: verdict.relevance,
     tenant: built.tenantHint,
     tenant_parent: null,
@@ -193,7 +194,7 @@ export async function prefilterTriage(threadKey: string, built: BuiltTriage): Pr
     has_deadline: false,
     action_required: false,
   }, `jev:${verdict.model}`);
-  await incrMetric("jev_prefiltered");
+  await incrMetric(scope, "jev_prefiltered");
   return true;
 }
 
@@ -234,9 +235,9 @@ const PUBLIC_MAIL_DOMAINS = new Set([
  * Só domínio próprio vira evidência de contexto: provedor público e o domínio das contas
  * conectadas rotulariam qualquer email pessoal posterior como sendo daquela empresa.
  */
-function contextDomains(participants: { handle: string }[]): string[] {
+function contextDomains(scope: BrainScope, participants: { handle: string }[]): string[] {
   const own = new Set(
-    brainSettingsManager
+    brainSettings(scope)
       .get()
       .accounts.map((a) => a.email.split("@")[1])
       .filter(Boolean),
@@ -252,53 +253,62 @@ function contextDomains(participants: { handle: string }[]): string[] {
 }
 
 export async function resolveTriageTenant(
+  scope: BrainScope,
   result: TriageResult,
   participants: { handle: string }[],
 ): Promise<string> {
-  const existing = await resolveTenantName(result.tenant);
+  const existing = await resolveTenantName(scope, result.tenant);
   if (existing) return existing;
-  return ensureTenant({
+  return ensureTenant(scope, {
     label: result.tenant,
     parent: result.tenant_parent,
-    domains: contextDomains(participants),
+    domains: contextDomains(scope, participants),
   });
 }
 
-export async function applyTriageResult(threadKey: string, relPath: string, result: TriageResult, model?: string): Promise<void> {
-  const settings = brainSettingsManager.get();
-  const thread = await readThread(relPath);
+export async function applyTriageResult(
+  scope: BrainScope,
+  threadKey: string,
+  relPath: string,
+  result: TriageResult,
+  model?: string,
+): Promise<void> {
+  const settings = brainSettings(scope).get();
+  const keys = brainKeys(scope);
+  const thread = await readThread(scope, relPath);
   const tenant = thread?.frontmatter.channel === "claudemar"
-    ? await claudemarThreadTenant(thread.frontmatter)
-    : await resolveTriageTenant(result, thread?.frontmatter.participants ?? []);
-  await annotateTriage(relPath, {
+    ? await claudemarThreadTenant(scope, thread.frontmatter)
+    : await resolveTriageTenant(scope, result, thread?.frontmatter.participants ?? []);
+  await annotateTriage(scope, relPath, {
     ...result,
     tenant,
     classified_at: new Date().toISOString(),
     model: model ?? settings.llm.triage.model,
   });
-  await incrMetric("triaged");
-  await incrMetric(`relevance:${result.relevance}`);
-  await noteCandidates([...result.entities, ...result.projects]);
+  await incrMetric(scope, "triaged");
+  await incrMetric(scope, `relevance:${result.relevance}`);
+  await noteCandidates(scope, [...result.entities, ...result.projects]);
   const queued = result.relevance >= settings.compile.minRelevance;
   if (queued) {
-    await getRedis().zadd(KEYS.compilePending, "NX", Date.now(), threadKey).catch(() => {});
+    await getRedis().zadd(keys.compilePending, "NX", Date.now(), threadKey).catch(() => {});
   }
-  await getRedis().hdel(KEYS.triageAttempts, threadKey).catch(() => {});
-  emitActivity({
+  await getRedis().hdel(keys.triageAttempts, threadKey).catch(() => {});
+  emitActivity(scope, {
     kind: "triage",
     label: `relevance ${result.relevance} · ${tenant}${queued ? " · fila de compilação" : ""}`,
     path: relPath,
   });
 }
 
-async function handleFailure(threadKey: string, err: unknown): Promise<boolean> {
+async function handleFailure(scope: BrainScope, threadKey: string, err: unknown): Promise<boolean> {
   const redis = getRedis();
+  const keys = brainKeys(scope);
   const message = err instanceof Error ? err.message : String(err);
-  const attempts = await redis.hincrby(KEYS.triageAttempts, threadKey, 1).catch(() => 0);
+  const attempts = await redis.hincrby(keys.triageAttempts, threadKey, 1).catch(() => 0);
   if (attempts > MAX_ATTEMPTS) {
-    await quarantineWrite("triage_failed", `triagem excedeu ${MAX_ATTEMPTS} tentativas: ${message}`, null, threadKey);
-    await redis.hdel(KEYS.triageAttempts, threadKey).catch(() => {});
-    emitActivity({ kind: "quarantine", label: `triagem de ${threadKey} em quarentena` });
+    await quarantineWrite(scope, "triage_failed", `triagem excedeu ${MAX_ATTEMPTS} tentativas: ${message}`, null, threadKey);
+    await redis.hdel(keys.triageAttempts, threadKey).catch(() => {});
+    emitActivity(scope, { kind: "quarantine", label: `triagem de ${threadKey} em quarentena` });
     return true;
   }
   return false;
@@ -306,33 +316,34 @@ async function handleFailure(threadKey: string, err: unknown): Promise<boolean> 
 
 const INFLIGHT_STALE_MS = 10 * 60 * 1000;
 
-export async function triageTick(): Promise<{ processed: number }> {
+export async function triageTick(scope: BrainScope): Promise<{ processed: number }> {
   const redis = getRedis();
-  await recoverInflight(KEYS.triagePending, KEYS.triageInflight, INFLIGHT_STALE_MS).catch(() => {});
-  const threadKeys = await redis.zrange(KEYS.triagePending, "0", "19");
+  const keys = brainKeys(scope);
+  await recoverInflight(keys.triagePending, keys.triageInflight, INFLIGHT_STALE_MS).catch(() => {});
+  const threadKeys = await redis.zrange(keys.triagePending, "0", "19");
 
   let processed = 0;
   for (const threadKey of threadKeys) {
-    await claimPending(KEYS.triagePending, KEYS.triageInflight, threadKey);
+    await claimPending(keys.triagePending, keys.triageInflight, threadKey);
     try {
-      const built = await buildTriageRequest(threadKey);
+      const built = await buildTriageRequest(scope, threadKey);
       if (!built) {
-        await quarantineWrite("triage_failed", "thread não encontrada em raw/", null, threadKey);
+        await quarantineWrite(scope, "triage_failed", "thread não encontrada em raw/", null, threadKey);
         continue;
       }
-      if (await prefilterTriage(threadKey, built)) {
+      if (await prefilterTriage(scope, threadKey, built)) {
         processed += 1;
         continue;
       }
-      const raw = await runStageJson("triage", built.request);
+      const raw = await runStageJson(scope, "triage", built.request);
       const result = parseTriageResult(raw);
-      await applyTriageResult(threadKey, built.relPath, result);
+      await applyTriageResult(scope, threadKey, built.relPath, result);
       processed += 1;
     } catch (err) {
-      const dead = await handleFailure(threadKey, err);
-      if (!dead) await requeuePending(KEYS.triagePending, threadKey);
+      const dead = await handleFailure(scope, threadKey, err);
+      if (!dead) await requeuePending(keys.triagePending, threadKey);
     } finally {
-      await releaseInflight(KEYS.triageInflight, threadKey);
+      await releaseInflight(keys.triageInflight, threadKey);
     }
   }
   return { processed };
@@ -342,8 +353,8 @@ brainSchedulers.register({
   name: "triage",
   cadenceMs: (s) => s.cadences.triageMs,
   disabledReason: () => stageDisabledReason("triage"),
-  run: async () => {
-    const { processed } = await triageTick();
+  run: async (scope) => {
+    const { processed } = await triageTick(scope);
     return `${processed} triadas`;
   },
 });

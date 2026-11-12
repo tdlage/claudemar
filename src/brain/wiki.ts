@@ -3,8 +3,8 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { dump, load } from "js-yaml";
 import { config } from "../config.js";
-import { brainRoot, stateDir, wikiDir } from "./paths.js";
 import { brainWriteLock, writeFileAtomic } from "./git.js";
+import { perScope, type BrainScope } from "./scope.js";
 import { parseWikiFile, parseWikiFrontmatterLoose, serializeWikiFile } from "./frontmatter.js";
 import { dayKeyInTz, hash8 } from "./text.js";
 import { invalidateAliasCache } from "./entities.js";
@@ -102,19 +102,19 @@ function serializeSections(doc: SectionDoc): string {
     .join("\n\n");
 }
 
-async function readPage(relPath: string): Promise<{ frontmatter: WikiFrontmatter; body: string } | null> {
-  const abs = resolve(brainRoot, relPath);
+async function readPage(scope: BrainScope, relPath: string): Promise<{ frontmatter: WikiFrontmatter; body: string } | null> {
+  const abs = resolve(scope.root, relPath);
   if (!existsSync(abs)) return null;
   return parseWikiFile(await readFile(abs, "utf-8"));
 }
 
-async function writePage(relPath: string, frontmatter: WikiFrontmatter, body: string): Promise<void> {
+async function writePage(scope: BrainScope, relPath: string, frontmatter: WikiFrontmatter, body: string): Promise<void> {
   frontmatter.updated_at = today();
-  await writeFileAtomic(resolve(brainRoot, relPath), serializeWikiFile(frontmatter, body));
-  invalidateAliasCache();
+  await writeFileAtomic(scope, resolve(scope.root, relPath), serializeWikiFile(frontmatter, body));
+  invalidateAliasCache(scope);
 }
 
-export async function createWikiPage(params: {
+export async function createWikiPage(scope: BrainScope, params: {
   relPath: string;
   type: WikiPageType;
   slug: string;
@@ -126,8 +126,8 @@ export async function createWikiPage(params: {
   sources: string[];
   containsPii?: 0 | 1;
 }): Promise<void> {
-  await brainWriteLock(async () => {
-    if (existsSync(resolve(brainRoot, params.relPath))) return;
+  await brainWriteLock(scope, async () => {
+    if (existsSync(resolve(scope.root, params.relPath))) return;
     const sources = mergeSources([], params.sources);
     const frontmatter: WikiFrontmatter = {
       type: params.type,
@@ -155,19 +155,20 @@ export async function createWikiPage(params: {
         .filter((s) => !isManagedSection(s.section))
         .map((s) => ({ name: oneLineEntry(s.section), content: sectionBody(s.content) })),
     });
-    await writePage(params.relPath, frontmatter, body);
+    await writePage(scope, params.relPath, frontmatter, body);
   });
 }
 
 export async function upsertSection(
+  scope: BrainScope,
   relPath: string,
   section: string,
   content: string,
   sources: string[],
 ): Promise<boolean> {
   if (isManagedSection(section)) return false;
-  return brainWriteLock(async () => {
-    const page = await readPage(relPath);
+  return brainWriteLock(scope, async () => {
+    const page = await readPage(scope, relPath);
     if (!page) return false;
     const doc = parseSections(page.body);
     const name = oneLineEntry(section);
@@ -178,20 +179,21 @@ export async function upsertSection(
     page.frontmatter.independent_sources = page.frontmatter.sources.length;
     page.frontmatter.confidence = confidenceFor(page.frontmatter.independent_sources);
     page.frontmatter.salience = Math.min(1, Math.round((page.frontmatter.salience + 0.05) * 100) / 100);
-    await writePage(relPath, page.frontmatter, serializeSections(doc));
+    await writePage(scope, relPath, page.frontmatter, serializeSections(doc));
     return true;
   });
 }
 
 export async function appendHistory(
+  scope: BrainScope,
   relPath: string,
   content: string,
   sources: string[],
   docKey: string,
   day: string = today(),
 ): Promise<boolean> {
-  return brainWriteLock(async () => {
-    const page = await readPage(relPath);
+  return brainWriteLock(scope, async () => {
+    const page = await readPage(scope, relPath);
     if (!page) return false;
     if (page.body.includes(`dk:${docKey}`)) return true;
     const doc = parseSections(page.body);
@@ -205,32 +207,33 @@ export async function appendHistory(
     page.frontmatter.sources = mergeSources(page.frontmatter.sources, sources);
     page.frontmatter.independent_sources = page.frontmatter.sources.length;
     page.frontmatter.confidence = confidenceFor(page.frontmatter.independent_sources);
-    await writePage(relPath, page.frontmatter, serializeSections(doc));
+    await writePage(scope, relPath, page.frontmatter, serializeSections(doc));
     return true;
   });
 }
 
-export async function addRelation(relPath: string, related: string): Promise<boolean> {
-  return brainWriteLock(async () => {
-    const page = await readPage(relPath);
+export async function addRelation(scope: BrainScope, relPath: string, related: string): Promise<boolean> {
+  return brainWriteLock(scope, async () => {
+    const page = await readPage(scope, relPath);
     if (!page) return false;
     const normalized = related.replace(/^wiki\//, "").replace(/\.md$/, "");
     if (!page.frontmatter.related.includes(normalized)) {
       page.frontmatter.related = [...page.frontmatter.related, normalized].sort();
-      await writePage(relPath, page.frontmatter, page.body);
+      await writePage(scope, relPath, page.frontmatter, page.body);
     }
     return true;
   });
 }
 
 export async function markSuperseded(
+  scope: BrainScope,
   relPath: string,
   supersededBy: string | null,
   reason: string,
   docKey: string,
 ): Promise<boolean> {
-  return brainWriteLock(async () => {
-    const page = await readPage(relPath);
+  return brainWriteLock(scope, async () => {
+    const page = await readPage(scope, relPath);
     if (!page) return false;
     if (page.body.includes(`dk:${docKey}`)) return true;
     page.frontmatter.status = "archived";
@@ -242,7 +245,7 @@ export async function markSuperseded(
       doc.sections.push(history);
     }
     history.content = history.content ? `${history.content}\n${note}` : note;
-    await writePage(relPath, page.frontmatter, serializeSections(doc));
+    await writePage(scope, relPath, page.frontmatter, serializeSections(doc));
     return true;
   });
 }
@@ -252,12 +255,13 @@ export async function markSuperseded(
  * contexto da página ao do alvo. Não grava quando nada mudou.
  */
 export async function upsertManagedSections(
+  scope: BrainScope,
   relPath: string,
   sections: { name: string; content: string }[],
   context: { tenant: BrainTenant; tenantRoot: BrainTenant },
 ): Promise<boolean> {
-  return brainWriteLock(async () => {
-    const page = await readPage(relPath);
+  return brainWriteLock(scope, async () => {
+    const page = await readPage(scope, relPath);
     if (!page) return false;
     const doc = parseSections(page.body);
     const managed = new Set(sections.map((s) => s.name.toLowerCase()));
@@ -272,44 +276,44 @@ export async function upsertManagedSections(
     if (next === current && !retenant) return false;
     page.frontmatter.tenant = context.tenant;
     page.frontmatter.tenant_root = context.tenantRoot;
-    await writePage(relPath, page.frontmatter, next);
+    await writePage(scope, relPath, page.frontmatter, next);
     return true;
   });
 }
 
-export async function setPageTenant(relPath: string, tenant: BrainTenant, tenantRoot: BrainTenant): Promise<boolean> {
-  return brainWriteLock(async () => {
-    const page = await readPage(relPath);
+export async function setPageTenant(scope: BrainScope, relPath: string, tenant: BrainTenant, tenantRoot: BrainTenant): Promise<boolean> {
+  return brainWriteLock(scope, async () => {
+    const page = await readPage(scope, relPath);
     if (!page || (page.frontmatter.tenant === tenant && page.frontmatter.tenant_root === tenantRoot)) return false;
     page.frontmatter.tenant = tenant;
     page.frontmatter.tenant_root = tenantRoot;
-    await writePage(relPath, page.frontmatter, page.body);
+    await writePage(scope, relPath, page.frontmatter, page.body);
     return true;
   });
 }
 
-export async function markPagePii(relPath: string): Promise<boolean> {
-  return brainWriteLock(async () => {
-    const page = await readPage(relPath);
+export async function markPagePii(scope: BrainScope, relPath: string): Promise<boolean> {
+  return brainWriteLock(scope, async () => {
+    const page = await readPage(scope, relPath);
     if (!page || page.frontmatter.contains_pii === 1) return false;
     page.frontmatter.contains_pii = 1;
-    await writePage(relPath, page.frontmatter, page.body);
+    await writePage(scope, relPath, page.frontmatter, page.body);
     return true;
   });
 }
 
-export async function markReviewed(relPath: string): Promise<boolean> {
-  return brainWriteLock(async () => {
-    const page = await readPage(relPath);
+export async function markReviewed(scope: BrainScope, relPath: string): Promise<boolean> {
+  return brainWriteLock(scope, async () => {
+    const page = await readPage(scope, relPath);
     if (!page) return false;
     page.frontmatter.reviewed_at = today();
-    await writeFileAtomic(resolve(brainRoot, relPath), serializeWikiFile(page.frontmatter, page.body));
+    await writeFileAtomic(scope, resolve(scope.root, relPath), serializeWikiFile(page.frontmatter, page.body));
     return true;
   });
 }
 
-export async function regenerateIndex(): Promise<void> {
-  await brainWriteLock(async () => {
+export async function regenerateIndex(scope: BrainScope): Promise<void> {
+  await brainWriteLock(scope, async () => {
     const groups: string[] = ["# Índice do wiki", ""];
     const dirLabels: [string, string][] = [
       ["people", "Pessoas"],
@@ -320,7 +324,7 @@ export async function regenerateIndex(): Promise<void> {
       ["lessons", "Lições e decisões"],
     ];
     for (const [dir, label] of dirLabels) {
-      const abs = resolve(wikiDir, dir);
+      const abs = resolve(scope.wikiDir, dir);
       const files = existsSync(abs)
         ? (await readdir(abs).catch(() => [] as string[])).filter((f) => f.endsWith(".md")).sort()
         : [];
@@ -337,7 +341,7 @@ export async function regenerateIndex(): Promise<void> {
       }
       groups.push("");
     }
-    await writeFileAtomic(resolve(wikiDir, "index.md"), groups.join("\n").trimEnd() + "\n");
+    await writeFileAtomic(scope, resolve(scope.wikiDir, "index.md"), groups.join("\n").trimEnd() + "\n");
   });
 }
 
@@ -345,44 +349,59 @@ const LOG_HEADER = "# Log de compilação";
 const LOG_MAX_LINES = 5000;
 
 const INDEX_COALESCE_MS = 5000;
-let indexTimer: NodeJS.Timeout | null = null;
-let indexPending: Promise<void> | null = null;
 
-export function scheduleIndexRegeneration(): void {
-  if (indexTimer) return;
-  indexTimer = setTimeout(() => {
-    indexTimer = null;
-    indexPending = regenerateIndex()
+interface IndexRegenState {
+  timer: NodeJS.Timeout | null;
+  pending: Promise<void> | null;
+}
+
+const indexRegen = perScope((): IndexRegenState => ({ timer: null, pending: null }));
+
+export function scheduleIndexRegeneration(scope: BrainScope): void {
+  const state = indexRegen(scope);
+  if (state.timer) return;
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    state.pending = regenerateIndex(scope)
       .catch((err) => {
-        console.error("[brain] falha ao regenerar índice do wiki:", err instanceof Error ? err.message : err);
+        console.error(`[brain:${scope.owner}] falha ao regenerar índice do wiki:`, err instanceof Error ? err.message : err);
       })
       .finally(() => {
-        indexPending = null;
+        state.pending = null;
       });
   }, INDEX_COALESCE_MS);
-  indexTimer.unref();
+  state.timer.unref();
 }
 
-export async function flushIndexRegeneration(): Promise<void> {
-  if (indexTimer) {
-    clearTimeout(indexTimer);
-    indexTimer = null;
-    await regenerateIndex().catch(() => {});
+export async function flushIndexRegeneration(scope: BrainScope): Promise<void> {
+  const state = indexRegen(scope);
+  if (state.timer) {
+    clearTimeout(state.timer);
+    state.timer = null;
+    await regenerateIndex(scope).catch(() => {});
     return;
   }
-  if (indexPending) await indexPending;
+  if (state.pending) await state.pending;
 }
 
-export async function appendLog(entry: string, docKey: string): Promise<void> {
-  await brainWriteLock(async () => {
-    const logPath = resolve(wikiDir, "log.md");
+export function cancelIndexRegeneration(scope: BrainScope): void {
+  const state = indexRegen(scope);
+  if (state.timer) {
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
+}
+
+export async function appendLog(scope: BrainScope, entry: string, docKey: string): Promise<void> {
+  await brainWriteLock(scope, async () => {
+    const logPath = resolve(scope.wikiDir, "log.md");
     const current = existsSync(logPath) ? await readFile(logPath, "utf-8") : `${LOG_HEADER}\n`;
     if (current.includes(`dk:${docKey}`)) return;
     const line = `${entry.trim()} <!-- dk:${docKey} -->`;
     const lines = current.trimEnd().split("\n").filter((l) => l !== LOG_HEADER);
     lines.push(line);
     const kept = lines.length > LOG_MAX_LINES ? lines.slice(lines.length - LOG_MAX_LINES) : lines;
-    await writeFileAtomic(logPath, `${LOG_HEADER}\n${kept.join("\n")}\n`);
+    await writeFileAtomic(scope, logPath, `${LOG_HEADER}\n${kept.join("\n")}\n`);
   });
 }
 
@@ -404,14 +423,15 @@ async function parseOpenLoopsFile(path: string): Promise<OpenLoopEntry[]> {
 }
 
 export async function appendOpenLoops(
+  scope: BrainScope,
   loops: CompileOpenLoop[],
   sources: string[],
   threadKey: string,
   day: string = today(),
 ): Promise<number> {
   if (loops.length === 0) return 0;
-  return brainWriteLock(async () => {
-    const path = resolve(stateDir, "open-loops.md");
+  return brainWriteLock(scope, async () => {
+    const path = resolve(scope.stateDir, "open-loops.md");
     const existing = await parseOpenLoopsFile(path);
     const ids = new Set(existing.map((l) => l.id));
     let added = 0;
@@ -436,14 +456,14 @@ export async function appendOpenLoops(
       added += 1;
     }
     if (added > 0) {
-      await writeFileAtomic(path, dump(existing, { lineWidth: -1, noRefs: true }));
+      await writeFileAtomic(scope, path, dump(existing, { lineWidth: -1, noRefs: true }));
     }
     return added;
   });
 }
 
-export async function readOpenLoops(): Promise<OpenLoopEntry[]> {
-  return parseOpenLoopsFile(resolve(stateDir, "open-loops.md"));
+export async function readOpenLoops(scope: BrainScope): Promise<OpenLoopEntry[]> {
+  return parseOpenLoopsFile(resolve(scope.stateDir, "open-loops.md"));
 }
 
 export function currentOpenLoops(entries: OpenLoopEntry[]): OpenLoopEntry[] {
@@ -452,11 +472,12 @@ export function currentOpenLoops(entries: OpenLoopEntry[]): OpenLoopEntry[] {
 }
 
 export async function appendOpenLoopTransition(
+  scope: BrainScope,
   loopId: string,
   status: "open" | "done" | "abandoned",
 ): Promise<OpenLoopEntry | null> {
-  return brainWriteLock(async () => {
-    const path = resolve(stateDir, "open-loops.md");
+  return brainWriteLock(scope, async () => {
+    const path = resolve(scope.stateDir, "open-loops.md");
     const entries = await parseOpenLoopsFile(path);
     const current = currentOpenLoops(entries);
     const original = current.find((e) => e.id === loopId);
@@ -469,15 +490,15 @@ export async function appendOpenLoopTransition(
       last_movement: today(),
     };
     entries.push(transition);
-    await writeFileAtomic(path, dump(entries, { lineWidth: -1, noRefs: true }));
+    await writeFileAtomic(scope, path, dump(entries, { lineWidth: -1, noRefs: true }));
     return transition;
   });
 }
 
-export async function relatedPagesText(paths: string[], maxPages: number, maxCharsPerPage = 4000): Promise<string> {
+export async function relatedPagesText(scope: BrainScope, paths: string[], maxPages: number, maxCharsPerPage = 4000): Promise<string> {
   const chunks: string[] = [];
   for (const relPath of paths.slice(0, maxPages)) {
-    const abs = resolve(brainRoot, relPath);
+    const abs = resolve(scope.root, relPath);
     if (!existsSync(abs)) continue;
     const content = await readFile(abs, "utf-8");
     chunks.push(`===== ${relPath} =====\n${content.slice(0, maxCharsPerPage)}`);

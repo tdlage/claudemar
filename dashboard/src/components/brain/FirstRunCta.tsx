@@ -3,6 +3,7 @@ import { Brain } from "lucide-react";
 import { Card } from "../shared/Card";
 import { Button } from "../shared/Button";
 import { useGoogleAccounts } from "../../hooks/useBrain";
+import { isAdmin } from "../../hooks/useAuth";
 import { useToast } from "../shared/Toast";
 
 export function FirstRunCta({ configured }: { configured: boolean }) {
@@ -17,7 +18,8 @@ export function FirstRunCta({ configured }: { configured: boolean }) {
         <h2 className="text-base font-semibold text-text-primary">Comece conectando o Google</h2>
         <p className="text-sm text-text-secondary">
           O Second Brain ingere email e calendário das suas contas (pessoal e de cada empresa), guarda tudo em
-          markdown versionado e compila conhecimento num wiki. Conecte a primeira conta Google para iniciar.
+          markdown versionado e compila conhecimento num wiki só seu — nenhum outro usuário enxerga esse conteúdo.
+          Conecte a primeira conta Google para iniciar.
         </p>
         {configured ? (
           <Button
@@ -30,7 +32,9 @@ export function FirstRunCta({ configured }: { configured: boolean }) {
           </Button>
         ) : (
           <p className="text-sm text-warning">
-            Configure GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET primeiro (Settings → Variáveis de ambiente).
+            {isAdmin()
+              ? "Configure GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET primeiro (Settings → Variáveis de ambiente)."
+              : "O administrador ainda não configurou a conexão com o Google. Você pode começar pelo WhatsApp ou pelo Slack em Configurações."}
           </p>
         )}
         <button

@@ -5,11 +5,12 @@ import { embed } from "../memory/embeddings.js";
 import { bm25Vector } from "../memory/bm25.js";
 import { chunkText } from "../memory/chunk.js";
 import { normalizeForIndex } from "./text.js";
+import type { BrainScope } from "./scope.js";
 import type { BrainTenant, WikiFrontmatter, WikiPageType } from "./types.js";
 
 export interface BrainIndexPayload {
   text: string;
-  targetType: "brain";
+  targetType: string;
   targetName: BrainTenant;
   tenant: BrainTenant;
   sourceKey: string;
@@ -65,22 +66,25 @@ export function brainSparseVector(text: string): ReturnType<typeof bm25Vector> {
   return bm25Vector(config.bm25NormalizeDiacritics ? normalizeForIndex(text) : text);
 }
 
-async function supersedeSourceKey(sourceKey: string): Promise<void> {
+/** Toda consulta ao índice do brain começa por esta condição: é ela que separa os pontos de cada dono na coleção compartilhada. */
+export function brainOwnerCondition(scope: BrainScope): { key: "targetType"; match: { value: string } } {
+  return { key: "targetType", match: { value: scope.indexType } };
+}
+
+async function supersedeSourceKey(scope: BrainScope, sourceKey: string): Promise<void> {
   const c = getClient();
   if (!c) return;
   await c.setPayload(config.qdrantCollection, {
     payload: { current: false },
     filter: {
-      must: [
-        { key: "targetType", match: { value: "brain" } },
-        { key: "sourceKey", match: { value: sourceKey } },
-      ],
+      must: [brainOwnerCondition(scope), { key: "sourceKey", match: { value: sourceKey } }],
     },
     wait: true,
   });
 }
 
 export async function upsertWikiPage(
+  scope: BrainScope,
   relPath: string,
   frontmatter: WikiFrontmatter,
   body: string,
@@ -93,7 +97,7 @@ export async function upsertWikiPage(
   if (chunks.length === 0) chunks.push(header.trim());
 
   const denseVectors = await embed(chunks, "document");
-  await supersedeSourceKey(relPath);
+  await supersedeSourceKey(scope, relPath);
 
   const ts = new Date().toISOString();
   const points = chunks.map((chunk, i) => {
@@ -102,7 +106,7 @@ export async function upsertWikiPage(
     if (sparse) vector.bm25 = sparse;
     const payload: BrainIndexPayload = {
       text: chunk,
-      targetType: "brain",
+      targetType: scope.indexType,
       targetName: frontmatter.tenant_root || frontmatter.tenant,
       tenant: frontmatter.tenant,
       sourceKey: relPath,
@@ -128,25 +132,30 @@ export async function upsertWikiPage(
   return points.length;
 }
 
-export async function deleteBySourceKey(sourceKey: string): Promise<void> {
+export async function deleteBySourceKey(scope: BrainScope, sourceKey: string): Promise<void> {
   const c = getClient();
   if (!c) return;
   await c.delete(config.qdrantCollection, {
     wait: true,
     filter: {
-      must: [
-        { key: "targetType", match: { value: "brain" } },
-        { key: "sourceKey", match: { value: sourceKey } },
-      ],
+      must: [brainOwnerCondition(scope), { key: "sourceKey", match: { value: sourceKey } }],
     },
   });
 }
 
-export async function countBrainPoints(): Promise<{ total: number; current: number }> {
+/** Apaga todos os pontos de um brain de usuário; o índice do admin nunca é apagado por aqui. */
+export async function deleteBrainIndex(scope: BrainScope): Promise<void> {
+  if (scope.isAdmin) throw new Error("o índice do brain do admin não é removível");
+  const c = getClient();
+  if (!c) return;
+  await c.delete(config.qdrantCollection, { wait: true, filter: { must: [brainOwnerCondition(scope)] } });
+}
+
+export async function countBrainPoints(scope: BrainScope): Promise<{ total: number; current: number }> {
   const c = getClient();
   if (!c) return { total: 0, current: 0 };
   try {
-    const base = { must: [{ key: "targetType", match: { value: "brain" } }] };
+    const base = { must: [brainOwnerCondition(scope)] };
     const [total, current] = await Promise.all([
       c.count(config.qdrantCollection, { filter: base, exact: true }),
       c.count(config.qdrantCollection, {
@@ -160,7 +169,7 @@ export async function countBrainPoints(): Promise<{ total: number; current: numb
   }
 }
 
-export async function listCurrentSourceKeys(): Promise<Set<string>> {
+export async function listCurrentSourceKeys(scope: BrainScope): Promise<Set<string>> {
   const c = getClient();
   const keys = new Set<string>();
   if (!c) return keys;
@@ -168,10 +177,7 @@ export async function listCurrentSourceKeys(): Promise<Set<string>> {
   do {
     const res = await c.scroll(config.qdrantCollection, {
       filter: {
-        must: [
-          { key: "targetType", match: { value: "brain" } },
-          { key: "current", match: { value: true } },
-        ],
+        must: [brainOwnerCondition(scope), { key: "current", match: { value: true } }],
       },
       with_payload: { include: ["sourceKey"] },
       with_vector: false,
@@ -187,7 +193,7 @@ export async function listCurrentSourceKeys(): Promise<Set<string>> {
   return keys;
 }
 
-export async function pruneOldVersions(keepPerSourceKey = 5): Promise<number> {
+export async function pruneOldVersions(scope: BrainScope, keepPerSourceKey = 5): Promise<number> {
   const c = getClient();
   if (!c) return 0;
   const bySource = new Map<string, { id: string | number; ts: string }[]>();
@@ -195,7 +201,7 @@ export async function pruneOldVersions(keepPerSourceKey = 5): Promise<number> {
   do {
     const res = await c.scroll(config.qdrantCollection, {
       filter: {
-        must: [{ key: "targetType", match: { value: "brain" } }],
+        must: [brainOwnerCondition(scope)],
         must_not: [{ key: "current", match: { value: true } }],
       },
       with_payload: { include: ["sourceKey", "ts"] },
@@ -247,7 +253,7 @@ export async function bumpCounter(
   }
 }
 
-export async function bumpHelpfulBySourceKey(sourceKey: string): Promise<number> {
+export async function bumpHelpfulBySourceKey(scope: BrainScope, sourceKey: string): Promise<number> {
   const c = getClient();
   if (!c) return 0;
   let bumped = 0;
@@ -256,7 +262,7 @@ export async function bumpHelpfulBySourceKey(sourceKey: string): Promise<number>
     const res = await c.scroll(config.qdrantCollection, {
       filter: {
         must: [
-          { key: "targetType", match: { value: "brain" } },
+          brainOwnerCondition(scope),
           { key: "sourceKey", match: { value: sourceKey } },
           { key: "current", match: { value: true } },
         ],
