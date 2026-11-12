@@ -97,6 +97,36 @@ export interface AgentDetail extends AgentInfo {
   secretFiles: SecretFile[];
   driveFolderCount: number;
   integrationCount: number;
+  skillCount: number;
+}
+
+export type SkillInvocation = "auto" | "manual" | "model";
+
+export interface AgentSkill {
+  name: string;
+  description: string;
+  whenToUse: string;
+  invocation: SkillInvocation;
+  fileCount: number;
+  totalBytes: number;
+  updatedAt: string;
+}
+
+export interface AgentSkillDetail extends AgentSkill {
+  instructions: string;
+  files: { path: string; size: number }[];
+}
+
+export interface LibrarySkill {
+  name: string;
+  description: string;
+  installed: boolean;
+}
+
+export interface SkillCandidate {
+  name: string;
+  description: string;
+  path: string;
 }
 
 export type IntegrationProviderId = "asana" | "notion";

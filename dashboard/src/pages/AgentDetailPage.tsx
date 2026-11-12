@@ -22,6 +22,7 @@ import { AgentConfig } from "../components/agent/AgentConfig";
 import { AgentSchedules } from "../components/agent/AgentSchedules";
 import { AgentContextFiles } from "../components/agent/AgentContextFiles";
 import { AgentIntegrations } from "../components/agent/AgentIntegrations";
+import { AgentSkills } from "../components/agent/AgentSkills";
 import { SecretsPanel } from "../components/shared/SecretsPanel";
 import { FilesBrowser } from "../components/project/FilesBrowser";
 import { useCachedState } from "../hooks/useCachedState";
@@ -30,9 +31,9 @@ import { SessionSelector } from "../components/shared/SessionSelector";
 import { AgentAvatar } from "../components/agent/AgentAvatar";
 import { AppearanceEditor } from "../components/agent/AppearanceEditor";
 import { isAdmin } from "../hooks/useAuth";
-import type { AgentDetail, AgentAppearance } from "../lib/types";
+import type { AgentDetail, AgentAppearance, AgentSkill } from "../lib/types";
 
-type TabKey = "terminal" | "code" | "input" | "output" | "config" | "scheduler" | "context" | "secrets" | "integrations";
+type TabKey = "terminal" | "code" | "input" | "output" | "config" | "scheduler" | "context" | "secrets" | "integrations" | "skills";
 
 export function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -46,7 +47,7 @@ export function AgentDetailPage() {
   const [tab, setTab] = useCachedState<TabKey>(`agent:${name}:tab`, "terminal");
   const [sequential, setSequential] = useCachedState(`agent:${name}:sequential`, false);
   const [schedulerMode, setSchedulerMode] = useCachedState(`agent:${name}:schedulerMode`, false);
-  const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
+  const [skills, setSkills] = useState<AgentSkill[]>([]);
   const [selectedSkill, setSelectedSkill] = useCachedState(`agent:${name}:skill`, "");
   const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
@@ -104,14 +105,23 @@ export function AgentDetailPage() {
     loadSession();
     loadOutputs();
     loadInputs();
-    api.get<{ name: string; description: string }[]>("/projects/claude-skills").then(setSkills).catch(() => {});
   }, [loadAgent, loadSession, loadOutputs, loadInputs]);
+
+  const skillCount = agent?.skillCount;
+  useEffect(() => {
+    if (!name || skillCount === undefined) return;
+    api.get<{ skills: AgentSkill[] }>(`/agents/${name}/skills`)
+      .then((data) => setSkills(data.skills.filter((skill) => skill.invocation !== "model")))
+      .catch(() => {});
+  }, [name, skillCount]);
+
+  const activeSkill = skills.some((skill) => skill.name === selectedSkill) ? selectedSkill : "";
 
   const handleStart = async (text: string, images: ImageBlock[], opts: StartOpts) => {
     if ((!text.trim() && images.length === 0) || !name) return;
 
     try {
-      const finalPrompt = selectedSkill ? `/${selectedSkill} ${text.trim()}` : text.trim();
+      const finalPrompt = text.trim();
       const blocks = images.length > 0 ? [...images, { type: "text" as const, text: finalPrompt }] : undefined;
       const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
         targetType: "agent",
@@ -128,6 +138,7 @@ export function AgentDetailPage() {
         forceQueue: sequential || undefined,
         skipSystemPrompt: !sendSystemPrompt || undefined,
         schedulerMode: schedulerMode || undefined,
+        skill: activeSkill || undefined,
       });
       if (result.queued) {
         addToast("success", `Queued (#${result.queueItem?.seqId})`);
@@ -153,6 +164,7 @@ export function AgentDetailPage() {
     { key: "scheduler", label: `Agendamentos (${agent.schedules.length})` },
     { key: "context", label: `Contexto (${agent.contextFiles.length})` },
     { key: "secrets", label: `Credenciais (${agent.secrets.length})` },
+    { key: "skills", label: `Skills (${agent.skillCount})` },
     { key: "integrations", label: `Integrações (${agent.integrationCount})` },
   ];
 
@@ -302,19 +314,19 @@ export function AgentDetailPage() {
                   />
                   {skills.length > 0 && (
                     <div className="flex items-center gap-1">
-                      <Zap size={13} className={selectedSkill ? "text-accent" : "text-text-muted"} />
+                      <Zap size={13} className={activeSkill ? "text-accent" : "text-text-muted"} />
                       <select
-                        aria-label="Habilidade"
-                        value={selectedSkill}
+                        aria-label="Skill"
+                        value={activeSkill}
                         onChange={(e) => setSelectedSkill(e.target.value)}
-                        title={selectedSkill ? skills.find((s) => s.name === selectedSkill)?.description : ""}
+                        title={activeSkill ? skills.find((s) => s.name === activeSkill)?.description : ""}
                         className={`text-xs bg-transparent border rounded-md px-1 py-1 focus:outline-none focus:border-accent ${
-                          selectedSkill
+                          activeSkill
                             ? "border-accent/40 text-accent"
                             : "border-border text-text-muted"
                         }`}
                       >
-                        <option value="">Nenhuma habilidade</option>
+                        <option value="">Nenhuma skill</option>
                         {skills.map((s) => (
                           <option key={s.name} value={s.name}>{s.name}</option>
                         ))}
@@ -378,6 +390,10 @@ export function AgentDetailPage() {
           secretFiles={agent.secretFiles}
           onRefresh={loadAgent}
         />
+      )}
+
+      {tab === "skills" && (
+        <AgentSkills agentName={agent.name} onChanged={loadAgent} />
       )}
 
       {tab === "integrations" && (

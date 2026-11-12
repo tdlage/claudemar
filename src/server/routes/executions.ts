@@ -22,6 +22,7 @@ import { resolveTargetModel, targetModelSettings, sessionModelSettings } from ".
 import { isJevConfigured } from "../../jev/client.js";
 import type { AgentRuntime } from "../../providers/llm.js";
 import { assessSessionComplexity, automaticEffort } from "../../jev/session-complexity.js";
+import { userInvocableSkill } from "../../agents/skills.js";
 
 export const executionsRouter = Router();
 
@@ -118,7 +119,7 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
     res.status(409).json({ error: "Serviço em reinício para atualização — tente novamente em instantes" });
     return;
   }
-  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, effortAuto, agentName, forceQueue, skipSystemPrompt, skipIsolationInstruction, schedulerMode, model } = req.body;
+  const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, effortAuto, agentName, forceQueue, skipSystemPrompt, skipIsolationInstruction, schedulerMode, model, skill } = req.body;
 
   if (!prompt || !targetType) {
     res.status(400).json({ error: "prompt and targetType required" });
@@ -179,11 +180,6 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
     }
   }
 
-  const imageBlocks = messageBlocks?.filter((b) => b.type === "image") ?? [];
-  const execBlocks: MessageBlock[] | undefined = imageBlocks.length > 0
-    ? [...imageBlocks, { type: "text", text: finalPrompt }]
-    : undefined;
-
   const effectiveTargetName = targetName || "orchestrator";
   const username = req.ctx?.role === "admin" ? "admin" : req.ctx?.name;
   const userId = req.ctx?.role === "user" ? req.ctx.userId : undefined;
@@ -200,6 +196,16 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) }); return;
   }
+  if (skill !== undefined) {
+    if (targetType !== "agent" || typeof skill !== "string" || !userInvocableSkill(effectiveTargetName, skill)) {
+      res.status(400).json({ error: "Skill indisponível para este agente" }); return;
+    }
+    finalPrompt = `${runtime === "codex" ? "$" : "/"}${skill} ${finalPrompt}`;
+  }
+  const imageBlocks = messageBlocks?.filter((b) => b.type === "image") ?? [];
+  const execBlocks: MessageBlock[] | undefined = imageBlocks.length > 0
+    ? [...imageBlocks, { type: "text", text: finalPrompt }]
+    : undefined;
   const automatic = req.ctx?.role === "user";
   const resolvedEffort = req.ctx?.role === "user"
     ? await automaticEffort(prompt, runtime, { targetType, targetName: effectiveTargetName, username: req.ctx.name })

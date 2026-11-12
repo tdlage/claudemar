@@ -1,5 +1,16 @@
 const BASE = "/api";
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+
+  constructor(message: string, status: number, body: Record<string, unknown>) {
+    super(message);
+    this.status = status;
+    this.body = body;
+  }
+}
+
 function getToken(): string {
   return localStorage.getItem("dashboard_token") || "";
 }
@@ -30,7 +41,7 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || res.statusText);
+    throw new ApiError(body.error || res.statusText, res.status, body);
   }
 
   return res.json();

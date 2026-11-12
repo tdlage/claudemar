@@ -40,6 +40,7 @@
     "openai": "^6.19.0",
     "socket.io": "^4.8.3",
     "turndown": "^7.2.4",
+    "yauzl": "^3.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -48,6 +49,7 @@
     "@types/mime-types": "^3.0.1",
     "@types/node": "^25.2.2",
     "@types/turndown": "^5.0.6",
+    "@types/yauzl": "^3.4.0",
     "knip": "^6.37.0",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
