@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import {
   ArrowRight,
   Bot,
@@ -231,6 +231,10 @@ export function LoginPage() {
       <footer className="login-footer">
         <span>Claudemar</span>
         <span>Um espaço para ideias virarem trabalho.</span>
+        <nav className="legal-links" aria-label="Documentos legais">
+          <Link to="/privacidade">Política de Privacidade</Link>
+          <Link to="/termos">Termos de Serviço</Link>
+        </nav>
       </footer>
     </div>
   );

@@ -18,6 +18,7 @@ const BRAIN_GROUP = "Second Brain";
 const JEV_GROUP = "Jev (TypeSafe)";
 const DRIVE_GROUP = "Google Drive (entradas dos agentes)";
 const INTEGRATIONS_GROUP = "Integrações dos agentes (Asana e Notion)";
+const LEGAL_GROUP = "Política de privacidade e termos";
 
 export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "OPENAI_API_KEY", label: "OpenAI API Key", group: WHISPER_GROUP, help: "Usada apenas pelo Whisper na transcrição de voz. Os modelos GPT rodam pela assinatura do ChatGPT (login do Codex em Configurações), nunca por esta chave.", required: false },
@@ -35,6 +36,8 @@ export const MANAGED_ENV_KEYS: ManagedEnvKey[] = [
   { key: "GOOGLE_DRIVE_CLIENT_SECRET", label: "Google Drive Client Secret", group: DRIVE_GROUP, help: "Secret do OAuth client do Google Drive.", required: false },
   { key: "ASANA_CLIENT_ID", label: "Asana Client ID", group: INTEGRATIONS_GROUP, help: "App do tipo \"MCP app\" criado em https://app.asana.com/0/my-apps. Na aba OAuth cadastre o Redirect URL <PUBLIC_BASE_URL>/api/integrations/asana/callback e em Manage distribution escolha \"Any workspace\" (ou os workspaces permitidos). Cada usuário conecta a própria conta do Asana na aba Integrações do agente. O Notion não precisa de chave: o Claudemar se registra sozinho no servidor MCP do Notion.", required: false },
   { key: "ASANA_CLIENT_SECRET", label: "Asana Client Secret", group: INTEGRATIONS_GROUP, help: "Client secret do MCP app do Asana.", required: false },
+  { key: "LEGAL_OPERATOR_NAME", label: "Responsável pelos dados", group: LEGAL_GROUP, help: "Nome (ou razão social e CNPJ) do controlador dos dados exibido na Política de Privacidade e nos Termos de Serviço, em /privacidade e /termos.", required: false },
+  { key: "LEGAL_CONTACT_EMAIL", label: "E-mail de privacidade", group: LEGAL_GROUP, help: "E-mail para dúvidas e pedidos dos titulares (LGPD), exibido na Política de Privacidade e nos Termos de Serviço.", required: false },
   { key: "REDIS_URL", label: "Redis URL", group: BRAIN_GROUP, help: "Endpoint do Redis usado pelo brain (cursores, filas, dedup). Padrão: redis://127.0.0.1:6379.", required: false },
   { key: "R2_ENDPOINT", label: "R2 Endpoint", group: BRAIN_GROUP, help: "Endpoint S3 do Cloudflare R2 para anexos e originais. Vazio = armazenamento local em BRAIN_ROOT/attachments.", required: false },
   { key: "R2_ACCESS_KEY_ID", label: "R2 Access Key ID", group: BRAIN_GROUP, help: "Credencial de acesso do bucket R2.", required: false },

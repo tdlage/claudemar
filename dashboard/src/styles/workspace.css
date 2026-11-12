@@ -1152,6 +1152,27 @@ kbd {
   color: var(--dt-muted);
   font-size: 10px;
 }
+.legal-links {
+  display: flex;
+  gap: 16px;
+}
+.legal-links a {
+  white-space: nowrap;
+}
+.legal-links a:hover {
+  color: var(--dt-brand);
+  text-decoration: underline;
+}
+.legal-main {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  flex: 1;
+}
 .route-error {
   display: grid;
   place-content: center;
@@ -1484,6 +1505,10 @@ kbd {
   }
   .login-footer > span:first-child {
     display: none;
+  }
+  .login-footer {
+    flex-wrap: wrap;
+    row-gap: 8px;
   }
 }
 .command-results {

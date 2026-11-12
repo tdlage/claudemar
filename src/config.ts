@@ -113,6 +113,8 @@ export const config = Object.freeze({
   googleDriveClientSecret: stringEnv("GOOGLE_DRIVE_CLIENT_SECRET", ""),
   googleDriveSyncIntervalMinutes: numericEnv("GOOGLE_DRIVE_SYNC_INTERVAL_MINUTES", 10),
   asanaClientId: stringEnv("ASANA_CLIENT_ID", ""),
+  legalOperatorName: stringEnv("LEGAL_OPERATOR_NAME", ""),
+  legalContactEmail: stringEnv("LEGAL_CONTACT_EMAIL", ""),
   asanaClientSecret: stringEnv("ASANA_CLIENT_SECRET", ""),
   r2Endpoint: stringEnv("R2_ENDPOINT", ""),
   r2AccessKeyId: stringEnv("R2_ACCESS_KEY_ID", ""),

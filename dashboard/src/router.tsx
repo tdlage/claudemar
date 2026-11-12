@@ -2,6 +2,7 @@ import { lazy } from "react";
 import { createBrowserRouter, Navigate, useParams } from "react-router-dom";
 import { Layout } from "./components/layout/Layout";
 import { LoginPage } from "./pages/LoginPage";
+import { LegalPage } from "./pages/LegalPage";
 import { getMe } from "./hooks/useAuth";
 import { RouteError } from "./components/shared/RouteError";
 
@@ -62,6 +63,16 @@ export const router = createBrowserRouter([
   {
     path: "/login",
     element: <LoginPage />,
+    errorElement: <RouteError />,
+  },
+  {
+    path: "/privacidade",
+    element: <LegalPage kind="privacy" />,
+    errorElement: <RouteError />,
+  },
+  {
+    path: "/termos",
+    element: <LegalPage kind="terms" />,
     errorElement: <RouteError />,
   },
   {

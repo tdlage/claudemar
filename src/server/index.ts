@@ -6,6 +6,7 @@ import rateLimit from "express-rate-limit";
 import { Server as SocketServer } from "socket.io";
 import { authMiddleware, requireAdmin, securityHeaders } from "./middleware.js";
 import { tokenManager } from "./token-manager.js";
+import { config } from "../config.js";
 import { setupWebSocket } from "./websocket.js";
 import { EVIDENCE_DIR, EVIDENCE_FILE_PREFIX, EVIDENCE_ROUTE, LEGACY_EVIDENCE_ROUTE, verifyUploadSignature } from "../upload-signer.js";
 import { agentsRouter } from "./routes/agents.js";
@@ -101,6 +102,9 @@ export function createDashboardServer() {
   app.use("/api/google-drive", googleDrivePublicRouter);
   app.use(INTEGRATIONS_API_PATH, integrationsPublicRouter);
   app.all("/api/brain/mcp", ...brainMcpRoute);
+  app.get("/api/legal", (_req, res) => {
+    res.json({ operator: config.legalOperatorName, contactEmail: config.legalContactEmail, publicBaseUrl: config.publicBaseUrl });
+  });
   app.use("/api", authMiddleware);
 
   app.use("/api/auth", jsonParser, authRouter);
