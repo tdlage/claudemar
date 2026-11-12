@@ -16,7 +16,7 @@ import { countBrainPoints } from "../../brain/brain-index.js";
 import { brainSearch } from "../../brain/search.js";
 import { readRecallDistribution, readRecallTail } from "../../brain/recall-telemetry.js";
 import { WIKI_DIRS, appendOpenLoopTransition, currentOpenLoops, markReviewed, readOpenLoops } from "../../brain/wiki.js";
-import { ensureTenant, listTenants, mergeTenants, updateTenant } from "../../brain/tenants.js";
+import { ensureTenant, listTenants, mergeTenants, resolveTenantName, updateTenant } from "../../brain/tenants.js";
 import { rewriteTenantReferences } from "../../brain/tenant-rewrite.js";
 import { brainChat, type BrainChatMessage } from "../../brain/chat.js";
 import { listDigests, readDigest } from "../../brain/digest.js";
@@ -477,18 +477,24 @@ brainRouter.get("/google/accounts", (_req, res) => {
   res.json(getAccountsStatus(brain(res)));
 });
 
-brainRouter.post("/google/account", (req, res) => {
-  const scope = brain(res);
-  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  if (!email) {
-    res.status(400).json({ error: "email é obrigatório" });
-    return;
-  }
-  const tenant = paramStr(req.body?.tenant).trim() || undefined;
-  const label = typeof req.body?.label === "string" && req.body.label.trim() ? req.body.label.trim() : undefined;
-  brainSettings(scope).upsertAccount(email, { ...(tenant ? { tenant } : {}), label });
-  res.json(getAccountsStatus(scope));
-});
+brainRouter.post(
+  "/google/account",
+  asyncHandler(async (req, res) => {
+    const scope = brain(res);
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    if (!email) {
+      res.status(400).json({ error: "email é obrigatório" });
+      return;
+    }
+    const tenantName = paramStr(req.body?.tenant).trim().slice(0, 80);
+    const tenant = tenantName
+      ? ((await resolveTenantName(scope, tenantName)) ?? (await ensureTenant(scope, { label: tenantName })))
+      : undefined;
+    const label = typeof req.body?.label === "string" && req.body.label.trim() ? req.body.label.trim() : undefined;
+    brainSettings(scope).upsertAccount(email, { ...(tenant ? { tenant } : {}), label });
+    res.json(getAccountsStatus(scope));
+  }),
+);
 
 brainRouter.post(
   "/google/disconnect",
