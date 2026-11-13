@@ -1,6 +1,6 @@
 import { lstat, mkdir, readdir, rename } from "node:fs/promises";
 import { join, posix } from "node:path";
-import { isFileLevelError, fileErrorMessage, type DriveTree, type DriveWriter, type RemoteFile } from "./drive-api.js";
+import { isFileLevelError, isMediaFile, fileErrorMessage, MEDIA_SKIP_REASON, type DriveTree, type DriveWriter, type RemoteFile } from "./drive-api.js";
 import {
   FatalSyncError,
   localFileName,
@@ -274,6 +274,10 @@ export async function pushLocalChanges(ctx: PushContext, changes: LocalChanges):
   }
 
   for (const { path, local } of changes.created) {
+    if (isMediaFile(posix.basename(path))) {
+      await saveAside(path, `${MEDIA_SKIP_REASON}, so it was not uploaded to Google Drive.`);
+      continue;
+    }
     await run(() => uploadNew(path, posix.basename(path), local), (message) => saveAside(path, `Could not upload it: ${message}.`));
   }
 

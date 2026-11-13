@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, unlink, utimes, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { FatalSyncError, applyMirror, planMirror, scanLocalTree, type LocalTree, type Manifest, type MirrorFile, type MirrorFolder } from "../src/google-drive/mirror.js";
-import type { DriveTree, DriveWriter, RemoteFile } from "../src/google-drive/drive-api.js";
+import { isMediaFile, type DriveTree, type DriveWriter, type RemoteFile } from "../src/google-drive/drive-api.js";
 import { detectLocalChanges, hasLocalChanges, isMassDeletion, pushLocalChanges, salvageAfterSwap } from "../src/google-drive/two-way.js";
 
 const output = resolve(import.meta.dirname, "../../.output/google-drive-two-way-test");
@@ -330,4 +330,26 @@ test("after pushing, rebuilding the mirror reuses the uploaded files without dow
   assert.equal((await stat(join(root, "Plan.md"))).mode & 0o777, 0o444);
   assert.equal((await stat(join(root, "Sub", "new.txt"))).mode & 0o777, 0o644);
   assert.equal(hasLocalChanges(detectLocalChanges({ ...state.manifest, files: result.files }, await local(), Date.now() + 1_000)), false);
+});
+
+test("video and audio files are recognized by Drive type or by extension", () => {
+  assert.equal(isMediaFile("clip.bin", "video/mp4"), true);
+  assert.equal(isMediaFile("call", "audio/mpeg"), true);
+  assert.equal(isMediaFile("meeting.MOV", "application/octet-stream"), true);
+  assert.equal(isMediaFile("voice.m4a"), true);
+  assert.equal(isMediaFile("report.pdf", "application/pdf"), false);
+  assert.equal(isMediaFile("Notes", "application/vnd.google-apps.document"), false);
+});
+
+test("new local video and audio files are moved aside instead of uploaded", async () => {
+  const state = await mirror([], [remoteFile("a", "a.txt", "alpha")], { a: "alpha" });
+  await writeFile(join(root, "demo.mp4"), "video bytes");
+  await writeFile(join(root, "call.mp3"), "audio bytes");
+  await writeFile(join(root, "notes.md"), "# notes");
+  const writer = new MemoryDrive();
+  const notes = await pushLocalChanges(context(state, writer), detectLocalChanges(state.manifest, await local(), Date.now() + 1_000));
+  assert.deepEqual(writer.operations, ["createFile notes.md in root"]);
+  assert.deepEqual(notes.map((n) => n.path).sort(), ["call.mp3", "demo.mp4"]);
+  assert.ok(notes.every((n) => n.reason.startsWith("Video and audio files are not synced")));
+  assert.deepEqual((await readdir(unsyncedDir)).sort(), ["call.mp3", "demo.mp4"]);
 });

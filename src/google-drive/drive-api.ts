@@ -225,8 +225,20 @@ function nativeTypeLabel(mimeType: string): string {
   return NATIVE_TYPE_LABELS[type] ?? `Google "${type || "unknown"}"`;
 }
 
+export const MEDIA_SKIP_REASON = "Video and audio files are not synced";
+
+function isMediaMimeType(mimeType: string): boolean {
+  return mimeType.startsWith("video/") || mimeType.startsWith("audio/");
+}
+
+export function isMediaFile(name: string, mimeType?: string | null): boolean {
+  const byName = lookupMimeType(name);
+  return isMediaMimeType(mimeType ?? "") || (byName !== false && isMediaMimeType(byName));
+}
+
 function describeFile(item: drive_v3.Schema$File, source: drive_v3.Schema$File): RemoteFile | { reason: string } {
   const mimeType = source.mimeType || "application/octet-stream";
+  if (isMediaFile(item.name || source.name || "", mimeType)) return { reason: MEDIA_SKIP_REASON };
   let extension = "";
   let exportMimeType: string | null = null;
   if (mimeType.startsWith(NATIVE_PREFIX)) {
