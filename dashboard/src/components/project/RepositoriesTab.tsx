@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { GitBranch, GitPullRequest, GitCommitHorizontal, GitMerge, FolderGit2, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, FileDiff, Circle } from "lucide-react";
+import { GitBranch, GitPullRequest, GitCommitHorizontal, GitMerge, FolderGit2, Download, Archive, Trash2, Plus, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, FileDiff, Circle, Copy, ExternalLink } from "lucide-react";
+import { remoteLinks } from "../../lib/gitRemote";
 import { api } from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { Card } from "../shared/Card";
@@ -430,10 +431,12 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
         const ci = ciStatus[repo.name];
         const repoWorktrees = (worktrees[repo.name] ?? []).filter((w) => !w.isMain);
 
+        const links = remoteLinks(repo.remoteUrl);
         return (
           <Card key={repo.name} className="p-0 overflow-hidden">
+            <div className="flex items-center hover:bg-surface-hover transition-colors">
             <button
-              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover transition-colors"
+              className="flex-1 min-w-0 flex items-center gap-3 pl-4 pr-2 py-3 text-left"
               onClick={() => !repo.hidden && toggleExpand(repo.name)}
             >
               {isExpanded ? <ChevronDown size={14} className="text-text-muted shrink-0" /> : <ChevronRight size={14} className="text-text-muted shrink-0" />}
@@ -479,9 +482,40 @@ export function RepositoriesTab({ projectName, repos, onRefresh, onNavigateCI }:
                 </span>
               )}
               <span className="flex-1 text-xs text-text-muted truncate text-right">
-                {repo.remoteUrl}
+                {links?.cloneUrl}
               </span>
             </button>
+            {links && (
+              <div className="flex items-center gap-0.5 pr-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(links.cloneUrl).then(
+                      () => addToast("success", "Repository URL copied"),
+                      () => addToast("error", "Could not copy the URL"),
+                    );
+                  }}
+                  className="p-1.5 rounded text-text-muted hover:text-accent hover:bg-surface transition-colors cursor-pointer"
+                  title="Copy repository URL"
+                  aria-label={`Copy URL of ${repo.name}`}
+                >
+                  <Copy size={14} />
+                </button>
+                {links.webUrl && (
+                  <a
+                    href={links.webUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 rounded text-text-muted hover:text-accent hover:bg-surface transition-colors"
+                    title={links.isGithub ? "Open on GitHub" : "Open repository page"}
+                    aria-label={links.isGithub ? `Open ${repo.name} on GitHub` : `Open ${repo.name} repository page`}
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                )}
+              </div>
+            )}
+            </div>
 
             <div className="flex items-center justify-between gap-3 px-4 py-2 border-t border-border">
               <span className="text-xs text-text-muted">{repo.name === "." ? "Project root — always available" : repo.hidden ? "Hidden from agent workspace" : "Available to agent"}</span>

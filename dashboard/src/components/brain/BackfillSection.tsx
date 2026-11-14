@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DatabaseBackup } from "lucide-react";
 import { api } from "../../lib/api";
 import { Button } from "../shared/Button";
@@ -6,6 +6,7 @@ import { Modal } from "../shared/Modal";
 import { useToast } from "../shared/Toast";
 import { useBrainStatus, useGoogleAccounts } from "../../hooks/useBrain";
 import { BackfillProgressCard } from "./BackfillProgressCard";
+import type { BrainSlackStatus } from "../../lib/types";
 
 interface BackfillEstimate {
   untriaged: number;
@@ -28,14 +29,23 @@ export function BackfillSection() {
   const [selected, setSelected] = useState<string[]>([]);
   const [includeGoogle, setIncludeGoogle] = useState(true);
   const [includeClaudemar, setIncludeClaudemar] = useState(true);
+  const [includeSlack, setIncludeSlack] = useState(true);
+  const [slackAccounts, setSlackAccounts] = useState(0);
   const [estimate, setEstimate] = useState<BackfillEstimate | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    api.get<BrainSlackStatus>("/brain/slack/status")
+      .then((slack) => setSlackAccounts(slack.accounts.filter((account) => !account.reauthRequired).length))
+      .catch(() => setSlackAccounts(0));
+  }, []);
+
   const connected = accounts.filter((a) => a.connected);
   const backfill = status?.backfill;
   const googleSelected = includeGoogle && connected.length > 0;
-  const hasSource = googleSelected || includeClaudemar;
+  const slackSelected = includeSlack && slackAccounts > 0;
+  const hasSource = googleSelected || includeClaudemar || slackSelected;
 
   const openConfirm = async () => {
     setBusy(true);
@@ -61,6 +71,7 @@ export function BackfillSection() {
         accounts: googleSelected && selected.length > 0 ? selected : undefined,
         google: googleSelected,
         claudemar: includeClaudemar,
+        slack: slackSelected,
       });
       addToast("success", "Backfill iniciado");
       setConfirming(false);
@@ -94,6 +105,15 @@ export function BackfillSection() {
               onChange={(e) => setIncludeGoogle(e.target.checked)}
             />
             Gmail e Calendar
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={slackSelected}
+              disabled={slackAccounts === 0}
+              onChange={(e) => setIncludeSlack(e.target.checked)}
+            />
+            Slack (todos os canais, DMs e threads que a conta conectada acessa)
           </label>
           <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
             <input type="checkbox" checked={includeClaudemar} onChange={(e) => setIncludeClaudemar(e.target.checked)} />
@@ -157,7 +177,7 @@ export function BackfillSection() {
       </Button>
       {!hasSource && (
         <p className="text-xs text-warning">
-          Selecione o claudemar ou conecte pelo menos uma conta Google antes de rodar o backfill.
+          Selecione o claudemar ou conecte pelo menos uma conta Google ou Slack antes de rodar o backfill.
         </p>
       )}
 

@@ -72,6 +72,7 @@ export function idleBackfillState(): BackfillState {
     phase: null,
     accounts: [],
     claudemar: false,
+    slack: false,
     monthsRaw: 0,
     monthsCompile: 0,
     startedAt: null,

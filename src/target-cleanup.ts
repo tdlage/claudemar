@@ -18,6 +18,7 @@ import { agentSecretsManager, purgeProjectSecrets } from "./secrets-manager.js";
 import { purgePromptAttachments } from "./prompt-attachments.js";
 import { purgeTargetDriveFolders } from "./google-drive/service.js";
 import { purgeAgentIntegrations } from "./integrations/service.js";
+import { purgeAgentFavorites } from "./agents/favorites.js";
 
 async function purgeBrainTarget(target: { kind: "project" | "agent"; name: string }): Promise<void> {
   await purgeTargetEverywhere(target).catch((err) => {
@@ -87,6 +88,7 @@ export async function purgeAgentData(agentName: string): Promise<void> {
   await purgePromptAttachments("agent", agentName);
   await purgeTargetDriveFolders({ type: "agent", name: agentName });
   await purgeAgentIntegrations(agentName);
+  await purgeAgentFavorites(agentName);
   await execute(
     "DELETE FROM execution_history WHERE (target_type = 'agent' AND target_name = ?) OR agent_name = ?",
     [agentName, agentName],

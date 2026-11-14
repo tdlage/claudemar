@@ -471,28 +471,43 @@ export function currentOpenLoops(entries: OpenLoopEntry[]): OpenLoopEntry[] {
   return entries.filter((e) => !superseded.has(e.id));
 }
 
-export async function appendOpenLoopTransition(
+export type OpenLoopTransitionStatus = "open" | "done" | "abandoned";
+
+/** Registra a mudança de status de várias pendências numa única escrita; ids inexistentes ou já no status são ignorados. */
+export async function appendOpenLoopTransitions(
   scope: BrainScope,
-  loopId: string,
-  status: "open" | "done" | "abandoned",
-): Promise<OpenLoopEntry | null> {
+  loopIds: string[],
+  status: OpenLoopTransitionStatus,
+): Promise<OpenLoopEntry[]> {
   return brainWriteLock(scope, async () => {
     const path = resolve(scope.stateDir, "open-loops.md");
     const entries = await parseOpenLoopsFile(path);
-    const current = currentOpenLoops(entries);
-    const original = current.find((e) => e.id === loopId);
-    if (!original || original.status === status) return null;
-    const transition: OpenLoopEntry = {
-      ...original,
-      id: `ol-${hash8(`${loopId}:${status}:${today()}:${entries.length}`)}`,
-      status,
-      supersedes: loopId,
-      last_movement: today(),
-    };
-    entries.push(transition);
-    await writeFileAtomic(scope, path, dump(entries, { lineWidth: -1, noRefs: true }));
-    return transition;
+    const current = new Map(currentOpenLoops(entries).map((e) => [e.id, e]));
+    const transitions: OpenLoopEntry[] = [];
+    for (const loopId of new Set(loopIds)) {
+      const original = current.get(loopId);
+      if (!original || original.status === status) continue;
+      const transition: OpenLoopEntry = {
+        ...original,
+        id: `ol-${hash8(`${loopId}:${status}:${today()}:${entries.length}`)}`,
+        status,
+        supersedes: loopId,
+        last_movement: today(),
+      };
+      entries.push(transition);
+      transitions.push(transition);
+    }
+    if (transitions.length > 0) await writeFileAtomic(scope, path, dump(entries, { lineWidth: -1, noRefs: true }));
+    return transitions;
   });
+}
+
+export async function appendOpenLoopTransition(
+  scope: BrainScope,
+  loopId: string,
+  status: OpenLoopTransitionStatus,
+): Promise<OpenLoopEntry | null> {
+  return (await appendOpenLoopTransitions(scope, [loopId], status))[0] ?? null;
 }
 
 export async function relatedPagesText(scope: BrainScope, paths: string[], maxPages: number, maxCharsPerPage = 4000): Promise<string> {

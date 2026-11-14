@@ -72,6 +72,7 @@ export function formatUsage(costUsd: number, totalTokens?: number): string {
 export interface AgentInfo {
   name: string;
   lastExecution: string | null;
+  favorite: boolean;
 }
 
 export interface MaskedSecret {
@@ -810,6 +811,7 @@ export interface BackfillProgress {
 }
 
 export interface BackfillState {
+  slack: boolean;
   status: "idle" | "running" | "done" | "error" | "cancelled";
   phase: "raw" | "triage" | "compile" | null;
   accounts: string[];

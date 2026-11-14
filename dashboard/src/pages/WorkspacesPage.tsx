@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { ArrowUpRight, Bot, Folder, Plus, Search, X } from "lucide-react";
+import { ArrowUpRight, Bot, Folder, Plus, Search, Star, X } from "lucide-react";
 import { api } from "../lib/api";
 import type { AgentInfo, ProjectInfo } from "../lib/types";
 import { isAdmin } from "../hooks/useAuth";
@@ -12,9 +12,11 @@ import {
   LoadingState,
 } from "../components/shared/PageState";
 import {
+  AGENT_FAVORITES_CHANGED_EVENT,
   WORKSPACES_CHANGED_EVENT,
   openCreateWorkspace,
 } from "../lib/workspaceEvents";
+import { useToast } from "../components/shared/Toast";
 import { usePendingQuestionTargets } from "../hooks/usePendingQuestionTargets";
 import { NeedsAnswerBadge } from "../components/shared/NeedsAnswerBadge";
 
@@ -27,6 +29,36 @@ export function WorkspacesPage() {
   const pending = usePendingQuestionTargets();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [savingFavorite, setSavingFavorite] = useState<string | null>(null);
+  const { addToast } = useToast();
+  const toggleFavorite = async (name: string, favorite: boolean) => {
+    setSavingFavorite(name);
+    setAgents((current) =>
+      current.map((agent) =>
+        agent.name === name ? { ...agent, favorite } : agent,
+      ),
+    );
+    try {
+      await api.put(`/agents/${encodeURIComponent(name)}/favorite`, {
+        favorite,
+      });
+      window.dispatchEvent(new Event(AGENT_FAVORITES_CHANGED_EVENT));
+    } catch (err) {
+      setAgents((current) =>
+        current.map((agent) =>
+          agent.name === name ? { ...agent, favorite: !favorite } : agent,
+        ),
+      );
+      addToast(
+        "error",
+        err instanceof Error
+          ? err.message
+          : "Não foi possível salvar o favorito",
+      );
+    } finally {
+      setSavingFavorite(null);
+    }
+  };
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -58,6 +90,7 @@ export function WorkspacesPage() {
         ? `${p.repoCount} ${p.repoCount === 1 ? "repositório" : "repositórios"}`
         : "Conversas e arquivos",
       changes: p.hasChanges,
+      favorite: false,
       icon: Folder,
     })),
     ...agents.map((a) => ({
@@ -65,15 +98,18 @@ export function WorkspacesPage() {
       kind: "agents",
       detail: "Assistente especializado",
       changes: false,
+      favorite: a.favorite,
       icon: Bot,
     })),
   ]
     .filter((entry) => !kind || entry.kind === kind)
-    .sort((a, b) =>
-      a.name.localeCompare(b.name, "pt-BR", {
-        numeric: true,
-        sensitivity: "base",
-      }),
+    .sort(
+      (a, b) =>
+        Number(b.favorite) - Number(a.favorite) ||
+        a.name.localeCompare(b.name, "pt-BR", {
+          numeric: true,
+          sensitivity: "base",
+        }),
     );
   const entries = all.filter((entry) =>
     entry.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
@@ -145,40 +181,64 @@ export function WorkspacesPage() {
         <ErrorState message={error} onRetry={() => void load()} />
       ) : entries.length ? (
         <div className="workspace-card-grid">
-          {entries.map(({ name, kind: type, detail, changes, icon: Icon }) => (
-            <Link
-              key={`${type}:${name}`}
-              to={`/${type}/${encodeURIComponent(name)}`}
-              className={`workspace-card ${pending.has(`${type === "agents" ? "agent" : "project"}:${name}`) ? "needs-answer" : ""}`}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span
-                  className={`workspace-row-icon ${type === "agents" ? "agent" : ""}`}
+          {entries.map(
+            ({ name, kind: type, detail, changes, favorite, icon: Icon }) => (
+              <div key={`${type}:${name}`} className="workspace-card-wrap">
+                <Link
+                  to={`/${type}/${encodeURIComponent(name)}`}
+                  className={`workspace-card ${pending.has(`${type === "agents" ? "agent" : "project"}:${name}`) ? "needs-answer" : ""}`}
                 >
-                  <Icon size={22} strokeWidth={1.6} />
-                </span>
-                {pending.has(`${type === "agents" ? "agent" : "project"}:${name}`) ? (
-                  <NeedsAnswerBadge />
-                ) : (
-                  <ArrowUpRight size={17} className="text-text-muted" />
+                  <div className="flex items-center justify-between gap-3">
+                    <span
+                      className={`workspace-row-icon ${type === "agents" ? "agent" : ""}`}
+                    >
+                      <Icon size={22} strokeWidth={1.6} />
+                    </span>
+                    {pending.has(
+                      `${type === "agents" ? "agent" : "project"}:${name}`,
+                    ) ? (
+                      <NeedsAnswerBadge />
+                    ) : (
+                      <ArrowUpRight size={17} className="text-text-muted" />
+                    )}
+                  </div>
+                  <h2>{name}</h2>
+                  <p>{detail}</p>
+                  <div className="workspace-card-footer">
+                    <span>
+                      {type === "agents" ? "Abrir conversa" : "Abrir projeto"}
+                    </span>
+                    {changes ? (
+                      <Badge variant="warning">Alterações</Badge>
+                    ) : type === "agents" ? null : (
+                      <span className="text-xs text-text-muted">Projeto</span>
+                    )}
+                  </div>
+                </Link>
+                {type === "agents" && (
+                  <button
+                    type="button"
+                    className="workspace-favorite"
+                    aria-pressed={favorite}
+                    disabled={savingFavorite === name}
+                    onClick={() => void toggleFavorite(name, !favorite)}
+                    title={
+                      favorite
+                        ? "Remover dos favoritos do menu lateral"
+                        : "Favoritar: aparece no menu lateral"
+                    }
+                    aria-label={
+                      favorite
+                        ? `Remover ${name} dos favoritos`
+                        : `Favoritar ${name}`
+                    }
+                  >
+                    <Star size={16} />
+                  </button>
                 )}
               </div>
-              <h2>{name}</h2>
-              <p>{detail}</p>
-              <div className="workspace-card-footer">
-                <span>
-                  {type === "agents" ? "Abrir conversa" : "Abrir projeto"}
-                </span>
-                {changes ? (
-                  <Badge variant="warning">Alterações</Badge>
-                ) : (
-                  <span className="text-xs text-text-muted">
-                    {type === "agents" ? "Agente" : "Projeto"}
-                  </span>
-                )}
-              </div>
-            </Link>
-          ))}
+            ),
+          )}
         </div>
       ) : (
         <div className="workspace-panel">

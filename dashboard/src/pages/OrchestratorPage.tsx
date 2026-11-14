@@ -1,4 +1,7 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { useOutletContext } from "react-router-dom";
+import type { LayoutOutletContext } from "../components/layout/Layout";
 import { Save, RefreshCw, Download, CheckCircle, Crown, Cpu } from "lucide-react";
 import { api } from "../lib/api";
 import { Terminal, type StartOpts } from "../components/terminal/Terminal";
@@ -32,6 +35,7 @@ interface UpdateInfo {
 type TabKey = "terminal" | "code" | "agents-md" | "settings";
 
 export function OrchestratorPage() {
+  const { workspaceActions } = useOutletContext<LayoutOutletContext>();
   const currentModel = useCurrentModel();
   const [tab, setTab] = useCachedState<TabKey>("orchestrator:tab", "terminal");
 
@@ -169,11 +173,8 @@ export function OrchestratorPage() {
   ];
 
   return (
-    <div className={`execution-page flex flex-col gap-4 ${tab === "terminal" ? "is-conversation" : ""} ${tab === "code" ? "h-full" : ""}`}>
-      <div className="execution-page-header flex items-center gap-3">
-        <Crown size={20} className="text-amber-400" />
-        <h1 className="text-lg font-semibold">Claudemar</h1>
-      </div>
+    <div className={`execution-page workspace-detail-page flex flex-col gap-4 ${tab === "terminal" ? "is-conversation" : ""} ${tab === "code" ? "h-full" : ""}`}>
+      {workspaceActions && createPortal(<Crown size={20} className="text-amber-400" aria-hidden="true" />, workspaceActions)}
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 

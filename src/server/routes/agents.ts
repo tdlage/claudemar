@@ -17,13 +17,14 @@ import { deleteAppearance, getAppearance, setAppearance } from "../../agents/app
 import { requireAdmin } from "../middleware.js";
 import { purgeAgentData } from "../../target-cleanup.js";
 import { agentSecretsManager } from "../../secrets-manager.js";
-import { attachmentDisposition, safeFilename, safePathSegment, listFiles, listDirEntries, inputUploadParser } from "../route-utils.js";
+import { asyncHandler, attachmentDisposition, safeFilename, safePathSegment, listFiles, listDirEntries, inputUploadParser } from "../route-utils.js";
 import { registerSecretsRoutes } from "./secrets.js";
 import { registerDriveFolderRoutes } from "./drive-folders.js";
 import { DRIVE_INPUT_DIR } from "../../google-drive/paths.js";
 import { DriveRequestError, targetFolderCount } from "../../google-drive/service.js";
 import { registerAgentIntegrationRoutes } from "./integrations.js";
 import { registerAgentSkillRoutes } from "./agent-skills.js";
+import { favoriteAgents, favoriteOwnerOf, setFavoriteAgent } from "../../agents/favorites.js";
 import { agentSkillCount } from "../../agents/skills.js";
 import { agentIntegrationCount, IntegrationRequestError } from "../../integrations/service.js";
 
@@ -101,14 +102,30 @@ function resolveOutputPath(
   return { paths, filePath };
 }
 
-agentsRouter.get("/", (req, res) => {
+agentsRouter.get("/", asyncHandler(async (req, res) => {
   let agents = listAgentInfos();
   if (req.ctx?.role === "user") {
     const allowed = req.ctx.agents;
     agents = agents.filter((a) => allowed.includes(a.name));
   }
-  res.json(agents);
-});
+  const favorites = await favoriteAgents(favoriteOwnerOf(req.ctx!));
+  res.json(agents.map((agent) => ({ ...agent, favorite: favorites.has(agent.name) })));
+}));
+
+agentsRouter.put("/:name/favorite", asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  if (typeof name !== "string" || !isValidAgentName(name) || !getAgentInfo(name)) {
+    res.status(404).json({ error: "Agente não encontrado" });
+    return;
+  }
+  const { favorite } = (req.body ?? {}) as { favorite?: unknown };
+  if (typeof favorite !== "boolean") {
+    res.status(400).json({ error: "favorite deve ser true ou false" });
+    return;
+  }
+  await setFavoriteAgent(favoriteOwnerOf(req.ctx!), name, favorite);
+  res.json({ name, favorite });
+}));
 
 agentsRouter.get("/:name", async (req, res) => {
   const { name } = req.params;

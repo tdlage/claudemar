@@ -15,7 +15,7 @@ import { forceReindex, indexStatus, reindexRunning } from "../../brain/indexer.j
 import { countBrainPoints } from "../../brain/brain-index.js";
 import { brainSearch } from "../../brain/search.js";
 import { readRecallDistribution, readRecallTail } from "../../brain/recall-telemetry.js";
-import { WIKI_DIRS, appendOpenLoopTransition, currentOpenLoops, markReviewed, readOpenLoops } from "../../brain/wiki.js";
+import { WIKI_DIRS, appendOpenLoopTransitions, currentOpenLoops, markReviewed, readOpenLoops } from "../../brain/wiki.js";
 import { ensureTenant, listTenants, mergeTenants, resolveTenantName, updateTenant } from "../../brain/tenants.js";
 import { rewriteTenantReferences } from "../../brain/tenant-rewrite.js";
 import { brainChat, type BrainChatMessage } from "../../brain/chat.js";
@@ -843,27 +843,20 @@ brainRouter.get(
   }),
 );
 
-brainRouter.post(
-  "/open-loops/:id/close",
-  asyncHandler(async (req, res) => {
-    const transition = await appendOpenLoopTransition(brain(res), paramStr(req.params.id), "done");
-    if (!transition) {
-      res.status(404).json({ error: "loop não encontrado ou já concluído" });
-      return;
-    }
-    res.json(transition);
-  }),
-);
+const BULK_OPEN_LOOP_STATUS: Record<string, "done" | "abandoned" | "open"> = { close: "done", ignore: "abandoned", reopen: "open" };
+const MAX_BULK_OPEN_LOOPS = 5000;
 
 brainRouter.post(
-  "/open-loops/:id/reopen",
+  "/open-loops/bulk",
   asyncHandler(async (req, res) => {
-    const transition = await appendOpenLoopTransition(brain(res), paramStr(req.params.id), "open");
-    if (!transition) {
-      res.status(404).json({ error: "loop não encontrado ou já aberto" });
+    const { ids, action } = (req.body ?? {}) as { ids?: unknown; action?: unknown };
+    const status = typeof action === "string" ? BULK_OPEN_LOOP_STATUS[action] : undefined;
+    if (!status || !Array.isArray(ids) || ids.length === 0 || ids.length > MAX_BULK_OPEN_LOOPS || !ids.every((id) => typeof id === "string")) {
+      res.status(400).json({ error: `informe action (close, ignore ou reopen) e de 1 a ${MAX_BULK_OPEN_LOOPS} ids` });
       return;
     }
-    res.json(transition);
+    const transitions = await appendOpenLoopTransitions(brain(res), ids as string[], status);
+    res.json({ updated: transitions.length });
   }),
 );
 
@@ -1097,6 +1090,7 @@ brainRouter.post(
       accounts,
       google: req.body?.google !== false,
       claudemar: req.body?.claudemar === true,
+      slack: req.body?.slack === true,
     });
     if (!("status" in result)) {
       res.status(409).json({ error: result.error });

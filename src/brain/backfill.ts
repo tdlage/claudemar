@@ -4,6 +4,7 @@ import { perScope, type BrainScope } from "./scope.js";
 import { listConnectedEmails } from "./connectors/google-auth.js";
 import { backfillGmailRange } from "./connectors/gmail.js";
 import { backfillCalendarRange } from "./connectors/calendar.js";
+import { slackBackfillUnits, slackConnected, type SlackBackfillUnit } from "./connectors/slack.js";
 import { ingestTick } from "./ingest.js";
 import { scanRawThreads } from "./raw-scan.js";
 import {
@@ -147,6 +148,29 @@ async function runClaudemarRaw(scope: BrainScope, state: BackfillState): Promise
   await persist(scope, state);
 }
 
+async function runSlackRaw(scope: BrainScope, state: BackfillState, units: SlackBackfillUnit[]): Promise<void> {
+  const redis = getRedis();
+  const doneKey = brainKeys(scope).backfillDone;
+  state.progress.currentAccount = "slack";
+  for (const unit of units) {
+    if (await cancelRequested(scope)) return;
+    if ((await redis.sismember(doneKey, unit.unit)) !== 1) {
+      state.progress.detail = unit.label;
+      await persist(scope, state);
+      try {
+        await unit.run();
+        await drainIngest(scope);
+        await redis.sadd(doneKey, unit.unit);
+      } catch (err) {
+        state.error = `${unit.label}: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    state.progress.processed += 1;
+    await persist(scope, state);
+  }
+  state.progress.currentAccount = null;
+}
+
 async function runRawPhase(scope: BrainScope, state: BackfillState): Promise<void> {
   const redis = getRedis();
   const doneKey = brainKeys(scope).backfillDone;
@@ -155,7 +179,15 @@ async function runRawPhase(scope: BrainScope, state: BackfillState): Promise<voi
   const months = monthsBetween(state.monthsRaw);
   const accounts = state.accounts;
   const claudemarUnits = state.claudemar ? monthWindows(rawWindowStart(state.monthsRaw)).length + 1 : 0;
-  state.progress.total = accounts.length * months.length + accounts.length + claudemarUnits;
+  let slackUnits: SlackBackfillUnit[] = [];
+  if (state.slack) {
+    try {
+      slackUnits = await slackBackfillUnits(scope, new Date(rawWindowStart(state.monthsRaw)));
+    } catch (err) {
+      state.error = `slack: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+  state.progress.total = accounts.length * months.length + accounts.length + claudemarUnits + slackUnits.length;
   state.progress.processed = 0;
 
   for (const account of accounts) {
@@ -202,6 +234,7 @@ async function runRawPhase(scope: BrainScope, state: BackfillState): Promise<voi
   }
   state.progress.currentAccount = null;
   state.progress.currentMonth = null;
+  if (slackUnits.length > 0 && !(await cancelled())) await runSlackRaw(scope, state, slackUnits);
   if (state.claudemar && !(await cancelled())) await runClaudemarRaw(scope, state);
 }
 
@@ -447,6 +480,7 @@ export async function startBackfill(scope: BrainScope, params: {
   accounts?: string[];
   google?: boolean;
   claudemar?: boolean;
+  slack?: boolean;
 }): Promise<BackfillState | { error: string }> {
   const run = backfillRun(scope);
   const keys = brainKeys(scope);
@@ -466,7 +500,8 @@ export async function startBackfill(scope: BrainScope, params: {
         ? params.accounts.filter((a) => connected.includes(a.toLowerCase()))
         : connected;
     const claudemar = params.claudemar === true;
-    if (accounts.length === 0 && !claudemar) {
+    const slack = params.slack === true && slackConnected(scope);
+    if (accounts.length === 0 && !claudemar && !slack) {
       run.running = false;
       return {
         error: params.google === false ? "nenhuma fonte selecionada" : "nenhuma conta Google conectada",
@@ -476,7 +511,8 @@ export async function startBackfill(scope: BrainScope, params: {
     const paramsChanged =
       previous.monthsRaw !== (params.monthsRaw ?? settings.backfill.monthsRaw) ||
       previous.accounts.join(",") !== accounts.join(",") ||
-      previous.claudemar !== claudemar;
+      previous.claudemar !== claudemar ||
+      previous.slack !== slack;
     if (previous.status === "done" || paramsChanged) {
       await getRedis().del(keys.backfillDone).catch(() => {});
     }
@@ -486,6 +522,7 @@ export async function startBackfill(scope: BrainScope, params: {
       status: "running",
       accounts,
       claudemar,
+      slack,
       monthsRaw: params.monthsRaw ?? settings.backfill.monthsRaw,
       monthsCompile: params.monthsCompile ?? settings.backfill.monthsCompile,
       startedAt: new Date().toISOString(),
@@ -494,7 +531,7 @@ export async function startBackfill(scope: BrainScope, params: {
     await persist(scope, state);
     emitActivity(scope, {
       kind: "backfill",
-      label: `backfill iniciado (${accounts.length} conta(s)${claudemar ? " + claudemar" : ""}, ${state.monthsRaw}m raw)`,
+      label: `backfill iniciado (${accounts.length} conta(s)${slack ? " + slack" : ""}${claudemar ? " + claudemar" : ""}, ${state.monthsRaw}m raw)`,
     });
     void runBackfill(scope, state);
     return state;

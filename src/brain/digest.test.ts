@@ -15,7 +15,7 @@ const { adminBrain } = await import("./scope.js");
 const scope = adminBrain();
 const brainRoot = scope.root;
 const stateDir = scope.stateDir;
-const { appendOpenLoops, appendOpenLoopTransition, currentOpenLoops, readOpenLoops } = await import("./wiki.js");
+const { appendOpenLoops, appendOpenLoopTransition, appendOpenLoopTransitions, currentOpenLoops, readOpenLoops } = await import("./wiki.js");
 const { generateDigest, listDigests, readDigest } = await import("./digest.js");
 const { getRedis } = await import("./redis.js");
 
@@ -78,4 +78,26 @@ test("open-loop: criação, digest com vencidos, concluir e reabrir", async () =
   const entries = await readOpenLoops(scope);
   assert.equal(entries.length, 3);
   assert.ok(existsSync(resolve(stateDir, "open-loops.md")));
+});
+
+test("open-loop: ignorar e transições em lote numa escrita só", async () => {
+  const loop = (title: string) => ({ title, tenant: "personal" as const, kind: "my_commitment" as const, counterparty: "Equipe", due: null, next_action: "", supersedes: null, sources: [] });
+  await appendOpenLoops(scope, [loop("Enviar proposta"), loop("Revisar contrato"), loop("Ligar para fornecedor")], [], "gmail:t:bulk-thread");
+  const open = currentOpenLoops(await readOpenLoops(scope)).filter((l) => l.status === "open" && l.counterparty === "Equipe");
+  assert.equal(open.length, 3);
+
+  const ignored = await appendOpenLoopTransitions(scope, [open[0].id, open[1].id, open[1].id, "ol-inexistente"], "abandoned");
+  assert.equal(ignored.length, 2);
+  assert.ok(ignored.every((t) => t.status === "abandoned"));
+
+  const afterIgnore = currentOpenLoops(await readOpenLoops(scope)).filter((l) => l.counterparty === "Equipe");
+  assert.deepEqual(afterIgnore.map((l) => l.status).sort(), ["abandoned", "abandoned", "open"]);
+  assert.equal((await appendOpenLoopTransitions(scope, ignored.map((t) => t.id), "abandoned")).length, 0);
+
+  const reopened = await appendOpenLoopTransitions(scope, [ignored[0].id], "open");
+  assert.equal(reopened.length, 1);
+  assert.equal(currentOpenLoops(await readOpenLoops(scope)).filter((l) => l.counterparty === "Equipe" && l.status === "open").length, 2);
+
+  const again = await appendOpenLoops(scope, [loop("Revisar contrato")], [], "gmail:t:bulk-thread");
+  assert.equal(again, 0, "o compilador não recria uma pendência ignorada da mesma thread");
 });

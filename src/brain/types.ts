@@ -353,6 +353,7 @@ export interface BackfillState {
   phase: "raw" | "triage" | "compile" | null;
   accounts: string[];
   claudemar: boolean;
+  slack: boolean;
   monthsRaw: number;
   monthsCompile: number;
   startedAt: string | null;

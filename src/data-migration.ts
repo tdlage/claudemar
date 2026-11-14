@@ -235,6 +235,14 @@ const TABLE_DEFINITIONS: string[] = [
     CONSTRAINT fk_ai_account FOREIGN KEY (account_id) REFERENCES integration_accounts(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
+  `CREATE TABLE IF NOT EXISTS agent_favorites (
+    owner_id VARCHAR(64) NOT NULL,
+    agent_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (owner_id, agent_name),
+    INDEX idx_agent (agent_name)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
   `DROP TABLE IF EXISTS squad_skills`,
   `DROP TABLE IF EXISTS squad_mcps`,
   `DROP TABLE IF EXISTS team_members`,

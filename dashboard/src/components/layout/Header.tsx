@@ -27,7 +27,8 @@ export function Header({ workspaceActionsRef }: { workspaceActionsRef: Ref<HTMLD
   const systemRef = useRef<HTMLDetailsElement>(null);
   const { addToast } = useToast();
   const breadcrumbs = buildBreadcrumbs(location.pathname);
-  const workspaceName = /^\/(?:projects|agents)\/([^/]+)\/?$/.exec(location.pathname)?.[1];
+  const workspaceName = /^\/(?:projects|agents)\/([^/]+)\/?$/.exec(location.pathname)?.[1]
+    ?? (/^\/orchestrator\/?$/.test(location.pathname) ? "Claudemar" : undefined);
   const title = safeDecode(workspaceName ?? breadcrumbs[breadcrumbs.length - 1]);
   useEffect(() => {
     document.title = `${title} · Claudemar`;

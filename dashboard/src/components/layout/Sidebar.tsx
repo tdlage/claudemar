@@ -7,22 +7,7 @@ import {
   useContext,
 } from "react";
 import { NavLink, Link, useLocation } from "react-router-dom";
-import {
-  LayoutDashboard,
-  Crown,
-  Brain,
-  Bot,
-  Folder,
-  ScrollText,
-  GitCommitHorizontal,
-  Users,
-  Settings,
-  LogOut,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Plus,
-  ArrowUpRight,
-} from "lucide-react";
+import { LayoutDashboard, Crown, Brain, Bot, Folder, ScrollText, GitCommitHorizontal, Users, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Plus, ArrowUpRight, Star } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth, getMe } from "../../hooks/useAuth";
 import { SidebarGroups, type SidebarGroup } from "./SidebarGroups";
@@ -37,9 +22,12 @@ import { useBrainConnections } from "../../hooks/useBrain";
 import { BrainAlertBadge } from "../brain/BrainAlertBadge";
 import { brainIssuesTitle } from "../../lib/brainIssues";
 import {
+  AGENT_FAVORITES_CHANGED_EVENT,
   WORKSPACES_CHANGED_EVENT,
   openCreateWorkspace,
 } from "../../lib/workspaceEvents";
+
+const SIDEBAR_AGENT_LIMIT = 6;
 
 interface SidebarContextValue {
   collapsed: boolean;
@@ -181,7 +169,11 @@ export function Sidebar() {
       .then(setTargetStatus)
       .catch(() => {});
     window.addEventListener(WORKSPACES_CHANGED_EVENT, load);
-    return () => window.removeEventListener(WORKSPACES_CHANGED_EVENT, load);
+    window.addEventListener(AGENT_FAVORITES_CHANGED_EVENT, load);
+    return () => {
+      window.removeEventListener(WORKSPACES_CHANGED_EVENT, load);
+      window.removeEventListener(AGENT_FAVORITES_CHANGED_EVENT, load);
+    };
   }, [load]);
   useEffect(() => {
     if (isMobile) setMobileOpen(false);
@@ -407,7 +399,12 @@ export function Sidebar() {
       ) : undefined,
       content: (
         <>
-          {[...agents].sort((a, b) => Number(hasPendingQuestion("agent", b.name)) - Number(hasPendingQuestion("agent", a.name))).slice(0, 4).map((a) => (
+          {[...agents]
+            .sort((a, b) =>
+              Number(hasPendingQuestion("agent", b.name)) - Number(hasPendingQuestion("agent", a.name))
+              || Number(b.favorite) - Number(a.favorite))
+            .slice(0, SIDEBAR_AGENT_LIMIT)
+            .map((a) => (
             <NavLink
               key={a.name}
               to={`/agents/${encodeURIComponent(a.name)}`}
@@ -416,6 +413,7 @@ export function Sidebar() {
             >
               <Bot size={16} />
               <span className="truncate flex-1">{a.name}</span>
+              {a.favorite && <Star size={12} className="sidebar-favorite" aria-label="Favorito" />}
               {hasPendingQuestion("agent", a.name) && <NeedsAnswerBadge compact />}
               <StatusDot status={targetStatus[`agent:${a.name}`]} />
             </NavLink>
@@ -429,7 +427,7 @@ export function Sidebar() {
                   : "Crie agentes para tarefas recorrentes."}
             </p>
           )}
-          {agents.length > 4 && (
+          {agents.length > SIDEBAR_AGENT_LIMIT && (
             <Link className="sidebar-more" to="/workspaces/agents">
               Ver todos os agentes <ArrowUpRight size={13} />
             </Link>

@@ -24,7 +24,13 @@ const USER_SCOPES = [
   "mpim:read",
   "users:read",
 ];
-const CATCHUP_LIMIT = 200;
+const HISTORY_PAGE_LIMIT = 200;
+const MINUTE_MS = 60_000;
+const DAY_MS = 86_400_000;
+const CONVERSATION_LIST_TTL_MS = 30 * MINUTE_MS;
+const THREAD_WATCH_MS = 30 * DAY_MS;
+const CONTENT_SUBTYPES = new Set(["thread_broadcast", "file_share", "bot_message", "me_message"]);
+const CONVERSATION_TYPES = "public_channel,private_channel,mpim,im";
 const REFRESH_MARGIN_MS = 5 * 60_000;
 const VERIFY_INTERVAL_MS = 15 * 60_000;
 const REVOKED_ERRORS = new Set(["invalid_auth", "token_revoked", "account_inactive", "invalid_refresh_token", "not_authed", "token_expired"]);
@@ -36,10 +42,29 @@ interface SlackMessageEvent {
   channel_type?: string;
   user?: string;
   bot_id?: string;
+  username?: string;
+  bot_profile?: { name?: string };
   text?: string;
+  attachments?: { pretext?: string; title?: string; text?: string; fallback?: string }[];
+  files?: { name?: string; title?: string }[];
   ts?: string;
   thread_ts?: string;
+  reply_count?: number;
+  latest_reply?: string;
   team?: string;
+}
+
+interface SlackConversation {
+  id: string;
+  name: string;
+  type: "im" | "mpim" | "channel";
+}
+
+/** Ponto de sincronização de uma conversa ou thread: última mensagem lida, última verificação e última atividade. */
+interface SyncPoint {
+  ts: string | null;
+  checkedAt: number;
+  activityAt: number;
 }
 
 interface SlackAuthorization {
@@ -324,11 +349,30 @@ async function channelInfo(web: WebClient, cache: NameCache, channelId: string):
   }
 }
 
+function messageText(event: SlackMessageEvent): string {
+  const parts = [(event.text ?? "").trim()];
+  for (const attachment of event.attachments ?? []) {
+    const body = [attachment.pretext, attachment.title, attachment.text || attachment.fallback].filter(Boolean).join("\n").trim();
+    if (body && !parts.includes(body)) parts.push(body);
+  }
+  for (const file of event.files ?? []) {
+    const name = file.title || file.name;
+    if (name) parts.push(`[arquivo: ${name}]`);
+  }
+  return parts.filter(Boolean).join("\n\n");
+}
+
 function ingestible(event: SlackMessageEvent): boolean {
   if (!event.channel || !event.ts) return false;
-  if (event.subtype && event.subtype !== "thread_broadcast" && event.subtype !== "file_share") return false;
-  if (event.bot_id) return false;
-  return Boolean((event.text ?? "").trim());
+  if (event.subtype && !CONTENT_SUBTYPES.has(event.subtype)) return false;
+  return Boolean(messageText(event));
+}
+
+async function senderOf(web: WebClient, cache: NameCache, event: SlackMessageEvent): Promise<{ name: string; handle: string }> {
+  if (event.bot_id && !event.user) {
+    return { name: event.username || event.bot_profile?.name || "bot", handle: `slack:bot:${event.bot_id}` };
+  }
+  return { name: await userName(web, cache, event.user ?? ""), handle: `slack:${event.user ?? "?"}` };
 }
 
 async function toCanonical(
@@ -340,7 +384,8 @@ async function toCanonical(
   const cache = namesFor(scope, connection.teamId);
   const channel = await channelInfo(web, cache, event.channel!);
   const isDirect = event.channel_type ? event.channel_type === "im" : channel.type === "im";
-  const senderName = await userName(web, cache, event.user ?? "");
+  const sender = await senderOf(web, cache, event);
+  const senderName = sender.name;
   const occurredMs = Number(event.ts!.split(".")[0]) * 1000;
   const threadPart = event.thread_ts ?? `${event.channel}:${dayKeyInTz(new Date(occurredMs), config.brainTz)}`;
   return {
@@ -350,40 +395,300 @@ async function toCanonical(
     external_id: `slack:${connection.teamId}:${event.channel}:${event.ts}`,
     thread_key: `slack:${connection.teamId}:${threadPart}`,
     occurred_at: new Date(occurredMs).toISOString(),
-    participants: [{ name: senderName, handle: `slack:${event.user ?? "?"}`, role: "from" }],
-    subject: isDirect ? `DM com ${senderName}` : channel.name,
-    body_text: (event.text ?? "").trim(),
+    participants: [{ name: senderName, handle: sender.handle, role: "from" }],
+    subject: isDirect ? `DM com ${channel.name}` : channel.name,
+    body_text: messageText(event),
     attachments: [],
   };
 }
 
-async function deliver(scope: BrainScope, connection: SlackConnection, event: SlackMessageEvent): Promise<void> {
+async function deliver(scope: BrainScope, connection: SlackConnection, event: SlackMessageEvent): Promise<boolean> {
   const canonical = await toCanonical(scope, connection, event);
-  if ((await emitCanonicalEvent(scope, canonical)) !== "emitted") return;
+  if ((await emitCanonicalEvent(scope, canonical)) !== "emitted") return false;
   await incrMetric(scope, "events:slack");
-  await getRedis().hset(brainKeys(scope).cursorSlack(connection.teamId), event.channel!, event.ts!).catch(() => {});
+  return true;
 }
 
-async function catchUp(scope: BrainScope, connection: SlackConnection): Promise<void> {
-  const web = new WebClient(await freshToken(scope, connection));
-  const cursors = (await getRedis()
-    .hgetall(brainKeys(scope).cursorSlack(connection.teamId))
-    .catch(() => ({}))) as Record<string, string>;
-  for (const [channel, oldest] of Object.entries(cursors)) {
-    try {
-      const res = await web.conversations.history({ channel, oldest, limit: CATCHUP_LIMIT });
-      const messages = (res.messages ?? []) as SlackMessageEvent[];
-      for (const message of messages.reverse()) {
-        if (message.ts === oldest || !ingestible({ ...message, channel })) continue;
-        await deliver(scope, connection, { ...message, channel });
+function accountKey(connection: SlackConnection): string {
+  return `${connection.teamId}:${connection.userId}`;
+}
+
+function tsMs(ts: string | null | undefined): number {
+  return ts ? Math.floor(Number(ts) * 1000) : 0;
+}
+
+function laterTs(a: string | null, b: string | undefined): string | null {
+  if (!b) return a;
+  return !a || Number(b) > Number(a) ? b : a;
+}
+
+function parsePoint(raw: string | undefined): SyncPoint | null {
+  if (!raw) return null;
+  try {
+    const point = JSON.parse(raw) as Partial<SyncPoint>;
+    return { ts: typeof point.ts === "string" ? point.ts : null, checkedAt: Number(point.checkedAt) || 0, activityAt: Number(point.activityAt) || 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** Conversas ativas são consultadas com frequência; as paradas, raramente. */
+function due(point: SyncPoint, now: number): boolean {
+  const idleFor = now - point.activityAt;
+  const interval = idleFor < 2 * DAY_MS ? 5 * MINUTE_MS : idleFor < 30 * DAY_MS ? 30 * MINUTE_MS : 6 * 60 * MINUTE_MS;
+  return now - point.checkedAt >= interval;
+}
+
+async function listConversations(web: WebClient, cache: NameCache): Promise<SlackConversation[]> {
+  const conversations: SlackConversation[] = [];
+  let cursor: string | undefined;
+  do {
+    const res = await web.conversations.list({ types: CONVERSATION_TYPES, exclude_archived: false, limit: 1000, cursor });
+    for (const raw of (res.channels ?? []) as { id?: string; name?: string; is_im?: boolean; is_mpim?: boolean; user?: string }[]) {
+      if (!raw.id) continue;
+      const type = raw.is_im ? "im" : raw.is_mpim ? "mpim" : "channel";
+      const name = raw.is_im ? await userName(web, cache, raw.user ?? "") : raw.name ? `#${raw.name}` : raw.id;
+      cache.channels.set(raw.id, { name, type });
+      conversations.push({ id: raw.id, name, type });
+    }
+    cursor = res.response_metadata?.next_cursor || undefined;
+  } while (cursor);
+  return conversations;
+}
+
+/** Todas as mensagens de `oldest` em diante, em ordem cronológica. */
+async function readHistory(web: WebClient, channel: string, oldest: string | undefined): Promise<SlackMessageEvent[]> {
+  const pages: SlackMessageEvent[][] = [];
+  let cursor: string | undefined;
+  do {
+    const res = await web.conversations.history({ channel, oldest, inclusive: false, limit: HISTORY_PAGE_LIMIT, cursor });
+    pages.push((res.messages ?? []) as SlackMessageEvent[]);
+    cursor = res.response_metadata?.next_cursor || undefined;
+  } while (cursor);
+  return pages.flat().reverse();
+}
+
+async function readReplies(web: WebClient, channel: string, threadTs: string, oldest: string | undefined): Promise<SlackMessageEvent[]> {
+  const replies: SlackMessageEvent[] = [];
+  let cursor: string | undefined;
+  do {
+    const res = await web.conversations.replies({ channel, ts: threadTs, oldest, inclusive: false, limit: HISTORY_PAGE_LIMIT, cursor });
+    for (const message of (res.messages ?? []) as SlackMessageEvent[]) {
+      if (message.ts !== threadTs && (!oldest || Number(message.ts) > Number(oldest))) replies.push(message);
+    }
+    cursor = res.response_metadata?.next_cursor || undefined;
+  } while (cursor);
+  return replies;
+}
+
+interface ConversationSync {
+  scope: BrainScope;
+  connection: SlackConnection;
+  web: WebClient;
+  conversation: SlackConversation;
+}
+
+/** Ingere as mensagens e devolve as threads que ganharam respostas, com a última resposta já conhecida. */
+async function ingestMessages(ctx: ConversationSync, messages: SlackMessageEvent[], threads: Map<string, SyncPoint>): Promise<{ emitted: number; lastTs: string | null; repliesDue: { threadTs: string; oldest: string | null }[] }> {
+  let emitted = 0;
+  let lastTs: string | null = null;
+  const repliesDue: { threadTs: string; oldest: string | null }[] = [];
+  for (const message of messages) {
+    lastTs = laterTs(lastTs, message.ts);
+    const event = { ...message, channel: ctx.conversation.id };
+    if (ingestible(event) && (await deliver(ctx.scope, ctx.connection, event))) emitted += 1;
+    if (message.ts && message.reply_count && message.thread_ts === message.ts) {
+      const known = threads.get(`${ctx.conversation.id}:${message.ts}`);
+      if (!known?.ts || Number(message.latest_reply ?? 0) > Number(known.ts)) repliesDue.push({ threadTs: message.ts, oldest: known?.ts ?? null });
+    }
+  }
+  return { emitted, lastTs, repliesDue };
+}
+
+async function syncThread(ctx: ConversationSync, threadTs: string, oldest: string | null, threads: Map<string, SyncPoint>, now: number): Promise<number> {
+  const replies = await readReplies(ctx.web, ctx.conversation.id, threadTs, oldest ?? undefined);
+  let emitted = 0;
+  let lastTs = oldest;
+  for (const reply of replies) {
+    lastTs = laterTs(lastTs, reply.ts);
+    const event = { ...reply, channel: ctx.conversation.id, thread_ts: threadTs };
+    if (ingestible(event) && (await deliver(ctx.scope, ctx.connection, event))) emitted += 1;
+  }
+  const point: SyncPoint = { ts: lastTs ?? threadTs, checkedAt: now, activityAt: tsMs(lastTs ?? threadTs) };
+  threads.set(`${ctx.conversation.id}:${threadTs}`, point);
+  await getRedis().hset(brainKeys(ctx.scope).slackThreads(accountKey(ctx.connection)), `${ctx.conversation.id}:${threadTs}`, JSON.stringify(point));
+  return emitted;
+}
+
+async function loadThreads(scope: BrainScope, connection: SlackConnection): Promise<Map<string, SyncPoint>> {
+  const raw = (await getRedis().hgetall(brainKeys(scope).slackThreads(accountKey(connection)))) as Record<string, string>;
+  const threads = new Map<string, SyncPoint>();
+  for (const [key, value] of Object.entries(raw)) {
+    const point = parsePoint(value);
+    if (point) threads.set(key, point);
+  }
+  return threads;
+}
+
+/** Lê a conversa desde `oldest` (mensagens e respostas de thread) e devolve quantos eventos novos entraram. */
+async function syncConversationFrom(ctx: ConversationSync, oldest: string | undefined, threads: Map<string, SyncPoint>, now: number): Promise<{ emitted: number; lastTs: string | null }> {
+  const messages = await readHistory(ctx.web, ctx.conversation.id, oldest);
+  const result = await ingestMessages(ctx, messages, threads);
+  let emitted = result.emitted;
+  for (const thread of result.repliesDue) emitted += await syncThread(ctx, thread.threadTs, thread.oldest, threads, now);
+  return { emitted, lastTs: result.lastTs };
+}
+
+interface SlackSyncSummary {
+  conversations: number;
+  checked: number;
+  emitted: number;
+  finishedAt: string;
+  error: string;
+}
+
+/**
+ * Sincronização ativa pela Web API: varre todas as conversas que a conta conectada enxerga (canais públicos,
+ * privados, DMs e grupos) e as respostas de thread, sem depender da entrega de eventos do Socket Mode.
+ * Começa no momento da conexão; o histórico anterior entra pelo backfill.
+ */
+class SlackHistorySync {
+  private running = new Set<string>();
+  private conversations = new Map<string, { list: SlackConversation[]; at: number }>();
+  private summaries = new Map<string, SlackSyncSummary>();
+
+  summary(scope: BrainScope): SlackSyncSummary | undefined {
+    return this.summaries.get(scope.owner);
+  }
+
+  async conversationsOf(scope: BrainScope, connection: SlackConnection, web: WebClient, refresh = false): Promise<SlackConversation[]> {
+    const key = `${scope.owner}|${accountKey(connection)}`;
+    const cached = this.conversations.get(key);
+    if (!refresh && cached && Date.now() - cached.at < CONVERSATION_LIST_TTL_MS) return cached.list;
+    const list = await listConversations(web, namesFor(scope, connection.teamId));
+    this.conversations.set(key, { list, at: Date.now() });
+    return list;
+  }
+
+  start(scope: BrainScope): void {
+    if (this.running.has(scope.owner)) return;
+    this.running.add(scope.owner);
+    void this.run(scope).finally(() => this.running.delete(scope.owner));
+  }
+
+  private async run(scope: BrainScope): Promise<void> {
+    const summary: SlackSyncSummary = { conversations: 0, checked: 0, emitted: 0, finishedAt: "", error: "" };
+    for (const connection of loadConnections(scope)) {
+      if (connection.reauthRequired) continue;
+      try {
+        await this.syncConnection(scope, connection, summary);
+      } catch (err) {
+        if (REVOKED_ERRORS.has(errorCode(err))) markReauthRequired(scope, connection);
+        summary.error = `${connection.teamName}: ${errorCode(err)}`;
       }
-    } catch (err) {
-      if (REVOKED_ERRORS.has(errorCode(err))) {
-        markReauthRequired(scope, connection);
-        return;
+    }
+    summary.finishedAt = new Date().toISOString();
+    this.summaries.set(scope.owner, summary);
+    if (summary.emitted > 0) emitStatusChanged(scope);
+  }
+
+  private async syncConnection(scope: BrainScope, connection: SlackConnection, summary: SlackSyncSummary): Promise<void> {
+    const web = new WebClient(await freshToken(scope, connection));
+    const conversations = await this.conversationsOf(scope, connection, web);
+    summary.conversations += conversations.length;
+    const redis = getRedis();
+    const stateKey = brainKeys(scope).slackSync(accountKey(connection));
+    const stored = (await redis.hgetall(stateKey)) as Record<string, string>;
+    const threads = await loadThreads(scope, connection);
+    const startTs = (Date.parse(connection.connectedAt) / 1000).toFixed(6);
+    for (const conversation of conversations) {
+      const now = Date.now();
+      const point = parsePoint(stored[conversation.id]) ?? { ts: startTs, checkedAt: 0, activityAt: 0 };
+      if (!due(point, now)) continue;
+      const ctx: ConversationSync = { scope, connection, web, conversation };
+      try {
+        const { emitted, lastTs } = await syncConversationFrom(ctx, point.ts ?? startTs, threads, now);
+        summary.emitted += emitted;
+        const ts = laterTs(point.ts, lastTs ?? undefined);
+        await redis.hset(stateKey, conversation.id, JSON.stringify({ ts, checkedAt: now, activityAt: Math.max(point.activityAt, tsMs(lastTs)) }));
+      } catch (err) {
+        const code = errorCode(err);
+        if (REVOKED_ERRORS.has(code)) throw err;
+        if (code === "channel_not_found" || code === "not_in_channel" || code === "missing_scope") {
+          await redis.hset(stateKey, conversation.id, JSON.stringify({ ...point, checkedAt: now }));
+          continue;
+        }
+        summary.error = `${conversation.name}: ${code}`;
+      }
+      summary.checked += 1;
+    }
+    await this.followThreads(scope, connection, web, conversations, threads, summary);
+  }
+
+  /** Respostas novas em threads antigas não aparecem no histórico do canal: as threads recentes são revisitadas. */
+  private async followThreads(scope: BrainScope, connection: SlackConnection, web: WebClient, conversations: SlackConversation[], threads: Map<string, SyncPoint>, summary: SlackSyncSummary): Promise<void> {
+    const byId = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+    const key = brainKeys(scope).slackThreads(accountKey(connection));
+    for (const [threadKey, point] of threads) {
+      const now = Date.now();
+      if (now - point.activityAt > THREAD_WATCH_MS) {
+        await getRedis().hdel(key, threadKey);
+        threads.delete(threadKey);
+        continue;
+      }
+      if (!due(point, now)) continue;
+      const [channel, threadTs] = threadKey.split(":");
+      const conversation = byId.get(channel);
+      if (!conversation || !threadTs) continue;
+      try {
+        summary.emitted += await syncThread({ scope, connection, web, conversation }, threadTs, point.ts, threads, now);
+      } catch (err) {
+        if (REVOKED_ERRORS.has(errorCode(err))) throw err;
+        await getRedis().hdel(key, threadKey);
       }
     }
   }
+}
+
+export const slackHistorySync = new SlackHistorySync();
+
+export interface SlackBackfillUnit {
+  unit: string;
+  label: string;
+  run: () => Promise<number>;
+}
+
+/** Uma unidade de backfill por conversa de cada conta conectada: histórico desde `since`, com as respostas de thread. */
+export async function slackBackfillUnits(scope: BrainScope, since: Date): Promise<SlackBackfillUnit[]> {
+  const units: SlackBackfillUnit[] = [];
+  const oldest = (since.getTime() / 1000).toFixed(6);
+  for (const connection of loadConnections(scope)) {
+    if (connection.reauthRequired) continue;
+    const web = new WebClient(await freshToken(scope, connection));
+    const conversations = await slackHistorySync.conversationsOf(scope, connection, web, true);
+    for (const conversation of conversations) {
+      units.push({
+        unit: `slack|${accountKey(connection)}|${conversation.id}`,
+        label: `slack ${connection.teamName} ${conversation.name}`,
+        run: async () => {
+          const ctx: ConversationSync = { scope, connection, web: new WebClient(await freshToken(scope, connection)), conversation };
+          try {
+            return (await syncConversationFrom(ctx, oldest, new Map(), Date.now())).emitted;
+          } catch (err) {
+            const code = errorCode(err);
+            if (code === "channel_not_found" || code === "not_in_channel") return 0;
+            if (REVOKED_ERRORS.has(code)) markReauthRequired(scope, connection);
+            throw err;
+          }
+        },
+      });
+    }
+  }
+  return units;
+}
+
+export function slackConnected(scope: BrainScope): boolean {
+  return loadConnections(scope).some((connection) => !connection.reauthRequired);
 }
 
 /**
@@ -469,7 +774,6 @@ class SlackSocket {
       socket.on("connected", () => {
         this.connected = true;
         this.lastError = "";
-        void this.catchUpAll();
       });
       socket.on("reconnecting", () => {
         this.connected = false;
@@ -488,14 +792,6 @@ class SlackSocket {
       throw err;
     } finally {
       this.starting = false;
-    }
-  }
-
-  private async catchUpAll(): Promise<void> {
-    for (const scope of ownerScopes()) {
-      for (const connection of loadConnections(scope)) {
-        if (!connection.reauthRequired) await catchUp(scope, connection).catch(() => {});
-      }
     }
   }
 
@@ -556,9 +852,14 @@ brainSchedulers.register({
     return loadConnections(scope).length > 0 ? null : "nenhuma conta Slack conectada";
   },
   run: async (scope) => {
-    await slackSocket.ensureStarted();
+    await slackSocket.ensureStarted().catch(() => {});
     const problems = await verifyConnections(scope);
     if (problems.length > 0) return `erro:${problems.join("; ")}`;
-    return slackSocket.alive() ? "socket conectado" : `erro:${slackSocket.lastError || "socket sem conexão ativa"}`;
+    slackHistorySync.start(scope);
+    const last = slackHistorySync.summary(scope);
+    if (last?.error) return `erro:sincronização do histórico — ${last.error}`;
+    const socket = slackSocket.alive() ? "socket conectado" : "socket sem conexão (sincronização ativa segue)";
+    if (!last) return `${socket} · primeira sincronização em andamento`;
+    return `${socket} · ${last.conversations} conversa(s), ${last.checked} verificada(s), ${last.emitted} mensagem(ns) nova(s) na última rodada`;
   },
 });

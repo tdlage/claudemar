@@ -2,6 +2,7 @@ import { Router } from "express";
 import { DEFAULT_PROJECT_TABS, usersManager, type User } from "../../users-manager.js";
 import { pruneDriveOwnerTargets, purgeDriveOwner } from "../../google-drive/service.js";
 import { pruneIntegrationOwnerAgents, purgeIntegrationOwner } from "../../integrations/service.js";
+import { purgeOwnerFavorites } from "../../agents/favorites.js";
 import { deleteUserBrain } from "../../brain/index.js";
 import type { DriveTarget } from "../../google-drive/store.js";
 
@@ -71,6 +72,7 @@ usersRouter.delete("/:id", async (req, res) => {
   }
   await purgeDriveOwner(req.params.id);
   await purgeIntegrationOwner(req.params.id);
+  await purgeOwnerFavorites(req.params.id);
   await deleteUserBrain(req.params.id).catch((err) => {
     console.error(`[users] brain do usuário ${req.params.id} não foi removido por completo:`, err instanceof Error ? err.message : String(err));
   });
