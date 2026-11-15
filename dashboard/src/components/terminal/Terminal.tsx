@@ -31,6 +31,7 @@ import { assessComplexity, useComplexityEnabled, type ComplexityAssessment } fro
 import { EffortRecommendationDialog, type EffortRecommendation } from "./EffortRecommendationDialog";
 import { executionTargetFromBase, type ExecutionTarget } from "../../lib/target";
 import { runtimeLabel } from "../../lib/runtime";
+import { GameLauncher } from "../game/GameLauncher";
 import type { AgentRuntime } from "../../lib/types";
 
 export type PermissionMode = "default" | "auto" | "plan" | "acceptEdits" | "bypassPermissions";
@@ -834,6 +835,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
 
       </div>
       {overlay && <div className="conversation-question-overlay">{overlay}</div>}
+      <GameLauncher executionId={executionId} live={live} awaitingInput={permissions.length > 0 || Boolean(overlay)} activity={tools[tools.length - 1]?.name} />
       </div>
 
       {permissions.length > 0 && (

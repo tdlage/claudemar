@@ -4,6 +4,7 @@
 @import "./styles/fonts.css";
 @import "./styles/base.css";
 @import "./styles/workspace.css";
+@import "./styles/game.css";
 
 @theme inline {
   --font-sans: var(--dt-font);

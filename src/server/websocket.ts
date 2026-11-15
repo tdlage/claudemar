@@ -14,6 +14,7 @@ import { brainEvents, type BrainOwnerEvent, type BrainOwnerEventName } from "../
 import { connectionIssues, getBrainStatus, getTechnicalStatus } from "../brain/status.js";
 import { ADMIN_BRAIN, adminBrain, brainExists, isBrainOwnerId, userBrain, type BrainScope } from "../brain/scope.js";
 import { canAccessRunConfig } from "./run-config-access.js";
+import { canAccessExecution } from "./execution-access.js";
 
 const RATE_LIMIT_WINDOW_MS = 1000;
 const RATE_LIMIT_MAX_EVENTS = 30;
@@ -45,15 +46,6 @@ function brainOwnerOf(ctx: RequestContext | undefined): string | null {
 function scopeOfOwner(owner: string): BrainScope | null {
   if (!isBrainOwnerId(owner)) return null;
   return owner === ADMIN_BRAIN ? adminBrain() : userBrain(owner);
-}
-
-function canAccessExecution(ctx: RequestContext | undefined, info: ExecutionInfo | undefined): boolean {
-  if (!ctx || !info) return false;
-  if (ctx.role === "admin") return true;
-  if (info.username && info.username === ctx.name) return true;
-  if (info.targetType === "project") return ctx.projects.includes(info.targetName);
-  if (info.targetType === "agent") return ctx.agents.includes(info.targetName);
-  return false;
 }
 
 export function setupWebSocket(io: SocketServer): void {

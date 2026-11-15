@@ -243,6 +243,19 @@ const TABLE_DEFINITIONS: string[] = [
     INDEX idx_agent (agent_name)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
+  `CREATE TABLE IF NOT EXISTS game_progress (
+    owner_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    level INT UNSIGNED NOT NULL,
+    max_level INT UNSIGNED NOT NULL,
+    max_level_at DATETIME NOT NULL,
+    levels_completed INT UNSIGNED NOT NULL DEFAULT 0,
+    puzzle JSON NOT NULL,
+    moves JSON NOT NULL,
+    undos_used INT UNSIGNED NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL,
+    INDEX idx_ranking (max_level, max_level_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
   `DROP TABLE IF EXISTS squad_skills`,
   `DROP TABLE IF EXISTS squad_mcps`,
   `DROP TABLE IF EXISTS team_members`,

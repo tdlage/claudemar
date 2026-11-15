@@ -28,6 +28,7 @@ import { brainRouter, brainPublicRouter, whatsappWebhookHandler } from "./routes
 import { brainMcpRoute } from "../brain/external-mcp.js";
 import { googleDrivePublicRouter, googleDriveRouter } from "./routes/google-drive.js";
 import { integrationsPublicRouter, integrationsRouter } from "./routes/integrations.js";
+import { gameRouter } from "./routes/game.js";
 import { INTEGRATIONS_API_PATH } from "../integrations/providers.js";
 
 export function createDashboardServer() {
@@ -125,6 +126,7 @@ export function createDashboardServer() {
   app.use("/api/google-drive", jsonParser, googleDriveRouter);
   app.use(INTEGRATIONS_API_PATH, jsonParser, integrationsRouter);
   app.use("/api/transcribe", transcriptionRouter);
+  app.use("/api/game", jsonParser, gameRouter);
   // Acesso por projeto (admin ou user com a aba "pipeline" habilitada) é validado nos
   // param middlewares do próprio pipelineRouter.
   app.use("/api/pipeline", express.json({ limit: "150mb" }), pipelineRouter);
