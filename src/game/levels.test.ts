@@ -15,6 +15,11 @@ test("a dificuldade nunca diminui: cores e divisões só crescem com a fase", ()
   assert.ok(previous.colors > levelSpec(1).colors && previous.capacity > levelSpec(1).capacity);
 });
 
+test("começa com um só frasco vazio e ganha o segundo apenas quando o tabuleiro cresce", () => {
+  for (let level = 1; level <= 24; level++) assert.equal(levelSpec(level).empty, 1, `fase ${level}`);
+  for (let level = 25; level <= 200; level++) assert.equal(levelSpec(level).empty, 2, `fase ${level}`);
+});
+
 test("cada fase é sempre o mesmo tabuleiro", async () => {
   assert.deepEqual(await puzzleForLevel(17), await puzzleForLevel(17));
   assert.notDeepEqual((await puzzleForLevel(17)).tubes, (await puzzleForLevel(18)).tubes);

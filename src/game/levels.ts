@@ -2,6 +2,7 @@ import { searchCooperatively, type Puzzle, type Tube } from "./engine.js";
 
 export const PALETTE_SIZE = 12;
 const DISTINCT_COLORS = 6;
+const SECOND_EMPTY_FROM = 25;
 
 export interface LevelSpec {
   colors: number;
@@ -20,7 +21,7 @@ const CAPACITY_BY_LEVEL: ReadonlyArray<{ from: number; capacity: number }> = [
 
 const GENERATION_BUDGET = 60_000;
 const GENERATION_SLICE = 250;
-const MAX_ATTEMPTS = 400;
+const MAX_ATTEMPTS = 6_000;
 const CACHE_LIMIT = 256;
 
 const cache = new Map<number, Puzzle>();
@@ -34,7 +35,7 @@ export function levelSpec(level: number): LevelSpec {
   return {
     colors: Math.min(PALETTE_SIZE, 2 + Math.floor((level + 1) / 4)),
     capacity: CAPACITY_BY_LEVEL.find((step) => level >= step.from)?.capacity ?? 2,
-    empty: level <= 2 ? 1 : 2,
+    empty: level < SECOND_EMPTY_FROM ? 1 : 2,
   };
 }
 
