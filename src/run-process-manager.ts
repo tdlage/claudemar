@@ -15,6 +15,7 @@ export interface RunConfig {
   workingDirectory: string;
   envVars: Record<string, string>;
   projectName: string;
+  agentName: string;
   proxyDomain?: string;
   proxyPort?: number;
 }
@@ -38,6 +39,7 @@ interface RunConfigRow extends RowDataPacket {
   working_directory: string;
   env_vars: string;
   project_name: string;
+  agent_name: string;
   proxy_domain: string | null;
   proxy_port: number | null;
 }
@@ -63,7 +65,7 @@ class RunProcessManager extends EventEmitter {
   private async loadConfigs(): Promise<void> {
     this.configs.clear();
     const rows = await query<RunConfigRow[]>(
-      "SELECT id, name, command, working_directory, env_vars, project_name, proxy_domain, proxy_port FROM run_configs",
+      "SELECT id, name, command, working_directory, env_vars, project_name, agent_name, proxy_domain, proxy_port FROM run_configs",
     );
     for (const row of rows) {
       let envVars: Record<string, string> = {};
@@ -77,6 +79,7 @@ class RunProcessManager extends EventEmitter {
         workingDirectory: row.working_directory,
         envVars,
         projectName: row.project_name,
+        agentName: row.agent_name,
       };
       if (row.proxy_domain) {
         cfg.proxyDomain = row.proxy_domain;
@@ -164,12 +167,13 @@ class RunProcessManager extends EventEmitter {
 
   private async persistConfig(cfg: RunConfig): Promise<void> {
     await execute(
-      `INSERT INTO run_configs (id, name, command, working_directory, env_vars, project_name, proxy_domain, proxy_port)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO run_configs (id, name, command, working_directory, env_vars, project_name, agent_name, proxy_domain, proxy_port)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE name = VALUES(name), command = VALUES(command), working_directory = VALUES(working_directory),
-       env_vars = VALUES(env_vars), project_name = VALUES(project_name), proxy_domain = VALUES(proxy_domain), proxy_port = VALUES(proxy_port)`,
+       env_vars = VALUES(env_vars), project_name = VALUES(project_name), agent_name = VALUES(agent_name),
+       proxy_domain = VALUES(proxy_domain), proxy_port = VALUES(proxy_port)`,
       [cfg.id, cfg.name, cfg.command, cfg.workingDirectory, JSON.stringify(cfg.envVars),
-       cfg.projectName, cfg.proxyDomain ?? null, cfg.proxyPort ?? null],
+       cfg.projectName, cfg.agentName, cfg.proxyDomain ?? null, cfg.proxyPort ?? null],
     );
   }
 

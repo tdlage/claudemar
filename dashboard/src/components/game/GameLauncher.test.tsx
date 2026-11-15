@@ -26,8 +26,6 @@ const state = {
   capacity: 3,
   tubes: [[0, 1, 0], [1, 0, 1], [], []],
   moves: [[0, 2]],
-  undosLeft: 4,
-  undoLimit: 5,
   moveLimit: 1000,
   status: "playing",
 };

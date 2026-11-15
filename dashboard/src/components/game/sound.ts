@@ -105,10 +105,6 @@ export class GameAudio {
     this.tone(0.09, 1975.5, 0.6, 0.035);
   }
 
-  undo(): void {
-    this.hiss(0, 0.2, 0.06, 2200, 450, 1.6);
-  }
-
   win(): void {
     ARPEGGIO.forEach((frequency, i) => this.tone(i * 0.09, frequency, 0.55, 0.07, "triangle"));
     this.tone(0.36, 2093, 0.9, 0.03);

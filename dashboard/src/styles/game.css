@@ -237,18 +237,6 @@
 .decanta-button.is-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--dt-brand) 88%, var(--dt-text)); }
 .decanta-button.is-ghost { border-color: transparent; background: transparent; color: var(--dt-muted); }
 .decanta-button.is-ghost:hover:not(:disabled) { color: var(--dt-text); background: color-mix(in srgb, var(--dt-text) 7%, transparent); }
-.decanta-badge {
-  display: grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--dt-brand) 20%, transparent);
-  color: var(--dt-brand);
-  font-size: 11px;
-  font-weight: 600;
-}
 
 .decanta-loading {
   position: absolute;

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyPour, isDeadEnd, isSolved, pourAmount, replay, search } from "./engine.js";
+import { applyPour, hasMoves, isSolved, pourAmount, replay, search } from "./engine.js";
 
 test("despeja toda a sequência do topo quando cabe no destino", () => {
   const tubes = [[0, 1, 1], [1], []];
@@ -38,20 +38,13 @@ test("o solver devolve uma solução que o replay confirma", () => {
   assert.ok(final && isSolved(final, puzzle.capacity));
 });
 
-test("sem nenhuma jogada possível é beco sem saída", () => {
-  assert.equal(isDeadEnd([[0, 1], [1, 0]], 2, 1_000), true);
+test("sem nenhuma jogada possível o jogador travou", () => {
+  assert.equal(hasMoves([[0, 1], [1, 0]], 2), false);
 });
 
-test("ficar passando a mesma cor entre dois frascos é beco sem saída", () => {
+test("enquanto existir alguma jogada, mesmo sem futuro, o jogo continua", () => {
   const tubes = [[0, 2, 2], [1, 2], [0, 1, 0], [1]];
   assert.equal(pourAmount(tubes, 0, 1, 3), 1);
-  assert.equal(isDeadEnd(tubes, 3, 1_000), true);
-});
-
-test("tabuleiro com saída não é beco", () => {
-  assert.equal(isDeadEnd([[0, 1], [1, 0], []], 2, 1_000), false);
-});
-
-test("quando o orçamento acaba antes da conclusão, não declara beco", () => {
-  assert.equal(isDeadEnd([[0, 1, 2, 3], [3, 2, 1, 0], [1, 3, 0, 2], [2, 0, 3, 1], [], []], 4, 1), false);
+  assert.equal(hasMoves(tubes, 3), true);
+  assert.equal(hasMoves([[0, 1], [1, 0], []], 2), true);
 });

@@ -48,7 +48,7 @@ export function ProcessIndicator({ variant = "menu" }: { variant?: "menu" | "top
 
   const grouped = new Map<string, RunConfig[]>();
   for (const c of configs) {
-    const key = c.projectName || "Geral";
+    const key = c.projectName || (c.agentName ? `Agente ${c.agentName}` : "Geral");
     const list = grouped.get(key) ?? [];
     list.push(c);
     grouped.set(key, list);

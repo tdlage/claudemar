@@ -13,8 +13,6 @@ export interface GameSnapshot {
   maxLevel: number;
   levelsCompleted: number;
   moves: number;
-  undosLeft: number;
-  undoLimit: number;
   moveLimit: number;
   exhausted: boolean;
   selected: number | null;
@@ -31,8 +29,6 @@ const INITIAL: GameSnapshot = {
   maxLevel: 1,
   levelsCompleted: 0,
   moves: 0,
-  undosLeft: 0,
-  undoLimit: 0,
   moveLimit: 0,
   exhausted: false,
   selected: null,
@@ -116,7 +112,7 @@ export class DecantaController {
         if (!this.active) return;
         if (isUnavailable(availability)) this.unavailable(availability);
         const unchanged = this.loaded && state.level === this.snapshot.level && state.moves.length === this.history.length;
-        if (unchanged) this.update({ undosLeft: state.undosLeft, maxLevel: state.maxLevel, levelsCompleted: state.levelsCompleted, error: null });
+        if (unchanged) this.update({ maxLevel: state.maxLevel, levelsCompleted: state.levelsCompleted, error: null });
         else this.apply(state, !this.loaded);
       } catch (err) {
         if (this.active) this.update({ error: err instanceof Error ? err.message : CONNECTION_ERROR });
@@ -164,20 +160,6 @@ export class DecantaController {
     if (solved) void this.celebrate(animation);
   }
 
-  undo(): void {
-    const state = this.snapshot;
-    const last = this.history[this.history.length - 1];
-    if ((state.phase !== "playing" && state.phase !== "stuck") || !this.renderer || !last || state.undosLeft <= 0) return;
-    const index = this.history.length;
-    this.history.pop();
-    const tubes = transfer(state.tubes, last.to, last.from, last.amount);
-    this.renderer.select(null);
-    void this.renderer.transfer(last.to, last.from, last.amount);
-    this.audio.undo();
-    this.update({ tubes, selected: null, moves: this.history.length, undosLeft: state.undosLeft - 1, phase: "playing", exhausted: false });
-    this.mutate("undo", { index }, (response) => this.settle(response));
-  }
-
   restart(): void {
     const state = this.snapshot;
     if (!this.renderer || (state.phase !== "playing" && state.phase !== "stuck")) return;
@@ -185,7 +167,7 @@ export class DecantaController {
     this.history = [];
     const tubes = this.start.map((tube) => tube.slice());
     this.renderer.load(tubes, state.capacity, true);
-    this.update({ tubes, selected: null, moves: 0, undosLeft: state.undoLimit, phase: "playing", exhausted: false, error: null });
+    this.update({ tubes, selected: null, moves: 0, phase: "playing", exhausted: false, error: null });
     this.mutate("restart", {}, (response) => this.settle(response));
   }
 
@@ -240,8 +222,6 @@ export class DecantaController {
       maxLevel: view.maxLevel,
       levelsCompleted: view.levelsCompleted,
       moves: history.length,
-      undosLeft: view.undosLeft,
-      undoLimit: view.undoLimit,
       selected: null,
       tubes,
       capacity: view.capacity,
@@ -293,7 +273,7 @@ export class DecantaController {
       return;
     }
     if (response.state.level !== this.snapshot.level || response.state.moves.length !== this.history.length) return;
-    this.update({ undosLeft: response.state.undosLeft, error: null });
+    this.update({ error: null });
     if (response.state.status !== "playing") void this.declareStuck(response.state.status === "exhausted");
   }
 

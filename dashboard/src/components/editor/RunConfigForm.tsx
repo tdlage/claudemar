@@ -2,14 +2,19 @@ import { useState, useCallback } from "react";
 import { Globe, Plus, Trash2, X } from "lucide-react";
 import type { RunConfig } from "../../lib/types";
 
+export interface RunConfigOwner {
+  projectName: string;
+  agentName: string;
+}
+
 interface RunConfigFormProps {
   initial?: RunConfig;
-  projectName: string;
+  owner: RunConfigOwner;
   onSave: (data: Omit<RunConfig, "id" | "status">) => void;
   onCancel: () => void;
 }
 
-export function RunConfigForm({ initial, projectName, onSave, onCancel }: RunConfigFormProps) {
+export function RunConfigForm({ initial, owner, onSave, onCancel }: RunConfigFormProps) {
   const [name, setName] = useState(initial?.name ?? "");
   const [command, setCommand] = useState(initial?.command ?? "");
   const [workingDirectory, setWorkingDirectory] = useState(initial?.workingDirectory ?? "");
@@ -53,11 +58,12 @@ export function RunConfigForm({ initial, projectName, onSave, onCancel }: RunCon
       command,
       workingDirectory,
       envVars,
-      projectName,
+      projectName: initial?.projectName ?? owner.projectName,
+      agentName: initial?.agentName ?? owner.agentName,
       proxyDomain: domain && port ? domain : "",
       proxyPort: domain && port ? port : undefined,
     });
-  }, [name, command, workingDirectory, envPairs, projectName, proxyDomain, proxyPort, onSave]);
+  }, [name, command, workingDirectory, envPairs, initial, owner, proxyDomain, proxyPort, onSave]);
 
   const inputClass =
     "w-full bg-bg border border-border rounded px-2 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent";

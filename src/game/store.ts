@@ -11,7 +11,6 @@ interface ProgressRow extends RowDataPacket {
   levels_completed: number;
   puzzle: unknown;
   moves: unknown;
-  undos_used: number;
 }
 
 interface RankingRow extends RowDataPacket {
@@ -75,7 +74,7 @@ function toDate(value: Date | string): Date {
 
 export async function loadProgress(player: string): Promise<GameProgress | null> {
   const [row] = await query<ProgressRow[]>(
-    "SELECT level, max_level, max_level_at, levels_completed, puzzle, moves, undos_used FROM game_progress WHERE owner_id = ?",
+    "SELECT level, max_level, max_level_at, levels_completed, puzzle, moves FROM game_progress WHERE owner_id = ?",
     [player],
   );
   if (!row) return null;
@@ -91,17 +90,16 @@ export async function loadProgress(player: string): Promise<GameProgress | null>
     levelsCompleted: row.levels_completed,
     puzzle,
     moves: resumable ? storedMoves : [],
-    undosUsed: resumable ? row.undos_used : 0,
   };
 }
 
 export async function saveProgress(player: string, progress: GameProgress): Promise<void> {
   await execute(
-    `INSERT INTO game_progress (owner_id, level, max_level, max_level_at, levels_completed, puzzle, moves, undos_used, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO game_progress (owner_id, level, max_level, max_level_at, levels_completed, puzzle, moves, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE level = VALUES(level), max_level = VALUES(max_level), max_level_at = VALUES(max_level_at),
        levels_completed = VALUES(levels_completed), puzzle = VALUES(puzzle), moves = VALUES(moves),
-       undos_used = VALUES(undos_used), updated_at = VALUES(updated_at)`,
+       updated_at = VALUES(updated_at)`,
     [
       player,
       progress.level,
@@ -110,7 +108,6 @@ export async function saveProgress(player: string, progress: GameProgress): Prom
       progress.levelsCompleted,
       JSON.stringify(progress.puzzle),
       JSON.stringify(progress.moves),
-      progress.undosUsed,
       toMySQLDatetime(new Date().toISOString()),
     ],
   );

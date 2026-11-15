@@ -22,10 +22,21 @@ runConfigsRouter.get("/", (req, res) => {
     .map((c) => runConfigView(ctx, c, status[c.id] ?? { running: false })));
 });
 
+function ownerOf(body: Record<string, unknown>): { projectName: string; agentName: string } | null {
+  const projectName = typeof body.projectName === "string" ? body.projectName : "";
+  const agentName = typeof body.agentName === "string" ? body.agentName : "";
+  return projectName && agentName ? null : { projectName, agentName };
+}
+
 runConfigsRouter.post("/", requireAdmin, async (req, res) => {
-  const { name, command, workingDirectory, envVars, projectName, proxyDomain, proxyPort } = req.body;
+  const { name, command, workingDirectory, envVars, proxyDomain, proxyPort } = req.body;
+  const owner = ownerOf(req.body ?? {});
   if (!name || !command) {
     res.status(400).json({ error: "name and command are required" });
+    return;
+  }
+  if (!owner) {
+    res.status(400).json({ error: "A configuration belongs to a project or to an agent, not both" });
     return;
   }
   const cfg = await runProcessManager.createConfig({
@@ -33,7 +44,7 @@ runConfigsRouter.post("/", requireAdmin, async (req, res) => {
     command,
     workingDirectory: workingDirectory || "",
     envVars: envVars || {},
-    projectName: projectName || "",
+    ...owner,
     proxyDomain: proxyDomain && proxyPort ? proxyDomain : undefined,
     proxyPort: proxyDomain && proxyPort ? Number(proxyPort) : undefined,
   });
@@ -41,7 +52,13 @@ runConfigsRouter.post("/", requireAdmin, async (req, res) => {
 });
 
 runConfigsRouter.put("/:id", requireAdmin, async (req: Request<{ id: string }>, res: Response) => {
-  const updated = await runProcessManager.updateConfig(req.params.id, req.body);
+  const current = runProcessManager.getConfig(req.params.id);
+  const owner = ownerOf({ projectName: current?.projectName, agentName: current?.agentName, ...req.body });
+  if (!owner) {
+    res.status(400).json({ error: "A configuration belongs to a project or to an agent, not both" });
+    return;
+  }
+  const updated = await runProcessManager.updateConfig(req.params.id, { ...req.body, ...owner });
   if (!updated) {
     res.status(404).json({ error: "Config not found" });
     return;

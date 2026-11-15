@@ -9,8 +9,6 @@ export interface GameView {
   capacity: number;
   tubes: Tube[];
   moves: Move[];
-  undosLeft: number;
-  undoLimit: number;
   moveLimit: number;
   status: "playing" | "stuck" | "exhausted";
 }

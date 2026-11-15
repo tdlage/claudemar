@@ -4,11 +4,19 @@ import { api } from "../../lib/api";
 import { useSocketEvent } from "../../hooks/useSocket";
 import type { RunConfig } from "../../lib/types";
 import { isAdmin } from "../../hooks/useAuth";
-import { RunConfigForm } from "./RunConfigForm";
+import { RunConfigForm, type RunConfigOwner } from "./RunConfigForm";
 import { RunTerminal } from "./RunTerminal";
 
 interface RunPanelProps {
   base: string;
+}
+
+function runConfigOwner(base: string): RunConfigOwner {
+  const [kind, ...rest] = base.split(":");
+  const name = rest.join(":");
+  if (kind === "project") return { projectName: name, agentName: "" };
+  if (kind === "agent") return { projectName: "", agentName: name };
+  return { projectName: "", agentName: "" };
 }
 
 export function RunPanel({ base }: RunPanelProps) {
@@ -19,7 +27,7 @@ export function RunPanel({ base }: RunPanelProps) {
   const [selectedConfig, setSelectedConfig] = useState<string | null>(null);
   const [terminalKey, setTerminalKey] = useState(0);
 
-  const projectName = base.startsWith("project:") ? base.split(":").slice(1).join(":") : "";
+  const owner = runConfigOwner(base);
 
   const loadConfigs = useCallback(() => {
     api.get<RunConfig[]>("/run-configs").then(setConfigs).catch(() => {});
@@ -79,15 +87,13 @@ export function RunPanel({ base }: RunPanelProps) {
     [selectedConfig, loadConfigs],
   );
 
-  const filteredConfigs = projectName
-    ? configs.filter((c) => c.projectName === projectName || !c.projectName)
-    : configs;
+  const filteredConfigs = configs.filter((c) => c.projectName === owner.projectName && (c.agentName ?? "") === owner.agentName);
 
   if (showForm || editingConfig) {
     return (
       <RunConfigForm
         initial={editingConfig ?? undefined}
-        projectName={projectName}
+        owner={owner}
         onSave={handleSave}
         onCancel={() => {
           setShowForm(false);

@@ -89,6 +89,12 @@ export async function purgeAgentData(agentName: string): Promise<void> {
   await purgeTargetDriveFolders({ type: "agent", name: agentName });
   await purgeAgentIntegrations(agentName);
   await purgeAgentFavorites(agentName);
+  for (const cfg of runProcessManager.getAllConfigs()) {
+    if (cfg.agentName === agentName) {
+      runProcessManager.stopProcess(cfg.id);
+      await runProcessManager.deleteConfig(cfg.id);
+    }
+  }
   await execute(
     "DELETE FROM execution_history WHERE (target_type = 'agent' AND target_name = ?) OR agent_name = ?",
     [agentName, agentName],

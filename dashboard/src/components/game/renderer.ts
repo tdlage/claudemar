@@ -284,11 +284,21 @@ export class BoardRenderer {
   }
 
   pour(from: number, to: number, amount: number): Promise<void> {
-    return this.enqueue(from, to, true, (source, target, alive, release) => this.animatePour(source, target, to, amount, alive, release));
-  }
-
-  transfer(from: number, to: number, amount: number): Promise<void> {
-    return this.enqueue(from, to, false, (source, target, alive) => this.animateTransfer(source, target, amount, alive));
+    const source = this.sprites[from];
+    const target = this.sprites[to];
+    if (!source || !target) return Promise.resolve();
+    const generation = this.generation;
+    const alive = () => generation === this.generation;
+    const targetReady = deferred();
+    source.reserved += 1;
+    const finished = Promise.all([source.queue, target.queue]).then(async () => {
+      source.reserved -= 1;
+      if (alive()) await this.animatePour(source, target, to, amount, alive, targetReady.resolve);
+      targetReady.resolve();
+    });
+    target.queue = targetReady.promise;
+    source.queue = finished;
+    return finished;
   }
 
   celebrate(): void {
@@ -316,29 +326,6 @@ export class BoardRenderer {
         sprite.glow = 1;
       }, 120 + i * 70);
     });
-  }
-
-  private enqueue(
-    from: number,
-    to: number,
-    reserve: boolean,
-    animate: (source: Sprite, target: Sprite, alive: () => boolean, release: () => void) => Promise<void>,
-  ): Promise<void> {
-    const source = this.sprites[from];
-    const target = this.sprites[to];
-    if (!source || !target) return Promise.resolve();
-    const generation = this.generation;
-    const alive = () => generation === this.generation;
-    const targetReady = deferred();
-    if (reserve) source.reserved += 1;
-    const finished = Promise.all([source.queue, target.queue]).then(async () => {
-      if (reserve) source.reserved -= 1;
-      if (alive()) await animate(source, target, alive, targetReady.resolve);
-      targetReady.resolve();
-    });
-    target.queue = targetReady.promise;
-    source.queue = finished;
-    return finished;
   }
 
   private duration(ms: number): number {
@@ -459,23 +446,6 @@ export class BoardRenderer {
     source.wobble = Math.max(source.wobble, 2.5);
   }
 
-  private async animateTransfer(source: Sprite, target: Sprite, amount: number, alive: () => boolean): Promise<void> {
-    const color = source.layers[source.layers.length - 1]?.color;
-    if (color === undefined) return;
-    const sourceStart = source.layers;
-    const targetStart = target.layers;
-    if (source.sealed > 0) this.unseal(source);
-    await this.tween(300, easeInOut, (p) => {
-      source.layers = drained(sourceStart, amount * p);
-      target.layers = filled(targetStart, color, amount * p);
-      source.wobble = Math.max(source.wobble, 2);
-      target.wobble = Math.max(target.wobble, 2);
-    });
-    if (!alive()) return;
-    source.layers = drained(sourceStart, amount);
-    target.layers = filled(targetStart, color, amount);
-  }
-
   private seal(sprite: Sprite, index: number): void {
     sprite.sealed = 1;
     sprite.capDrop = 0;
@@ -501,13 +471,6 @@ export class BoardRenderer {
         spin: 0,
       });
     }
-  }
-
-  private unseal(sprite: Sprite): void {
-    void this.tween(220, easeOut, (p) => {
-      sprite.sealed = 1 - p;
-      sprite.capDrop = 1 - p * 0.4;
-    });
   }
 
   private splash(x: number, y: number, color: number): void {

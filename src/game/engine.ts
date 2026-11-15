@@ -187,6 +187,6 @@ export async function searchCooperatively(start: readonly (readonly number[])[],
   return step.value;
 }
 
-export function isDeadEnd(tubes: readonly (readonly number[])[], capacity: number, budget: number): boolean {
-  return search(tubes, capacity, budget).kind === "exhausted";
+export function hasMoves(tubes: readonly (readonly number[])[], capacity: number): boolean {
+  return tubes.some((_, from) => tubes.some((__, to) => pourAmount(tubes, from, to, capacity) > 0));
 }

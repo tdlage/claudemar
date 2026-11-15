@@ -9,7 +9,6 @@ import {
   playMove,
   restartLevel,
   startProgress,
-  undoMove,
   viewOf,
   type GameProgress,
   type Rejection,
@@ -31,8 +30,6 @@ const REJECTIONS: Record<Rejection, { status: number; error: string }> = {
   "out-of-sync": { status: 409, error: "O tabuleiro mudou em outra janela." },
   "invalid-move": { status: 422, error: "Jogada inválida." },
   "move-limit": { status: 409, error: "Esta tentativa chegou ao limite de jogadas. Reinicie a fase." },
-  "nothing-to-undo": { status: 409, error: "Não há jogada para desfazer." },
-  "no-undos-left": { status: 409, error: "Você já usou todos os desfazer desta tentativa." },
   "locked-level": { status: 403, error: "Essa fase ainda não foi alcançada." },
 };
 
@@ -96,10 +93,6 @@ gameRouter.post("/move", mutation((progress, { from, to, index }) => {
   if (!isIndex(from) || !isIndex(to) || !isIndex(index)) return { ok: false, reason: "invalid-move" };
   return playMove(progress, [from, to], index, new Date());
 }));
-
-gameRouter.post("/undo", mutation((progress, { index }) => (
-  isIndex(index) ? undoMove(progress, index) : { ok: false, reason: "out-of-sync" }
-)));
 
 gameRouter.post("/restart", mutation((progress) => restartLevel(progress)));
 

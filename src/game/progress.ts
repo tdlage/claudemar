@@ -1,9 +1,7 @@
-import { applyPour, isDeadEnd, isSolved, replay, type Move, type Puzzle, type Tube } from "./engine.js";
+import { applyPour, hasMoves, isSolved, replay, type Move, type Puzzle, type Tube } from "./engine.js";
 import { isValidLevel, prepareLevel, puzzleForLevel } from "./levels.js";
 
-export const UNDO_LIMIT = 5;
 export const MOVE_LIMIT = 1_000;
-const DEAD_END_BUDGET = 1_500;
 
 export interface GameProgress {
   level: number;
@@ -12,7 +10,6 @@ export interface GameProgress {
   levelsCompleted: number;
   puzzle: Puzzle;
   moves: Move[];
-  undosUsed: number;
 }
 
 export type GameStatus = "playing" | "stuck" | "exhausted";
@@ -24,8 +21,6 @@ export interface GameView {
   capacity: number;
   tubes: Tube[];
   moves: Move[];
-  undosLeft: number;
-  undoLimit: number;
   moveLimit: number;
   status: GameStatus;
 }
@@ -36,7 +31,7 @@ export interface CompletedLevel {
   record: boolean;
 }
 
-export type Rejection = "out-of-sync" | "invalid-move" | "move-limit" | "nothing-to-undo" | "no-undos-left" | "locked-level";
+export type Rejection = "out-of-sync" | "invalid-move" | "move-limit" | "locked-level";
 
 export type Transition =
   | { ok: true; progress: GameProgress; completed?: CompletedLevel }
@@ -44,7 +39,7 @@ export type Transition =
 
 export async function startProgress(now: Date): Promise<GameProgress> {
   prepareLevel(2);
-  return { level: 1, maxLevel: 1, maxLevelAt: now, levelsCompleted: 0, puzzle: await puzzleForLevel(1), moves: [], undosUsed: 0 };
+  return { level: 1, maxLevel: 1, maxLevelAt: now, levelsCompleted: 0, puzzle: await puzzleForLevel(1), moves: [] };
 }
 
 export function boardOf(progress: GameProgress): Tube[] {
@@ -55,7 +50,7 @@ export function boardOf(progress: GameProgress): Tube[] {
 
 function statusOf(progress: GameProgress): GameStatus {
   if (progress.moves.length >= MOVE_LIMIT) return "exhausted";
-  return isDeadEnd(boardOf(progress), progress.puzzle.capacity, DEAD_END_BUDGET) ? "stuck" : "playing";
+  return hasMoves(boardOf(progress), progress.puzzle.capacity) ? "playing" : "stuck";
 }
 
 export function viewOf(progress: GameProgress): GameView {
@@ -67,8 +62,6 @@ export function viewOf(progress: GameProgress): GameView {
     capacity,
     tubes: progress.puzzle.tubes,
     moves: progress.moves,
-    undosLeft: UNDO_LIMIT - progress.undosUsed,
-    undoLimit: UNDO_LIMIT,
     moveLimit: MOVE_LIMIT,
     status: statusOf(progress),
   };
@@ -77,7 +70,7 @@ export function viewOf(progress: GameProgress): GameView {
 async function enterLevel(progress: GameProgress, level: number): Promise<GameProgress> {
   const puzzle = await puzzleForLevel(level);
   prepareLevel(level + 1);
-  return { ...progress, level, puzzle, moves: [], undosUsed: 0 };
+  return { ...progress, level, puzzle, moves: [] };
 }
 
 export async function playMove(progress: GameProgress, move: Move, index: number, now: Date): Promise<Transition> {
@@ -99,15 +92,8 @@ export async function playMove(progress: GameProgress, move: Move, index: number
   return { ok: true, progress: advanced, completed: { level: progress.level, moves: progress.moves.length + 1, record } };
 }
 
-export function undoMove(progress: GameProgress, index: number): Transition {
-  if (index !== progress.moves.length) return { ok: false, reason: "out-of-sync" };
-  if (progress.moves.length === 0) return { ok: false, reason: "nothing-to-undo" };
-  if (progress.undosUsed >= UNDO_LIMIT) return { ok: false, reason: "no-undos-left" };
-  return { ok: true, progress: { ...progress, moves: progress.moves.slice(0, -1), undosUsed: progress.undosUsed + 1 } };
-}
-
 export function restartLevel(progress: GameProgress): Transition {
-  return { ok: true, progress: { ...progress, moves: [], undosUsed: 0 } };
+  return { ok: true, progress: { ...progress, moves: [] } };
 }
 
 export async function chooseLevel(progress: GameProgress, level: unknown): Promise<Transition> {

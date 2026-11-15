@@ -45,6 +45,7 @@ const TABLE_DEFINITIONS: string[] = [
     working_directory TEXT NOT NULL,
     env_vars JSON NOT NULL DEFAULT ('{}'),
     project_name VARCHAR(255) NOT NULL,
+    agent_name VARCHAR(255) NOT NULL DEFAULT '',
     proxy_domain VARCHAR(255) DEFAULT NULL,
     proxy_port INT UNSIGNED DEFAULT NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
@@ -251,7 +252,6 @@ const TABLE_DEFINITIONS: string[] = [
     levels_completed INT UNSIGNED NOT NULL DEFAULT 0,
     puzzle JSON NOT NULL,
     moves JSON NOT NULL,
-    undos_used INT UNSIGNED NOT NULL DEFAULT 0,
     updated_at DATETIME NOT NULL,
     INDEX idx_ranking (max_level, max_level_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
@@ -647,6 +647,8 @@ export async function runDataMigrations(): Promise<void> {
   await ensureExecutionHistoryColumns(pool);
   await ensureScheduleColumns(pool);
   await ensureDriveFolderColumns(pool);
+  await ensureRunConfigColumns(pool);
+  await dropGameUndoColumn(pool);
 
   console.log("[data-migration] All data migrations completed");
 }
@@ -681,6 +683,24 @@ async function ensureDriveFolderColumns(pool: ReturnType<typeof getPool>): Promi
   );
   if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
     await pool.execute("ALTER TABLE drive_folders ADD COLUMN access VARCHAR(8) NOT NULL DEFAULT 'read' AFTER local_name");
+  }
+}
+
+async function dropGameUndoColumn(pool: ReturnType<typeof getPool>): Promise<void> {
+  const [rows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_progress' AND COLUMN_NAME = 'undos_used'",
+  );
+  if ((rows as Array<{ cnt: number }>)[0].cnt > 0) {
+    await pool.execute("ALTER TABLE game_progress DROP COLUMN undos_used");
+  }
+}
+
+async function ensureRunConfigColumns(pool: ReturnType<typeof getPool>): Promise<void> {
+  const [rows] = await pool.execute(
+    "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'run_configs' AND COLUMN_NAME = 'agent_name'",
+  );
+  if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
+    await pool.execute("ALTER TABLE run_configs ADD COLUMN agent_name VARCHAR(255) NOT NULL DEFAULT '' AFTER project_name");
   }
 }
 

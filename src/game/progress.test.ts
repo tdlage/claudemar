@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { replay, search, type Move } from "./engine.js";
 import { puzzleForLevel } from "./levels.js";
-import { chooseLevel, MOVE_LIMIT, playMove, restartLevel, startProgress, undoMove, UNDO_LIMIT, viewOf, type GameProgress, type Transition } from "./progress.js";
+import { chooseLevel, MOVE_LIMIT, playMove, restartLevel, startProgress, viewOf, type GameProgress, type Transition } from "./progress.js";
 
 const NOW = new Date("2026-11-15T12:00:00Z");
 
@@ -30,9 +30,8 @@ async function solveLevel(progress: GameProgress, now = NOW): Promise<Transition
 
 test("um jogador novo começa na fase 1 com tudo zerado", async () => {
   const progress = await startProgress(NOW);
-  assert.deepEqual({ level: progress.level, maxLevel: progress.maxLevel, moves: progress.moves, undosUsed: progress.undosUsed }, { level: 1, maxLevel: 1, moves: [], undosUsed: 0 });
+  assert.deepEqual({ level: progress.level, maxLevel: progress.maxLevel, moves: progress.moves }, { level: 1, maxLevel: 1, moves: [] });
   assert.deepEqual(progress.puzzle, await puzzleForLevel(1));
-  assert.equal(viewOf(progress).undosLeft, UNDO_LIMIT);
 });
 
 test("resolver a fase avança e registra o recorde só quando passa do máximo", async () => {
@@ -61,21 +60,13 @@ test("jogada fora de sequência ou inválida não altera o progresso", async () 
   assert.deepEqual(await playMove(progress, [0, 9], 0, NOW), { ok: false, reason: "invalid-move" });
 });
 
-test("desfazer tem limite por tentativa e reiniciar devolve os desfazer", async () => {
-  let progress = await startProgress(NOW);
-  const [first] = await solutionFor(progress);
-  assert.deepEqual(undoMove(progress, 0), { ok: false, reason: "nothing-to-undo" });
-  for (let i = 0; i < UNDO_LIMIT; i++) {
-    progress = accepted(await playMove(progress, first, 0, NOW));
-    assert.deepEqual(undoMove(progress, 0), { ok: false, reason: "out-of-sync" });
-    progress = accepted(undoMove(progress, 1));
-  }
-  progress = accepted(await playMove(progress, first, 0, NOW));
-  assert.deepEqual(undoMove(progress, 1), { ok: false, reason: "no-undos-left" });
-  assert.equal(viewOf(progress).undosLeft, 0);
-  progress = accepted(restartLevel(progress));
-  assert.deepEqual(progress.moves, []);
-  assert.equal(viewOf(progress).undosLeft, UNDO_LIMIT);
+test("reiniciar volta a fase ao tabuleiro inicial", async () => {
+  const start = await startProgress(NOW);
+  const [first] = await solutionFor(start);
+  const played = accepted(await playMove(start, first, 0, NOW));
+  const restarted = accepted(restartLevel(played));
+  assert.deepEqual(restarted.moves, []);
+  assert.deepEqual(restarted.puzzle, start.puzzle);
 });
 
 test("só dá para escolher fases já alcançadas", async () => {
@@ -99,8 +90,8 @@ test("cada tentativa tem um limite de jogadas", async () => {
   assert.notEqual(viewOf(accepted(restartLevel(full))).status, "exhausted");
 });
 
-test("o estado mostra quando o jogador travou", async () => {
-  const progress: GameProgress = { ...(await startProgress(NOW)), puzzle: { capacity: 2, tubes: [[0, 1], [1, 0], []] }, moves: [] };
+test("só declara que travou quando não resta nenhuma jogada", async () => {
+  const progress: GameProgress = { ...(await startProgress(NOW)), puzzle: { capacity: 3, tubes: [[0, 2, 2], [1, 2], [0, 1, 0], [1]] }, moves: [] };
   assert.equal(viewOf(progress).status, "playing");
   assert.equal(viewOf({ ...progress, puzzle: { capacity: 2, tubes: [[0, 1], [1, 0]] } }).status, "stuck");
 });
