@@ -698,6 +698,7 @@ export function slackConnected(scope: BrainScope): boolean {
  */
 class SlackSocket {
   private socket: SocketModeClient | null = null;
+  private detachHandlers: (() => void) | null = null;
   private starting = false;
   connected = false;
   lastError = "";
@@ -761,27 +762,33 @@ class SlackSocket {
     try {
       await this.dispose();
       const socket = new SocketModeClient({ appToken: config.slackAppToken });
-      socket.on("message", (args: { body: SlackEventBody; event: SlackMessageEvent; ack: () => Promise<void> }) => {
-        void (async () => {
-          try {
-            await args.ack();
-            await this.route(args.body, args.event);
-          } catch (err) {
-            this.lastError = err instanceof Error ? err.message : String(err);
-          }
-        })();
-      });
-      socket.on("connected", () => {
-        this.connected = true;
-        this.lastError = "";
-      });
-      socket.on("reconnecting", () => {
-        this.connected = false;
-      });
-      socket.on("disconnected", () => {
-        this.connected = false;
-      });
+      const handlers = {
+        message: (args: { body: SlackEventBody; event: SlackMessageEvent; ack: () => Promise<void> }) => {
+          void (async () => {
+            try {
+              await args.ack();
+              await this.route(args.body, args.event);
+            } catch (err) {
+              this.lastError = err instanceof Error ? err.message : String(err);
+            }
+          })();
+        },
+        connected: () => {
+          this.connected = true;
+          this.lastError = "";
+        },
+        reconnecting: () => {
+          this.connected = false;
+        },
+        disconnected: () => {
+          this.connected = false;
+        },
+      };
+      for (const [event, handler] of Object.entries(handlers)) socket.on(event, handler);
       this.socket = socket;
+      this.detachHandlers = () => {
+        for (const [event, handler] of Object.entries(handlers)) socket.off(event, handler);
+      };
       await socket.start();
       this.connected = true;
       this.lastError = "";
@@ -797,9 +804,11 @@ class SlackSocket {
 
   private async dispose(): Promise<void> {
     const socket = this.socket;
+    const detach = this.detachHandlers;
     this.socket = null;
+    this.detachHandlers = null;
     if (!socket) return;
-    socket.removeAllListeners();
+    detach?.();
     await socket.disconnect().catch(() => {});
   }
 
