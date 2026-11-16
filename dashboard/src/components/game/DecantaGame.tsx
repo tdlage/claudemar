@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  ChevronLeft, ChevronRight, Crown, FlaskConical, LayoutGrid, Loader2, RotateCcw, Shapes, Sparkles, Trophy, Volume2, VolumeX, X,
+  ChevronLeft, ChevronRight, CircleCheck, CircleHelp, CircleX, Crown, FlaskConical, LayoutGrid, Loader2, RotateCcw, SearchCheck, Shapes, Sparkles, Trophy, Undo2, Volume2, VolumeX, X,
 } from "lucide-react";
 import { useDialogFocus } from "../../hooks/useDialogFocus";
 import type { GameSnapshot, Unavailable } from "./controller";
 import { GameBoard } from "./GameBoard";
 import { LevelSheet, RankingSheet } from "./GameSheets";
-import type { CompletedLevel } from "./types";
+import type { CompletedLevel, Verdict } from "./types";
 import { useDecanta, useStoredFlag } from "./useDecanta";
 
 interface Props {
@@ -65,14 +65,33 @@ function WinCard({ completed, nextReady, onNext, onReplay, onRanking }: WinProps
   );
 }
 
+const VERDICTS: Record<Verdict, { tone: string; icon: React.ReactNode; text: string }> = {
+  solvable: { tone: "is-good", icon: <CircleCheck size={16} aria-hidden="true" />, text: "Ainda tem saída: dá para resolver a partir daqui." },
+  unsolvable: { tone: "is-bad", icon: <CircleX size={16} aria-hidden="true" />, text: "Não tem mais saída. Desfaça algumas jogadas ou reinicie a fase." },
+  unknown: { tone: "is-unknown", icon: <CircleHelp size={16} aria-hidden="true" />, text: "Este tabuleiro é complexo demais para eu confirmar agora." },
+};
+
+function VerdictNote({ verdict, onDismiss }: { verdict: Verdict | "checking"; onDismiss: () => void }) {
+  if (verdict === "checking") {
+    return <p className="decanta-verdict" role="status"><Loader2 size={16} className="animate-spin" aria-hidden="true" />Verificando se ainda tem saída…</p>;
+  }
+  const { tone, icon, text } = VERDICTS[verdict];
+  return (
+    <button type="button" className={`decanta-verdict ${tone}`} role="status" onClick={onDismiss} title="Fechar">
+      {icon}{text}
+    </button>
+  );
+}
+
 interface StuckProps {
   snapshot: GameSnapshot;
+  onUndo: () => void;
   onRestart: () => void;
   onPrevious: () => void;
   onLevels: () => void;
 }
 
-function StuckCard({ snapshot, onRestart, onPrevious, onLevels }: StuckProps) {
+function StuckCard({ snapshot, onUndo, onRestart, onPrevious, onLevels }: StuckProps) {
   return (
     <div className="decanta-modal">
       <section className="decanta-card is-stuck" role="alertdialog" aria-label="Sem saída">
@@ -80,7 +99,10 @@ function StuckCard({ snapshot, onRestart, onPrevious, onLevels }: StuckProps) {
         <h2>Sem saída</h2>
         <p>{snapshot.exhausted ? `Esta tentativa chegou ao limite de ${snapshot.moveLimit} jogadas.` : "Não há mais nenhuma jogada possível."}</p>
         <div className="decanta-card-actions">
-          <button type="button" className="decanta-button is-primary" onClick={onRestart} autoFocus><RotateCcw size={15} aria-hidden="true" />Reiniciar a fase</button>
+          {snapshot.moves > 0 && (
+            <button type="button" className="decanta-button is-primary" onClick={onUndo} autoFocus><Undo2 size={15} aria-hidden="true" />Desfazer a última jogada</button>
+          )}
+          <button type="button" className={`decanta-button${snapshot.moves > 0 ? "" : " is-primary"}`} onClick={onRestart} autoFocus={snapshot.moves === 0}><RotateCcw size={15} aria-hidden="true" />Reiniciar a fase</button>
           {snapshot.level > 1 && (
             <button type="button" className="decanta-button" onClick={onPrevious}><ChevronLeft size={15} aria-hidden="true" />Voltar para a fase {snapshot.level - 1}</button>
           )}
@@ -112,6 +134,12 @@ export function DecantaGame({ execId, hidden, activity, onClose, onUnavailable }
     if (!visible) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.altKey || (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable='true']"))) return;
+      const undo = event.key === "Backspace" || ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z");
+      if (undo) {
+        event.preventDefault();
+        controller.undo();
+        return;
+      }
       if (event.metaKey || event.ctrlKey) return;
       const tube = "1234567890".indexOf(event.key);
       if (tube >= 0) {
@@ -184,6 +212,7 @@ export function DecantaGame({ execId, hidden, activity, onClose, onUnavailable }
           {snapshot.phase === "stuck" && !panel && (
             <StuckCard
               snapshot={snapshot}
+              onUndo={() => controller.undo()}
               onRestart={() => controller.restart()}
               onPrevious={() => controller.chooseLevel(snapshot.level - 1)}
               onLevels={() => setPanel("levels")}
@@ -191,13 +220,22 @@ export function DecantaGame({ execId, hidden, activity, onClose, onUnavailable }
           )}
           {panel === "levels" && <LevelSheet level={snapshot.level} maxLevel={snapshot.maxLevel} levelsCompleted={snapshot.levelsCompleted} onChoose={choose} onClose={() => setPanel(null)} />}
           {panel === "ranking" && <RankingSheet onClose={() => setPanel(null)} />}
+          {snapshot.verdict && snapshot.phase === "playing" && !panel && !snapshot.error && (
+            <VerdictNote verdict={snapshot.verdict} onDismiss={() => controller.dismissVerdict()} />
+          )}
           {snapshot.error && <p className="decanta-error" role="alert">{snapshot.error}</p>}
         </div>
 
         <footer className="decanta-footer">
           <span className="decanta-moves" aria-live="polite">{snapshot.moves} {snapshot.moves === 1 ? "jogada" : "jogadas"}</span>
-          <button type="button" className="decanta-button" onClick={() => controller.restart()} disabled={!editable || snapshot.moves === 0}>
-            <RotateCcw size={16} aria-hidden="true" />Reiniciar
+          <button type="button" className="decanta-button" onClick={() => controller.undo()} disabled={!editable || snapshot.moves === 0} aria-label="Desfazer" title="Desfazer a última jogada (Ctrl+Z)">
+            <Undo2 size={16} aria-hidden="true" /><span className="decanta-button-label">Desfazer</span>
+          </button>
+          <button type="button" className="decanta-button" onClick={() => controller.check()} disabled={snapshot.phase !== "playing" || snapshot.verdict === "checking"} aria-label="Tem saída?" title="Verificar se ainda dá para resolver a partir daqui">
+            <SearchCheck size={16} aria-hidden="true" /><span className="decanta-button-label">Tem saída?</span>
+          </button>
+          <button type="button" className="decanta-button" onClick={() => controller.restart()} disabled={!editable || snapshot.moves === 0} aria-label="Reiniciar">
+            <RotateCcw size={16} aria-hidden="true" /><span className="decanta-button-label">Reiniciar</span>
           </button>
         </footer>
       </section>

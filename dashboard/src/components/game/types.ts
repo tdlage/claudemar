@@ -19,6 +19,14 @@ export interface CompletedLevel {
   record: boolean;
 }
 
+export type Verdict = "solvable" | "unsolvable" | "unknown";
+
+export interface CheckResponse {
+  verdict: Verdict;
+  level: number;
+  moves: number;
+}
+
 export interface GameSnapshotResponse {
   state: GameView;
   availability: Availability;

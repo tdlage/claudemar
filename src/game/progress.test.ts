@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { replay, search, type Move } from "./engine.js";
 import { puzzleForLevel } from "./levels.js";
-import { chooseLevel, MOVE_LIMIT, playMove, restartLevel, startProgress, viewOf, type GameProgress, type Transition } from "./progress.js";
+import { assessBoard, chooseLevel, MOVE_LIMIT, playMove, restartLevel, startProgress, undoMove, viewOf, type GameProgress, type Transition } from "./progress.js";
 
 const NOW = new Date("2026-11-15T12:00:00Z");
 
@@ -67,6 +67,46 @@ test("reiniciar volta a fase ao tabuleiro inicial", async () => {
   const restarted = accepted(restartLevel(played));
   assert.deepEqual(restarted.moves, []);
   assert.deepEqual(restarted.puzzle, start.puzzle);
+});
+
+test("desfazer volta uma jogada por vez até o início da fase", async () => {
+  const start = await startProgress(NOW);
+  const [first, second] = await solutionFor(start);
+  const once = accepted(await playMove(start, first, 0, NOW));
+  const twice = accepted(await playMove(once, second, 1, NOW));
+
+  assert.deepEqual(undoMove(twice, 0), { ok: false, reason: "out-of-sync" });
+  const undone = accepted(undoMove(twice, 1));
+  assert.deepEqual(undone.moves, [first]);
+  assert.deepEqual(replay(undone.puzzle, undone.moves), replay(once.puzzle, once.moves));
+
+  const back = accepted(undoMove(undone, 0));
+  assert.deepEqual(back.moves, []);
+  assert.deepEqual(replay(back.puzzle, back.moves), start.puzzle.tubes);
+  assert.deepEqual(undoMove(back, 0), { ok: false, reason: "out-of-sync" });
+});
+
+test("desfazer tira a tentativa do limite e de um beco sem saída", async () => {
+  const start = await startProgress(NOW);
+  const stuck: GameProgress = { ...start, puzzle: { capacity: 2, tubes: [[0, 1], [1, 0], [2], [3, 2]] }, moves: [[3, 2]] };
+  assert.equal(viewOf(stuck).status, "stuck");
+  assert.equal(viewOf(accepted(undoMove(stuck, 0))).status, "playing");
+
+  const board: GameProgress = { ...start, puzzle: { capacity: 3, tubes: [[0, 2, 2], [1, 2], [0, 1, 0], [1]] } };
+  const pingPong = Array.from({ length: MOVE_LIMIT }, (_, i): Move => (i % 2 === 0 ? [0, 1] : [1, 0]));
+  const exhausted = { ...board, moves: pingPong };
+  assert.equal(viewOf(accepted(undoMove(exhausted, MOVE_LIMIT - 1))).status, "playing");
+});
+
+test("a verificação diz se o tabuleiro atual ainda tem solução", async () => {
+  const start = await startProgress(NOW);
+  assert.equal(await assessBoard(start), "solvable");
+
+  const midGame: GameProgress = { ...start, puzzle: { capacity: 2, tubes: [[0, 1], [1, 2], [2, 0], []] }, moves: [[0, 3]] };
+  assert.equal(await assessBoard(midGame), "solvable");
+  const deadEnd: GameProgress = { ...start, puzzle: { capacity: 3, tubes: [[0, 1, 2], [0, 1, 2], [0, 1, 2], []] }, moves: [[0, 3]] };
+  assert.equal(viewOf(deadEnd).status, "playing");
+  assert.equal(await assessBoard(deadEnd), "unsolvable");
 });
 
 test("só dá para escolher fases já alcançadas", async () => {

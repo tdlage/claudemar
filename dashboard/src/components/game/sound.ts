@@ -99,6 +99,11 @@ export class GameAudio {
     }
   }
 
+  undo(): void {
+    this.hiss(0, 0.16, 0.03, 1800, 700, 0.9);
+    this.tone(0, 880, 0.14, 0.05, "sine", 520);
+  }
+
   seal(): void {
     this.hiss(0, 0.06, 0.12, 2400, 900, 0.7);
     this.tone(0.03, 1318.5, 0.5, 0.05);

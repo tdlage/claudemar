@@ -1,14 +1,16 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { executionManager } from "../../execution-manager.js";
 import { usersManager } from "../../users-manager.js";
 import { canAccessExecution } from "../execution-access.js";
 import { asyncHandler } from "../route-utils.js";
 import type { RequestContext } from "../middleware.js";
 import {
+  assessBoard,
   chooseLevel,
   playMove,
   restartLevel,
   startProgress,
+  undoMove,
   viewOf,
   type GameProgress,
   type Rejection,
@@ -59,16 +61,23 @@ async function progressOf(player: string): Promise<GameProgress> {
   return (await loadProgress(player)) ?? (await startProgress(new Date()));
 }
 
+function bodyOf(req: Request): Record<string, unknown> {
+  return req.body && typeof req.body === "object" ? req.body : {};
+}
+
+function guard(req: Request, res: Response): string | null {
+  const ctx = req.ctx!;
+  const availability = availabilityOf(ctx, bodyOf(req).execId);
+  if (availability === "playable") return playerOf(ctx);
+  res.status(409).json({ error: UNAVAILABLE[availability], availability });
+  return null;
+}
+
 function mutation(transition: (progress: GameProgress, body: Record<string, unknown>) => Transition | Promise<Transition>) {
   return asyncHandler(async (req, res) => {
-    const ctx = req.ctx!;
-    const body: Record<string, unknown> = req.body && typeof req.body === "object" ? req.body : {};
-    const availability = availabilityOf(ctx, body.execId);
-    if (availability !== "playable") {
-      res.status(409).json({ error: UNAVAILABLE[availability], availability });
-      return;
-    }
-    const player = playerOf(ctx);
+    const player = guard(req, res);
+    if (!player) return;
+    const body = bodyOf(req);
     await withPlayerLock(player, async () => {
       const progress = await progressOf(player);
       const result = await transition(progress, body);
@@ -94,9 +103,29 @@ gameRouter.post("/move", mutation((progress, { from, to, index }) => {
   return playMove(progress, [from, to], index, new Date());
 }));
 
+gameRouter.post("/undo", mutation((progress, { index }) => {
+  if (!isIndex(index)) return { ok: false, reason: "invalid-move" };
+  return undoMove(progress, index);
+}));
+
 gameRouter.post("/restart", mutation((progress) => restartLevel(progress)));
 
 gameRouter.post("/level", mutation((progress, { level }) => chooseLevel(progress, level)));
+
+gameRouter.post("/check", asyncHandler(async (req, res) => {
+  const player = guard(req, res);
+  if (!player) return;
+  const { level, moves } = bodyOf(req);
+  await withPlayerLock(player, async () => {
+    const progress = await progressOf(player);
+    if (level !== progress.level || moves !== progress.moves.length) {
+      const rejection = REJECTIONS["out-of-sync"];
+      res.status(rejection.status).json({ error: rejection.error, reason: "out-of-sync", state: viewOf(progress) });
+      return;
+    }
+    res.json({ verdict: await assessBoard(progress), level: progress.level, moves: progress.moves.length });
+  });
+}));
 
 gameRouter.get("/ranking", asyncHandler(async (req, res) => {
   const player = playerOf(req.ctx!);

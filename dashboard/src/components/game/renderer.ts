@@ -301,6 +301,19 @@ export class BoardRenderer {
     return finished;
   }
 
+  rewind(from: number, to: number, amount: number): Promise<void> {
+    const origin = this.sprites[from];
+    const poured = this.sprites[to];
+    if (!origin || !poured) return Promise.resolve();
+    const generation = this.generation;
+    const finished = Promise.all([origin.queue, poured.queue]).then(async () => {
+      if (generation === this.generation) await this.animateRewind(origin, poured, amount);
+    });
+    origin.queue = finished;
+    poured.queue = finished;
+    return finished;
+  }
+
   celebrate(): void {
     if (this.reducedMotion) return;
     const colors = [...new Set(this.sprites.flatMap((sprite) => sprite.layers.map((layer) => LIQUIDS[layer.color].base)))];
@@ -444,6 +457,26 @@ export class BoardRenderer {
     source.pose = null;
     source.front = false;
     source.wobble = Math.max(source.wobble, 2.5);
+  }
+
+  private async animateRewind(origin: Sprite, poured: Sprite, amount: number): Promise<void> {
+    const color = poured.layers[poured.layers.length - 1]?.color;
+    if (color === undefined) return;
+    const originStart = origin.layers;
+    const pouredStart = poured.layers;
+    if (poured.sealed > 0) {
+      const sealed = poured.sealed;
+      poured.glow = 0;
+      void this.tween(200, easeOut, (p) => (poured.sealed = sealed * (1 - p)));
+    }
+    await this.tween(200 + 60 * amount, easeInOut, (p) => {
+      poured.layers = drained(pouredStart, amount * p);
+      origin.layers = filled(originStart, color, amount * p);
+    });
+    poured.layers = drained(pouredStart, amount);
+    origin.layers = filled(originStart, color, amount);
+    origin.wobble = Math.max(origin.wobble, 2);
+    poured.wobble = Math.max(poured.wobble, 2);
   }
 
   private seal(sprite: Sprite, index: number): void {

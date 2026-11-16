@@ -1,7 +1,9 @@
-import { applyPour, hasMoves, isSolved, replay, type Move, type Puzzle, type Tube } from "./engine.js";
+import { applyPour, hasMoves, isSolved, replay, searchCooperatively, type Move, type Puzzle, type Tube } from "./engine.js";
 import { isValidLevel, prepareLevel, puzzleForLevel } from "./levels.js";
 
 export const MOVE_LIMIT = 1_000;
+const CHECK_BUDGET = 250_000;
+const CHECK_SLICE = 500;
 
 export interface GameProgress {
   level: number;
@@ -13,6 +15,8 @@ export interface GameProgress {
 }
 
 export type GameStatus = "playing" | "stuck" | "exhausted";
+
+export type Verdict = "solvable" | "unsolvable" | "unknown";
 
 export interface GameView {
   level: number;
@@ -90,6 +94,17 @@ export async function playMove(progress: GameProgress, move: Move, index: number
     levelsCompleted: progress.levelsCompleted + 1,
   }, next);
   return { ok: true, progress: advanced, completed: { level: progress.level, moves: progress.moves.length + 1, record } };
+}
+
+export function undoMove(progress: GameProgress, index: number): Transition {
+  if (index !== progress.moves.length - 1) return { ok: false, reason: "out-of-sync" };
+  return { ok: true, progress: { ...progress, moves: progress.moves.slice(0, -1) } };
+}
+
+export async function assessBoard(progress: GameProgress): Promise<Verdict> {
+  const outcome = await searchCooperatively(boardOf(progress), progress.puzzle.capacity, CHECK_BUDGET, CHECK_SLICE);
+  if (outcome.kind === "solved") return "solvable";
+  return outcome.kind === "exhausted" ? "unsolvable" : "unknown";
 }
 
 export function restartLevel(progress: GameProgress): Transition {

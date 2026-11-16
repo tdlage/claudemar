@@ -2,7 +2,7 @@ import { ApiError, api } from "../../lib/api";
 import { isComplete, isSolved, pourAmount, replay, transfer, type PourRecord } from "./engine";
 import type { BoardRenderer } from "./renderer";
 import { GameAudio, vibrate } from "./sound";
-import type { Availability, CompletedLevel, GameMutationResponse, GameSnapshotResponse, GameView, Tube } from "./types";
+import type { Availability, CheckResponse, CompletedLevel, GameMutationResponse, GameSnapshotResponse, GameView, Move, Tube, Verdict } from "./types";
 
 export type GamePhase = "loading" | "playing" | "celebrating" | "won" | "stuck";
 export type Unavailable = Exclude<Availability, "playable">;
@@ -20,6 +20,7 @@ export interface GameSnapshot {
   capacity: number;
   completed: CompletedLevel | null;
   nextReady: boolean;
+  verdict: Verdict | "checking" | null;
   error: string | null;
 }
 
@@ -36,6 +37,7 @@ const INITIAL: GameSnapshot = {
   capacity: 4,
   completed: null,
   nextReady: false,
+  verdict: null,
   error: null,
 };
 
@@ -43,6 +45,10 @@ const CONNECTION_ERROR = "Não foi possível falar com o servidor. A jogada pode
 
 function isUnavailable(value: unknown): value is Unavailable {
   return value === "awaiting-input" || value === "not-running";
+}
+
+function sameMoves(moves: readonly Move[], history: readonly PourRecord[]): boolean {
+  return moves.length === history.length && moves.every(([from, to], i) => history[i].from === from && history[i].to === to);
 }
 
 export class DecantaController {
@@ -54,6 +60,7 @@ export class DecantaController {
   private history: PourRecord[] = [];
   private requests: Promise<void> = Promise.resolve();
   private generation = 0;
+  private revision = 0;
   private next: GameView | null = null;
   private loaded = false;
   private active = false;
@@ -111,7 +118,7 @@ export class DecantaController {
         const { state, availability } = await api.get<GameSnapshotResponse>(`/game?execId=${encodeURIComponent(this.execId)}`);
         if (!this.active) return;
         if (isUnavailable(availability)) this.unavailable(availability);
-        const unchanged = this.loaded && state.level === this.snapshot.level && state.moves.length === this.history.length;
+        const unchanged = this.loaded && this.matches(state);
         if (unchanged) this.update({ maxLevel: state.maxLevel, levelsCompleted: state.levelsCompleted, error: null });
         else this.apply(state, !this.loaded);
       } catch (err) {
@@ -141,7 +148,7 @@ export class DecantaController {
     const from = state.selected;
     if (this.history.length >= state.moveLimit) {
       this.select(null);
-      this.update({ phase: "stuck", exhausted: true });
+      this.update({ phase: "stuck", exhausted: true, verdict: null });
       return;
     }
     const amount = pourAmount(state.tubes, from, index, state.capacity);
@@ -152,12 +159,43 @@ export class DecantaController {
     const tubes = transfer(state.tubes, from, index, amount);
     const moveIndex = this.history.length;
     this.history.push({ from, to: index, amount });
+    this.revision += 1;
     renderer.select(null);
     const animation = renderer.pour(from, index, amount);
     const solved = isSolved(tubes, state.capacity);
-    this.update({ tubes, selected: null, moves: this.history.length, phase: solved ? "celebrating" : "playing" });
+    this.update({ tubes, selected: null, moves: this.history.length, phase: solved ? "celebrating" : "playing", verdict: null });
     this.mutate("move", { from, to: index, index: moveIndex }, (response) => this.settle(response));
     if (solved) void this.celebrate(animation);
+  }
+
+  undo(): void {
+    const state = this.snapshot;
+    const renderer = this.renderer;
+    const last = this.history[this.history.length - 1];
+    if (!renderer || !last || (state.phase !== "playing" && state.phase !== "stuck")) return;
+    this.history.pop();
+    this.revision += 1;
+    renderer.select(null);
+    void renderer.rewind(last.from, last.to, last.amount);
+    const tubes = transfer(state.tubes, last.to, last.from, last.amount);
+    this.update({ tubes, selected: null, moves: this.history.length, phase: "playing", exhausted: false, verdict: null, error: null });
+    this.audio.undo();
+    vibrate(8);
+    this.mutate("undo", { index: this.history.length }, (response) => this.settle(response));
+  }
+
+  check(): void {
+    const state = this.snapshot;
+    if (state.phase !== "playing" || state.verdict === "checking") return;
+    const revision = this.revision;
+    this.update({ verdict: "checking", error: null });
+    this.mutate<CheckResponse>("check", { level: state.level, moves: this.history.length }, (response) => {
+      if (revision === this.revision) this.update({ verdict: response.verdict });
+    });
+  }
+
+  dismissVerdict(): void {
+    if (this.snapshot.verdict !== null && this.snapshot.verdict !== "checking") this.update({ verdict: null });
   }
 
   restart(): void {
@@ -167,7 +205,7 @@ export class DecantaController {
     this.history = [];
     const tubes = this.start.map((tube) => tube.slice());
     this.renderer.load(tubes, state.capacity, true);
-    this.update({ tubes, selected: null, moves: 0, phase: "playing", exhausted: false, error: null });
+    this.update({ tubes, selected: null, moves: 0, phase: "playing", exhausted: false, verdict: null, error: null });
     this.mutate("restart", {}, (response) => this.settle(response));
   }
 
@@ -175,7 +213,7 @@ export class DecantaController {
     if (this.snapshot.phase === "celebrating" || this.snapshot.phase === "loading") return;
     this.generation += 1;
     this.renderer?.select(null);
-    this.update({ phase: "loading", selected: null, completed: null, nextReady: false, error: null });
+    this.update({ phase: "loading", selected: null, completed: null, nextReady: false, verdict: null, error: null });
     this.mutate("level", { level }, (response) => this.apply(response.state, true));
   }
 
@@ -194,6 +232,10 @@ export class DecantaController {
   private update(patch: Partial<GameSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
     for (const listener of this.listeners) listener();
+  }
+
+  private matches(view: GameView): boolean {
+    return view.level === this.snapshot.level && sameMoves(view.moves, this.history);
   }
 
   private select(index: number | null): void {
@@ -227,17 +269,18 @@ export class DecantaController {
       capacity: view.capacity,
       completed: null,
       nextReady: false,
+      verdict: null,
       error: null,
     });
     this.renderer?.load(tubes, view.capacity, intro);
   }
 
-  private mutate(action: string, body: Record<string, unknown>, handle: (response: GameMutationResponse) => void): void {
+  private mutate<T = GameMutationResponse>(action: string, body: Record<string, unknown>, handle: (response: T) => void): void {
     const generation = this.generation;
     this.requests = this.requests.then(async () => {
       if (!this.active || generation !== this.generation) return;
       try {
-        const response = await api.post<GameMutationResponse>(`/game/${action}`, { execId: this.execId, ...body });
+        const response = await api.post<T>(`/game/${action}`, { execId: this.execId, ...body });
         if (this.active && generation === this.generation) handle(response);
       } catch (err) {
         if (this.active) this.recover(err);
@@ -246,6 +289,7 @@ export class DecantaController {
   }
 
   private recover(err: unknown): void {
+    if (this.snapshot.verdict === "checking") this.update({ verdict: null });
     if (err instanceof ApiError) {
       if (isUnavailable(err.body.availability)) {
         this.generation += 1;
@@ -272,18 +316,18 @@ export class DecantaController {
       });
       return;
     }
-    if (response.state.level !== this.snapshot.level || response.state.moves.length !== this.history.length) return;
+    if (!this.matches(response.state)) return;
     this.update({ error: null });
     if (response.state.status !== "playing") void this.declareStuck(response.state.status === "exhausted");
   }
 
   private async declareStuck(exhausted: boolean): Promise<void> {
     const generation = this.generation;
-    const moves = this.history.length;
+    const revision = this.revision;
     await this.renderer?.idle();
-    if (generation !== this.generation || moves !== this.history.length || this.snapshot.phase !== "playing") return;
+    if (generation !== this.generation || revision !== this.revision || this.snapshot.phase !== "playing") return;
     this.select(null);
-    this.update({ phase: "stuck", exhausted });
+    this.update({ phase: "stuck", exhausted, verdict: null });
     this.audio.stuck();
     vibrate([30, 60, 30]);
   }
