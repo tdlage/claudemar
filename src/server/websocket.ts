@@ -1,7 +1,7 @@
 import type { Server as SocketServer, Socket } from "socket.io";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { executionManager, type ExecutionInfo } from "../execution-manager.js";
-import type { Effort, MessageBlock, PermissionDecision } from "../runtime/types.js";
+import type { Effort, PermissionDecision } from "../runtime/types.js";
 import { commandQueue } from "../queue.js";
 import { toQueueItemView } from "../queue-view.js";
 import { runProcessManager } from "../run-process-manager.js";
@@ -15,6 +15,7 @@ import { connectionIssues, getBrainStatus, getTechnicalStatus } from "../brain/s
 import { ADMIN_BRAIN, adminBrain, brainExists, isBrainOwnerId, userBrain, type BrainScope } from "../brain/scope.js";
 import { canAccessRunConfig } from "./run-config-access.js";
 import { canAccessExecution } from "./execution-access.js";
+import { sendToExecution } from "./execution-send.js";
 
 const RATE_LIMIT_WINDOW_MS = 1000;
 const RATE_LIMIT_MAX_EVENTS = 30;
@@ -113,63 +114,14 @@ export function setupWebSocket(io: SocketServer): void {
       executionManager.submitAnswer(execId, answer);
     });
 
-    socket.on("execution:send", ({ execId, blocks, text }: { execId: string; blocks?: MessageBlock[]; text?: string }) => {
+    socket.on("execution:send", ({ execId, blocks, text }: { execId: string; blocks?: unknown; text?: unknown }) => {
       if (!ownsExecution(execId)) return;
-      const payload = blocks && blocks.length > 0 ? blocks : (text ?? "");
-      if (executionManager.sendMessage(execId, payload)) return;
-
-      const info = executionManager.getExecution(execId);
-      if (!info) return;
-      const prompt = text ?? (blocks ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
-      const hasImages = blocks?.some((b) => b.type === "image") ?? false;
-      if (!prompt.trim() && !hasImages) return;
-
-      const targetBusy = executionManager.isTargetActive(info.targetType, info.targetName);
-      const hasQueued = commandQueue.getByTarget(info.targetType, info.targetName).length > 0;
-
-      if (targetBusy || hasQueued) {
-        void commandQueue.enqueue({
-          targetType: info.targetType,
-          targetName: info.targetName,
-          prompt,
-          source: info.source,
-          cwd: info.cwd,
-          agentName: info.agentName,
-          username: info.username,
-          userId: info.userId,
-          model: info.modelSelection,
-          planMode: info.planMode || undefined,
-          effort: info.effort,
-          effortAuto: info.effortAuto,
-          imageBlocks: blocks,
-        }).then(() => {
-          socket.emit("execution:send:queued", { execId });
-        }).catch(() => {
-          socket.emit("execution:send:failed", { execId, reason: "Falha ao enfileirar o comando." });
-        });
-        return;
-      }
-
-      try {
-        const newId = executionManager.startExecution({
-          source: info.source,
-          targetType: info.targetType,
-          targetName: info.targetName,
-          agentName: info.agentName,
-          username: info.username,
-          userId: info.userId,
-          prompt,
-          cwd: info.cwd,
-          model: info.modelSelection,
-          planMode: info.planMode,
-          blocks: blocks && blocks.length > 0 ? blocks : undefined,
-          effort: info.effort,
-          effortAuto: info.effortAuto,
-        });
-        socket.emit("execution:send:restarted", { execId, newId });
-      } catch (err) {
+      sendToExecution(execId, { blocks, text }).then((outcome) => {
+        if (outcome.status === "queued") socket.emit("execution:send:queued", { execId });
+        if (outcome.status === "restarted") socket.emit("execution:send:restarted", { execId, newId: outcome.id });
+      }).catch((err) => {
         socket.emit("execution:send:failed", { execId, reason: err instanceof Error ? err.message : String(err) });
-      }
+      });
     });
 
     socket.on("execution:interrupt", ({ id }: { id: string }) => {

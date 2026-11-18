@@ -5,6 +5,9 @@ import type { Request, Response } from "express";
 import { Router } from "express";
 import { executionManager } from "../../execution-manager.js";
 import { EFFORTS, type Effort, type MessageBlock } from "../../runtime/types.js";
+import { MessageBlocksError, parseImageBlocks, withText } from "../../runtime/message-blocks.js";
+import { canAccessExecution } from "../execution-access.js";
+import { ExecutionSendError, sendToExecution } from "../execution-send.js";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { getAgentPaths } from "../../agents/manager.js";
 import { config } from "../../config.js";
@@ -121,12 +124,19 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
   }
   const { targetType, targetName, prompt, blocks, resumeSessionId, repoName, planMode, permissionMode, effort, effortAuto, agentName, forceQueue, skipSystemPrompt, skipIsolationInstruction, schedulerMode, model, skill } = req.body;
 
-  if (!prompt || !targetType) {
-    res.status(400).json({ error: "prompt and targetType required" });
+  let imageBlocks: MessageBlock[];
+  try {
+    imageBlocks = parseImageBlocks(blocks);
+  } catch (err) {
+    if (!(err instanceof MessageBlocksError)) throw err;
+    res.status(err.status).json({ error: err.message });
     return;
   }
 
-  const messageBlocks: MessageBlock[] | undefined = Array.isArray(blocks) && blocks.length > 0 ? blocks : undefined;
+  if (typeof prompt !== "string" || !targetType || (!prompt.trim() && imageBlocks.length === 0)) {
+    res.status(400).json({ error: "prompt and targetType required" });
+    return;
+  }
 
   if (req.ctx?.role === "user") {
     if (targetType === "orchestrator") {
@@ -202,10 +212,7 @@ executionsRouter.post("/", validateIsolationInstruction, async (req, res) => {
     }
     finalPrompt = `${runtime === "codex" ? "$" : "/"}${skill} ${finalPrompt}`;
   }
-  const imageBlocks = messageBlocks?.filter((b) => b.type === "image") ?? [];
-  const execBlocks: MessageBlock[] | undefined = imageBlocks.length > 0
-    ? [...imageBlocks, { type: "text", text: finalPrompt }]
-    : undefined;
+  const execBlocks = imageBlocks.length > 0 ? withText(imageBlocks, finalPrompt) : undefined;
   const automatic = req.ctx?.role === "user";
   const resolvedEffort = req.ctx?.role === "user"
     ? await automaticEffort(prompt, runtime, { targetType, targetName: effectiveTargetName, username: req.ctx.name })
@@ -395,6 +402,20 @@ executionsRouter.patch("/session/:targetType/:targetName/rename", async (req, re
   }
   await sessionNamesManager.setName(sessionId, name.trim());
   res.json({ ok: true });
+});
+
+executionsRouter.post("/:id/messages", async (req, res) => {
+  const id = String(req.params.id);
+  if (!canAccessExecution(req.ctx, executionManager.getExecution(id))) {
+    res.status(404).json({ error: "Execução não encontrada." });
+    return;
+  }
+  try {
+    res.json(await sendToExecution(id, { text: req.body?.text, blocks: req.body?.blocks }));
+  } catch (err) {
+    if (!(err instanceof MessageBlocksError) && !(err instanceof ExecutionSendError)) throw err;
+    res.status(err.status).json({ error: err.message });
+  }
 });
 
 executionsRouter.post("/:id/stop", (req, res) => {

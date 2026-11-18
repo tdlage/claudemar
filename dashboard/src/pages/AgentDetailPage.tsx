@@ -11,6 +11,7 @@ import { Button } from "../components/shared/Button";
 import { Terminal, type StartOpts } from "../components/terminal/Terminal";
 import { ConversationWorkspace } from "../components/terminal/ConversationWorkspace";
 import type { ImageBlock } from "../lib/imageBlock";
+import { unsentMessage } from "../lib/unsentMessage";
 import { ExecutionActivity } from "../components/terminal/ExecutionActivity";
 import { Tabs } from "../components/shared/Tabs";
 import { Badge } from "../components/shared/Badge";
@@ -117,17 +118,16 @@ export function AgentDetailPage() {
 
   const activeSkill = skills.some((skill) => skill.name === selectedSkill) ? selectedSkill : "";
 
-  const handleStart = async (text: string, images: ImageBlock[], opts: StartOpts) => {
-    if ((!text.trim() && images.length === 0) || !name) return;
+  const handleStart = async (text: string, images: ImageBlock[], opts: StartOpts): Promise<boolean> => {
+    if ((!text.trim() && images.length === 0) || !name) return false;
 
     try {
       const finalPrompt = text.trim();
-      const blocks = images.length > 0 ? [...images, { type: "text" as const, text: finalPrompt }] : undefined;
       const result = await api.post<{ id?: string; queued?: boolean; queueItem?: { seqId: number } }>("/executions", {
         targetType: "agent",
         targetName: name,
         prompt: finalPrompt,
-        blocks,
+        blocks: images.length > 0 ? images : undefined,
         resumeSessionId: sessionData.sessionId,
         planMode: opts.planMode,
         permissionMode: opts.permissionMode,
@@ -145,8 +145,9 @@ export function AgentDetailPage() {
       } else if (result.id) {
         setExecId(result.id);
       }
+      return true;
     } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Failed");
+      addToast("error", unsentMessage(err));
       return false;
     }
   };

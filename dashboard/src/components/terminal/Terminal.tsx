@@ -14,11 +14,14 @@ import { getOutput, setOutput, appendOutput } from "../../lib/outputBuffer";
 import { extractMdPaths, renderOutputHtml } from "../../lib/ansi";
 import { useCurrentModel } from "../../hooks/useCurrentModel";
 import { useCachedState } from "../../hooks/useCachedState";
-import { getCached, setCached } from "../../lib/stateCache";
+import { getCached } from "../../lib/stateCache";
 import { useToast } from "../shared/Toast";
 import { formatToolDetail } from "../../lib/toolDetail";
 import { formatBytes, formatTokens, formatDuration } from "../../lib/format";
-import { fileToImageBlock, isVisionImage, type ImageBlock } from "../../lib/imageBlock";
+import { fileToImageBlock, isVisionImage, totalImageBytes, MAX_IMAGES_PER_MESSAGE, MAX_MESSAGE_IMAGE_BYTES, type ImageBlock } from "../../lib/imageBlock";
+import { draftStorageAvailable, loadDraft, saveDraftPart, type ComposerDraft } from "../../lib/draftStore";
+import { api } from "../../lib/api";
+import { unsentMessage } from "../../lib/unsentMessage";
 import { MAX_PROMPT_ATTACHMENT_BYTES, removePromptAttachment, uploadPromptAttachment, type PromptAttachment } from "../../lib/promptAttachment";
 import { getSlashCache, setSlashCache, slashCacheKey } from "../../lib/slashCache";
 import { MdLinksBar } from "./MdLinksBar";
@@ -102,6 +105,10 @@ export interface StartOpts {
   effortAuto?: boolean;
 }
 
+interface ExecutionSendOutcome {
+  status: "sent" | "queued" | "restarted";
+}
+
 interface UserMessage {
   id: number;
   text: string;
@@ -124,6 +131,9 @@ interface TerminalProps {
   showModelBadge?: boolean;
   onStart?: (text: string, images: ImageBlock[], opts: StartOpts) => Promise<void | boolean> | void | boolean;
 }
+
+const DRAFT_TEXT_SAVE_DELAY_MS = 300;
+const DRAFT_PARTS = ["text", "images", "files"] as const;
 
 function startPermissionMode(mode: PermissionMode): PermissionMode {
   return mode === "plan" ? "default" : mode;
@@ -166,16 +176,64 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   const [html, setHtml] = useState("");
   const [mdPaths, setMdPaths] = useState<string[]>([]);
 
-  const [input, setInput] = useCachedState<string>(`term:${cacheKey}:draft`, "");
-  const [pendingImages, setPendingImages] = useCachedState<ImageBlock[]>(`term:${cacheKey}:images`, []);
+  const draftCacheKey = `term:${cacheKey}:draft`;
+  const imagesCacheKey = `term:${cacheKey}:images`;
+  const [input, setInput] = useCachedState<string>(draftCacheKey, "");
+  const [pendingImages, setPendingImages] = useCachedState<ImageBlock[]>(imagesCacheKey, []);
   const pendingFilesKey = `term:${cacheKey}:files`;
   const [pendingFiles, setPendingFiles] = useCachedState<PromptAttachment[]>(pendingFilesKey, []);
   const [uploadingFiles, setUploadingFiles] = useState(0);
+  const [preparingImages, setPreparingImages] = useState(0);
+  const [sending, setSending] = useState(false);
+  const pendingImagesRef = useRef(pendingImages);
+  useEffect(() => { pendingImagesRef.current = pendingImages; }, [pendingImages]);
+  const me = getMe();
+  const draftKey = `${me?.role === "user" ? me.id : "admin"}:${cacheKey}`;
+  const pendingImagesBytes = useMemo(() => totalImageBytes(pendingImages), [pendingImages]);
+  const [restoredDraftKey, setRestoredDraftKey] = useState<string | null>(draftStorageAvailable ? null : draftKey);
+  const draftWarnedRef = useRef(false);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  const persistedDraftRef = useRef<Partial<ComposerDraft>>({});
+  useEffect(() => {
+    if (!draftStorageAvailable) return;
+    let active = true;
+    loadDraft(draftKey)
+      .then((draft) => {
+        if (!active) return;
+        persistedDraftRef.current = draft;
+        const { text, images, files } = draft;
+        if (text) setInput((current) => current || text);
+        if (images?.length) setPendingImages((current) => (current.length > 0 ? current : images));
+        if (files?.length) setPendingFiles((current) => (current.length > 0 ? current : files));
+      })
+      .catch(() => {})
+      .finally(() => { if (active) setRestoredDraftKey(draftKey); });
+    return () => { active = false; };
+  }, [draftKey, setInput, setPendingImages, setPendingFiles]);
+
+  const persistDraft = useCallback(<P extends keyof ComposerDraft>(part: P, value: ComposerDraft[P]) => {
+    if (persistedDraftRef.current[part] === value) return;
+    persistedDraftRef.current = { ...persistedDraftRef.current, [part]: value };
+    saveDraftPart(draftKey, part, value).catch(() => {
+      if (draftWarnedRef.current) return;
+      draftWarnedRef.current = true;
+      addToast("error", "Este navegador não permitiu salvar o rascunho. Se a página recarregar, o texto e os anexos não enviados serão perdidos.");
+    });
+  }, [draftKey, addToast]);
+
+  const draftRestored = restoredDraftKey === draftKey;
+  useEffect(() => {
+    if (!draftRestored) return;
+    const timer = setTimeout(() => persistDraft("text", input), DRAFT_TEXT_SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [draftRestored, input, persistDraft]);
+  useEffect(() => { if (draftRestored) persistDraft("images", pendingImages); }, [draftRestored, pendingImages, persistDraft]);
+  useEffect(() => { if (draftRestored) persistDraft("files", pendingFiles); }, [draftRestored, pendingFiles, persistDraft]);
   const [running, setRunning] = useState(false);
   const [messages, setMessages] = useState<UserMessage[]>([]);
 
@@ -447,35 +505,6 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     };
   }, [executionId, render, receiveSlashCommands]);
 
-  const execIdRef = useRef<string | null>(executionId);
-  useEffect(() => {
-    execIdRef.current = executionId;
-  }, [executionId]);
-
-  useEffect(() => {
-    const socket = getSocket();
-    const onQueued = (d: { execId: string }) => {
-      if (d.execId !== execIdRef.current) return;
-      addToast("info", "A execução anterior já havia terminado — comando enfileirado.");
-    };
-    const onRestarted = (d: { execId: string }) => {
-      if (d.execId !== execIdRef.current) return;
-      addToast("info", "A execução anterior já havia terminado — comando enviado como nova execução.");
-    };
-    const onFailed = (d: { execId: string; reason?: string }) => {
-      if (d.execId !== execIdRef.current) return;
-      addToast("error", d.reason ?? "Falha ao enviar o comando.");
-    };
-    socket.on("execution:send:queued", onQueued);
-    socket.on("execution:send:restarted", onRestarted);
-    socket.on("execution:send:failed", onFailed);
-    return () => {
-      socket.off("execution:send:queued", onQueued);
-      socket.off("execution:send:restarted", onRestarted);
-      socket.off("execution:send:failed", onFailed);
-    };
-  }, [addToast]);
-
   const recommendEffort = useCallback(async (prompt: string, target: ExecutionTarget, manual: Effort | null): Promise<{ effort: Effort; auto: boolean; note?: string } | null> => {
     const runtime = activeRuntime;
     const fallback = manual ?? defaultEffortFor(runtime);
@@ -494,10 +523,10 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
   }, [activeRuntime, addToast]);
 
   const submit = useCallback(() => {
-    if (sendingPrivate || assessing) return;
+    if (sending || sendingPrivate || assessing) return;
     const visibleText = input.trim();
-    if (uploadingFiles > 0) {
-      addToast("error", "Aguarde o envio dos anexos.");
+    if (uploadingFiles > 0 || preparingImages > 0) {
+      addToast("error", "Aguarde o processamento dos anexos.");
       return;
     }
     const files = pendingFiles;
@@ -513,39 +542,78 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     }
 
     const dispatch = (chosenEffort: Effort | undefined, effortAuto = false, effortNote?: string) => {
-      if (!willQueue) {
-        const msgId = counterRef.current++;
+      const msgId = willQueue ? null : counterRef.current++;
+      if (msgId !== null) {
         setMessages((prev) => [...prev.slice(-29), { id: msgId, text: [visibleText, ...files.map((f) => `[Anexo: ${f.name}]`), confidentialFile ? "[Arquivo confidencial anexado]" : ""].filter(Boolean).join("\n"), imageCount: images.length, effortNote }]);
       }
+      const privateFile = confidentialFile;
+      const failed = () => {
+        if (msgId !== null) setMessages((prev) => prev.filter((message) => message.id !== msgId));
+      };
+      const sent = () => {
+        setInput((current) => (current.trim() === visibleText ? "" : current));
+        setPendingImages((current) => current.filter((image) => !images.includes(image)));
+        setPendingFiles((current) => current.filter((file) => !files.includes(file)));
+        if (privateFile) setPrivateFile((current) => (current?.file.id === privateFile.id ? null : current));
+        const remaining: ComposerDraft = {
+          text: getCached<string>(draftCacheKey) ?? "",
+          images: getCached<ImageBlock[]>(imagesCacheKey) ?? [],
+          files: getCached<PromptAttachment[]>(pendingFilesKey) ?? [],
+        };
+        persistedDraftRef.current = remaining;
+        for (const part of DRAFT_PARTS) void saveDraftPart(draftKey, part, remaining[part]).catch(() => {});
+      };
 
       if (injectIntoRunning) {
-        const socket = getSocket();
-        if (images.length > 0) {
-          socket.emit("execution:send", { execId: executionId, blocks: [...images, ...(text ? [{ type: "text" as const, text }] : [])] });
-        } else {
-          socket.emit("execution:send", { execId: executionId, text });
-        }
-      } else if (onStartRef.current) {
-        const start = onStartRef.current;
-        const m = modeRef.current;
-        const opts: StartOpts = { planMode: m === "plan", permissionMode: startPermissionMode(m), effort: chosenEffort, effortAuto, model: modelSelection.selected?.model, skipIsolationInstruction: admin && skipIsolationInstruction };
-        if (confidentialFile) {
-          setSendingPrivate(true);
-          void Promise.resolve().then(() => start(text, images, opts))
-            .then((result) => { if (result !== false) setPrivateFile((current) => current?.file.id === confidentialFile.id ? null : current); })
-            .catch(() => addToast("error", "Não foi possível enviar. O arquivo continua anexado."))
-            .finally(() => setSendingPrivate(false));
-        } else {
-          void start(text, images, opts);
-        }
-        setSkipIsolationInstruction(false);
-        if (m === "plan") setMode("default");
+        setSending(true);
+        api.post<ExecutionSendOutcome>(`/executions/${encodeURIComponent(executionId)}/messages`, images.length > 0 ? { text, blocks: images } : { text })
+          .then((outcome) => {
+            if (outcome.status === "queued") addToast("info", "A execução anterior já havia terminado — comando enfileirado.");
+            if (outcome.status === "restarted") addToast("info", "A execução anterior já havia terminado — comando enviado como nova execução.");
+            sent();
+          })
+          .catch((err: unknown) => {
+            failed();
+            addToast("error", unsentMessage(err));
+          })
+          .finally(() => setSending(false));
+        return;
       }
 
-      setInput("");
-      setPendingImages([]);
-      setPendingFiles([]);
-      if (injectIntoRunning) setPrivateFile(null);
+      const start = onStartRef.current;
+      if (!start) return;
+      const m = modeRef.current;
+      const opts: StartOpts = { planMode: m === "plan", permissionMode: startPermissionMode(m), effort: chosenEffort, effortAuto, model: modelSelection.selected?.model, skipIsolationInstruction: admin && skipIsolationInstruction };
+      const settle = (outcome: void | boolean) => {
+        if (outcome === false) {
+          failed();
+          return;
+        }
+        sent();
+        setSkipIsolationInstruction(false);
+        if (m === "plan") setMode("default");
+      };
+      const rejected = (err: unknown) => {
+        failed();
+        addToast("error", unsentMessage(err));
+      };
+      let result: ReturnType<typeof start>;
+      try {
+        result = start(text, images, opts);
+      } catch (err) {
+        rejected(err);
+        return;
+      }
+      if (!(result instanceof Promise)) {
+        settle(result);
+        return;
+      }
+      setSending(true);
+      if (privateFile) setSendingPrivate(true);
+      result.then(settle, rejected).finally(() => {
+        setSending(false);
+        if (privateFile) setSendingPrivate(false);
+      });
     };
 
     if (automaticEffortOnly || injectIntoRunning) {
@@ -562,7 +630,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     void recommendEffort(visibleText, target, manualEffort)
       .then((choice) => { if (choice) dispatch(choice.effort, choice.auto, choice.note); })
       .finally(() => setAssessing(false));
-  }, [sendingPrivate, assessing, uploadingFiles, pendingFiles, setPendingFiles, confidentialFile, admin, skipIsolationInstruction, input, pendingImages, live, executionId, queueMode, effort, automaticEffortOnly, base, complexityEnabled, activeRuntime, activeModel, recommendEffort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, selectedOutsideSession, sessionRuntime, addToast]);
+  }, [sending, sendingPrivate, assessing, uploadingFiles, preparingImages, pendingFiles, setPendingFiles, confidentialFile, admin, skipIsolationInstruction, input, setInput, pendingImages, setPendingImages, live, executionId, queueMode, effort, automaticEffortOnly, base, complexityEnabled, activeRuntime, activeModel, recommendEffort, modelSelection.selected, modelSelection.supported, modelSelection.ready, modelSelection.saving, selectedOutsideSession, sessionRuntime, draftKey, draftCacheKey, imagesCacheKey, pendingFilesKey, addToast]);
 
   const handleInterrupt = useCallback(() => {
     if (!executionId) return;
@@ -591,14 +659,36 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     getSocket().emit("execution:rewind", { id: executionId, uuid });
   }, [executionId]);
 
+  const attachImages = useCallback(async (images: File[]) => {
+    const rejected: string[] = [];
+    setPreparingImages((n) => n + images.length);
+    for (const image of images) {
+      try {
+        const block = await fileToImageBlock(image);
+        const current = pendingImagesRef.current;
+        if (current.length >= MAX_IMAGES_PER_MESSAGE || totalImageBytes(current) + block.source.data.length > MAX_MESSAGE_IMAGE_BYTES) {
+          rejected.push(image.name || "imagem colada");
+          continue;
+        }
+        const next = [...current, block];
+        pendingImagesRef.current = next;
+        setPendingImages(next);
+        if (!mountedRef.current) void saveDraftPart(draftKey, "images", next).catch(() => {});
+      } catch {
+        addToast("error", `Não foi possível ler a imagem ${image.name || "colada"}.`);
+      } finally {
+        setPreparingImages((n) => n - 1);
+      }
+    }
+    if (rejected.length > 0) {
+      addToast("error", `Limite por mensagem: ${MAX_IMAGES_PER_MESSAGE} imagens ou ${formatBytes(MAX_MESSAGE_IMAGE_BYTES)}. Não anexadas: ${rejected.join(", ")}. Envie essas imagens em outra mensagem.`);
+    }
+  }, [draftKey, setPendingImages, addToast]);
+
   const attachFiles = useCallback(async (files: File[]) => {
     const images = files.filter(isVisionImage);
     const others = files.filter((file) => !isVisionImage(file));
-    for (const image of images) {
-      void fileToImageBlock(image)
-        .then((block) => setPendingImages((prev) => [...prev, block]))
-        .catch(() => addToast("error", `Não foi possível ler a imagem ${image.name}.`));
-    }
+    if (images.length > 0) void attachImages(images);
     if (others.length === 0) return;
     if (!base) {
       addToast("error", "Este terminal aceita apenas imagens PNG, JPEG, GIF ou WebP.");
@@ -611,15 +701,15 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
     await Promise.all(accepted.map(async (file) => {
       try {
         const attachment = await uploadPromptAttachment(base, file);
-        if (mountedRef.current) setPendingFiles((prev) => [...prev, attachment]);
-        else setCached(pendingFilesKey, [...(getCached<PromptAttachment[]>(pendingFilesKey) ?? []), attachment]);
+        setPendingFiles((prev) => [...prev, attachment]);
+        if (!mountedRef.current) void saveDraftPart(draftKey, "files", getCached<PromptAttachment[]>(pendingFilesKey) ?? []).catch(() => {});
       } catch (err) {
         addToast("error", `Não foi possível anexar ${file.name}: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         setUploadingFiles((n) => n - 1);
       }
     }));
-  }, [base, pendingFilesKey, addToast, setPendingImages, setPendingFiles]);
+  }, [base, pendingFilesKey, draftKey, addToast, attachImages, setPendingFiles]);
 
   const removePendingFile = useCallback((attachment: PromptAttachment) => {
     setPendingFiles((prev) => prev.filter((f) => f.id !== attachment.id));
@@ -903,24 +993,36 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
               )}
             </div>
           )}
-          {pendingImages.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {pendingImages.map((img, idx) => (
-                <div key={idx} className="relative">
-                  <img
-                    src={`data:${img.source.media_type};base64,${img.source.data}`}
-                    alt="anexo"
-                    className="h-12 w-12 object-cover rounded border border-border"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPendingImages((prev) => prev.filter((_, i) => i !== idx))}
-                    className="absolute -top-1 -right-1 bg-bg border border-border rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-text-muted hover:text-danger"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+          {(pendingImages.length > 0 || preparingImages > 0) && (
+            <div className="space-y-1">
+              <div className={`flex flex-wrap items-center gap-2 text-[11px] ${pendingImagesBytes > MAX_MESSAGE_IMAGE_BYTES * 0.8 ? "text-warning" : "text-text-muted"}`}>
+                <span>{pendingImages.length} {pendingImages.length === 1 ? "imagem" : "imagens"} · {formatBytes(pendingImagesBytes)} de {formatBytes(MAX_MESSAGE_IMAGE_BYTES)} por mensagem</span>
+                {preparingImages > 0 && (
+                  <span className="inline-flex items-center gap-1 text-text-muted">
+                    <Loader2 size={11} className="animate-spin" aria-hidden="true" />
+                    Preparando {preparingImages} {preparingImages === 1 ? "imagem" : "imagens"}…
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {pendingImages.map((img, idx) => (
+                  <div key={idx} className="relative">
+                    <img
+                      src={`data:${img.source.media_type};base64,${img.source.data}`}
+                      alt={`Imagem anexada ${idx + 1}`}
+                      className="h-12 w-12 object-cover rounded border border-border"
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Remover imagem ${idx + 1}`}
+                      onClick={() => setPendingImages((prev) => prev.filter((_, i) => i !== idx))}
+                      className="absolute -top-1 -right-1 bg-bg border border-border rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-text-muted hover:text-danger"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           <div className="composer-row relative flex items-end gap-2">
@@ -966,7 +1068,7 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
                 }
               }}
               onPaste={handlePaste}
-              readOnly={assessing}
+              readOnly={assessing || sending}
               placeholder={mobile ? (live && queueMode ? "Na fila…" : "Mensagem…") : live ? (queueMode ? "Mensagem... (vai pra fila durante a execução)" : "Mensagem... (enviada na hora durante a execução)") : (startPlaceholder ?? "Mensagem... (Enter envia, / para comandos, cole ou arraste arquivos)")}
               rows={1}
               className="composer-input min-w-0 flex-1 bg-surface border border-border rounded-xl md:rounded-md px-3 py-2 md:py-1.5 text-base md:text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none overflow-y-auto"
@@ -996,11 +1098,11 @@ export function Terminal({ executionId, base, controls, configurationSummary, in
               type="button"
               onClick={submit}
               aria-label="Enviar mensagem"
-              title={assessing ? "Avaliando complexidade…" : undefined}
-              disabled={assessing || sendingPrivate || uploadingFiles > 0 || (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0 && !confidentialFile) || (modelSelection.supported && modelSelection.saving)}
+              title={assessing ? "Avaliando complexidade…" : sending ? "Enviando…" : undefined}
+              disabled={assessing || sending || sendingPrivate || uploadingFiles > 0 || preparingImages > 0 || (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0 && !confidentialFile) || (modelSelection.supported && modelSelection.saving)}
               className="inline-flex items-center justify-center shrink-0 h-11 w-11 md:h-auto md:w-auto p-1.5 rounded-xl md:rounded-md bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
-              {assessing ? <Loader2 size={mobile ? 20 : 14} className="animate-spin" /> : <Send size={mobile ? 20 : 14} />}
+              {assessing || sending ? <Loader2 size={mobile ? 20 : 14} className="animate-spin" /> : <Send size={mobile ? 20 : 14} />}
             </button>
             {live && (
               <button

@@ -123,7 +123,7 @@ it("keeps Claude Ultracode and GPT Max when switching models and submitting", as
   await waitFor(() => expect(screen.getByTitle("ChatGPT thinking: Max")).toBeInTheDocument());
 });
 
-it("only exposes isolation omission to an authenticated admin and resets it after sending", () => {
+it("only exposes isolation omission to an authenticated admin and resets it after sending", async () => {
   localStorage.setItem("dashboard_me", JSON.stringify({ role: "admin" }));
   const start = vi.fn();
   render(<Terminal executionId={null} onStart={start} />);
@@ -135,7 +135,36 @@ it("only exposes isolation omission to an authenticated admin and resets it afte
   fireEvent.change(input, { target: { value: "test" } });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(start).toHaveBeenCalledWith("test", [], expect.objectContaining({ skipIsolationInstruction: true }));
-  expect(checkbox).not.toBeChecked();
+  await waitFor(() => expect(checkbox).not.toBeChecked());
+});
+
+it("keeps the draft and drops the pending message when the server rejects it", async () => {
+  const start = vi.fn().mockResolvedValue(false);
+  render(<Terminal base="rascunho" executionId={null} onStart={start} />);
+  const field = screen.getByRole("textbox", { name: "Mensagem" });
+  fireEvent.change(field, { target: { value: "Roteiro escrito com calma" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(start).toHaveBeenCalledWith("Roteiro escrito com calma", [], expect.any(Object));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Enviar mensagem" })).toBeEnabled());
+  expect(field).toHaveValue("Roteiro escrito com calma");
+  expect(screen.queryAllByText("Roteiro escrito com calma", { selector: ":not(textarea)" })).toHaveLength(0);
+});
+
+it("clears the draft only after the server confirms the message", async () => {
+  let confirm!: (value: boolean) => void;
+  const start = vi.fn(() => new Promise<boolean>((resolve) => { confirm = resolve; }));
+  render(<Terminal base="confirmacao" executionId={null} onStart={start} />);
+  const field = screen.getByRole("textbox", { name: "Mensagem" });
+  fireEvent.change(field, { target: { value: "Gere o relatório" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(field).toHaveValue("Gere o relatório");
+  expect(field).toHaveAttribute("readonly");
+  expect(screen.getByRole("button", { name: "Enviar mensagem" })).toBeDisabled();
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(start).toHaveBeenCalledTimes(1);
+  await act(async () => confirm(true));
+  expect(field).toHaveValue("");
+  expect(field).not.toHaveAttribute("readonly");
 });
 
 it("hides isolation omission from regular users and unknown identities", () => {
@@ -267,15 +296,49 @@ it("keeps the selected effort when the assessment fails", async () => {
   await waitFor(() => expect(start).toHaveBeenCalledWith("Corrija o login", [], expect.objectContaining({ effort: "high" })));
 });
 
+it("does not bring back a message confirmed after leaving the conversation", async () => {
+  let confirm!: (value: boolean) => void;
+  const start = vi.fn(() => new Promise<boolean>((resolve) => { confirm = resolve; }));
+  const { unmount } = render(<Terminal base="saida-ok" executionId={null} onStart={start} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "Mensagem" }), { target: { value: "Monte a apresentação" } });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Mensagem" }), { key: "Enter" });
+  unmount();
+  await act(async () => confirm(true));
+  render(<Terminal base="saida-ok" executionId={null} onStart={start} />);
+  expect(screen.getByRole("textbox", { name: "Mensagem" })).toHaveValue("");
+});
+
+it("still has the draft when a send fails after leaving the conversation", async () => {
+  let confirm!: (value: boolean) => void;
+  const start = vi.fn(() => new Promise<boolean>((resolve) => { confirm = resolve; }));
+  const { unmount } = render(<Terminal base="saida-erro" executionId={null} onStart={start} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "Mensagem" }), { target: { value: "Monte a apresentação" } });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Mensagem" }), { key: "Enter" });
+  unmount();
+  await act(async () => confirm(false));
+  render(<Terminal base="saida-erro" executionId={null} onStart={start} />);
+  expect(screen.getByRole("textbox", { name: "Mensagem" })).toHaveValue("Monte a apresentação");
+});
+
 it("keeps the running session effort for messages injected into the current execution", async () => {
   mockClaudeWithJev({ complexity: 5, confidence: 0.97, effort: "max" });
-  socket.emit.mockClear();
+  vi.mocked(api.post).mockResolvedValue({ status: "sent" });
   render(<Terminal base="project:live" executionId="running" isLive onStart={vi.fn()} />);
   await chooseEffort(/Best balance of quality/);
   send("Agora reescreva a camada de persistência");
-  expect(socket.emit).toHaveBeenCalledWith("execution:send", { execId: "running", text: "Agora reescreva a camada de persistência" });
-  expect(api.post).not.toHaveBeenCalled();
+  expect(api.post).toHaveBeenCalledWith("/executions/running/messages", { text: "Agora reescreva a camada de persistência" });
+  expect(api.post).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("dialog", { name: "Esforço recomendado" })).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Mensagem" })).toHaveValue(""));
+});
+
+it("keeps a message injected into a running execution when the server rejects it", async () => {
+  mockClaudeWithJev({ complexity: 1, confidence: 0.9, effort: "low" });
+  vi.mocked(api.post).mockRejectedValue(new Error("As imagens somam 40.0 MB; o limite é 32.0 MB por mensagem."));
+  render(<Terminal base="project:reject" executionId="running" isLive onStart={vi.fn()} />);
+  send("Use estas fotos");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Enviar mensagem" })).toBeEnabled());
+  expect(screen.getByRole("textbox", { name: "Mensagem" })).toHaveValue("Use estas fotos");
 });
 
 it("always uses automatic effort for regular users without offering a manual choice", async () => {

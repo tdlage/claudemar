@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import express, { type Request, type Response, type NextFunction } from "express";
+import express from "express";
 import rateLimit from "express-rate-limit";
 import { Server as SocketServer } from "socket.io";
 import { authMiddleware, requireAdmin, securityHeaders } from "./middleware.js";
@@ -30,6 +30,8 @@ import { googleDrivePublicRouter, googleDriveRouter } from "./routes/google-driv
 import { integrationsPublicRouter, integrationsRouter } from "./routes/integrations.js";
 import { gameRouter } from "./routes/game.js";
 import { INTEGRATIONS_API_PATH } from "../integrations/providers.js";
+import { PROMPT_BODY_LIMIT_BYTES } from "../runtime/message-blocks.js";
+import { httpErrorHandler } from "./error-handler.js";
 
 export function createDashboardServer() {
   const app = express();
@@ -111,7 +113,7 @@ export function createDashboardServer() {
   app.use("/api/auth", jsonParser, authRouter);
   app.use("/api/agents", express.json({ limit: "15mb" }), agentsRouter);
   app.use("/api/projects", express.json({ limit: "15mb" }), projectsRouter);
-  app.use("/api/executions", jsonParser, executionsRouter);
+  app.use("/api/executions", express.json({ limit: PROMPT_BODY_LIMIT_BYTES }), executionsRouter);
   app.use("/api/files", jsonParser, filesRouter);
   app.use("/api/confidential-attachments", confidentialAttachmentsRouter);
   app.use("/api/prompt-attachments", promptAttachmentsRouter);
@@ -144,10 +146,7 @@ export function createDashboardServer() {
     });
   }
 
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error("[server] Unhandled error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  });
+  app.use(httpErrorHandler);
 
   setupWebSocket(io);
   tokenManager.start();

@@ -11,6 +11,12 @@ export class ApiError extends Error {
   }
 }
 
+function errorMessage(res: Response, body: Record<string, unknown>): string {
+  if (typeof body.error === "string" && body.error) return body.error;
+  if (res.status === 413) return "O envio é maior que o limite aceito pelo servidor.";
+  return res.statusText || `Erro HTTP ${res.status}`;
+}
+
 function getToken(): string {
   return localStorage.getItem("dashboard_token") || "";
 }
@@ -40,8 +46,8 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   }
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new ApiError(body.error || res.statusText, res.status, body);
+    const body: Record<string, unknown> = await res.json().catch(() => ({}));
+    throw new ApiError(errorMessage(res, body), res.status, body);
   }
 
   return res.json();

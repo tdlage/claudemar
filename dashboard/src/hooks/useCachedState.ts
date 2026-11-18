@@ -11,25 +11,27 @@ export function useCachedState<T>(
   });
 
   const valueRef = useRef(value);
-  valueRef.current = value;
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
 
   const setValue: React.Dispatch<React.SetStateAction<T>> = useCallback(
     (action) => {
-      rawSetValue((prev) => {
-        const next =
-          typeof action === "function"
-            ? (action as (prev: T) => T)(prev)
-            : action;
-        setCached(key, next);
-        return next;
-      });
+      const cached = getCached<T>(key);
+      const prev = cached !== undefined ? cached : valueRef.current;
+      const next =
+        typeof action === "function"
+          ? (action as (prev: T) => T)(prev)
+          : action;
+      setCached(key, next);
+      rawSetValue(next);
     },
     [key],
   );
 
   useEffect(() => {
     return () => {
-      setCached(key, valueRef.current);
+      if (getCached<T>(key) === undefined) setCached(key, valueRef.current);
     };
   }, [key]);
 

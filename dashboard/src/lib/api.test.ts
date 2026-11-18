@@ -56,3 +56,24 @@ describe("api.get — dedupe de requisições em voo", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("api — mensagens de erro", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("usa a mensagem enviada pelo servidor", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "As imagens somam 40.0 MB; o limite é 32.0 MB por mensagem." }), { status: 413 }));
+    await expect(api.post("/executions", { prompt: "x" })).rejects.toThrow("As imagens somam 40.0 MB; o limite é 32.0 MB por mensagem.");
+  });
+
+  it("explica um 413 do proxy que não responde JSON", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("<html>413 Request Entity Too Large</html>", { status: 413 }));
+    await expect(api.post("/executions", { prompt: "x" })).rejects.toThrow("O envio é maior que o limite aceito pelo servidor.");
+  });
+
+  it("nunca produz mensagem vazia quando o status não tem texto", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 502, statusText: "" }));
+    await expect(api.post("/executions", { prompt: "x" })).rejects.toThrow("Erro HTTP 502");
+  });
+});
