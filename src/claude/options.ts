@@ -4,6 +4,7 @@ import { DEFAULT_PROJECT_MODEL, normalizeModel } from "../models-discovery.js";
 import { buildSystemAppend } from "../runtime/system-append.js";
 import { collectSessionMcpServers } from "../runtime/mcp-servers.js";
 import { resolveInitialPermissionMode } from "../runtime/permission-mode.js";
+import { requesterOf } from "../requester.js";
 import type { AgentSessionInit, Effort } from "../runtime/types.js";
 
 export type SdkEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
@@ -40,6 +41,8 @@ export function buildOptions(params: BuildOptionsParams): Options {
   const env = applyProfile(process.env, params.profile);
   delete env.CLAUDECODE;
   env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS = "1";
+  // Os conectores do claude.ai pertencem à conta Claude logada no servidor (a do admin).
+  if (requesterOf(params.username, params.userId).role !== "admin") env.ENABLE_CLAUDEAI_MCP_SERVERS = "false";
 
   const permissionMode = resolveInitialPermissionMode(params);
   const effort = params.effort ?? "high";
