@@ -61,7 +61,7 @@ export function levelForArea(points: readonly Point[], area: number): number {
 }
 
 function unitRatio(capacity: number): number {
-  return [0.95, 0.95, 0.95, 0.85, 0.75, 0.66, 0.6, 0.55][Math.min(capacity, 7)];
+  return [0.95, 0.95, 0.95, 0.85, 0.75, 0.66, 0.6, 0.55, 0.5, 0.46, 0.42][Math.min(capacity, 10)];
 }
 
 function roundedCup(halfWidth: number, depth: number, radius: number): Point[] {

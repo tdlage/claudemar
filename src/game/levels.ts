@@ -1,8 +1,14 @@
 import { searchCooperatively, type Puzzle, type Tube } from "./engine.js";
 
-export const PALETTE_SIZE = 12;
+export const PALETTE_SIZE = 16;
 const DISTINCT_COLORS = 6;
+const EARLY_COLORS = 12;
 const SECOND_EMPTY_FROM = 25;
+const LATE_FROM = 50;
+const LATE_STEP = 10;
+const LONG_FROM = 100;
+const LONG_STEP = 20;
+const MAX_CAPACITY = 10;
 
 export interface LevelSpec {
   colors: number;
@@ -31,12 +37,21 @@ export function isValidLevel(level: unknown): level is number {
   return typeof level === "number" && Number.isSafeInteger(level) && level >= 1;
 }
 
+function lateSteps(level: number): number {
+  if (level < LONG_FROM) return Math.max(0, Math.floor((level - LATE_FROM) / LATE_STEP));
+  return (LONG_FROM - LATE_FROM) / LATE_STEP + Math.floor((level - LONG_FROM) / LONG_STEP);
+}
+
 export function levelSpec(level: number): LevelSpec {
-  return {
-    colors: Math.min(PALETTE_SIZE, 2 + Math.floor((level + 1) / 4)),
-    capacity: CAPACITY_BY_LEVEL.find((step) => level >= step.from)?.capacity ?? 2,
-    empty: level < SECOND_EMPTY_FROM ? 1 : 2,
-  };
+  let colors = Math.min(EARLY_COLORS, 2 + Math.floor((level + 1) / 4));
+  let capacity = CAPACITY_BY_LEVEL.find((step) => level >= step.from)?.capacity ?? 2;
+  for (let step = 0; step < lateSteps(level); step++) {
+    const growCapacity = capacity < MAX_CAPACITY && (step % 2 === 0 || colors >= PALETTE_SIZE);
+    if (growCapacity) capacity += 1;
+    else if (colors < PALETTE_SIZE) colors += 1;
+    else break;
+  }
+  return { colors, capacity, empty: level < SECOND_EMPTY_FROM ? 1 : 2 };
 }
 
 function seeded(text: string): () => number {

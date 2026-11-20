@@ -15,9 +15,37 @@ test("a dificuldade nunca diminui: cores e divisões só crescem com a fase", ()
   assert.ok(previous.colors > levelSpec(1).colors && previous.capacity > levelSpec(1).capacity);
 });
 
+test("depois da fase 50 cresce de 10 em 10, depois da 100 de 20 em 20, alternando divisões e cores até 16 × 10", () => {
+  const spec = (level: number) => {
+    const { colors, capacity } = levelSpec(level);
+    return [colors, capacity];
+  };
+  assert.deepEqual(spec(50), [12, 7]);
+  assert.deepEqual(spec(59), [12, 7]);
+  assert.deepEqual(spec(60), [12, 8]);
+  assert.deepEqual(spec(70), [13, 8]);
+  assert.deepEqual(spec(80), [13, 9]);
+  assert.deepEqual(spec(90), [14, 9]);
+  assert.deepEqual(spec(100), [14, 10]);
+  assert.deepEqual(spec(119), [14, 10]);
+  assert.deepEqual(spec(120), [15, 10]);
+  assert.deepEqual(spec(140), [16, 10]);
+  assert.deepEqual(spec(10_000), [PALETTE_SIZE, 10]);
+});
+
 test("começa com um só frasco vazio e ganha o segundo apenas quando o tabuleiro cresce", () => {
   for (let level = 1; level <= 24; level++) assert.equal(levelSpec(level).empty, 1, `fase ${level}`);
   for (let level = 25; level <= 200; level++) assert.equal(levelSpec(level).empty, 2, `fase ${level}`);
+});
+
+test("as fases depois da 50 também são geradas com a composição certa e solução", async () => {
+  for (const level of [60, 70, 80, 90, 100, 120, 140]) {
+    const spec = levelSpec(level);
+    const puzzle = await puzzleForLevel(level);
+    assert.equal(puzzle.capacity, spec.capacity, `fase ${level}`);
+    assert.equal(new Set(puzzle.tubes.flat()).size, spec.colors, `fase ${level}`);
+    assert.equal(search(puzzle.tubes, puzzle.capacity, 200_000).kind, "solved", `fase ${level}`);
+  }
 });
 
 test("cada fase é sempre o mesmo tabuleiro", async () => {

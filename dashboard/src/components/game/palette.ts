@@ -26,6 +26,10 @@ const SOURCES: ReadonlyArray<readonly [name: string, hex: string]> = [
   ["lima", "#a6d84a"],
   ["pérola", "#ece7dc"],
   ["grafite", "#6b7686"],
+  ["magenta", "#d6249f"],
+  ["azul-marinho", "#1f3c88"],
+  ["menta", "#8ee6c4"],
+  ["vinho", "#7d1e3c"],
 ];
 
 function parse(hex: string): Rgb {
@@ -153,13 +157,37 @@ export function drawSymbol(ctx: CanvasRenderingContext2D, index: number, cx: num
       ctx.arc(cx + r * 0.45, cy, r * 0.32, 0, Math.PI * 2);
       ctx.fill();
       break;
-    default:
+    case 11:
       ctx.beginPath();
       for (const offset of [-0.55, 0, 0.55]) {
         ctx.moveTo(cx - r * 0.75, cy + r * offset);
         ctx.lineTo(cx + r * 0.75, cy + r * offset);
       }
       ctx.stroke();
+      break;
+    case 12:
+      ctx.beginPath();
+      ctx.arc(cx, cy + r * 0.3, r * 0.85, Math.PI, 0);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 13:
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.72, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 14:
+      ctx.beginPath();
+      ctx.moveTo(cx - r * 0.72, cy + r * 0.38);
+      ctx.lineTo(cx, cy - r * 0.38);
+      ctx.lineTo(cx + r * 0.72, cy + r * 0.38);
+      ctx.stroke();
+      break;
+    default:
+      ctx.strokeRect(cx - r * 0.62, cy - r * 0.62, r * 1.24, r * 1.24);
   }
   ctx.restore();
 }
