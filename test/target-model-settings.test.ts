@@ -40,7 +40,9 @@ test("only configured custom profiles are available and explicit selection takes
     assert.equal(profileConfigured(profile), true);
     targetModelSettings.set("agent", "worker", "kimi::k3");
     assert.equal(resolveTargetModel("agent", "worker").profile.id, "kimi");
-    assert.equal(resolveTargetModel("agent", "worker", "zai::glm-5.3").profile.id, "zai");
+    assert.equal(resolveTargetModel("agent", "worker", "zai::glm-5.4").profile.id, "zai");
+    targetModelSettings.set("agent", "glm-worker", "zai::glm-5.3-flash");
+    assert.equal(targetModelSettings.get("agent", "glm-worker"), "zai::glm-5.4");
     delete process.env.KIMI_API_KEY;
     assert.throws(() => resolveTargetModel("agent", "worker"), /indisponível/);
   } finally {

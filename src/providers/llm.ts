@@ -1,6 +1,6 @@
 export type AgentRuntime = "claude" | "codex";
 
-export const COMMIT_PUSH_MODEL = "zai::glm-5.3-flash";
+export const COMMIT_PUSH_MODEL = "zai::glm-5.4";
 
 // Cada perfil escolhe o runtime das execuções e o parametriza por completo.
 // - claude: Claude Agent SDK. baseUrl vazio = Anthropic nativo (subscription do Claude);
@@ -35,8 +35,17 @@ const KIMI_LEGACY_BASE_URL = "https://api.moonshot.ai/anthropic";
 // GLM Coding Plan: a quota da assinatura só vale no endpoint de coding Anthropic-compatible.
 // O sufixo `[1m]` que a z.ai documenta para o Claude Code retorna 400 em chamadas diretas.
 const ZAI_BASE_URL = "https://api.z.ai/api/anthropic";
-const ZAI_MODEL = "glm-5.3";
-const ZAI_HAIKU_MODEL = "glm-5.3-flash";
+const ZAI_MODEL = "glm-5.4";
+
+// A z.ai não tem variante leve do GLM-5.4: o 5.4 substitui o 5.3 e o 5.3-flash em todos os papéis.
+const SUPERSEDED_ZAI_MODELS: Record<string, string> = {
+  "glm-5.3": ZAI_MODEL,
+  "glm-5.3-flash": ZAI_MODEL,
+};
+
+export function currentZaiModel(model: string): string {
+  return SUPERSEDED_ZAI_MODELS[model.trim()] ?? model;
+}
 
 const CODEX_MODEL = "gpt-6-sol";
 const CODEX_LIGHT_MODEL = "gpt-6-luna";
@@ -90,7 +99,7 @@ export function defaultLlmProfiles(): LlmProfile[] {
       tokenEnv: "ZAI_API_KEY",
       opusModel: ZAI_MODEL,
       sonnetModel: ZAI_MODEL,
-      haikuModel: ZAI_HAIKU_MODEL,
+      haikuModel: ZAI_MODEL,
       timeoutMs: DEFAULT_TIMEOUT_MS,
       autoCompactWindow: "1000000",
       extraEnv: "",
@@ -155,6 +164,14 @@ export function parseExtraEnv(extraEnv: string): Array<[string, string]> {
   return entries;
 }
 
+function currentZaiEnvLine(line: string): string {
+  const eq = line.indexOf("=");
+  if (eq <= 0 || line.trim().startsWith("#")) return line;
+  const value = line.slice(eq + 1).trim();
+  const current = currentZaiModel(value);
+  return current === value ? line : `${line.slice(0, eq + 1)}${current}`;
+}
+
 // Corrige perfis default cujos valores mudaram após já terem sido semeados e descarta os
 // que dependiam do gateway removido. Só reescreve quando o valor persistido ainda é o
 // default anterior (baseUrl legado ou modelo de geração anterior do Codex), preservando
@@ -178,6 +195,18 @@ export function migrateLegacyProfiles(profiles: LlmProfile[]): { profiles: LlmPr
       if (models.opusModel !== p.opusModel || models.sonnetModel !== p.sonnetModel || models.haikuModel !== p.haikuModel) {
         changed = true;
         p = { ...p, ...models };
+      }
+    }
+    if (p.runtime === "claude") {
+      const zai = {
+        opusModel: currentZaiModel(p.opusModel),
+        sonnetModel: currentZaiModel(p.sonnetModel),
+        haikuModel: currentZaiModel(p.haikuModel),
+        extraEnv: p.extraEnv.split("\n").map(currentZaiEnvLine).join("\n"),
+      };
+      if (zai.opusModel !== p.opusModel || zai.sonnetModel !== p.sonnetModel || zai.haikuModel !== p.haikuModel || zai.extraEnv !== p.extraEnv) {
+        changed = true;
+        p = { ...p, ...zai };
       }
     }
     const def = defaults.get(p.id);

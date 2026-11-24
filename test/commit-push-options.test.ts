@@ -4,13 +4,13 @@ import { buildOptions } from "../src/claude/options.js";
 import { COMMIT_PUSH_MODEL, defaultLlmProfiles } from "../src/providers/llm.js";
 import { resolveModelSelection } from "../src/model-routing.js";
 
-test("commit/push is pinned to z.ai Flash regardless of other providers' model names", () => {
+test("commit/push is pinned to z.ai GLM-5.4 regardless of other providers' model names", () => {
   const profiles = defaultLlmProfiles();
-  profiles.unshift({ ...profiles[1], id: "other", opusModel: "glm-5.3-flash" });
+  profiles.unshift({ ...profiles[1], id: "other", opusModel: "glm-5.4" });
   const selected = resolveModelSelection(COMMIT_PUSH_MODEL, profiles);
   assert.equal(selected.profile.id, "zai");
   assert.equal(selected.profile.runtime, "claude");
-  assert.equal(selected.model, "glm-5.3-flash");
+  assert.equal(selected.model, "glm-5.4");
   assert.throws(() => resolveModelSelection(COMMIT_PUSH_MODEL, profiles.filter((profile) => profile.id !== "zai")), /indisponível/);
 });
 

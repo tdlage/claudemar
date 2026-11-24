@@ -14,6 +14,12 @@ export function modelSelection(profileId: string, model: string): string {
   return `${encodeURIComponent(profileId)}::${model}`;
 }
 
+export function normalizeSelection(selection: string): string {
+  const separator = selection.indexOf("::");
+  if (separator < 0) return normalizeModel(selection);
+  return `${selection.slice(0, separator)}::${normalizeModel(selection.slice(separator + 2))}`;
+}
+
 export function modelsForProfiles(profiles: LlmProfile[]): ModelOption[] {
   return profiles.flatMap((profile) => {
     const models = [
@@ -31,8 +37,8 @@ export function modelsForProfiles(profiles: LlmProfile[]): ModelOption[] {
 export function resolveModelSelection(selection: string, profiles: LlmProfile[]): { profile: LlmProfile; model: string; selection: string } {
   const options = modelsForProfiles(profiles);
   const separator = selection.indexOf("::");
-  const normalized = normalizeModel(separator < 0 ? selection : selection.slice(separator + 2));
-  const normalizedSelection = separator < 0 ? normalized : `${selection.slice(0, separator)}::${normalized}`;
+  const normalizedSelection = normalizeSelection(selection);
+  const normalized = separator < 0 ? normalizedSelection : normalizedSelection.slice(normalizedSelection.indexOf("::") + 2);
   let option = options.find((item) => item.model === selection || item.model === normalizedSelection);
   if (!option && separator < 0) {
     const matches = options.filter((item) => item.modelId === normalized);

@@ -5,6 +5,7 @@ import { config } from "./config.js";
 import { projectSettingsManager } from "./project-settings.js";
 import { settingsManager } from "./settings-manager.js";
 import { resolveAvailableModel } from "./provider-catalog.js";
+import { normalizeSelection } from "./model-routing.js";
 
 export class TargetModelSettings {
   constructor(private file = resolve(config.dataPath, "target-models.json")) {}
@@ -17,7 +18,8 @@ export class TargetModelSettings {
   }
 
   get(type: string, name: string): string | undefined {
-    return this.read()[JSON.stringify([type, name])];
+    const stored = this.read()[JSON.stringify([type, name])];
+    return stored === undefined ? undefined : normalizeSelection(stored);
   }
 
   set(type: string, name: string, model?: string): void {
@@ -43,7 +45,7 @@ export class SessionModelSettings {
     const file = this.file(sessionId);
     if (!existsSync(file)) return undefined;
     const value: unknown = JSON.parse(readFileSync(file, "utf8"));
-    return typeof value === "string" ? value : undefined;
+    return typeof value === "string" ? normalizeSelection(value) : undefined;
   }
 
   set(sessionId: string, selection: string): void {

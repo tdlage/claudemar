@@ -8,6 +8,7 @@ import { ROOT_TENANT } from "./tenants.js";
 import { slugify } from "./text.js";
 import { parseTargetKey } from "./claudemar/managed.js";
 import { adminBrain, onBrainScopeForgotten, type BrainScope } from "./scope.js";
+import { currentZaiModel } from "../providers/llm.js";
 import type {
   BrainAccount,
   BrainLlmProvider,
@@ -170,7 +171,7 @@ function sanitizeProviders(raw: unknown): BrainLlmProvider[] {
 function sanitizeStage(raw: unknown, providers: BrainLlmProvider[], fallback: BrainStageLlm): BrainStageLlm {
   const e = (raw ?? {}) as Record<string, unknown>;
   const providerId = str(e.providerId, fallback.providerId);
-  const model = str(e.model, fallback.model).trim() || fallback.model;
+  const model = currentZaiModel(str(e.model, fallback.model).trim() || fallback.model);
   const valid = providers.some((p) => p.id === providerId);
   return { providerId: valid ? providerId : (providers[0]?.id ?? fallback.providerId), model };
 }

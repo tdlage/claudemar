@@ -239,9 +239,9 @@ test("perfil zai default conecta direto ao endpoint de coding da z.ai", () => {
   const profile = zaiProfile();
   assert.equal(profile.baseUrl, "https://api.z.ai/api/anthropic");
   assert.equal(profile.tokenEnv, "ZAI_API_KEY");
-  assert.equal(profile.opusModel, "glm-5.3");
-  assert.equal(profile.sonnetModel, "glm-5.3");
-  assert.equal(profile.haikuModel, "glm-5.3-flash");
+  assert.equal(profile.opusModel, "glm-5.4");
+  assert.equal(profile.sonnetModel, "glm-5.4");
+  assert.equal(profile.haikuModel, "glm-5.4");
   assert.equal(profile.autoCompactWindow, "1000000");
 });
 
@@ -251,8 +251,28 @@ test("migrateLegacyProfiles reescreve o perfil zai ainda roteado pelo gateway", 
   assert.equal(changed, true);
   assert.equal(profiles[0].baseUrl, "https://api.z.ai/api/anthropic");
   assert.equal(profiles[0].tokenEnv, "ZAI_API_KEY");
-  assert.equal(profiles[0].opusModel, "glm-5.3");
+  assert.equal(profiles[0].opusModel, "glm-5.4");
   assert.equal(profiles[0].label, "Meu GLM");
+});
+
+test("migrateLegacyProfiles troca GLM-5.3 e 5.3-flash pelo 5.4 em qualquer perfil, inclusive no extraEnv", () => {
+  const seeded = { ...zaiProfile(), opusModel: "glm-5.3", sonnetModel: "glm-5.3", haikuModel: "glm-5.3-flash", extraEnv: "CLAUDE_CODE_SUBAGENT_MODEL=glm-5.3-flash\nENABLE_TOOL_SEARCH=false" };
+  const custom = { ...zaiProfile(), id: "glm-proxy", baseUrl: "https://proxy.interno/anthropic", opusModel: "glm-5.3", sonnetModel: "glm-5.3-flash", haikuModel: "glm-5.3-flash" };
+  const { profiles, changed } = migrateLegacyProfiles([seeded, custom]);
+  assert.equal(changed, true);
+  for (const profile of profiles) {
+    assert.deepEqual([profile.opusModel, profile.sonnetModel, profile.haikuModel], ["glm-5.4", "glm-5.4", "glm-5.4"]);
+  }
+  assert.equal(profiles[0].extraEnv, "CLAUDE_CODE_SUBAGENT_MODEL=glm-5.4\nENABLE_TOOL_SEARCH=false");
+  assert.equal(profiles[1].baseUrl, "https://proxy.interno/anthropic");
+});
+
+test("migrateLegacyProfiles não toca modelos GLM escolhidos que não foram substituídos", () => {
+  const chosen = { ...zaiProfile(), opusModel: "glm-6-preview", haikuModel: "glm-4.7" };
+  const { profiles, changed } = migrateLegacyProfiles([chosen]);
+  assert.equal(changed, false);
+  assert.equal(profiles[0].opusModel, "glm-6-preview");
+  assert.equal(profiles[0].haikuModel, "glm-4.7");
 });
 
 test("migrateLegacyProfiles preserva perfil zai já migrado ou customizado", () => {

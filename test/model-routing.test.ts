@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { defaultLlmProfiles, applyProfile } from "../src/providers/llm.js";
-import { modelsForProfiles, modelSelection, resolveModelSelection } from "../src/model-routing.js";
+import { modelsForProfiles, modelSelection, normalizeSelection, resolveModelSelection } from "../src/model-routing.js";
 
 const profiles = defaultLlmProfiles();
 
@@ -10,7 +10,8 @@ test("catalog includes models from every provider with explicit runtime and iden
   assert.deepEqual(new Set(models.map((m) => m.providerId)), new Set(profiles.map((p) => p.id)));
   assert.ok(models.some((m) => m.modelId === "gpt-6-astra" && m.runtime === "codex"));
   assert.ok(models.some((m) => m.modelId === "claude-sonnet-5-5" && m.runtime === "claude"));
-  assert.ok(models.some((m) => m.modelId === "glm-5.3-flash" && m.runtime === "claude"));
+  assert.ok(models.some((m) => m.modelId === "glm-5.4" && m.runtime === "claude"));
+  assert.ok(!models.some((m) => m.modelId.startsWith("glm-5.3")));
   assert.equal(new Set(models.map((m) => m.model)).size, models.length);
 });
 
@@ -52,7 +53,7 @@ test("stored selections of retired Opus versions resolve to Opus 5.5", () => {
 
 test("per-execution profile and credentials remain independent", () => {
   const kimi = resolveModelSelection("kimi::k3", profiles);
-  const zai = resolveModelSelection("zai::glm-5.3", profiles);
+  const zai = resolveModelSelection("zai::glm-5.4", profiles);
   const base = { KIMI_API_KEY: "kimi-token", ZAI_API_KEY: "zai-token", ANTHROPIC_AUTH_TOKEN: "native-token" };
   const first = applyProfile(base, kimi.profile);
   const second = applyProfile(base, zai.profile);
@@ -62,4 +63,15 @@ test("per-execution profile and credentials remain independent", () => {
   assert.equal(base.ANTHROPIC_AUTH_TOKEN, "native-token");
   kimi.profile.opusModel = "changed";
   assert.equal(profiles[1].opusModel, "k3");
+});
+
+test("seleções salvas com GLM-5.3 ou 5.3-flash passam a rodar no GLM-5.4", () => {
+  for (const legacy of ["zai::glm-5.3", "zai::glm-5.3-flash", "glm-5.3-flash"]) {
+    const resolved = resolveModelSelection(legacy, profiles);
+    assert.equal(resolved.profile.id, "zai", legacy);
+    assert.equal(resolved.model, "glm-5.4", legacy);
+    assert.equal(resolved.selection, "zai::glm-5.4", legacy);
+  }
+  assert.equal(normalizeSelection("zai::glm-5.3-flash"), "zai::glm-5.4");
+  assert.equal(normalizeSelection("kimi::k3"), "kimi::k3");
 });

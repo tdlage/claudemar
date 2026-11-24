@@ -75,7 +75,7 @@ test("direct API uses exactly one message request, fixed z.ai model and disabled
     for await (const chunk of req) data += chunk;
     const body = JSON.parse(data);
     assert.equal(req.url, "/v1/messages");
-    assert.equal(body.model, "glm-5.3-flash");
+    assert.equal(body.model, "glm-5.4");
     assert.deepEqual(body.thinking, { type: "disabled" });
     assert.equal(body.tools, undefined);
     res.setHeader("Content-Type", "application/json");
@@ -145,7 +145,7 @@ test("commit execution uses the direct session and settles correctly on cancella
   process.env.BRAIN_ROOT = resolve(root, "session-data/brain");
   const { createAgentSession } = await import("../src/runtime/create-session.js");
   const { CommitPushSession } = await import("../src/runtime/commit-push-session.js");
-  const session = createAgentSession({ taskMode: "commit-push", profile: defaultLlmProfiles().find((p) => p.id === "zai")!, cwd: await fixture(), target: { targetType: "project", targetName: "__commitpush:test" }, model: "glm-5.3-flash" });
+  const session = createAgentSession({ taskMode: "commit-push", profile: defaultLlmProfiles().find((p) => p.id === "zai")!, cwd: await fixture(), target: { targetType: "project", targetName: "__commitpush:test" }, model: "glm-5.4" });
   assert.ok(session instanceof CommitPushSession);
   await session.interrupt();
   session.sendUserMessage("commit");

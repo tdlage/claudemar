@@ -1,4 +1,4 @@
-import { isNativeAnthropic, type LlmProfile } from "./providers/llm.js";
+import { currentZaiModel, isNativeAnthropic, type LlmProfile } from "./providers/llm.js";
 
 export const DEFAULT_OPUS_DISPLAY = "Opus 5.5";
 
@@ -50,7 +50,7 @@ const LEGACY_MODELS: Record<string, string> = {
 };
 
 export function normalizeModel(model: string): string {
-  return LEGACY_MODELS[model] ?? model;
+  return LEGACY_MODELS[model] ?? currentZaiModel(model);
 }
 
 export function inferRuntimeFromModel(model?: string | null): "claude" | "codex" {
