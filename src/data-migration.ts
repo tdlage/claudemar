@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { getPool, toMySQLDatetime } from "./database.js";
 import { config } from "./config.js";
 import { EVIDENCE_DIR, EVIDENCE_FILE_PREFIX } from "./upload-signer.js";
+import { backfillErrors } from "./spanish/store.js";
 
 const TABLE_DEFINITIONS: string[] = [
   `CREATE TABLE IF NOT EXISTS users (
@@ -267,6 +268,9 @@ const TABLE_DEFINITIONS: string[] = [
     lessons_completed INT UNSIGNED NOT NULL DEFAULT 0,
     streak_days INT UNSIGNED NOT NULL DEFAULT 0,
     last_study_day CHAR(10) NULL,
+    reinforcing TINYINT(1) NOT NULL DEFAULT 0,
+    profile JSON NULL,
+    student JSON NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
@@ -274,12 +278,14 @@ const TABLE_DEFINITIONS: string[] = [
   `CREATE TABLE IF NOT EXISTS spanish_lessons (
     id CHAR(36) NOT NULL PRIMARY KEY,
     owner_id VARCHAR(64) NOT NULL,
+    kind VARCHAR(16) NOT NULL DEFAULT 'regular',
     unit INT UNSIGNED NOT NULL,
     step TINYINT UNSIGNED NOT NULL,
     content JSON NOT NULL,
     progress JSON NOT NULL,
     status VARCHAR(16) NOT NULL,
     score DECIMAL(4,3) NULL,
+    review JSON NULL,
     created_at DATETIME NOT NULL,
     started_at DATETIME NULL,
     completed_at DATETIME NULL,
@@ -321,6 +327,22 @@ const TABLE_DEFINITIONS: string[] = [
     created_at DATETIME NOT NULL,
     INDEX idx_owner_time (owner_id, created_at),
     INDEX idx_owner_skill (owner_id, skill, focus)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS spanish_errors (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    owner_id VARCHAR(64) NOT NULL,
+    lesson_id CHAR(36) NOT NULL,
+    exercise_index SMALLINT UNSIGNED NOT NULL,
+    attempt_id BIGINT UNSIGNED NULL,
+    category VARCHAR(32) NOT NULL,
+    focus VARCHAR(120) NOT NULL,
+    wrong TEXT NOT NULL,
+    correct TEXT NOT NULL,
+    explanation TEXT NOT NULL,
+    created_at DATETIME NOT NULL,
+    INDEX idx_owner_time (owner_id, created_at),
+    INDEX idx_attempt (owner_id, attempt_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
   `DROP TABLE IF EXISTS squad_skills`,
@@ -716,6 +738,8 @@ export async function runDataMigrations(): Promise<void> {
   await ensureDriveFolderColumns(pool);
   await ensureRunConfigColumns(pool);
   await dropGameUndoColumn(pool);
+  await ensureSpanishColumns(pool);
+  await backfillErrors();
 
   console.log("[data-migration] All data migrations completed");
 }
@@ -759,6 +783,26 @@ async function dropGameUndoColumn(pool: ReturnType<typeof getPool>): Promise<voi
   );
   if ((rows as Array<{ cnt: number }>)[0].cnt > 0) {
     await pool.execute("ALTER TABLE game_progress DROP COLUMN undos_used");
+  }
+}
+
+const SPANISH_COLUMNS: [table: string, column: string, definition: string][] = [
+  ["spanish_courses", "reinforcing", "TINYINT(1) NOT NULL DEFAULT 0 AFTER last_study_day"],
+  ["spanish_courses", "profile", "JSON NULL AFTER reinforcing"],
+  ["spanish_courses", "student", "JSON NULL AFTER profile"],
+  ["spanish_lessons", "kind", "VARCHAR(16) NOT NULL DEFAULT 'regular' AFTER owner_id"],
+  ["spanish_lessons", "review", "JSON NULL AFTER score"],
+];
+
+async function ensureSpanishColumns(pool: ReturnType<typeof getPool>): Promise<void> {
+  for (const [table, column, definition] of SPANISH_COLUMNS) {
+    const [rows] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+      [table, column],
+    );
+    if ((rows as Array<{ cnt: number }>)[0].cnt === 0) {
+      await pool.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
   }
 }
 

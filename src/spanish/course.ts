@@ -1,164 +1,54 @@
-import { keyedLock } from "../keyed-lock.js";
-import { countWords, gradeChoice, gradeFill, type LocalGrade } from "./grading.js";
-import { generateStructured } from "./llm.js";
+import { appealKey, assessmentKey, canAppeal, ensureAppeal, ensureAssessment, recordGrade, type CorrectionContext } from "./corrections.js";
+import { scoreOf, stepsOf } from "./exercises.js";
 import {
-  appealPrompt,
-  assessmentPrompt,
-  expectedAnswer,
-  exerciseSummary,
-  LESSON_ROLES,
-  lessonPrompt,
-  planPrompt,
-  TEACHER_SYSTEM,
-  type LearnerSnapshot,
-} from "./prompts.js";
-import { APPEAL_SCHEMA, ASSESSMENT_SCHEMA, LESSON_SCHEMA, parseAppeal, parseAssessment, parseLesson, parsePlan, PLAN_SCHEMA } from "./schemas.js";
+  ensureLessonJob,
+  ensurePlanJob,
+  ensureReinforcementJob,
+  lessonKey,
+  planKey,
+  reinforcementKey,
+  reinforcementSince,
+} from "./generation.js";
+import { gradeChoice, gradeFill, type LocalGrade } from "./grading.js";
+import { weaknessTitles } from "./learner.js";
+import { parseStudent } from "./profile.js";
+import { LESSON_ROLES } from "./prompts.js";
+import { CourseRejection, jobs, withCourseLock } from "./runtime.js";
 import { currentStreak, nextStreak, studyDay } from "./srs.js";
 import {
   addWords,
   completedSlots,
   createCourse,
-  dueWords,
   findOpenLesson,
-  insertLesson,
-  knownLemmas,
+  findOpenReinforcement,
   listVocabulary,
   loadCourse,
   loadLesson,
-  recentLessonTitles,
-  recentMistakes,
-  recordAttempt,
-  reviewWords,
   saveCourse,
   saveLesson,
-  savePlan,
+  saveStudent,
   skillAccuracy,
-  updateAttemptScore,
   vocabularyCounts,
-  weakFocuses,
   type SkillAccuracy,
   type SlotSummary,
   type StoredWord,
-  type VocabularyCounts,
 } from "./store.js";
+import { ensureDiagnosis, ensureQuestion, forgetDiagnosis, questionKey, reviewView } from "./teacher.js";
 import {
   LESSONS_PER_UNIT,
-  type CefrLevel,
   type CourseRecord,
   type CourseUnit,
   type Exercise,
-  type ExerciseResult,
-  type Explanation,
-  type LessonContent,
   type LessonRecord,
-  type Reading,
   type Slot,
-  type VocabularyEntry,
+  type VocabularyCounts,
 } from "./types.js";
+import { lessonView, type LessonView } from "./views.js";
 
-const PLAN_TIMEOUT_MS = 10 * 60_000;
-const LESSON_TIMEOUT_MS = 8 * 60_000;
-const ASSESSMENT_TIMEOUT_MS = 3 * 60_000;
-const APPEAL_TIMEOUT_MS = 2 * 60_000;
-const GENERATION_ATTEMPTS = 2;
-const MAX_LESSON_JOBS = 3;
 const MAX_ANSWER_CHARS = 4000;
-const KNOWN_LEMMAS_LIMIT = 1500;
-const DUE_WORDS_LIMIT = 12;
-const WEAK_FOCUS_LIMIT = 6;
-const WEAK_FOCUS_DAYS = 60;
-const MISTAKES_LIMIT = 12;
-const RECENT_TITLES_LIMIT = 6;
-const DAY_MS = 86_400_000;
-
-export type Rejection = "no-course" | "out-of-sync" | "invalid-answer" | "locked-lesson" | "not-ready" | "course-finished";
-
-export class CourseRejection extends Error {
-  constructor(readonly reason: Rejection) {
-    super(reason);
-  }
-}
-
-class Jobs {
-  private readonly running = new Map<string, Promise<void>>();
-  private readonly failures = new Map<string, string>();
-
-  ensure(key: string, task: () => Promise<void>): void {
-    if (this.running.has(key) || this.failures.has(key)) return;
-    const run = task()
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        this.failures.set(key, message);
-        console.error(`[spanish] ${key}: ${message}`);
-      })
-      .finally(() => this.running.delete(key));
-    this.running.set(key, run);
-  }
-
-  isRunning(key: string): boolean {
-    return this.running.has(key);
-  }
-
-  runningWith(prefix: string): number {
-    return [...this.running.keys()].filter((key) => key.startsWith(prefix)).length;
-  }
-
-  failure(key: string): string | null {
-    return this.failures.get(key) ?? null;
-  }
-
-  forget(key: string): void {
-    this.failures.delete(key);
-  }
-}
-
-const jobs = new Jobs();
-const withCourseLock = keyedLock();
-
-type Step = { kind: "explanation" } | { kind: "vocabulary" } | { kind: "reading" } | { kind: "exercise"; index: number };
-
-export interface ResultView extends Omit<ExerciseResult, "attemptId"> {
-  expected: string;
-  explanation: string;
-  correctOption: number | null;
-  canAppeal: boolean;
-}
-
-export interface ExerciseView {
-  index: number;
-  type: Exercise["type"];
-  skill: Exercise["skill"];
-  focus: string;
-  instruction: string;
-  prompt: string | null;
-  options: string[] | null;
-  hint: string | null;
-  source: string | null;
-  task: string | null;
-  requirements: string[] | null;
-  minWords: number | null;
-  maxWords: number | null;
-  result: ResultView | null;
-}
-
-export type StepView =
-  | ({ kind: "explanation" } & Explanation)
-  | { kind: "vocabulary"; words: VocabularyEntry[] }
-  | ({ kind: "reading" } & Reading)
-  | { kind: "exercise"; exercise: ExerciseView };
-
-export interface LessonView {
-  id: string;
-  unit: number;
-  step: number;
-  role: string;
-  title: string;
-  goal: string;
-  cursor: number;
-  completed: boolean;
-  score: number | null;
-  steps: StepView[];
-}
+const MAX_QUESTION_CHARS = 1000;
+const MAX_QUESTIONS_PER_STEP = 6;
+const ACCENT_FEEDBACK = "Quase: a palavra está certa, mas a acentuação não. No DELE, acento errado conta como erro.";
 
 export interface CourseSummary {
   current: Slot;
@@ -169,6 +59,7 @@ export interface CourseSummary {
   lessonsCompleted: number;
   streakDays: number;
   vocabulary: VocabularyCounts;
+  reinforcing: boolean;
 }
 
 export interface NextView {
@@ -199,7 +90,6 @@ export interface CourseOverview {
   roles: string[];
   units: UnitOverview[];
   skills: SkillAccuracy[];
-  weakFocuses: Awaited<ReturnType<typeof weakFocuses>>;
   vocabulary: VocabularyCounts;
 }
 
@@ -215,12 +105,6 @@ export interface Context {
   now: Date;
 }
 
-const planKey = (owner: string) => `plan:${owner}`;
-const lessonPrefix = (owner: string) => `lesson:${owner}:`;
-const lessonKey = (owner: string, slot: Slot) => `${lessonPrefix(owner)}${slot.unit}:${slot.step}`;
-const assessmentKey = (lessonId: string, index: number) => `assess:${lessonId}:${index}`;
-const appealKey = (lessonId: string, index: number) => `appeal:${lessonId}:${index}`;
-
 function slotIndex(slot: Slot): number {
   return (slot.unit - 1) * LESSONS_PER_UNIT + (slot.step - 1);
 }
@@ -234,271 +118,40 @@ function nextSlot(slot: Slot, totalUnits: number): Slot | null {
   return slot.unit < totalUnits ? { unit: slot.unit + 1, step: 1 } : null;
 }
 
-function stepsOf(content: LessonContent): Step[] {
-  return [
-    { kind: "explanation" },
-    ...(content.vocabulary.length > 0 ? [{ kind: "vocabulary" } as const] : []),
-    ...(content.reading ? [{ kind: "reading" } as const] : []),
-    ...content.exercises.map((_, index) => ({ kind: "exercise", index }) as const),
-  ];
+function totalUnits(course: CourseRecord): number {
+  return course.plan!.units.length;
 }
 
-function levelOf(course: CourseRecord, unit: number): CefrLevel {
-  return course.plan?.units[unit - 1]?.level ?? "B1";
-}
-
-function canAppeal(exercise: Exercise, result: ExerciseResult): boolean {
-  return exercise.type === "fill" && result.status === "graded" && result.verdict !== "correct"
-    && (result.appeal === undefined || result.appeal === "failed");
-}
-
-function resultView(exercise: Exercise, result: ExerciseResult): ResultView {
-  const { attemptId: _attemptId, ...visible } = result;
-  const graded = result.status === "graded";
+function correctionContext(owner: string, course: CourseRecord, lesson: LessonRecord): CorrectionContext {
   return {
-    ...visible,
-    expected: graded ? expectedAnswer(exercise) : "",
-    explanation: graded ? exercise.explanation : "",
-    correctOption: graded && exercise.type === "choice" ? exercise.answer : null,
-    canAppeal: canAppeal(exercise, result),
+    owner,
+    level: course.plan?.units[lesson.unit - 1]?.level ?? "B1",
+    variant: course.student.variant,
+    weaknesses: weaknessTitles(course),
   };
 }
 
-function exerciseView(exercise: Exercise, index: number, result: ExerciseResult | undefined): ExerciseView {
-  return {
-    index,
-    type: exercise.type,
-    skill: exercise.skill,
-    focus: result?.status === "graded" ? exercise.focus : "",
-    instruction: exercise.instruction,
-    prompt: exercise.type === "choice" || exercise.type === "fill" ? exercise.prompt : null,
-    options: exercise.type === "choice" ? exercise.options : null,
-    hint: exercise.type === "fill" ? exercise.hint : null,
-    source: exercise.type === "translate" ? exercise.source : null,
-    task: exercise.type === "write" ? exercise.task : null,
-    requirements: exercise.type === "write" ? exercise.requirements : null,
-    minWords: exercise.type === "write" ? exercise.minWords : null,
-    maxWords: exercise.type === "write" ? exercise.maxWords : null,
-    result: result ? resultView(exercise, result) : null,
-  };
-}
-
-function lessonView(lesson: LessonRecord): LessonView {
-  const { content } = lesson;
-  const steps = stepsOf(content).map((step): StepView => {
-    switch (step.kind) {
-      case "explanation": return { kind: "explanation", ...content.explanation };
-      case "vocabulary": return { kind: "vocabulary", words: content.vocabulary };
-      case "reading": return { kind: "reading", ...content.reading! };
-      case "exercise": return { kind: "exercise", exercise: exerciseView(content.exercises[step.index], step.index, lesson.progress.results[step.index]) };
-    }
-  });
-  return {
-    id: lesson.id,
-    unit: lesson.unit,
-    step: lesson.step,
-    role: LESSON_ROLES[lesson.step - 1]?.name ?? "",
-    title: content.title,
-    goal: content.goal,
-    cursor: lesson.progress.cursor,
-    completed: lesson.status === "completed",
-    score: lesson.score,
-    steps,
-  };
-}
-
-function lessonScore(lesson: LessonRecord): number {
-  const scores = lesson.content.exercises.map((_, index) => lesson.progress.results[index]?.score ?? 0);
-  return Math.round((scores.reduce((sum, score) => sum + score, 0) / scores.length) * 1000) / 1000;
-}
-
-async function learnerSnapshot(owner: string, now: Date): Promise<LearnerSnapshot> {
-  const [known, counts, due, weak, mistakes, titles] = await Promise.all([
-    knownLemmas(owner, KNOWN_LEMMAS_LIMIT),
-    vocabularyCounts(owner, now),
-    dueWords(owner, now, DUE_WORDS_LIMIT),
-    weakFocuses(owner, new Date(now.getTime() - WEAK_FOCUS_DAYS * DAY_MS), WEAK_FOCUS_LIMIT),
-    recentMistakes(owner, MISTAKES_LIMIT),
-    recentLessonTitles(owner, RECENT_TITLES_LIMIT),
-  ]);
-  return { knownLemmas: known, knownCount: counts.total, masteredCount: counts.mastered, dueWords: due, weakFocuses: weak, mistakes, recentTitles: titles };
-}
-
-async function withAttempts<T>(produce: () => Promise<T>): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < GENERATION_ATTEMPTS; attempt += 1) {
-    try {
-      return await produce();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
-}
-
-function ensureLessonJob(owner: string, slot: Slot, prefetch: boolean): void {
-  const key = lessonKey(owner, slot);
-  if (jobs.isRunning(key)) return;
-  if (jobs.runningWith(lessonPrefix(owner)) >= (prefetch ? 1 : MAX_LESSON_JOBS)) return;
-  jobs.ensure(key, async () => {
-    if (await findOpenLesson(owner, slot)) return;
-    const course = await loadCourse(owner);
-    if (!course?.plan) throw new Error("O plano do curso ainda não existe.");
-    const plan = course.plan;
-    const learner = await learnerSnapshot(owner, new Date());
-    const known = new Set(learner.knownLemmas);
-    const content = await withAttempts(async () => parseLesson(await generateStructured({
-      system: TEACHER_SYSTEM,
-      prompt: lessonPrompt(plan, slot.unit, slot.step, learner),
-      schema: LESSON_SCHEMA,
-      timeoutMs: LESSON_TIMEOUT_MS,
-    })));
-    await insertLesson(owner, slot, { ...content, vocabulary: content.vocabulary.filter((word) => !known.has(word.lemma)) }, new Date());
-  });
-}
-
-function ensurePlanJob(owner: string): void {
-  jobs.ensure(planKey(owner), async () => {
-    const plan = await withAttempts(async () => parsePlan(await generateStructured({
-      system: TEACHER_SYSTEM,
-      prompt: planPrompt(),
-      schema: PLAN_SCHEMA,
-      timeoutMs: PLAN_TIMEOUT_MS,
-    })));
-    await savePlan(owner, plan, new Date());
-    ensureLessonJob(owner, { unit: 1, step: 1 }, false);
-  });
-}
-
-async function updateResult(owner: string, lessonId: string, index: number, change: (lesson: LessonRecord, result: ExerciseResult) => Promise<boolean>): Promise<void> {
-  await withCourseLock(owner, async () => {
-    const lesson = await loadLesson(owner, lessonId);
-    const result = lesson?.progress.results[index];
-    if (!lesson || !result) return;
-    if (await change(lesson, result)) await saveLesson(owner, lesson, new Date());
-  });
-}
-
-function ensureAssessment(owner: string, lesson: LessonRecord, index: number, level: CefrLevel, fresh: boolean): void {
-  const exercise = lesson.content.exercises[index];
-  const result = lesson.progress.results[index];
-  if (!exercise || (exercise.type !== "translate" && exercise.type !== "write") || result?.status !== "grading") return;
-  const answer = String(result.answer);
-  const key = assessmentKey(lesson.id, index);
-  if (fresh) jobs.forget(key);
-  jobs.ensure(key, async () => {
-    try {
-      const assessment = parseAssessment(await generateStructured({
-        system: TEACHER_SYSTEM,
-        prompt: assessmentPrompt(exercise, level, answer, countWords(answer)),
-        schema: ASSESSMENT_SCHEMA,
-        timeoutMs: ASSESSMENT_TIMEOUT_MS,
-      }));
-      await updateResult(owner, lesson.id, index, async (current, pending) => {
-        if (pending.status !== "grading" || pending.answer !== answer) return false;
-        const now = new Date();
-        const attemptId = await recordAttempt(owner, {
-          lessonId: current.id, index, skill: exercise.skill, focus: exercise.focus,
-          prompt: exerciseSummary(exercise), answer, expected: assessment.corrected || exercise.reference, score: assessment.score,
-        }, now);
-        await reviewWords(owner, exercise.lemmas, assessment.verdict, now);
-        current.progress.results[index] = { answer, status: "graded", attemptId, ...assessment };
-        return true;
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await updateResult(owner, lesson.id, index, async (current, pending) => {
-        if (pending.status !== "grading" || pending.answer !== answer) return false;
-        current.progress.results[index] = { answer, status: "failed", error: message };
-        return true;
-      });
-      throw error;
-    }
-  });
-}
-
-function ensureAppeal(owner: string, lesson: LessonRecord, index: number, fresh: boolean): void {
-  const exercise = lesson.content.exercises[index];
-  const result = lesson.progress.results[index];
-  if (exercise?.type !== "fill" || result?.appeal !== "pending") return;
-  const answer = String(result.answer);
-  const key = appealKey(lesson.id, index);
-  if (fresh) jobs.forget(key);
-  jobs.ensure(key, async () => {
-    try {
-      const decision = parseAppeal(await generateStructured({
-        system: TEACHER_SYSTEM,
-        prompt: appealPrompt(exercise, answer),
-        schema: APPEAL_SCHEMA,
-        timeoutMs: APPEAL_TIMEOUT_MS,
-      }));
-      await updateResult(owner, lesson.id, index, async (current, pending) => {
-        if (pending.appeal !== "pending") return false;
-        pending.appeal = decision.accepted ? "accepted" : "rejected";
-        pending.appealNote = decision.explanation;
-        if (decision.accepted) {
-          pending.verdict = "correct";
-          pending.score = 1;
-          if (pending.attemptId) await updateAttemptScore(owner, pending.attemptId, 1);
-          await reviewWords(owner, exercise.lemmas, "correct", new Date());
-        }
-        if (current.status === "completed") current.score = lessonScore(current);
-        return true;
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await updateResult(owner, lesson.id, index, async (_current, pending) => {
-        if (pending.appeal !== "pending") return false;
-        pending.appeal = "failed";
-        pending.appealNote = message;
-        return true;
-      });
-      throw error;
-    }
-  });
-}
-
-async function resumePendingWork(ctx: Context, course: CourseRecord, lesson: LessonRecord): Promise<void> {
-  let changed = false;
-  for (const [key, result] of Object.entries(lesson.progress.results)) {
-    const index = Number(key);
-    const assessment = assessmentKey(lesson.id, index);
-    if (result.status === "grading" && !jobs.isRunning(assessment)) {
-      const failure = jobs.failure(assessment);
-      if (failure) {
-        lesson.progress.results[key] = { answer: result.answer, status: "failed", error: failure };
-        changed = true;
-      } else if (ctx.allowJobs) {
-        ensureAssessment(ctx.owner, lesson, index, levelOf(course, lesson.unit), false);
-      }
-    }
-    const appeal = appealKey(lesson.id, index);
-    if (result.appeal === "pending" && !jobs.isRunning(appeal)) {
-      const failure = jobs.failure(appeal);
-      if (failure) {
-        result.appeal = "failed";
-        result.appealNote = failure;
-        changed = true;
-      } else if (ctx.allowJobs) {
-        ensureAppeal(ctx.owner, lesson, index, false);
-      }
-    }
-  }
-  if (changed) await saveLesson(ctx.owner, lesson, ctx.now);
+function belongsToCourse(lesson: LessonRecord, course: CourseRecord): boolean {
+  return course.reinforcing ? lesson.kind === "reinforcement" : lesson.kind === "regular" && sameSlot(lesson, course.current);
 }
 
 async function currentLesson(ctx: Context, course: CourseRecord): Promise<LessonRecord | null> {
   if (course.lessonId) {
     const lesson = await loadLesson(ctx.owner, course.lessonId);
-    if (lesson && sameSlot(lesson, course.current)) return lesson;
+    if (lesson && belongsToCourse(lesson, course)) return lesson;
   }
-  const open = await findOpenLesson(ctx.owner, course.current);
+  const open = course.reinforcing
+    ? await findOpenReinforcement(ctx.owner, reinforcementSince(ctx.now))
+    : await findOpenLesson(ctx.owner, course.current);
   if (!open) {
     if (course.lessonId) {
       course.lessonId = null;
       await saveCourse(ctx.owner, course, ctx.now);
     }
-    if (ctx.allowJobs) ensureLessonJob(ctx.owner, course.current, false);
+    if (ctx.allowJobs) {
+      if (course.reinforcing) ensureReinforcementJob(ctx.owner);
+      else ensureLessonJob(ctx.owner, course.current, false);
+    }
     return null;
   }
   if (open.status === "ready") {
@@ -510,8 +163,53 @@ async function currentLesson(ctx: Context, course: CourseRecord): Promise<Lesson
   return open;
 }
 
-async function nextView(ctx: Context, course: CourseRecord): Promise<NextView | null> {
-  const slot = nextSlot(course.current, course.plan!.units.length);
+async function resumePendingWork(ctx: Context, course: CourseRecord, lesson: LessonRecord): Promise<void> {
+  let changed = false;
+  const corrections = correctionContext(ctx.owner, course, lesson);
+  for (const [key, result] of Object.entries(lesson.progress.results)) {
+    const index = Number(key);
+    const assessment = assessmentKey(lesson.id, index);
+    if (result.status === "grading" && !jobs.isRunning(assessment)) {
+      const failure = jobs.failure(assessment);
+      if (failure) {
+        lesson.progress.results[key] = { answer: result.answer, status: "failed", error: failure };
+        changed = true;
+      } else if (ctx.allowJobs) {
+        ensureAssessment(corrections, lesson, index, false);
+      }
+    }
+    const appeal = appealKey(lesson.id, index);
+    if (result.appeal === "pending" && !jobs.isRunning(appeal)) {
+      const failure = jobs.failure(appeal);
+      if (failure) {
+        result.appeal = "failed";
+        result.appealNote = failure;
+        changed = true;
+      } else if (ctx.allowJobs) {
+        ensureAppeal(corrections, lesson, index, false);
+      }
+    }
+  }
+  for (const [stepKey, thread] of Object.entries(lesson.progress.questions)) {
+    const step = Number(stepKey);
+    thread.forEach((question, position) => {
+      const key = questionKey(lesson.id, step, position);
+      if (question.status !== "pending" || jobs.isRunning(key)) return;
+      const failure = jobs.failure(key);
+      if (failure) {
+        question.status = "failed";
+        question.error = failure;
+        changed = true;
+      } else if (ctx.allowJobs) {
+        ensureQuestion(ctx.owner, lesson.id, step, position, false);
+      }
+    });
+  }
+  if (changed) await saveLesson(ctx.owner, lesson, ctx.now);
+}
+
+async function nextView(ctx: Context, course: CourseRecord, lesson: LessonRecord): Promise<NextView | null> {
+  const slot = lesson.kind === "reinforcement" ? course.current : nextSlot(course.current, totalUnits(course));
   if (!slot) return null;
   const ready = (await findOpenLesson(ctx.owner, slot)) !== null;
   if (!ready && ctx.allowJobs) ensureLessonJob(ctx.owner, slot, false);
@@ -523,12 +221,13 @@ async function summaryOf(ctx: Context, course: CourseRecord): Promise<CourseSumm
   return {
     current: course.current,
     furthest: course.furthest,
-    totalUnits: course.plan!.units.length,
+    totalUnits: totalUnits(course),
     lessonsPerUnit: LESSONS_PER_UNIT,
     unit: { level: unit.level, titleEs: unit.titleEs, titlePt: unit.titlePt, theme: unit.theme },
     lessonsCompleted: course.lessonsCompleted,
     streakDays: currentStreak(course.lastStudyDay, course.streakDays, studyDay(ctx.now, ctx.timeZone)),
     vocabulary: await vocabularyCounts(ctx.owner, ctx.now),
+    reinforcing: course.reinforcing,
   };
 }
 
@@ -542,16 +241,22 @@ async function stateOf(ctx: Context): Promise<CourseState> {
   const lesson = await currentLesson(ctx, course);
   const summary = await summaryOf(ctx, course);
   if (!lesson) {
-    return { status: "preparing-lesson", error: jobs.failure(lessonKey(ctx.owner, course.current)), course: summary, lesson: null, next: null };
+    const key = course.reinforcing ? reinforcementKey(ctx.owner) : lessonKey(ctx.owner, course.current);
+    return { status: "preparing-lesson", error: jobs.failure(key), course: summary, lesson: null, next: null };
   }
   await resumePendingWork(ctx, course, lesson);
-  const next = lesson.status === "completed" ? await nextView(ctx, course) : null;
-  return { status: "lesson", error: null, course: summary, lesson: lessonView(lesson), next };
+  const next = lesson.status === "completed" ? await nextView(ctx, course, lesson) : null;
+  return { status: "lesson", error: null, course: summary, lesson: lessonView(lesson, reviewView(ctx.owner, lesson, ctx.allowJobs)), next };
+}
+
+async function requirePlannedCourse(ctx: Context): Promise<CourseRecord> {
+  const course = await loadCourse(ctx.owner);
+  if (!course?.plan) throw new CourseRejection("no-course");
+  return course;
 }
 
 async function requireLesson(ctx: Context, lessonId: unknown): Promise<{ course: CourseRecord; lesson: LessonRecord }> {
-  const course = await loadCourse(ctx.owner);
-  if (!course?.plan) throw new CourseRejection("no-course");
+  const course = await requirePlannedCourse(ctx);
   const lesson = await currentLesson(ctx, course);
   if (!lesson || lesson.id !== lessonId || lesson.status === "completed") throw new CourseRejection("out-of-sync");
   return { course, lesson };
@@ -565,15 +270,19 @@ function currentExercise(lesson: LessonRecord, index: unknown): Exercise {
 
 async function completeLesson(ctx: Context, course: CourseRecord, lesson: LessonRecord): Promise<void> {
   lesson.status = "completed";
-  lesson.score = lessonScore(lesson);
+  lesson.score = scoreOf(lesson);
   const today = studyDay(ctx.now, ctx.timeZone);
   course.streakDays = nextStreak(course.lastStudyDay, course.streakDays, today);
   course.lastStudyDay = today;
   course.lessonsCompleted += 1;
-  const next = nextSlot(course.current, course.plan!.units.length);
-  if (next && slotIndex(next) > slotIndex(course.furthest)) course.furthest = next;
+  if (lesson.kind === "regular") {
+    const next = nextSlot(course.current, totalUnits(course));
+    if (next && slotIndex(next) > slotIndex(course.furthest)) course.furthest = next;
+    if (next) ensureLessonJob(ctx.owner, next, true);
+  } else {
+    ensureLessonJob(ctx.owner, course.current, true);
+  }
   await saveCourse(ctx.owner, course, ctx.now);
-  if (next) ensureLessonJob(ctx.owner, next, true);
 }
 
 export function readState(ctx: Context): Promise<CourseState> {
@@ -599,25 +308,25 @@ export function continueLesson(ctx: Context, lessonId: unknown, cursor: unknown)
     }
     if (step.kind === "vocabulary") await addWords(ctx.owner, lesson.unit, lesson.content.vocabulary, ctx.now);
     lesson.progress.cursor += 1;
-    if (lesson.progress.cursor >= steps.length) {
+    const completed = lesson.progress.cursor >= steps.length;
+    if (completed) {
       await completeLesson(ctx, course, lesson);
-    } else if (lesson.progress.cursor >= Math.ceil(steps.length / 2)) {
-      const next = nextSlot(course.current, course.plan!.units.length);
+    } else if (lesson.kind === "regular" && lesson.progress.cursor >= Math.ceil(steps.length / 2)) {
+      const next = nextSlot(course.current, totalUnits(course));
       if (next) ensureLessonJob(ctx.owner, next, true);
     }
     await saveLesson(ctx.owner, lesson, ctx.now);
+    if (completed) ensureDiagnosis(ctx.owner, lesson.id);
     return stateOf(ctx);
   });
 }
 
-function textAnswer(answer: unknown): string {
-  if (typeof answer !== "string") throw new CourseRejection("invalid-answer");
-  const trimmed = answer.trim();
-  if (!trimmed || trimmed.length > MAX_ANSWER_CHARS) throw new CourseRejection("invalid-answer");
+function boundedText(value: unknown, max: number, rejection: "invalid-answer" | "invalid-question"): string {
+  if (typeof value !== "string") throw new CourseRejection(rejection);
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > max) throw new CourseRejection(rejection);
   return trimmed;
 }
-
-const ACCENT_FEEDBACK = "Quase: a palavra está certa, mas a acentuação não. No DELE, acento errado conta como erro.";
 
 export function answerExercise(ctx: Context, lessonId: unknown, index: unknown, answer: unknown): Promise<CourseState> {
   return withCourseLock(ctx.owner, async () => {
@@ -628,35 +337,30 @@ export function answerExercise(ctx: Context, lessonId: unknown, index: unknown, 
     if (previous && previous.status !== "failed") throw new CourseRejection("out-of-sync");
 
     if (exercise.type === "translate" || exercise.type === "write") {
-      lesson.progress.results[position] = { answer: textAnswer(answer), status: "grading" };
+      lesson.progress.results[position] = { answer: boundedText(answer, MAX_ANSWER_CHARS, "invalid-answer"), status: "grading" };
       await saveLesson(ctx.owner, lesson, ctx.now);
-      ensureAssessment(ctx.owner, lesson, position, levelOf(course, lesson.unit), true);
+      ensureAssessment(correctionContext(ctx.owner, course, lesson), lesson, position, true);
       return stateOf(ctx);
     }
 
-    let given: string;
+    let given: string | number;
     let grade: LocalGrade;
     if (exercise.type === "choice") {
       if (!Number.isInteger(answer) || (answer as number) < 0 || (answer as number) >= exercise.options.length) throw new CourseRejection("invalid-answer");
-      given = exercise.options[answer as number];
-      grade = gradeChoice(exercise.answer, answer as number);
+      given = answer as number;
+      grade = gradeChoice(exercise.answer, given);
     } else {
-      given = textAnswer(answer);
+      given = boundedText(answer, MAX_ANSWER_CHARS, "invalid-answer");
       grade = gradeFill(exercise.answers, given);
     }
-    const attemptId = await recordAttempt(ctx.owner, {
-      lessonId: lesson.id, index: position, skill: exercise.skill, focus: exercise.focus,
-      prompt: exerciseSummary(exercise), answer: given, expected: expectedAnswer(exercise), score: grade.score,
-    }, ctx.now);
-    await reviewWords(ctx.owner, exercise.lemmas, grade.verdict, ctx.now);
-    lesson.progress.results[position] = {
-      answer: exercise.type === "choice" ? answer as number : given,
-      status: "graded",
-      attemptId,
+    const result = {
+      answer: given,
+      status: "graded" as const,
       verdict: grade.verdict,
       score: grade.score,
       ...(exercise.type === "fill" && grade.verdict === "partial" ? { feedback: ACCENT_FEEDBACK } : {}),
     };
+    lesson.progress.results[position] = { ...result, attemptId: await recordGrade(ctx.owner, lesson.id, position, exercise, result, ctx.now) };
     await saveLesson(ctx.owner, lesson, ctx.now);
     return stateOf(ctx);
   });
@@ -664,48 +368,95 @@ export function answerExercise(ctx: Context, lessonId: unknown, index: unknown, 
 
 export function appealExercise(ctx: Context, lessonId: unknown, index: unknown): Promise<CourseState> {
   return withCourseLock(ctx.owner, async () => {
-    const { lesson } = await requireLesson(ctx, lessonId);
+    const { course, lesson } = await requireLesson(ctx, lessonId);
     const exercise = currentExercise(lesson, index);
     const result = lesson.progress.results[index as number];
     if (!result || !canAppeal(exercise, result)) throw new CourseRejection("out-of-sync");
     result.appeal = "pending";
     delete result.appealNote;
     await saveLesson(ctx.owner, lesson, ctx.now);
-    ensureAppeal(ctx.owner, lesson, index as number, true);
+    ensureAppeal(correctionContext(ctx.owner, course, lesson), lesson, index as number, true);
+    return stateOf(ctx);
+  });
+}
+
+export function askTeacher(ctx: Context, lessonId: unknown, step: unknown, question: unknown): Promise<CourseState> {
+  return withCourseLock(ctx.owner, async () => {
+    const { lesson } = await requireLesson(ctx, lessonId);
+    const total = stepsOf(lesson.content).length;
+    if (!Number.isInteger(step) || (step as number) < 0 || (step as number) > lesson.progress.cursor || (step as number) >= total) {
+      throw new CourseRejection("out-of-sync");
+    }
+    const position = step as number;
+    const text = boundedText(question, MAX_QUESTION_CHARS, "invalid-question");
+    const thread = lesson.progress.questions[position] ?? [];
+    if (thread.some((item) => item.status === "pending")) throw new CourseRejection("question-pending");
+    if (thread.length >= MAX_QUESTIONS_PER_STEP) throw new CourseRejection("question-limit");
+    thread.push({ question: text, status: "pending", askedAt: ctx.now.toISOString() });
+    lesson.progress.questions[position] = thread;
+    await saveLesson(ctx.owner, lesson, ctx.now);
+    ensureQuestion(ctx.owner, lesson.id, position, thread.length - 1, true);
     return stateOf(ctx);
   });
 }
 
 export function advanceToNext(ctx: Context): Promise<CourseState> {
   return withCourseLock(ctx.owner, async () => {
-    const course = await loadCourse(ctx.owner);
-    if (!course?.plan) throw new CourseRejection("no-course");
+    const course = await requirePlannedCourse(ctx);
     const lesson = course.lessonId ? await loadLesson(ctx.owner, course.lessonId) : null;
     if (lesson?.status !== "completed") throw new CourseRejection("out-of-sync");
-    const next = nextSlot(course.current, course.plan.units.length);
-    if (!next) throw new CourseRejection("course-finished");
-    course.current = next;
+    if (lesson.kind === "reinforcement") {
+      course.reinforcing = false;
+    } else {
+      const next = nextSlot(course.current, totalUnits(course));
+      if (!next) throw new CourseRejection("course-finished");
+      course.current = next;
+    }
     course.lessonId = null;
     await saveCourse(ctx.owner, course, ctx.now);
     return stateOf(ctx);
   });
 }
 
-function isSlot(value: unknown, totalUnits: number): value is Slot {
+export function startReinforcement(ctx: Context): Promise<CourseState> {
+  return withCourseLock(ctx.owner, async () => {
+    const course = await requirePlannedCourse(ctx);
+    if (!course.reinforcing) {
+      const lesson = course.lessonId ? await loadLesson(ctx.owner, course.lessonId) : null;
+      if (lesson?.kind === "regular" && lesson.status === "completed") {
+        course.current = nextSlot(course.current, totalUnits(course)) ?? course.current;
+      }
+      course.reinforcing = true;
+      course.lessonId = null;
+      await saveCourse(ctx.owner, course, ctx.now);
+    }
+    return stateOf(ctx);
+  });
+}
+
+function isSlot(value: unknown, units: number): value is Slot {
   const { unit, step } = (value ?? {}) as Partial<Slot>;
-  return Number.isInteger(unit) && Number.isInteger(step) && unit! >= 1 && unit! <= totalUnits && step! >= 1 && step! <= LESSONS_PER_UNIT;
+  return Number.isInteger(unit) && Number.isInteger(step) && unit! >= 1 && unit! <= units && step! >= 1 && step! <= LESSONS_PER_UNIT;
 }
 
 export function goToLesson(ctx: Context, slot: unknown): Promise<CourseState> {
   return withCourseLock(ctx.owner, async () => {
-    const course = await loadCourse(ctx.owner);
-    if (!course?.plan) throw new CourseRejection("no-course");
-    if (!isSlot(slot, course.plan.units.length) || slotIndex(slot) > slotIndex(course.furthest)) throw new CourseRejection("locked-lesson");
-    if (!sameSlot(slot, course.current)) {
+    const course = await requirePlannedCourse(ctx);
+    if (!isSlot(slot, totalUnits(course)) || slotIndex(slot) > slotIndex(course.furthest)) throw new CourseRejection("locked-lesson");
+    if (course.reinforcing || !sameSlot(slot, course.current)) {
       course.current = { unit: slot.unit, step: slot.step };
+      course.reinforcing = false;
       course.lessonId = null;
       await saveCourse(ctx.owner, course, ctx.now);
     }
+    return stateOf(ctx);
+  });
+}
+
+export function saveStudentInfo(ctx: Context, student: unknown): Promise<CourseState> {
+  return withCourseLock(ctx.owner, async () => {
+    if (!(await loadCourse(ctx.owner))) throw new CourseRejection("no-course");
+    await saveStudent(ctx.owner, parseStudent(student), ctx.now);
     return stateOf(ctx);
   });
 }
@@ -715,9 +466,11 @@ export function retryPreparation(ctx: Context): Promise<CourseState> {
     const course = await loadCourse(ctx.owner);
     if (!course) throw new CourseRejection("no-course");
     jobs.forget(planKey(ctx.owner));
+    jobs.forget(reinforcementKey(ctx.owner));
+    if (course.lessonId) forgetDiagnosis(course.lessonId);
     if (course.plan) {
       jobs.forget(lessonKey(ctx.owner, course.current));
-      const next = nextSlot(course.current, course.plan.units.length);
+      const next = nextSlot(course.current, totalUnits(course));
       if (next) jobs.forget(lessonKey(ctx.owner, next));
     }
     return stateOf(ctx);
@@ -725,15 +478,13 @@ export function retryPreparation(ctx: Context): Promise<CourseState> {
 }
 
 export async function courseOverview(ctx: Context): Promise<CourseOverview> {
-  const course = await loadCourse(ctx.owner);
-  if (!course?.plan) throw new CourseRejection("no-course");
-  const [slots, skills, weak, vocabulary] = await Promise.all([
+  const course = await requirePlannedCourse(ctx);
+  const [slots, skills, vocabulary] = await Promise.all([
     completedSlots(ctx.owner),
-    skillAccuracy(ctx.owner),
-    weakFocuses(ctx.owner, new Date(ctx.now.getTime() - WEAK_FOCUS_DAYS * DAY_MS), WEAK_FOCUS_LIMIT),
+    skillAccuracy(ctx.owner, null),
     vocabularyCounts(ctx.owner, ctx.now),
   ]);
-  const units = course.plan.units.map((unit, i): UnitOverview => {
+  const units = course.plan!.units.map((unit, i): UnitOverview => {
     const number = i + 1;
     return {
       ...unit,
@@ -742,7 +493,7 @@ export async function courseOverview(ctx: Context): Promise<CourseOverview> {
       lessons: Array.from({ length: LESSONS_PER_UNIT }, (_, s) => slots.find((slot) => slot.unit === number && slot.step === s + 1) ?? null),
     };
   });
-  return { current: course.current, furthest: course.furthest, roles: LESSON_ROLES.map((role) => role.name), units, skills, weakFocuses: weak, vocabulary };
+  return { current: course.current, furthest: course.furthest, roles: LESSON_ROLES.map((role) => role.name), units, skills, vocabulary };
 }
 
 export async function vocabularyOverview(ctx: Context): Promise<VocabularyOverview> {

@@ -88,6 +88,7 @@ test("migração preserva tarefas JSON antigas e sua sequência ao ignorar a op�
     statements.push(sql);
     if (sql.startsWith("INSERT INTO queue_items")) migrated = insertedRow(sql, values);
     if (sql.startsWith("SELECT COUNT")) return [[{ cnt: sql.includes("INFORMATION_SCHEMA") ? 1 : 0 }], []];
+    if (sql.startsWith("SELECT")) return [[], []];
     return [{ affectedRows: 1 }, []];
   });
   await runDataMigrations();

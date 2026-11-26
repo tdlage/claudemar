@@ -1,12 +1,18 @@
+import { parseRecommendation, parseWeakness } from "./profile.js";
+import { oneOf, record, str, strings } from "./sanitize.js";
 import {
   CONTRASTS,
   ERROR_CATEGORIES,
   LEVELS,
+  PACES,
+  PRIORITIES,
   SKILLS,
+  TRENDS,
   type AppealDecision,
   type Assessment,
   type CoursePlan,
   type CourseUnit,
+  type Diagnosis,
   type Exercise,
   type Explanation,
   type LessonContent,
@@ -14,6 +20,7 @@ import {
   type Translated,
   type Verdict,
   type VocabularyEntry,
+  type Weakness,
 } from "./types.js";
 
 type Schema = Record<string, unknown>;
@@ -111,23 +118,29 @@ export const ASSESSMENT_SCHEMA = object({
 
 export const APPEAL_SCHEMA = object({ accepted: { type: "boolean" }, explanation: text });
 
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
+export const DIAGNOSIS_SCHEMA = object({
+  comment: text,
+  weaknesses: {
+    type: "array",
+    items: object({
+      id: text,
+      title: text,
+      skill: { type: "string", enum: [...SKILLS] },
+      rule: text,
+      interference: text,
+      examples: { type: "array", items: object({ wrong: text, right: text }) },
+      priority: { type: "string", enum: [...PRIORITIES] },
+      trend: { type: "string", enum: [...TRENDS] },
+    }),
+  },
+  strengths: textList,
+  resolved: textList,
+  pace: { type: "string", enum: [...PACES] },
+  guidance: text,
+  reinforcement: object({ recommended: { type: "boolean" }, reason: text }),
+});
 
-function str(value: unknown, max: number): string {
-  return typeof value === "string" ? value.trim().slice(0, max) : "";
-}
-
-function strings(value: unknown, maxItems: number, maxLength: number): string[] {
-  if (!Array.isArray(value)) return [];
-  const items = value.map((item) => str(item, maxLength)).filter(Boolean);
-  return [...new Set(items)].slice(0, maxItems);
-}
-
-function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  return allowed.includes(value as T) ? value as T : fallback;
-}
+export const ANSWER_SCHEMA = object({ answer: text });
 
 function translations(value: unknown, maxItems: number): Translated[] {
   if (!Array.isArray(value)) return [];
@@ -308,4 +321,28 @@ export function parseAppeal(raw: unknown): AppealDecision {
   const explanation = str(decision.explanation, 1200);
   if (typeof decision.accepted !== "boolean" || !explanation) throw new Error("A revisão veio incompleta.");
   return { accepted: decision.accepted, explanation };
+}
+
+export function parseDiagnosis(raw: unknown): Diagnosis {
+  const diagnosis = record(raw);
+  const comment = str(diagnosis.comment, 3000);
+  if (!comment) throw new Error("O diagnóstico veio sem o comentário do professor.");
+  const weaknesses = (Array.isArray(diagnosis.weaknesses) ? diagnosis.weaknesses : [])
+    .map(parseWeakness)
+    .filter((weakness): weakness is Omit<Weakness, "since"> => weakness !== null);
+  return {
+    comment,
+    weaknesses,
+    strengths: strings(diagnosis.strengths, 8, 200),
+    resolved: strings(diagnosis.resolved, 20, 80),
+    pace: oneOf(diagnosis.pace, PACES, "manter"),
+    guidance: str(diagnosis.guidance, 2000),
+    reinforcement: parseRecommendation(diagnosis.reinforcement),
+  };
+}
+
+export function parseAnswer(raw: unknown): string {
+  const answer = str(record(raw).answer, 4000);
+  if (!answer) throw new Error("O professor não respondeu à dúvida.");
+  return answer;
 }

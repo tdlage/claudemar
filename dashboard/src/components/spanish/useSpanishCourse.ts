@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../../lib/api";
-import type { CourseState, Slot, StateResponse, Unavailable } from "./types";
+import type { CourseState, Slot, StateResponse, StudentInfo, Unavailable } from "./types";
 
 const POLL_MS = 2500;
 const CONNECTION_ERROR = "Não foi possível falar com o servidor. Tente de novo.";
@@ -14,8 +14,9 @@ function isWaiting(state: CourseState | null): boolean {
   if (state.status === "preparing-course" || state.status === "preparing-lesson") return !state.error;
   const lesson = state.lesson;
   if (!lesson) return false;
-  if (lesson.completed) return Boolean(state.next && !state.next.ready && !state.next.error);
-  return lesson.steps.some((step) => step.kind === "exercise" && (step.exercise.result?.status === "grading" || step.exercise.result?.appeal === "pending"));
+  if (lesson.completed) return lesson.review?.status === "pending" || Boolean(state.next && !state.next.ready && !state.next.error);
+  return lesson.steps.some((step) => step.questions.some((question) => question.status === "pending")
+    || (step.kind === "exercise" && (step.exercise.result?.status === "grading" || step.exercise.result?.appeal === "pending")));
 }
 
 export interface SpanishActions {
@@ -23,9 +24,12 @@ export interface SpanishActions {
   proceed: (lessonId: string, cursor: number) => void;
   answer: (lessonId: string, index: number, answer: string | number) => void;
   appeal: (lessonId: string, index: number) => void;
+  ask: (lessonId: string, step: number, question: string) => Promise<boolean>;
   next: () => void;
   goTo: (slot: Slot) => void;
   retry: () => void;
+  reinforce: () => void;
+  saveStudent: (student: StudentInfo) => Promise<boolean>;
 }
 
 export function useSpanishCourse(execId: string, visible: boolean, onUnavailable: (reason: Unavailable) => void) {
@@ -60,12 +64,13 @@ export function useSpanishCourse(execId: string, visible: boolean, onUnavailable
     return () => window.clearInterval(timer);
   }, [visible, waiting, refresh]);
 
-  const mutate = useCallback(async (path: string, body: Record<string, unknown> = {}) => {
+  const mutate = useCallback(async (path: string, body: Record<string, unknown> = {}): Promise<boolean> => {
     setBusy(true);
     setError(null);
     try {
       const response = await api.post<StateResponse>(`/spanish/${path}`, { ...body, execId, timeZone });
       setState(response.state);
+      return true;
     } catch (err) {
       if (err instanceof ApiError) {
         if (isUnavailable(err.body.availability)) unavailable.current(err.body.availability);
@@ -74,6 +79,7 @@ export function useSpanishCourse(execId: string, visible: boolean, onUnavailable
       } else {
         setError(CONNECTION_ERROR);
       }
+      return false;
     } finally {
       setBusy(false);
     }
@@ -84,9 +90,12 @@ export function useSpanishCourse(execId: string, visible: boolean, onUnavailable
     proceed: (lessonId, cursor) => void mutate("continue", { lessonId, cursor }),
     answer: (lessonId, index, answer) => void mutate("answer", { lessonId, index, answer }),
     appeal: (lessonId, index) => void mutate("appeal", { lessonId, index }),
+    ask: (lessonId, step, question) => mutate("ask", { lessonId, step, question }),
     next: () => void mutate("next"),
     goTo: (slot) => void mutate("goto", { unit: slot.unit, step: slot.step }),
     retry: () => void mutate("retry"),
+    reinforce: () => void mutate("reinforce"),
+    saveStudent: (student) => mutate("student", { student: { ...student } }),
   }), [mutate]);
 
   return { state, busy, error, timeZone, actions, dismissError: () => setError(null) };

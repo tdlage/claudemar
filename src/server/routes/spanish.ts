@@ -5,19 +5,22 @@ import {
   advanceToNext,
   answerExercise,
   appealExercise,
+  askTeacher,
   continueLesson,
-  CourseRejection,
   courseOverview,
   goToLesson,
   readState,
   retryPreparation,
+  saveStudentInfo,
   startCourse,
+  startReinforcement,
   vocabularyOverview,
   type Context,
   type CourseState,
-  type Rejection,
 } from "../../spanish/course.js";
+import { CourseRejection, type Rejection } from "../../spanish/runtime.js";
 import { isTimeZone } from "../../spanish/srs.js";
+import { teacherOverview } from "../../spanish/teacher.js";
 
 const OWNER = "admin";
 
@@ -30,6 +33,9 @@ const REJECTIONS: Record<Rejection, { status: number; error: string }> = {
   "no-course": { status: 409, error: "O curso ainda não foi criado." },
   "out-of-sync": { status: 409, error: "A aula mudou em outra janela." },
   "invalid-answer": { status: 422, error: "Resposta inválida." },
+  "invalid-question": { status: 422, error: "Escreva a dúvida em até 1.000 caracteres." },
+  "question-pending": { status: 409, error: "O professor ainda está respondendo à sua dúvida anterior." },
+  "question-limit": { status: 409, error: "Você já fez o máximo de perguntas nesta etapa." },
   "locked-lesson": { status: 403, error: "Essa aula ainda não foi liberada." },
   "not-ready": { status: 409, error: "Termine este exercício antes de continuar." },
   "course-finished": { status: 409, error: "Você concluiu a última aula do curso." },
@@ -101,6 +107,14 @@ spanishRouter.post("/goto", mutation((ctx, { unit, step }) => goToLesson(ctx, { 
 
 spanishRouter.post("/retry", mutation((ctx) => retryPreparation(ctx)));
 
+spanishRouter.post("/reinforce", mutation((ctx) => startReinforcement(ctx)));
+
+spanishRouter.post("/ask", mutation((ctx, { lessonId, step, question }) => askTeacher(ctx, lessonId, step, question)));
+
+spanishRouter.post("/student", mutation((ctx, { student }) => saveStudentInfo(ctx, student)));
+
 spanishRouter.get("/course", overview(courseOverview));
 
 spanishRouter.get("/vocabulary", overview(vocabularyOverview));
+
+spanishRouter.get("/teacher", overview((ctx) => teacherOverview(ctx.owner, ctx.now)));

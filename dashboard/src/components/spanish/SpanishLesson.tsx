@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BookOpen, ChevronLeft, ChevronRight, CircleAlert, Flame, GraduationCap, Languages, Loader2, Map as MapIcon, RotateCcw, X } from "lucide-react";
 import { useDialogFocus } from "../../hooks/useDialogFocus";
+import { AskTeacher } from "./AskTeacher";
 import { ExerciseStep, ExplanationStep, LessonSummary, ReadingStep, VocabularyStep } from "./LessonSteps";
 import { CourseSheet, VocabularySheet } from "./SpanishSheets";
 import { stopSpeaking } from "./speech";
+import { TeacherSheet } from "./TeacherSheet";
 import type { CourseState, StepView, Unavailable } from "./types";
 import { useSpanishCourse, type SpanishActions } from "./useSpanishCourse";
 
@@ -16,7 +18,7 @@ interface Props {
   onUnavailable: (reason: Unavailable) => void;
 }
 
-type Panel = "course" | "vocabulary" | null;
+type Panel = "course" | "vocabulary" | "teacher" | null;
 
 interface ToolProps {
   label: string;
@@ -45,7 +47,7 @@ function Welcome({ busy, onStart }: { busy: boolean; onStart: () => void }) {
         <li><strong>Conectores</strong> do discurso e <strong>conjugação</strong> de todos os tempos, do indicativo ao subjuntivo.</li>
         <li>O que o português tem de <strong>parecido</strong> para acelerar, e as armadilhas: <strong>ser e estar</strong>, falsos amigos, gêneros trocados.</li>
       </ul>
-      <p className="espanol-muted">O Opus 5.5 monta o plano e cada aula sob medida para os seus erros. A primeira preparação leva alguns minutos e continua mesmo com a janela fechada.</p>
+      <p className="espanol-muted">Funciona como um professor particular: o Opus 5.5 monta cada aula sob medida, corrige seus textos, tira suas dúvidas e, depois de cada aula, analisa seus erros para ajustar as próximas. A primeira preparação leva alguns minutos e continua mesmo com a janela fechada.</p>
       <button type="button" className="play-button is-primary" onClick={onStart} disabled={busy} autoFocus>
         {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <GraduationCap size={16} aria-hidden="true" />}Começar o curso
       </button>
@@ -83,11 +85,8 @@ interface LessonBodyProps {
   onCourse: () => void;
 }
 
-function LessonBody({ state, viewing, busy, actions, onCourse }: LessonBodyProps) {
+function StepCard({ state, viewing, busy, actions }: Omit<LessonBodyProps, "onCourse">) {
   const lesson = state.lesson!;
-  if (lesson.completed) {
-    return <LessonSummary lesson={lesson} course={state.course!} next={state.next} busy={busy} onNext={actions.next} onRetry={actions.retry} onCourse={onCourse} />;
-  }
   const step = lesson.steps[viewing];
   const current = viewing === lesson.cursor;
   const proceed = () => actions.proceed(lesson.id, lesson.cursor);
@@ -110,6 +109,26 @@ function LessonBody({ state, viewing, busy, actions, onCourse }: LessonBodyProps
         />
       );
   }
+}
+
+function LessonBody({ state, viewing, busy, actions, onCourse }: LessonBodyProps) {
+  const lesson = state.lesson!;
+  if (lesson.completed) {
+    return <LessonSummary lesson={lesson} course={state.course!} next={state.next} busy={busy} onNext={actions.next} onRetry={actions.retry} onReinforce={actions.reinforce} onCourse={onCourse} />;
+  }
+  return (
+    <>
+      <StepCard state={state} viewing={viewing} busy={busy} actions={actions} />
+      <AskTeacher
+        key={`${lesson.id}:${viewing}`}
+        lessonId={lesson.id}
+        step={viewing}
+        questions={lesson.steps[viewing].questions}
+        busy={busy}
+        onAsk={(question) => actions.ask(lesson.id, viewing, question)}
+      />
+    </>
+  );
 }
 
 export function SpanishLesson({ execId, hidden, activity, onClose, onUnavailable }: Props) {
@@ -142,6 +161,11 @@ export function SpanishLesson({ execId, hidden, activity, onClose, onUnavailable
     actions.goTo(slot);
   };
 
+  const reinforce = () => {
+    setPanel(null);
+    actions.reinforce();
+  };
+
   const course = state?.course ?? null;
   const ready = state !== null && state.status !== "welcome" && state.status !== "preparing-course";
 
@@ -155,7 +179,7 @@ export function SpanishLesson({ execId, hidden, activity, onClose, onUnavailable
             <div className="espanol-position">
               <span className="espanol-level">{course.unit.level}</span>
               <strong lang="es">{course.unit.titleEs}</strong>
-              <span>Unidade {course.current.unit} de {course.totalUnits} · aula {course.current.step} de {course.lessonsPerUnit}</span>
+              <span>Unidade {course.current.unit} de {course.totalUnits} · {course.reinforcing ? "aula de reforço" : `aula ${course.current.step} de ${course.lessonsPerUnit}`}</span>
               {course.streakDays > 0 && <span className="espanol-streak" title="Dias seguidos com aula concluída"><Flame size={13} aria-hidden="true" />{course.streakDays}</span>}
             </div>
           )}
@@ -164,6 +188,9 @@ export function SpanishLesson({ execId, hidden, activity, onClose, onUnavailable
             <span>Trabalhando{activity ? <> · <code>{activity}</code></> : "…"}</span>
           </div>
           <div className="play-tools">
+            <Tool label="Seu professor" pressed={panel === "teacher"} disabled={!ready} onClick={() => setPanel(panel === "teacher" ? null : "teacher")}>
+              <GraduationCap size={17} aria-hidden="true" />
+            </Tool>
             <Tool label="Mapa do curso" pressed={panel === "course"} disabled={!ready} onClick={() => setPanel(panel === "course" ? null : "course")}>
               <MapIcon size={17} aria-hidden="true" />
             </Tool>
@@ -183,9 +210,11 @@ export function SpanishLesson({ execId, hidden, activity, onClose, onUnavailable
             {state?.status === "preparing-course" && (
               <Preparing title="Montando seu curso do A2+ ao B2" detail="O plano completo, com as unidades, os tempos verbais, os conectores e as armadilhas do português, leva alguns minutos." error={state.error} busy={busy} onRetry={actions.retry} />
             )}
-            {state?.status === "preparing-lesson" && course && (
-              <Preparing title={`Preparando a aula ${course.current.step} da unidade ${course.current.unit}`} detail="A aula é montada para você, com as palavras que precisam de revisão e os seus erros recentes." error={state.error} busy={busy} onRetry={actions.retry} />
-            )}
+            {state?.status === "preparing-lesson" && course && (course.reinforcing ? (
+              <Preparing title="Preparando sua aula de reforço" detail="O professor está montando exercícios com os seus pontos fracos e as palavras que você mais erra." error={state.error} busy={busy} onRetry={actions.retry} />
+            ) : (
+              <Preparing title={`Preparando a aula ${course.current.step} da unidade ${course.current.unit}`} detail="A aula é montada para você, com o diagnóstico do professor, as palavras que precisam de revisão e os seus erros recentes." error={state.error} busy={busy} onRetry={actions.retry} />
+            ))}
             {lesson && (
               <>
                 {!lesson.completed && (
@@ -201,6 +230,16 @@ export function SpanishLesson({ execId, hidden, activity, onClose, onUnavailable
           </div>
           {panel === "course" && <CourseSheet timeZone={timeZone} busy={busy} onChoose={choose} onClose={() => setPanel(null)} />}
           {panel === "vocabulary" && <VocabularySheet timeZone={timeZone} onClose={() => setPanel(null)} />}
+          {panel === "teacher" && (
+            <TeacherSheet
+              timeZone={timeZone}
+              busy={busy}
+              reinforcing={course?.reinforcing ?? false}
+              onReinforce={reinforce}
+              onSaveStudent={actions.saveStudent}
+              onClose={() => setPanel(null)}
+            />
+          )}
           {error && <button type="button" className="play-error espanol-error" role="alert" onClick={dismissError} title="Fechar">{error}</button>}
         </div>
 

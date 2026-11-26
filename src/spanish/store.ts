@@ -1,10 +1,35 @@
 import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import { execute, query, toMySQLDatetime } from "../database.js";
-import type { DueWord, Mistake, WeakFocus } from "./prompts.js";
+import { errorsOf } from "./errors.js";
+import { DEFAULT_STUDENT, parseStoredProfile, parseStoredReview, parseStudent } from "./profile.js";
 import { parseLesson, parsePlan } from "./schemas.js";
 import { MASTERED_BOX, review } from "./srs.js";
-import { SKILLS, type Contrast, type CourseRecord, type LessonContent, type LessonProgress, type LessonRecord, type LessonStatus, type Skill, type Slot, type Verdict, type VocabularyEntry } from "./types.js";
+import {
+  ERROR_CATEGORIES,
+  SKILLS,
+  type Contrast,
+  type CourseRecord,
+  type DueWord,
+  type ErrorCategory,
+  type ErrorRecord,
+  type LearnerProfile,
+  type Leech,
+  type LessonContent,
+  type LessonKind,
+  type LessonProgress,
+  type LessonRecord,
+  type LessonReview,
+  type LessonStatus,
+  type RecentError,
+  type Skill,
+  type Slot,
+  type StudentInfo,
+  type Verdict,
+  type VocabularyCounts,
+  type VocabularyEntry,
+  type WeakFocus,
+} from "./types.js";
 
 interface CourseRow extends RowDataPacket {
   plan: unknown;
@@ -16,16 +41,21 @@ interface CourseRow extends RowDataPacket {
   lessons_completed: number;
   streak_days: number;
   last_study_day: string | null;
+  reinforcing: number;
+  profile: unknown;
+  student: unknown;
 }
 
 interface LessonRow extends RowDataPacket {
   id: string;
+  kind: string;
   unit: number;
   step: number;
   content: unknown;
   progress: unknown;
   status: LessonStatus;
   score: number | null;
+  review: unknown;
 }
 
 interface WordRow extends RowDataPacket {
@@ -62,12 +92,6 @@ export interface StoredWord {
   learnedAt: string;
 }
 
-export interface VocabularyCounts {
-  total: number;
-  mastered: number;
-  due: number;
-}
-
 export interface SkillAccuracy {
   skill: Skill;
   attempts: number;
@@ -92,6 +116,35 @@ export interface AttemptInput {
   score: number;
 }
 
+export interface ReviewEntry {
+  lessonId: string;
+  title: string;
+  kind: LessonKind;
+  unit: number;
+  step: number;
+  review: LessonReview;
+  completedAt: string;
+}
+
+export interface ScoreEntry {
+  title: string;
+  kind: LessonKind;
+  unit: number;
+  step: number;
+  score: number;
+}
+
+export interface CategoryCount {
+  category: ErrorCategory;
+  count: number;
+}
+
+export interface ErrorSource {
+  lessonId: string;
+  index: number;
+  attemptId: number | null;
+}
+
 function parseJson(value: unknown): unknown {
   if (typeof value !== "string") return value;
   try {
@@ -113,11 +166,20 @@ function isSkill(value: unknown): value is Skill {
   return SKILLS.includes(value as Skill);
 }
 
+function isCategory(value: unknown): value is ErrorCategory {
+  return ERROR_CATEGORIES.includes(value as ErrorCategory);
+}
+
+function lessonKind(value: unknown): LessonKind {
+  return value === "reinforcement" ? "reinforcement" : "regular";
+}
+
 function parseProgress(value: unknown): LessonProgress {
   const raw = parseJson(value) as Partial<LessonProgress> | null;
   return {
     cursor: Number.isInteger(raw?.cursor) ? raw!.cursor! : 0,
     results: raw?.results && typeof raw.results === "object" ? raw.results : {},
+    questions: raw?.questions && typeof raw.questions === "object" ? raw.questions : {},
   };
 }
 
@@ -133,10 +195,12 @@ function storedPlan(value: unknown): CourseRecord["plan"] {
 
 export async function loadCourse(owner: string): Promise<CourseRecord | null> {
   const [row] = await query<CourseRow[]>(
-    "SELECT plan, unit, step, max_unit, max_step, lesson_id, lessons_completed, streak_days, last_study_day FROM spanish_courses WHERE owner_id = ?",
+    `SELECT plan, unit, step, max_unit, max_step, lesson_id, lessons_completed, streak_days, last_study_day, reinforcing, profile, student
+     FROM spanish_courses WHERE owner_id = ?`,
     [owner],
   );
   if (!row) return null;
+  const student = parseJson(row.student);
   return {
     plan: storedPlan(row.plan),
     current: { unit: row.unit, step: row.step },
@@ -145,13 +209,17 @@ export async function loadCourse(owner: string): Promise<CourseRecord | null> {
     lessonsCompleted: row.lessons_completed,
     streakDays: row.streak_days,
     lastStudyDay: row.last_study_day,
+    reinforcing: Boolean(row.reinforcing),
+    profile: parseStoredProfile(parseJson(row.profile)),
+    student: student ? parseStudent(student) : DEFAULT_STUDENT,
   };
 }
 
 export async function createCourse(owner: string, now: Date): Promise<void> {
   await execute(
-    `INSERT IGNORE INTO spanish_courses (owner_id, plan, unit, step, max_unit, max_step, lesson_id, lessons_completed, streak_days, last_study_day, created_at, updated_at)
-     VALUES (?, NULL, 1, 1, 1, 1, NULL, 0, 0, NULL, ?, ?)`,
+    `INSERT IGNORE INTO spanish_courses (owner_id, plan, unit, step, max_unit, max_step, lesson_id, lessons_completed, streak_days, last_study_day,
+       reinforcing, profile, student, created_at, updated_at)
+     VALUES (?, NULL, 1, 1, 1, 1, NULL, 0, 0, NULL, 0, NULL, NULL, ?, ?)`,
     [owner, datetime(now), datetime(now)],
   );
 }
@@ -160,10 +228,18 @@ export async function savePlan(owner: string, plan: NonNullable<CourseRecord["pl
   await execute("UPDATE spanish_courses SET plan = ?, updated_at = ? WHERE owner_id = ?", [JSON.stringify(plan), datetime(now), owner]);
 }
 
+export async function saveProfile(owner: string, profile: LearnerProfile, now: Date): Promise<void> {
+  await execute("UPDATE spanish_courses SET profile = ?, updated_at = ? WHERE owner_id = ?", [JSON.stringify(profile), datetime(now), owner]);
+}
+
+export async function saveStudent(owner: string, student: StudentInfo, now: Date): Promise<void> {
+  await execute("UPDATE spanish_courses SET student = ?, updated_at = ? WHERE owner_id = ?", [JSON.stringify(student), datetime(now), owner]);
+}
+
 export async function saveCourse(owner: string, course: CourseRecord, now: Date): Promise<void> {
   await execute(
     `UPDATE spanish_courses SET unit = ?, step = ?, max_unit = ?, max_step = ?, lesson_id = ?, lessons_completed = ?, streak_days = ?,
-       last_study_day = ?, updated_at = ? WHERE owner_id = ?`,
+       last_study_day = ?, reinforcing = ?, updated_at = ? WHERE owner_id = ?`,
     [
       course.current.unit,
       course.current.step,
@@ -173,6 +249,7 @@ export async function saveCourse(owner: string, course: CourseRecord, now: Date)
       course.lessonsCompleted,
       course.streakDays,
       course.lastStudyDay,
+      course.reinforcing ? 1 : 0,
       datetime(now),
       owner,
     ],
@@ -183,46 +260,64 @@ function toLesson(row: LessonRow): LessonRecord | null {
   try {
     return {
       id: row.id,
+      kind: lessonKind(row.kind),
       unit: row.unit,
       step: row.step,
       content: parseLesson(parseJson(row.content)),
       progress: parseProgress(row.progress),
       status: row.status,
       score: row.score,
+      review: parseStoredReview(parseJson(row.review)),
     };
   } catch {
     return null;
   }
 }
 
-export async function insertLesson(owner: string, slot: Slot, content: LessonContent, now: Date): Promise<string> {
+export async function insertLesson(owner: string, slot: Slot, content: LessonContent, kind: LessonKind, now: Date): Promise<string> {
   const id = randomUUID();
+  const progress: LessonProgress = { cursor: 0, results: {}, questions: {} };
   await execute(
-    `INSERT INTO spanish_lessons (id, owner_id, unit, step, content, progress, status, score, created_at, started_at, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'ready', NULL, ?, NULL, NULL)`,
-    [id, owner, slot.unit, slot.step, JSON.stringify(content), JSON.stringify({ cursor: 0, results: {} } satisfies LessonProgress), datetime(now)],
+    `INSERT INTO spanish_lessons (id, owner_id, kind, unit, step, content, progress, status, score, review, created_at, started_at, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', NULL, NULL, ?, NULL, NULL)`,
+    [id, owner, kind, slot.unit, slot.step, JSON.stringify(content), JSON.stringify(progress), datetime(now)],
   );
   return id;
 }
 
-const LESSON_COLUMNS = "id, unit, step, content, progress, status, score";
+const LESSON_COLUMNS = "id, kind, unit, step, content, progress, status, score, review";
 
 export async function loadLesson(owner: string, id: string): Promise<LessonRecord | null> {
   const [row] = await query<LessonRow[]>(`SELECT ${LESSON_COLUMNS} FROM spanish_lessons WHERE owner_id = ? AND id = ?`, [owner, id]);
   return row ? toLesson(row) : null;
 }
 
-export async function findOpenLesson(owner: string, slot: Slot): Promise<LessonRecord | null> {
-  const rows = await query<LessonRow[]>(
-    `SELECT ${LESSON_COLUMNS} FROM spanish_lessons WHERE owner_id = ? AND unit = ? AND step = ? AND status IN ('active', 'ready')
-     ORDER BY status = 'active' DESC, created_at DESC`,
-    [owner, slot.unit, slot.step],
-  );
+function firstValid(rows: LessonRow[]): LessonRecord | null {
   for (const row of rows) {
     const lesson = toLesson(row);
     if (lesson) return lesson;
   }
   return null;
+}
+
+export async function findOpenLesson(owner: string, slot: Slot): Promise<LessonRecord | null> {
+  const rows = await query<LessonRow[]>(
+    `SELECT ${LESSON_COLUMNS} FROM spanish_lessons
+     WHERE owner_id = ? AND kind = 'regular' AND unit = ? AND step = ? AND status IN ('active', 'ready')
+     ORDER BY status = 'active' DESC, created_at DESC`,
+    [owner, slot.unit, slot.step],
+  );
+  return firstValid(rows);
+}
+
+export async function findOpenReinforcement(owner: string, since: Date): Promise<LessonRecord | null> {
+  const rows = await query<LessonRow[]>(
+    `SELECT ${LESSON_COLUMNS} FROM spanish_lessons
+     WHERE owner_id = ? AND kind = 'reinforcement' AND status IN ('active', 'ready') AND created_at >= ?
+     ORDER BY status = 'active' DESC, created_at DESC`,
+    [owner, datetime(since)],
+  );
+  return firstValid(rows);
 }
 
 export async function saveLesson(owner: string, lesson: LessonRecord, now: Date): Promise<void> {
@@ -235,10 +330,43 @@ export async function saveLesson(owner: string, lesson: LessonRecord, now: Date)
   );
 }
 
+export async function saveLessonReview(owner: string, lessonId: string, lessonReview: LessonReview): Promise<void> {
+  await execute("UPDATE spanish_lessons SET review = ? WHERE owner_id = ? AND id = ?", [JSON.stringify(lessonReview), owner, lessonId]);
+}
+
+export async function recentReviews(owner: string, limit: number): Promise<ReviewEntry[]> {
+  const rows = await query<(RowDataPacket & { id: string; kind: string; unit: number; step: number; title: string | null; review: unknown; completed_at: Date | string })[]>(
+    `SELECT id, kind, unit, step, JSON_UNQUOTE(JSON_EXTRACT(content, '$.title')) AS title, review, completed_at FROM spanish_lessons
+     WHERE owner_id = ? AND status = 'completed' AND review IS NOT NULL ORDER BY completed_at DESC LIMIT ${Math.trunc(limit)}`,
+    [owner],
+  );
+  return rows.flatMap((row) => {
+    const lessonReview = parseStoredReview(parseJson(row.review));
+    return lessonReview ? [{
+      lessonId: row.id,
+      title: row.title ?? "",
+      kind: lessonKind(row.kind),
+      unit: row.unit,
+      step: row.step,
+      review: lessonReview,
+      completedAt: toDate(row.completed_at).toISOString(),
+    }] : [];
+  });
+}
+
+export async function recentScores(owner: string, limit: number): Promise<ScoreEntry[]> {
+  const rows = await query<(RowDataPacket & { kind: string; unit: number; step: number; title: string | null; score: number | null })[]>(
+    `SELECT kind, unit, step, JSON_UNQUOTE(JSON_EXTRACT(content, '$.title')) AS title, score FROM spanish_lessons
+     WHERE owner_id = ? AND status = 'completed' ORDER BY completed_at DESC LIMIT ${Math.trunc(limit)}`,
+    [owner],
+  );
+  return rows.map((row) => ({ title: row.title ?? "", kind: lessonKind(row.kind), unit: row.unit, step: row.step, score: Number(row.score ?? 0) }));
+}
+
 export async function completedSlots(owner: string): Promise<SlotSummary[]> {
   const rows = await query<(RowDataPacket & { unit: number; step: number; best: number; times: number })[]>(
     `SELECT unit, step, MAX(score) AS best, COUNT(*) AS times FROM spanish_lessons
-     WHERE owner_id = ? AND status = 'completed' GROUP BY unit, step ORDER BY unit, step`,
+     WHERE owner_id = ? AND kind = 'regular' AND status = 'completed' GROUP BY unit, step ORDER BY unit, step`,
     [owner],
   );
   return rows.map((row) => ({ unit: row.unit, step: row.step, best: Number(row.best ?? 0), times: Number(row.times) }));
@@ -284,6 +412,16 @@ export async function dueWords(owner: string, now: Date, limit: number): Promise
     [owner, datetime(now)],
   );
   return rows.map((row) => ({ lemma: row.lemma, display: row.display, translation: row.translation }));
+}
+
+export async function leechWords(owner: string, limit: number): Promise<Leech[]> {
+  const rows = await query<WordRow[]>(
+    `SELECT lemma, display, translation, correct_count, wrong_count FROM spanish_vocabulary
+     WHERE owner_id = ? AND wrong_count >= 2 AND wrong_count >= correct_count
+     ORDER BY wrong_count DESC, updated_at DESC LIMIT ${Math.trunc(limit)}`,
+    [owner],
+  );
+  return rows.map((row) => ({ lemma: row.lemma, display: row.display, translation: row.translation, wrong: row.wrong_count, correct: row.correct_count }));
 }
 
 export async function knownLemmas(owner: string, limit: number): Promise<string[]> {
@@ -339,10 +477,10 @@ export async function updateAttemptScore(owner: string, id: number, score: numbe
   await execute("UPDATE spanish_attempts SET score = ? WHERE owner_id = ? AND id = ?", [score, owner, id]);
 }
 
-export async function skillAccuracy(owner: string): Promise<SkillAccuracy[]> {
+export async function skillAccuracy(owner: string, since: Date | null): Promise<SkillAccuracy[]> {
   const rows = await query<(RowDataPacket & { skill: string; attempts: number; accuracy: number })[]>(
-    "SELECT skill, COUNT(*) AS attempts, AVG(score) AS accuracy FROM spanish_attempts WHERE owner_id = ? GROUP BY skill",
-    [owner],
+    `SELECT skill, COUNT(*) AS attempts, AVG(score) AS accuracy FROM spanish_attempts WHERE owner_id = ? AND created_at >= ? GROUP BY skill`,
+    [owner, datetime(since ?? new Date(0))],
   );
   return rows
     .filter((row) => isSkill(row.skill))
@@ -361,13 +499,53 @@ export async function weakFocuses(owner: string, since: Date, limit: number): Pr
     .map((row) => ({ skill: row.skill as Skill, focus: row.focus, attempts: Number(row.attempts), accuracy: Number(row.accuracy) }));
 }
 
-export async function recentMistakes(owner: string, limit: number): Promise<Mistake[]> {
-  const rows = await query<(RowDataPacket & { skill: string; focus: string; prompt: string; answer: string; expected: string })[]>(
-    `SELECT skill, focus, prompt, answer, expected FROM spanish_attempts WHERE owner_id = ? AND score < 1
-     ORDER BY id DESC LIMIT ${Math.trunc(limit)}`,
+export async function insertErrors(owner: string, source: ErrorSource, errors: ErrorRecord[], at: Date): Promise<void> {
+  for (const error of errors) {
+    await execute(
+      `INSERT INTO spanish_errors (owner_id, lesson_id, exercise_index, attempt_id, category, focus, wrong, correct, explanation, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [owner, source.lessonId, source.index, source.attemptId, error.category, error.focus.slice(0, 120), error.wrong, error.correct, error.explanation, datetime(at)],
+    );
+  }
+}
+
+export async function deleteAttemptErrors(owner: string, attemptId: number): Promise<void> {
+  await execute("DELETE FROM spanish_errors WHERE owner_id = ? AND attempt_id = ?", [owner, attemptId]);
+}
+
+export async function recentErrors(owner: string, limit: number): Promise<RecentError[]> {
+  const rows = await query<(RowDataPacket & { category: string; focus: string; wrong: string; correct: string })[]>(
+    `SELECT category, focus, wrong, correct FROM spanish_errors WHERE owner_id = ? ORDER BY id DESC LIMIT ${Math.trunc(limit)}`,
     [owner],
   );
   return rows
-    .filter((row) => isSkill(row.skill))
-    .map((row) => ({ skill: row.skill as Skill, focus: row.focus, prompt: row.prompt.slice(0, 240), answer: row.answer.slice(0, 240), expected: row.expected.slice(0, 240) }));
+    .filter((row) => isCategory(row.category))
+    .map((row) => ({ category: row.category as ErrorCategory, focus: row.focus, wrong: row.wrong.slice(0, 240), correct: row.correct.slice(0, 240) }));
+}
+
+export async function errorCategories(owner: string, since: Date): Promise<CategoryCount[]> {
+  const rows = await query<(RowDataPacket & { category: string; total: number })[]>(
+    `SELECT category, COUNT(*) AS total FROM spanish_errors WHERE owner_id = ? AND created_at >= ?
+     GROUP BY category ORDER BY total DESC`,
+    [owner, datetime(since)],
+  );
+  return rows.filter((row) => isCategory(row.category)).map((row) => ({ category: row.category as ErrorCategory, count: Number(row.total) }));
+}
+
+export async function backfillErrors(): Promise<void> {
+  const [existing] = await query<(RowDataPacket & { total: number })[]>("SELECT COUNT(*) AS total FROM spanish_errors");
+  if (Number(existing?.total ?? 0) > 0) return;
+  const rows = await query<(RowDataPacket & { owner_id: string; at: Date | string } & LessonRow)[]>(
+    `SELECT owner_id, ${LESSON_COLUMNS}, COALESCE(completed_at, started_at, created_at) AS at FROM spanish_lessons WHERE status <> 'ready'`,
+  );
+  for (const row of rows) {
+    const lesson = toLesson(row);
+    if (!lesson) continue;
+    for (const [key, result] of Object.entries(lesson.progress.results)) {
+      const index = Number(key);
+      const exercise = lesson.content.exercises[index];
+      if (!exercise) continue;
+      await insertErrors(row.owner_id, { lessonId: lesson.id, index, attemptId: result.attemptId ?? null }, errorsOf(exercise, result), toDate(row.at));
+    }
+  }
 }

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { BookOpen, Check, Loader2, Lock, Map as MapIcon, Search, X } from "lucide-react";
-import { api } from "../../lib/api";
 import { CONTRAST_LABELS, percent, plural, SKILL_LABELS } from "./labels";
 import { SpeakButton } from "./LessonSteps";
+import { useOverview } from "./useOverview";
 import type { CourseOverview, Slot, StoredWord, VocabularyCounts, VocabularyOverview } from "./types";
 
 const MAX_BOX = 6;
@@ -16,7 +16,7 @@ interface SheetProps {
   children: React.ReactNode;
 }
 
-function Sheet({ title, icon, onClose, children }: SheetProps) {
+export function Sheet({ title, icon, onClose, children }: SheetProps) {
   return (
     <section className="play-sheet espanol-sheet" aria-label={title}>
       <header className="play-sheet-header">
@@ -30,20 +30,7 @@ function Sheet({ title, icon, onClose, children }: SheetProps) {
   );
 }
 
-function useOverview<T>(path: string, timeZone: string): { data: T | null; error: string | null } {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    api.get<T>(`${path}?timeZone=${encodeURIComponent(timeZone)}`)
-      .then((value) => { if (alive) setData(value); })
-      .catch((err) => { if (alive) setError(err instanceof Error ? err.message : "Não foi possível carregar."); });
-    return () => { alive = false; };
-  }, [path, timeZone]);
-  return { data, error };
-}
-
-function Loading({ error }: { error: string | null }) {
+export function Loading({ error }: { error: string | null }) {
   if (error) return <p className="play-sheet-error" role="alert">{error}</p>;
   return <p className="play-sheet-note" role="status"><Loader2 size={14} className="animate-spin" aria-hidden="true" />Carregando…</p>;
 }
@@ -91,11 +78,6 @@ export function CourseSheet({ timeZone, busy, onChoose, onClose }: CourseSheetPr
                 </li>
               ))}
             </ul>
-          )}
-          {data.weakFocuses.length > 0 && (
-            <p className="play-sheet-note espanol-weak">
-              Reforçando nas próximas aulas: {data.weakFocuses.map((item) => `${item.focus} (${percent(item.accuracy)})`).join(", ")}
-            </p>
           )}
           <ol className="espanol-units">
             {data.units.map((unit) => {

@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  ArrowRight, BookOpenText, CircleAlert, CircleCheck, CircleX, Flame, GraduationCap, Languages, Loader2, Map as MapIcon, MessageSquareQuote, RotateCcw, Scale, Send, Sparkles, Volume2,
+  ArrowRight, BookOpenText, CircleAlert, CircleCheck, CircleX, Dumbbell, Flame, GraduationCap, Languages, Loader2, Map as MapIcon, MessageSquareQuote, RotateCcw, Scale, Send, Sparkles, Volume2,
 } from "lucide-react";
-import { clearLessonDrafts, readDraft, writeDraft } from "./drafts";
+import { clearLessonDrafts, exerciseDraftKey, readDraft, writeDraft } from "./drafts";
 import { CONTRAST_LABELS, percent, plural, SKILL_LABELS, VERDICT_LABELS } from "./labels";
-import { renderMarkdown } from "./markdown";
+import { Markdown } from "./Markdown";
 import { canSpeak, speak } from "./speech";
-import type { CourseSummary, ExerciseView, LessonView, NextView, ResultView, StepView, Translated, VocabularyEntry } from "./types";
+import type { CourseSummary, ExerciseView, LessonView, NextView, ResultView, ReviewView, StepView, Translated, VocabularyEntry } from "./types";
 
 const BLANK = "___";
 
@@ -17,11 +17,6 @@ export function SpeakButton({ text, label = "Ouvir em espanhol" }: { text: strin
       <Volume2 size={14} aria-hidden="true" />
     </button>
   );
-}
-
-function Markdown({ text, className }: { text: string; className?: string }) {
-  const html = useMemo(() => renderMarkdown(text), [text]);
-  return <div className={`espanol-markdown ${className ?? ""}`} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function Examples({ items }: { items: Translated[] }) {
@@ -228,7 +223,7 @@ function Prompt({ text }: { text: string }) {
 
 export function ExerciseStep({ lesson, exercise, busy, current, onAnswer, onAppeal, onContinue }: ExerciseProps) {
   const result = exercise.result;
-  const [text, setText] = useState(() => typeof result?.answer === "string" ? result.answer : readDraft(lesson.id, exercise.index));
+  const [text, setText] = useState(() => typeof result?.answer === "string" ? result.answer : readDraft(exerciseDraftKey(lesson.id, exercise.index)));
   const [choice, setChoice] = useState<number | null>(typeof result?.answer === "number" ? result.answer : null);
   const inputRef = useRef<HTMLInputElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -239,11 +234,11 @@ export function ExerciseStep({ lesson, exercise, busy, current, onAnswer, onAppe
 
   const changeText = (value: string) => {
     setText(value);
-    writeDraft(lesson.id, exercise.index, value);
+    writeDraft(exerciseDraftKey(lesson.id, exercise.index), value);
   };
 
   useEffect(() => {
-    if (graded) writeDraft(lesson.id, exercise.index, "");
+    if (graded) writeDraft(exerciseDraftKey(lesson.id, exercise.index), "");
   }, [graded, lesson.id, exercise.index]);
 
   useEffect(() => {
@@ -372,6 +367,27 @@ export function ExerciseStep({ lesson, exercise, busy, current, onAnswer, onAppe
   );
 }
 
+function TeacherNote({ review, busy, onRetry }: { review: ReviewView | null; busy: boolean; onRetry: () => void }) {
+  if (!review) return null;
+  if (review.status === "pending") {
+    return <p className="espanol-teacher-note is-pending" role="status"><Loader2 size={15} className="animate-spin" aria-hidden="true" />O professor está analisando sua aula…</p>;
+  }
+  if (review.status === "failed") {
+    return (
+      <div className="espanol-teacher-note is-failed" role="alert">
+        <p><CircleAlert size={15} aria-hidden="true" />Não consegui analisar esta aula agora: {review.error}</p>
+        <button type="button" className="play-button is-ghost" onClick={onRetry} disabled={busy}><RotateCcw size={15} aria-hidden="true" />Tentar de novo</button>
+      </div>
+    );
+  }
+  return (
+    <blockquote className="espanol-teacher-note">
+      <span><GraduationCap size={14} aria-hidden="true" />Seu professor</span>
+      <p>{review.comment}</p>
+    </blockquote>
+  );
+}
+
 interface SummaryProps {
   lesson: LessonView;
   course: CourseSummary;
@@ -379,40 +395,61 @@ interface SummaryProps {
   busy: boolean;
   onNext: () => void;
   onRetry: () => void;
+  onReinforce: () => void;
   onCourse: () => void;
 }
 
-export function LessonSummary({ lesson, course, next, busy, onNext, onRetry, onCourse }: SummaryProps) {
+export function LessonSummary({ lesson, course, next, busy, onNext, onRetry, onReinforce, onCourse }: SummaryProps) {
   const exercises = lesson.steps.flatMap((step) => step.kind === "exercise" ? [step.exercise] : []);
   const correct = exercises.filter((exercise) => exercise.result?.verdict === "correct").length;
   const words = lesson.steps.reduce((sum, step) => sum + (step.kind === "vocabulary" ? step.words.length : 0), 0);
+  const reinforcement = lesson.kind === "regular" && lesson.review?.status === "ready" && lesson.review.reinforcement.recommended ? lesson.review.reinforcement : null;
+  const nextLabel = lesson.kind === "reinforcement" ? "Continuar o curso" : "Próxima aula";
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const nextReady = next?.ready ?? false;
 
   useEffect(() => {
     clearLessonDrafts(lesson.id);
   }, [lesson.id]);
+
+  useEffect(() => {
+    primaryRef.current?.focus({ preventScroll: true });
+  }, [reinforcement, nextReady]);
   return (
-    <div className="play-modal">
-      <section className="play-card espanol-summary" role="alertdialog" aria-label="Aula concluída">
-        <div className="play-card-icon" aria-hidden="true"><Sparkles size={26} /></div>
-        <h2>Aula concluída!</h2>
+    <div className="play-modal espanol-summary-layer">
+      <section className="play-card espanol-summary" role="alertdialog" aria-label={lesson.kind === "reinforcement" ? "Reforço concluído" : "Aula concluída"}>
+        <div className="play-card-icon" aria-hidden="true">{lesson.kind === "reinforcement" ? <Dumbbell size={26} /> : <Sparkles size={26} />}</div>
+        <h2>{lesson.kind === "reinforcement" ? "Reforço concluído!" : "Aula concluída!"}</h2>
         <p className="espanol-score">{percent(lesson.score ?? 0)}</p>
         <ul className="espanol-summary-stats">
           <li><CircleCheck size={15} aria-hidden="true" />{correct} de {exercises.length} exercícios certos</li>
           {words > 0 && <li><Languages size={15} aria-hidden="true" />{plural(words, "palavra nova", "palavras novas")} · {course.vocabulary.total} no total</li>}
           {course.streakDays > 0 && <li><Flame size={15} aria-hidden="true" />{plural(course.streakDays, "dia seguido", "dias seguidos")}</li>}
         </ul>
+        <TeacherNote review={lesson.review} busy={busy} onRetry={onRetry} />
+        {reinforcement && (
+          <div className="espanol-recommendation">
+            <strong><Dumbbell size={15} aria-hidden="true" />O professor recomenda um reforço antes de seguir</strong>
+            {reinforcement.reason && <p>{reinforcement.reason}</p>}
+          </div>
+        )}
         <div className="play-card-actions">
+          {reinforcement && (
+            <button ref={primaryRef} type="button" className="play-button is-primary" onClick={onReinforce} disabled={busy}><Dumbbell size={15} aria-hidden="true" />Fazer o reforço</button>
+          )}
           {next === null && <p className="espanol-muted">Você concluiu a última aula do curso. Pode refazer qualquer aula pelo mapa.</p>}
           {next && next.ready && (
-            <button type="button" className="play-button is-primary" onClick={onNext} disabled={busy} autoFocus>Próxima aula<ArrowRight size={16} aria-hidden="true" /></button>
+            <button ref={reinforcement ? undefined : primaryRef} type="button" className={`play-button${reinforcement ? "" : " is-primary"}`} onClick={onNext} disabled={busy}>
+              {reinforcement ? "Seguir sem reforço" : nextLabel}<ArrowRight size={16} aria-hidden="true" />
+            </button>
           )}
           {next && !next.ready && !next.error && (
-            <button type="button" className="play-button is-primary" disabled><Loader2 size={16} className="animate-spin" aria-hidden="true" />Preparando a próxima aula…</button>
+            <button type="button" className={`play-button${reinforcement ? "" : " is-primary"}`} disabled><Loader2 size={16} className="animate-spin" aria-hidden="true" />Preparando a próxima aula…</button>
           )}
           {next?.error && (
             <>
               <p className="espanol-failure" role="alert"><CircleAlert size={15} aria-hidden="true" />{next.error}</p>
-              <button type="button" className="play-button is-primary" onClick={onRetry} disabled={busy}><RotateCcw size={15} aria-hidden="true" />Tentar de novo</button>
+              <button type="button" className="play-button" onClick={onRetry} disabled={busy}><RotateCcw size={15} aria-hidden="true" />Tentar de novo</button>
             </>
           )}
           <button type="button" className="play-button is-ghost" onClick={onCourse}><MapIcon size={15} aria-hidden="true" />Ver o mapa do curso</button>
