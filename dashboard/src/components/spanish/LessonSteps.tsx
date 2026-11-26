@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, BookOpenText, CircleAlert, CircleCheck, CircleX, Flame, GraduationCap, Languages, Loader2, Map as MapIcon, MessageSquareQuote, RotateCcw, Scale, Send, Sparkles, Volume2,
 } from "lucide-react";
+import { clearLessonDrafts, readDraft, writeDraft } from "./drafts";
 import { CONTRAST_LABELS, percent, plural, SKILL_LABELS, VERDICT_LABELS } from "./labels";
 import { renderMarkdown } from "./markdown";
 import { canSpeak, speak } from "./speech";
@@ -227,14 +228,23 @@ function Prompt({ text }: { text: string }) {
 
 export function ExerciseStep({ lesson, exercise, busy, current, onAnswer, onAppeal, onContinue }: ExerciseProps) {
   const result = exercise.result;
-  const initial = typeof result?.answer === "string" ? result.answer : "";
-  const [text, setText] = useState(initial);
+  const [text, setText] = useState(() => typeof result?.answer === "string" ? result.answer : readDraft(lesson.id, exercise.index));
   const [choice, setChoice] = useState<number | null>(typeof result?.answer === "number" ? result.answer : null);
   const inputRef = useRef<HTMLInputElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const answered = result !== null && result.status !== "failed";
   const editable = current && !answered && !busy;
   const words = countWords(text);
+  const graded = result?.status === "graded";
+
+  const changeText = (value: string) => {
+    setText(value);
+    writeDraft(lesson.id, exercise.index, value);
+  };
+
+  useEffect(() => {
+    if (graded) writeDraft(lesson.id, exercise.index, "");
+  }, [graded, lesson.id, exercise.index]);
 
   useEffect(() => {
     if (!current || answered) return;
@@ -295,8 +305,8 @@ export function ExerciseStep({ lesson, exercise, busy, current, onAnswer, onAppe
         )}
         {exercise.type === "fill" && (
           <>
-            <FillPrompt prompt={exercise.prompt ?? ""} value={text} disabled={!editable} verdict={result?.status === "graded" ? result.verdict : undefined} onChange={setText} inputRef={inputRef} />
-            {exercise.hint && <p className="espanol-hint">{exercise.hint}</p>}
+            <FillPrompt prompt={exercise.prompt ?? ""} value={text} disabled={!editable} verdict={result?.status === "graded" ? result.verdict : undefined} onChange={changeText} inputRef={inputRef} />
+            {exercise.hint && <p className="espanol-hint"><span>Dica</span><strong lang="es">{exercise.hint}</strong></p>}
           </>
         )}
         {exercise.type === "translate" && (
@@ -306,7 +316,7 @@ export function ExerciseStep({ lesson, exercise, busy, current, onAnswer, onAppe
               ref={areaRef}
               className="espanol-textarea"
               value={text}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => changeText(event.target.value)}
               onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit(); }}
               disabled={!editable}
               rows={3}
@@ -326,7 +336,7 @@ export function ExerciseStep({ lesson, exercise, busy, current, onAnswer, onAppe
               ref={areaRef}
               className="espanol-textarea is-long"
               value={text}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => changeText(event.target.value)}
               onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit(); }}
               disabled={!editable}
               rows={8}
@@ -376,6 +386,10 @@ export function LessonSummary({ lesson, course, next, busy, onNext, onRetry, onC
   const exercises = lesson.steps.flatMap((step) => step.kind === "exercise" ? [step.exercise] : []);
   const correct = exercises.filter((exercise) => exercise.result?.verdict === "correct").length;
   const words = lesson.steps.reduce((sum, step) => sum + (step.kind === "vocabulary" ? step.words.length : 0), 0);
+
+  useEffect(() => {
+    clearLessonDrafts(lesson.id);
+  }, [lesson.id]);
   return (
     <div className="play-modal">
       <section className="play-card espanol-summary" role="alertdialog" aria-label="Aula concluída">

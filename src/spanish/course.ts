@@ -269,7 +269,7 @@ function exerciseView(exercise: Exercise, index: number, result: ExerciseResult 
     index,
     type: exercise.type,
     skill: exercise.skill,
-    focus: exercise.focus,
+    focus: result?.status === "graded" ? exercise.focus : "",
     instruction: exercise.instruction,
     prompt: exercise.type === "choice" || exercise.type === "fill" ? exercise.prompt : null,
     options: exercise.type === "choice" ? exercise.options : null,

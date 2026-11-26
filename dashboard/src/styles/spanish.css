@@ -239,14 +239,25 @@
 .espanol-blank.is-partial { border-color: var(--espanol-mid); background: color-mix(in srgb, var(--espanol-mid) 14%, transparent); }
 .espanol-blank.is-incorrect { border-color: var(--espanol-bad); background: color-mix(in srgb, var(--espanol-bad) 12%, transparent); }
 .espanol-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   justify-self: start;
   margin: 0;
-  padding: 4px 10px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--dt-text) 6%, transparent);
-  color: var(--dt-muted);
-  font-size: 12px !important;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--dt-brand) 40%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dt-brand) 10%, transparent);
+  font-size: 13px !important;
 }
+.espanol-hint span {
+  color: var(--dt-brand);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.espanol-hint strong { color: var(--dt-text); font-weight: 600; }
 .espanol-options { display: grid; gap: 8px; }
 .espanol-option {
   display: flex;

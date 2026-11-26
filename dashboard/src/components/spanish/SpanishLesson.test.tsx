@@ -146,3 +146,27 @@ it("esconde a aula enquanto a execução espera uma resposta e volta depois", as
   expect(await screen.findByRole("dialog", { name: "Aula de espanhol" })).toBeInTheDocument();
   expect(api.get).toHaveBeenCalledTimes(2);
 });
+
+it("guarda o que foi digitado quando a execução termina e recupera no próximo prompt", async () => {
+  signIn("admin");
+  api.get.mockResolvedValue({ state: lessonState(fill), availability: "playable" });
+  const { rerender } = render(<GameLauncher executionId="exec-1" live awaitingInput={false} />);
+  await openLesson();
+  fireEvent.change(await screen.findByRole("textbox", { name: "Resposta da lacuna" }), { target: { value: "haga" } });
+
+  rerender(<GameLauncher executionId="exec-1" live={false} awaitingInput={false} />);
+  expect(screen.queryByRole("dialog", { name: "Aula de espanhol" })).not.toBeInTheDocument();
+
+  rerender(<GameLauncher executionId="exec-2" live awaitingInput={false} />);
+  await openLesson();
+  expect(await screen.findByRole("textbox", { name: "Resposta da lacuna" })).toHaveValue("haga");
+
+  const graded: ExerciseView = {
+    ...fill,
+    result: { answer: "haga", status: "graded", verdict: "correct", score: 1, expected: "haga", explanation: "", correctOption: null, canAppeal: false },
+  };
+  api.post.mockResolvedValueOnce({ state: lessonState(graded) });
+  fireEvent.click(screen.getByRole("button", { name: "Verificar" }));
+  expect(await screen.findByText("Correto!")).toBeInTheDocument();
+  expect(Object.keys(localStorage).filter((key) => key.startsWith("espanol:draft:"))).toEqual([]);
+});

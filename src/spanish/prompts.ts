@@ -156,10 +156,10 @@ Como montar a aula:
 - exercises: misture as habilidades. Em toda aula entram conjugação, conectores e vocabulário (palavras novas e de revisão). Inclua contrastes com o português sempre que a unidade tratar deles.
 
 Regras dos exercícios:
-- instruction em português. focus nomeia o alvo exato (por exemplo "presente de subjuntivo", "sin embargo", "estar + adjetivo", "apellido"). lemmas lista as palavras do vocabulário (novo ou de revisão) que o exercício treina, copiando exatamente o campo lemma delas.
+- instruction em português. focus nomeia o alvo exato (por exemplo "presente de subjuntivo", "sin embargo", "estar + adjetivo", "apellido"). Para grupos de conjugação escreva "verbos em -ar/-er/-ir", nunca só "-ir", que se confunde com o verbo ir. focus só aparece depois da resposta; instruction e hint nunca podem entregar a resposta. lemmas lista as palavras do vocabulário (novo ou de revisão) que o exercício treina, copiando exatamente o campo lemma delas.
 - explanation: em português, por que a resposta certa é a certa, apontando a armadilha do português quando houver.
 - choice: prompt em espanhol; de 3 a 4 opções; uma única correta, cujo índice (começando em 0) vai em answer. Os distratores devem ser plausíveis, de preferência os erros típicos de brasileiros.
-- fill: prompt em espanhol com a lacuna escrita exatamente uma vez como ${BLANK}. Em conjugação, hint traz o infinitivo, o tempo e a pessoa quando o contexto não bastar (por exemplo "tener · pretérito indefinido"). answers lista todas as respostas corretas para a lacuna, incluindo variantes válidas (hubiera/hubiese). A lacuna deve ter uma resposta inequívoca.
+- fill: prompt em espanhol com a lacuna escrita exatamente uma vez como ${BLANK}. Em conjugação, hint sempre traz o infinitivo, e também o tempo e a pessoa quando o contexto não bastar (por exemplo "tener · pretérito indefinido"). answers lista todas as respostas corretas para a lacuna, incluindo variantes válidas (hubiera/hubiese). A lacuna deve ter uma resposta inequívoca.
 - translate: source em português, com uma ou duas frases que obriguem a usar o ponto da aula; reference é uma tradução natural.
 - write: task em português descreve a situação e o que escrever; requirements lista o que é obrigatório usar (conectores, tempos, palavras); minWords e maxWords limitam o tamanho; reference é uma resposta modelo do nível.`;
 }
