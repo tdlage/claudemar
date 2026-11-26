@@ -1,4 +1,4 @@
-import { currentZaiModel, isNativeAnthropic, type LlmProfile } from "./providers/llm.js";
+import { CODEX_ASTRA_MODEL, currentCodexModel, currentZaiModel, isNativeAnthropic, type LlmProfile } from "./providers/llm.js";
 
 export const DEFAULT_OPUS_DISPLAY = "Opus 5.5";
 
@@ -29,7 +29,7 @@ export function getNativeClaudeModels(): SelectableProjectModel[] {
 
 export const DEFAULT_PROJECT_MODEL = "claude-opus-5-5";
 
-const CODEX_CHATGPT_MODELS = ["gpt-6-astra"] as const;
+const CODEX_CHATGPT_MODELS = [CODEX_ASTRA_MODEL] as const;
 
 export interface SelectableProjectModel {
   model: string;
@@ -50,7 +50,7 @@ const LEGACY_MODELS: Record<string, string> = {
 };
 
 export function normalizeModel(model: string): string {
-  return LEGACY_MODELS[model] ?? currentZaiModel(model);
+  return LEGACY_MODELS[model] ?? currentCodexModel(currentZaiModel(model));
 }
 
 export function inferRuntimeFromModel(model?: string | null): "claude" | "codex" {

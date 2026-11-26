@@ -47,15 +47,22 @@ export function currentZaiModel(model: string): string {
   return SUPERSEDED_ZAI_MODELS[model.trim()] ?? model;
 }
 
-const CODEX_MODEL = "gpt-6-sol";
+const CODEX_MODEL = "gpt-6.2-sol";
+export const CODEX_ASTRA_MODEL = "gpt-6.2-astra";
+// A OpenAI não lançou Luna na geração 6.1/6.2: o GPT-6 Luna segue como o modelo leve atual.
 const CODEX_LIGHT_MODEL = "gpt-6-luna";
 
-// Modelos padrão de gerações anteriores do Codex: só são reescritos quando o perfil ainda
-// carrega exatamente o valor semeado, preservando qualquer modelo escolhido pelo usuário.
 const SUPERSEDED_CODEX_MODELS: Record<string, string> = {
   "gpt-5.6-sol": CODEX_MODEL,
+  "gpt-6-sol": CODEX_MODEL,
+  "gpt-6.1-sol": CODEX_MODEL,
+  "gpt-6-astra": CODEX_ASTRA_MODEL,
   "gpt-5.6-luna": CODEX_LIGHT_MODEL,
 };
+
+export function currentCodexModel(model: string): string {
+  return SUPERSEDED_CODEX_MODELS[model.trim()] ?? model;
+}
 
 // Valores persistidos por versões anteriores: gateway Bifrost (removido) e o proxy local
 // claude-codex que o perfil codex usava antes do runtime nativo do Codex SDK.
@@ -174,8 +181,8 @@ function currentZaiEnvLine(line: string): string {
 
 // Corrige perfis default cujos valores mudaram após já terem sido semeados e descarta os
 // que dependiam do gateway removido. Só reescreve quando o valor persistido ainda é o
-// default anterior (baseUrl legado ou modelo de geração anterior do Codex), preservando
-// qualquer customização feita pelo usuário.
+// default anterior (baseUrl legado) ou um modelo Sol/Astra/Luna superado pela geração
+// atual do Codex, preservando qualquer outra customização feita pelo usuário.
 export function migrateLegacyProfiles(profiles: LlmProfile[]): { profiles: LlmProfile[]; changed: boolean } {
   const defaults = new Map(defaultLlmProfiles().map((p) => [p.id, p]));
   let changed = false;
@@ -188,9 +195,9 @@ export function migrateLegacyProfiles(profiles: LlmProfile[]): { profiles: LlmPr
     }
     if (p.runtime === "codex" && !baseUrl) {
       const models = {
-        opusModel: SUPERSEDED_CODEX_MODELS[p.opusModel.trim()] ?? p.opusModel,
-        sonnetModel: SUPERSEDED_CODEX_MODELS[p.sonnetModel.trim()] ?? p.sonnetModel,
-        haikuModel: SUPERSEDED_CODEX_MODELS[p.haikuModel.trim()] ?? p.haikuModel,
+        opusModel: currentCodexModel(p.opusModel),
+        sonnetModel: currentCodexModel(p.sonnetModel),
+        haikuModel: currentCodexModel(p.haikuModel),
       };
       if (models.opusModel !== p.opusModel || models.sonnetModel !== p.sonnetModel || models.haikuModel !== p.haikuModel) {
         changed = true;

@@ -179,9 +179,9 @@ function codexProfile(): LlmProfile {
     runtime: "codex",
     baseUrl: "",
     tokenEnv: "",
-    opusModel: "gpt-5.6-sol",
-    sonnetModel: "gpt-5.6-sol",
-    haikuModel: "gpt-5.6-luna",
+    opusModel: "gpt-6.2-sol",
+    sonnetModel: "gpt-6.2-sol",
+    haikuModel: "gpt-6-luna",
     timeoutMs: "",
     autoCompactWindow: "",
     extraEnv: "",
@@ -195,19 +195,19 @@ test("resolveExecutionModel: runtime codex ignora a preferência do projeto e us
       activeProfile: codexProfile(),
       projectModel: "claude-opus-5",
     }),
-    "gpt-5.6-sol",
+    "gpt-6.2-sol",
   );
 });
 
 test("runtime codex oferece Astra e os modelos principal e leve para seleção", () => {
   assert.deepEqual(getSelectableProjectModels(codexProfile()), [
-    { model: "gpt-5.6-sol", displayName: "GPT-5.6 Sol" },
-    { model: "gpt-6-astra", displayName: "GPT-6 Astra" },
-    { model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
+    { model: "gpt-6.2-sol", displayName: "GPT-6.2 Sol" },
+    { model: "gpt-6.2-astra", displayName: "GPT-6.2 Astra" },
+    { model: "gpt-6-luna", displayName: "GPT-6 Luna" },
   ]);
-  assert.equal(isSelectableProjectModel("gpt-5.6-sol", codexProfile()), true);
-  assert.equal(isSelectableProjectModel("gpt-6-astra", codexProfile()), true);
-  assert.equal(isSelectableProjectModel("gpt-5.6-luna", codexProfile()), true);
+  assert.equal(isSelectableProjectModel("gpt-6.2-sol", codexProfile()), true);
+  assert.equal(isSelectableProjectModel("gpt-6.2-astra", codexProfile()), true);
+  assert.equal(isSelectableProjectModel("gpt-6-luna", codexProfile()), true);
   assert.equal(isSelectableProjectModel("claude-opus-5", codexProfile()), false);
 });
 
@@ -216,8 +216,8 @@ test("resolveExecutionModel: runtime codex respeita o modelo selecionado no proj
     resolveExecutionModel({
       targetType: "project",
       activeProfile: codexProfile(),
-      projectModel: "gpt-5.6-luna",
+      projectModel: "gpt-6-luna",
     }),
-    "gpt-5.6-luna",
+    "gpt-6-luna",
   );
 });

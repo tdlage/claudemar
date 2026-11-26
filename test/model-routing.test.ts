@@ -8,7 +8,7 @@ const profiles = defaultLlmProfiles();
 test("catalog includes models from every provider with explicit runtime and identity", () => {
   const models = modelsForProfiles(profiles);
   assert.deepEqual(new Set(models.map((m) => m.providerId)), new Set(profiles.map((p) => p.id)));
-  assert.ok(models.some((m) => m.modelId === "gpt-6-astra" && m.runtime === "codex"));
+  assert.ok(models.some((m) => m.modelId === "gpt-6.2-astra" && m.runtime === "codex"));
   assert.ok(models.some((m) => m.modelId === "claude-sonnet-5-5" && m.runtime === "claude"));
   assert.ok(models.some((m) => m.modelId === "glm-5.4" && m.runtime === "claude"));
   assert.ok(!models.some((m) => m.modelId.startsWith("glm-5.3")));
@@ -28,6 +28,7 @@ test("selection routes using the provider even when model names overlap or look 
 
 test("legacy model ids resolve without choosing a global provider", () => {
   assert.equal(resolveModelSelection("gpt-6-astra", profiles).profile.id, "codex");
+  assert.equal(normalizeSelection("codex::gpt-6-astra"), "codex::gpt-6.2-astra");
   assert.equal(resolveModelSelection("claude-opus-5", profiles).profile.id, "anthropic");
   assert.equal(resolveModelSelection("k3", profiles).profile.id, "kimi");
 });

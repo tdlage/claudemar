@@ -9,10 +9,10 @@ const base: ModelActivity = { id: "last", targetType: "project", targetName: "ap
 
 test("uses the latest Activity for this target, including active executions", () => {
   const older = { ...base, id: "older", startedAt: "2026-09-09T12:00:00Z", model: "claude-opus-5" };
-  const latest = { ...base, model: "gpt-6-sol", runtime: "codex" as const };
+  const latest = { ...base, model: "gpt-6.2-sol", runtime: "codex" as const };
   const other = { ...latest, id: "other", targetType: "agent", startedAt: "2026-09-11T12:00:00Z" };
   assert.equal(latestModelActivity([older, other, latest], "project", "app"), latest);
-  assert.equal(modelFromActivity(latest, models, "claude"), "codex::gpt-6-sol");
+  assert.equal(modelFromActivity(latest, models, "claude"), "codex::gpt-6.2-sol");
 });
 
 test("keeps the exact model instead of replacing it with a runtime default", () => {
@@ -30,9 +30,9 @@ test("uses session metadata to distinguish providers with the same model", () =>
 test("missing or unknown exact models fall back to Opus for Claude and Astra for Codex", () => {
   for (const model of [undefined, "auto", "unknown-model"]) {
     assert.equal(modelFromActivity({ ...base, model, runtime: "claude" }, models, "codex"), "anthropic::claude-opus-5-5");
-    assert.equal(modelFromActivity({ ...base, model, runtime: "codex" }, models, "claude"), "codex::gpt-6-astra");
+    assert.equal(modelFromActivity({ ...base, model, runtime: "codex" }, models, "claude"), "codex::gpt-6.2-astra");
   }
-  assert.equal(modelFromActivity(undefined, models, "codex"), "codex::gpt-6-astra");
+  assert.equal(modelFromActivity(undefined, models, "codex"), "codex::gpt-6.2-astra");
   assert.equal(modelFromActivity(undefined, models, "claude"), "anthropic::claude-opus-5-5");
 });
 
@@ -42,5 +42,10 @@ test("uses an exact stored selection when the model field is missing", () => {
 
 
 test("legacy Codex records without an exact version default to Astra", () => {
-  assert.equal(modelFromActivity({ ...base, model: "codex" }, models, "claude"), "codex::gpt-6-astra");
+  assert.equal(modelFromActivity({ ...base, model: "codex" }, models, "claude"), "codex::gpt-6.2-astra");
+});
+
+test("Codex records from previous Sol and Astra generations map to GPT-6.2", () => {
+  assert.equal(modelFromActivity({ ...base, model: "gpt-6-sol", runtime: "codex" }, models, "claude"), "codex::gpt-6.2-sol");
+  assert.equal(modelFromActivity({ ...base, model: "gpt-6-astra", runtime: "codex" }, models, "claude"), "codex::gpt-6.2-astra");
 });

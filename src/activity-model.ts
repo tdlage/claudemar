@@ -1,6 +1,6 @@
 import { DEFAULT_PROJECT_MODEL, inferRuntimeFromModel, normalizeModel } from "./models-discovery.js";
+import { CODEX_ASTRA_MODEL, type AgentRuntime } from "./providers/llm.js";
 import { modelSelection, type ModelOption } from "./model-routing.js";
-import type { AgentRuntime } from "./providers/llm.js";
 
 export interface ModelActivity {
   id: string;
@@ -28,7 +28,7 @@ export function modelFromActivity(activity: ModelActivity | undefined, models: M
   const exact = providerId ? matches.find((model) => model.providerId === providerId) : matches.length === 1 ? matches[0] : undefined;
   if (exact) return exact.model;
   if (!modelId && saved) return saved.model;
-  const fallback = runtime === "codex" ? "gpt-6-astra" : DEFAULT_PROJECT_MODEL;
+  const fallback = runtime === "codex" ? CODEX_ASTRA_MODEL : DEFAULT_PROJECT_MODEL;
   return models.find((model) => model.runtime === runtime && model.modelId === fallback)?.model
     ?? modelSelection(runtime === "codex" ? "codex" : "anthropic", fallback);
 }

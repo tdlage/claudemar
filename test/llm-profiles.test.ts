@@ -57,7 +57,7 @@ test("perfil codex default usa a assinatura do ChatGPT (sem baseUrl nem token)",
   assert.equal(profile.label, "OpenAI (ChatGPT)");
   assert.equal(profile.baseUrl, "");
   assert.equal(profile.tokenEnv, "");
-  assert.equal(profile.opusModel, "gpt-6-sol");
+  assert.equal(profile.opusModel, "gpt-6.2-sol");
   assert.equal(profile.haikuModel, "gpt-6-luna");
   assert.equal(isNativeAnthropic(profile), false);
 });
@@ -92,18 +92,27 @@ test("migrateLegacyProfiles atualiza o perfil codex ainda na geração GPT-5.6",
   const previous = { ...codexProfile(), opusModel: "gpt-5.6-sol", sonnetModel: "gpt-5.6-sol", haikuModel: "gpt-5.6-luna", label: "Meu Codex" };
   const { profiles, changed } = migrateLegacyProfiles([previous]);
   assert.equal(changed, true);
-  assert.equal(profiles[0].opusModel, "gpt-6-sol");
-  assert.equal(profiles[0].sonnetModel, "gpt-6-sol");
+  assert.equal(profiles[0].opusModel, "gpt-6.2-sol");
+  assert.equal(profiles[0].sonnetModel, "gpt-6.2-sol");
   assert.equal(profiles[0].haikuModel, "gpt-6-luna");
   assert.equal(profiles[0].label, "Meu Codex");
 });
 
+test("migrateLegacyProfiles leva Sol e Astra anteriores para o GPT-6.2", () => {
+  const previous = { ...codexProfile(), opusModel: "gpt-6-sol", sonnetModel: "gpt-6.1-sol", haikuModel: "gpt-6-astra" };
+  const { profiles, changed } = migrateLegacyProfiles([previous]);
+  assert.equal(changed, true);
+  assert.equal(profiles[0].opusModel, "gpt-6.2-sol");
+  assert.equal(profiles[0].sonnetModel, "gpt-6.2-sol");
+  assert.equal(profiles[0].haikuModel, "gpt-6.2-astra");
+});
+
 test("migrateLegacyProfiles preserva modelos codex escolhidos pelo usuário", () => {
-  const custom = { ...codexProfile(), opusModel: "gpt-6-astra", haikuModel: "gpt-6-astra" };
+  const custom = { ...codexProfile(), opusModel: "gpt-6.1-terra", haikuModel: "gpt-6.2-astra" };
   const { profiles, changed } = migrateLegacyProfiles([custom]);
   assert.equal(changed, false);
-  assert.equal(profiles[0].opusModel, "gpt-6-astra");
-  assert.equal(profiles[0].haikuModel, "gpt-6-astra");
+  assert.equal(profiles[0].opusModel, "gpt-6.1-terra");
+  assert.equal(profiles[0].haikuModel, "gpt-6.2-astra");
 });
 
 test("migrateLegacyProfiles converte o perfil codex do proxy local para o runtime nativo", () => {

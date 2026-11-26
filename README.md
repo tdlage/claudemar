@@ -291,7 +291,7 @@ This removes repositories from the executor workspace; it does not add an operat
 
 Settings configures provider profiles and account credentials. There is no global provider switch: the model selector in project, agent, and orchestrator terminals lists models grouped by every authenticated provider. Native Claude uses its login or configured Anthropic credentials, native Codex uses its ChatGPT login, and custom profiles require their configured token environment variable. The catalog includes the native model list and each profile's primary, secondary, and light models.
 
-When opening a terminal, its initial model comes from the latest execution in that target’s Activity, including persisted history after a restart. If the exact model cannot be identified, Claude defaults to Opus 5 and Codex to GPT-6 Astra. A manual selection is retained for the next submission.
+When opening a terminal, its initial model comes from the latest execution in that target’s Activity, including persisted history after a restart. If the exact model cannot be identified, Claude defaults to Opus 5 and Codex to GPT-6.2 Astra. A manual selection is retained for the next submission.
 
 Choosing a model persists the provider and model together in `data/target-models.json`. Agent schedules use the agent's preference. Queued prompts retain the selection from when they were submitted. Each execution receives its own provider configuration; selecting a model does not change another project's or agent's provider. The selector is disabled while the terminal has an active execution.
 

@@ -16,9 +16,9 @@ const codexProfile = {
   runtime: "codex" as const,
   baseUrl: "",
   tokenEnv: "",
-  opusModel: "gpt-5.6-sol",
-  sonnetModel: "gpt-5.6-sol",
-  haikuModel: "gpt-5.6-luna",
+  opusModel: "gpt-6.2-sol",
+  sonnetModel: "gpt-6.2-sol",
+  haikuModel: "gpt-6-luna",
   timeoutMs: "",
   autoCompactWindow: "",
   extraEnv: "",
@@ -98,12 +98,12 @@ test("mantém escolhas independentes para Anthropic e OpenAI", () => {
   try {
     const mgr = new ProjectSettingsManager(file);
     mgr.setModel("proj-a", "claude-fable-5-2");
-    mgr.setModel("proj-a", "gpt-5.6-luna", codexProfile);
+    mgr.setModel("proj-a", "gpt-6-luna", codexProfile);
     mgr.flush();
 
     const reloaded = new ProjectSettingsManager(file);
     assert.equal(reloaded.getModel("proj-a"), "claude-fable-5-2");
-    assert.equal(reloaded.getModel("proj-a", codexProfile), "gpt-5.6-luna");
+    assert.equal(reloaded.getModel("proj-a", codexProfile), "gpt-6-luna");
   } finally {
     cleanup();
   }
@@ -114,8 +114,8 @@ test("OpenAI aceita apenas modelos do catálogo do perfil ativo", () => {
   try {
     const mgr = new ProjectSettingsManager(file);
     assert.throws(() => mgr.setModel("proj-a", "gpt-4o", codexProfile));
-    mgr.setModel("proj-a", "gpt-6-astra", codexProfile);
-    assert.equal(mgr.getModel("proj-a", codexProfile), "gpt-6-astra");
+    mgr.setModel("proj-a", "gpt-6.2-astra", codexProfile);
+    assert.equal(mgr.getModel("proj-a", codexProfile), "gpt-6.2-astra");
     mgr.flush();
   } finally {
     cleanup();

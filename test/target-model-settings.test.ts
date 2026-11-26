@@ -18,10 +18,10 @@ after(() => rmSync(root, { recursive: true, force: true }));
 test("model selection persists across restarts independently for projects and agents", () => {
   const file = resolve(root, "preferences.json");
   const store = new TargetModelSettings(file);
-  store.set("project", "same", "codex::gpt-6-astra");
+  store.set("project", "same", "codex::gpt-6.2-astra");
   store.set("agent", "same", "kimi::k3");
   const reloaded = new TargetModelSettings(file);
-  assert.equal(reloaded.get("project", "same"), "codex::gpt-6-astra");
+  assert.equal(reloaded.get("project", "same"), "codex::gpt-6.2-astra");
   assert.equal(reloaded.get("agent", "same"), "kimi::k3");
   reloaded.set("project", "same");
   assert.equal(new TargetModelSettings(file).get("project", "same"), undefined);
@@ -56,9 +56,9 @@ test("session provider identity survives restart without overwriting another ses
   const directory = resolve(root, "session-choices");
   const first = new SessionModelSettings(directory);
   const second = new SessionModelSettings(directory);
-  first.set("first-session", "codex::gpt-6-astra");
+  first.set("first-session", "codex::gpt-6.2-astra");
   second.set("second-session", "kimi::k3");
   const reloaded = new SessionModelSettings(directory);
-  assert.equal(reloaded.get("first-session"), "codex::gpt-6-astra");
+  assert.equal(reloaded.get("first-session"), "codex::gpt-6.2-astra");
   assert.equal(reloaded.get("second-session"), "kimi::k3");
 });
