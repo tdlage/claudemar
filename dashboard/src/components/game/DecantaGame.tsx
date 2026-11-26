@@ -29,7 +29,7 @@ interface ToolProps {
 
 function Tool({ label, pressed, onClick, children }: ToolProps) {
   return (
-    <button type="button" className="decanta-tool" aria-label={label} title={label} aria-pressed={pressed} onClick={onClick}>
+    <button type="button" className="play-tool" aria-label={label} title={label} aria-pressed={pressed} onClick={onClick}>
       {children}
     </button>
   );
@@ -45,20 +45,20 @@ interface WinProps {
 
 function WinCard({ completed, nextReady, onNext, onReplay, onRanking }: WinProps) {
   return (
-    <div className="decanta-modal">
-      <section className="decanta-card is-win" role="alertdialog" aria-label={`Fase ${completed.level} concluída`}>
-        <div className="decanta-card-icon" aria-hidden="true"><Sparkles size={26} /></div>
+    <div className="play-modal">
+      <section className="play-card is-win" role="alertdialog" aria-label={`Fase ${completed.level} concluída`}>
+        <div className="play-card-icon" aria-hidden="true"><Sparkles size={26} /></div>
         <h2>Fase {completed.level} concluída!</h2>
         <p>{completed.moves} {completed.moves === 1 ? "jogada" : "jogadas"}</p>
         {completed.record && (
           <p className="decanta-record"><Crown size={15} aria-hidden="true" />Novo recorde: fase {completed.level + 1} liberada</p>
         )}
-        <div className="decanta-card-actions">
-          <button type="button" className="decanta-button is-primary" onClick={onNext} disabled={!nextReady} autoFocus>
+        <div className="play-card-actions">
+          <button type="button" className="play-button is-primary" onClick={onNext} disabled={!nextReady} autoFocus>
             {nextReady ? <>Próxima fase<ChevronRight size={16} aria-hidden="true" /></> : <><Loader2 size={16} className="animate-spin" aria-hidden="true" />Salvando…</>}
           </button>
-          <button type="button" className="decanta-button" onClick={onReplay}><RotateCcw size={15} aria-hidden="true" />Jogar de novo</button>
-          <button type="button" className="decanta-button is-ghost" onClick={onRanking}><Trophy size={15} aria-hidden="true" />Ver ranking</button>
+          <button type="button" className="play-button" onClick={onReplay}><RotateCcw size={15} aria-hidden="true" />Jogar de novo</button>
+          <button type="button" className="play-button is-ghost" onClick={onRanking}><Trophy size={15} aria-hidden="true" />Ver ranking</button>
         </div>
       </section>
     </div>
@@ -93,20 +93,20 @@ interface StuckProps {
 
 function StuckCard({ snapshot, onUndo, onRestart, onPrevious, onLevels }: StuckProps) {
   return (
-    <div className="decanta-modal">
-      <section className="decanta-card is-stuck" role="alertdialog" aria-label="Sem saída">
-        <div className="decanta-card-icon" aria-hidden="true"><FlaskConical size={26} /></div>
+    <div className="play-modal">
+      <section className="play-card is-stuck" role="alertdialog" aria-label="Sem saída">
+        <div className="play-card-icon" aria-hidden="true"><FlaskConical size={26} /></div>
         <h2>Sem saída</h2>
         <p>{snapshot.exhausted ? `Esta tentativa chegou ao limite de ${snapshot.moveLimit} jogadas.` : "Não há mais nenhuma jogada possível."}</p>
-        <div className="decanta-card-actions">
+        <div className="play-card-actions">
           {snapshot.moves > 0 && (
-            <button type="button" className="decanta-button is-primary" onClick={onUndo} autoFocus><Undo2 size={15} aria-hidden="true" />Desfazer a última jogada</button>
+            <button type="button" className="play-button is-primary" onClick={onUndo} autoFocus><Undo2 size={15} aria-hidden="true" />Desfazer a última jogada</button>
           )}
-          <button type="button" className={`decanta-button${snapshot.moves > 0 ? "" : " is-primary"}`} onClick={onRestart} autoFocus={snapshot.moves === 0}><RotateCcw size={15} aria-hidden="true" />Reiniciar a fase</button>
+          <button type="button" className={`play-button${snapshot.moves > 0 ? "" : " is-primary"}`} onClick={onRestart} autoFocus={snapshot.moves === 0}><RotateCcw size={15} aria-hidden="true" />Reiniciar a fase</button>
           {snapshot.level > 1 && (
-            <button type="button" className="decanta-button" onClick={onPrevious}><ChevronLeft size={15} aria-hidden="true" />Voltar para a fase {snapshot.level - 1}</button>
+            <button type="button" className="play-button" onClick={onPrevious}><ChevronLeft size={15} aria-hidden="true" />Voltar para a fase {snapshot.level - 1}</button>
           )}
-          <button type="button" className="decanta-button is-ghost" onClick={onLevels}><LayoutGrid size={15} aria-hidden="true" />Escolher outra fase</button>
+          <button type="button" className="play-button is-ghost" onClick={onLevels}><LayoutGrid size={15} aria-hidden="true" />Escolher outra fase</button>
         </div>
       </section>
     </div>
@@ -159,21 +159,21 @@ export function DecantaGame({ execId, hidden, activity, onClose, onUnavailable }
   const colors = new Set(snapshot.tubes.flat()).size;
 
   return createPortal(
-    <div className="decanta-layer" hidden={hidden}>
-      <section ref={windowRef} className="decanta-window" role="dialog" aria-modal="true" aria-label="Decanta, jogo de decantar cores" tabIndex={-1}>
-        <div className="decanta-ambient" aria-hidden="true"><span /><span /><span /></div>
-        <header className="decanta-header">
-          <div className="decanta-brand"><FlaskConical size={18} aria-hidden="true" /><span>Decanta</span></div>
+    <div className="play-layer" hidden={hidden}>
+      <section ref={windowRef} className="play-window" role="dialog" aria-modal="true" aria-label="Decanta, jogo de decantar cores" tabIndex={-1}>
+        <div className="play-ambient" aria-hidden="true"><span /><span /><span /></div>
+        <header className="play-header">
+          <div className="play-brand"><FlaskConical size={18} aria-hidden="true" /><span>Decanta</span></div>
           <div className="decanta-level">
             <strong>Fase {snapshot.level}</strong>
             {colors > 0 && <span className="decanta-spec">{colors} cores · {snapshot.capacity} divisões</span>}
             {snapshot.maxLevel > snapshot.level && <span>recorde: fase {snapshot.maxLevel}</span>}
           </div>
-          <div className="decanta-activity" title="A execução continua enquanto você joga">
+          <div className="play-activity" title="A execução continua enquanto você joga">
             <span className="status-dot is-running" aria-hidden="true" />
             <span>Trabalhando{activity ? <> · <code>{activity}</code></> : "…"}</span>
           </div>
-          <div className="decanta-tools">
+          <div className="play-tools">
             <Tool label={muted ? "Ativar som" : "Silenciar"} onClick={() => setMuted(!muted)}>
               {muted ? <VolumeX size={17} aria-hidden="true" /> : <Volume2 size={17} aria-hidden="true" />}
             </Tool>
@@ -192,13 +192,13 @@ export function DecantaGame({ execId, hidden, activity, onClose, onUnavailable }
           </div>
         </header>
 
-        <div className="decanta-stage">
+        <div className="play-stage">
           <GameBoard controller={controller} snapshot={snapshot} paused={hidden} symbols={symbols} />
           {snapshot.phase === "playing" && snapshot.level <= 2 && snapshot.moves === 0 && !panel && (
             <p className="decanta-hint">Toque em um frasco e depois em outro para despejar. Junte cada cor em um só frasco.</p>
           )}
           {snapshot.phase === "loading" && (
-            <div className="decanta-loading" role="status"><Loader2 size={18} className="animate-spin" aria-hidden="true" />Preparando a fase…</div>
+            <div className="play-loading" role="status"><Loader2 size={18} className="animate-spin" aria-hidden="true" />Preparando a fase…</div>
           )}
           {snapshot.phase === "won" && snapshot.completed && !panel && (
             <WinCard
@@ -223,19 +223,19 @@ export function DecantaGame({ execId, hidden, activity, onClose, onUnavailable }
           {snapshot.verdict && snapshot.phase === "playing" && !panel && !snapshot.error && (
             <VerdictNote verdict={snapshot.verdict} onDismiss={() => controller.dismissVerdict()} />
           )}
-          {snapshot.error && <p className="decanta-error" role="alert">{snapshot.error}</p>}
+          {snapshot.error && <p className="play-error" role="alert">{snapshot.error}</p>}
         </div>
 
-        <footer className="decanta-footer">
+        <footer className="play-footer">
           <span className="decanta-moves" aria-live="polite">{snapshot.moves} {snapshot.moves === 1 ? "jogada" : "jogadas"}</span>
-          <button type="button" className="decanta-button" onClick={() => controller.undo()} disabled={!editable || snapshot.moves === 0} aria-label="Desfazer" title="Desfazer a última jogada (Ctrl+Z)">
-            <Undo2 size={16} aria-hidden="true" /><span className="decanta-button-label">Desfazer</span>
+          <button type="button" className="play-button" onClick={() => controller.undo()} disabled={!editable || snapshot.moves === 0} aria-label="Desfazer" title="Desfazer a última jogada (Ctrl+Z)">
+            <Undo2 size={16} aria-hidden="true" /><span className="play-button-label">Desfazer</span>
           </button>
-          <button type="button" className="decanta-button" onClick={() => controller.check()} disabled={snapshot.phase !== "playing" || snapshot.verdict === "checking"} aria-label="Tem saída?" title="Verificar se ainda dá para resolver a partir daqui">
-            <SearchCheck size={16} aria-hidden="true" /><span className="decanta-button-label">Tem saída?</span>
+          <button type="button" className="play-button" onClick={() => controller.check()} disabled={snapshot.phase !== "playing" || snapshot.verdict === "checking"} aria-label="Tem saída?" title="Verificar se ainda dá para resolver a partir daqui">
+            <SearchCheck size={16} aria-hidden="true" /><span className="play-button-label">Tem saída?</span>
           </button>
-          <button type="button" className="decanta-button" onClick={() => controller.restart()} disabled={!editable || snapshot.moves === 0} aria-label="Reiniciar">
-            <RotateCcw size={16} aria-hidden="true" /><span className="decanta-button-label">Reiniciar</span>
+          <button type="button" className="play-button" onClick={() => controller.restart()} disabled={!editable || snapshot.moves === 0} aria-label="Reiniciar">
+            <RotateCcw size={16} aria-hidden="true" /><span className="play-button-label">Reiniciar</span>
           </button>
         </footer>
       </section>

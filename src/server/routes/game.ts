@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from "express";
-import { executionManager } from "../../execution-manager.js";
 import { usersManager } from "../../users-manager.js";
-import { canAccessExecution } from "../execution-access.js";
+import { availabilityOf, type Availability } from "../execution-availability.js";
 import { asyncHandler } from "../route-utils.js";
 import type { RequestContext } from "../middleware.js";
 import {
@@ -17,8 +16,6 @@ import {
   type Transition,
 } from "../../game/progress.js";
 import { loadProgress, loadRanking, saveProgress, withPlayerLock } from "../../game/store.js";
-
-type Availability = "playable" | "awaiting-input" | "not-running";
 
 const ADMIN_PLAYER = "admin";
 const RANKING_SIZE = 50;
@@ -43,14 +40,6 @@ function playerOf(ctx: RequestContext): string {
 
 function playerName(player: string): string | null {
   return player === ADMIN_PLAYER ? "Administrador" : usersManager.get(player)?.name ?? null;
-}
-
-function availabilityOf(ctx: RequestContext, execId: unknown): Availability {
-  if (typeof execId !== "string" || !executionManager.isExecutionActive(execId)) return "not-running";
-  const info = executionManager.getExecution(execId);
-  if (!canAccessExecution(ctx, info)) return "not-running";
-  if (info?.pendingQuestion || executionManager.getPendingPermissions(execId).length > 0) return "awaiting-input";
-  return "playable";
 }
 
 function isIndex(value: unknown): value is number {

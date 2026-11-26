@@ -256,6 +256,73 @@ const TABLE_DEFINITIONS: string[] = [
     INDEX idx_ranking (max_level, max_level_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
+  `CREATE TABLE IF NOT EXISTS spanish_courses (
+    owner_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    plan JSON NULL,
+    unit INT UNSIGNED NOT NULL,
+    step TINYINT UNSIGNED NOT NULL,
+    max_unit INT UNSIGNED NOT NULL,
+    max_step TINYINT UNSIGNED NOT NULL,
+    lesson_id CHAR(36) NULL,
+    lessons_completed INT UNSIGNED NOT NULL DEFAULT 0,
+    streak_days INT UNSIGNED NOT NULL DEFAULT 0,
+    last_study_day CHAR(10) NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS spanish_lessons (
+    id CHAR(36) NOT NULL PRIMARY KEY,
+    owner_id VARCHAR(64) NOT NULL,
+    unit INT UNSIGNED NOT NULL,
+    step TINYINT UNSIGNED NOT NULL,
+    content JSON NOT NULL,
+    progress JSON NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    score DECIMAL(4,3) NULL,
+    created_at DATETIME NOT NULL,
+    started_at DATETIME NULL,
+    completed_at DATETIME NULL,
+    INDEX idx_owner_slot (owner_id, unit, step, status)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS spanish_vocabulary (
+    owner_id VARCHAR(64) NOT NULL,
+    lemma VARCHAR(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    display VARCHAR(120) NOT NULL,
+    part_of_speech VARCHAR(40) NOT NULL,
+    translation VARCHAR(200) NOT NULL,
+    example_es TEXT NOT NULL,
+    example_pt TEXT NOT NULL,
+    note TEXT NOT NULL,
+    contrast VARCHAR(24) NOT NULL,
+    unit INT UNSIGNED NOT NULL,
+    box TINYINT UNSIGNED NOT NULL,
+    due_at DATETIME NOT NULL,
+    correct_count INT UNSIGNED NOT NULL DEFAULT 0,
+    wrong_count INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (owner_id, lemma),
+    INDEX idx_due (owner_id, due_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS spanish_attempts (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    owner_id VARCHAR(64) NOT NULL,
+    lesson_id CHAR(36) NOT NULL,
+    exercise_index SMALLINT UNSIGNED NOT NULL,
+    skill VARCHAR(32) NOT NULL,
+    focus VARCHAR(120) NOT NULL,
+    prompt TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    expected TEXT NOT NULL,
+    score DECIMAL(4,3) NOT NULL,
+    created_at DATETIME NOT NULL,
+    INDEX idx_owner_time (owner_id, created_at),
+    INDEX idx_owner_skill (owner_id, skill, focus)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
   `DROP TABLE IF EXISTS squad_skills`,
   `DROP TABLE IF EXISTS squad_mcps`,
   `DROP TABLE IF EXISTS team_members`,

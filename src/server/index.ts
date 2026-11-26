@@ -29,6 +29,7 @@ import { brainMcpRoute } from "../brain/external-mcp.js";
 import { googleDrivePublicRouter, googleDriveRouter } from "./routes/google-drive.js";
 import { integrationsPublicRouter, integrationsRouter } from "./routes/integrations.js";
 import { gameRouter } from "./routes/game.js";
+import { spanishRouter } from "./routes/spanish.js";
 import { INTEGRATIONS_API_PATH } from "../integrations/providers.js";
 import { PROMPT_BODY_LIMIT_BYTES } from "../runtime/message-blocks.js";
 import { httpErrorHandler } from "./error-handler.js";
@@ -129,6 +130,7 @@ export function createDashboardServer() {
   app.use(INTEGRATIONS_API_PATH, jsonParser, integrationsRouter);
   app.use("/api/transcribe", transcriptionRouter);
   app.use("/api/game", jsonParser, gameRouter);
+  app.use("/api/spanish", jsonParser, requireAdmin, spanishRouter);
   // Acesso por projeto (admin ou user com a aba "pipeline" habilitada) é validado nos
   // param middlewares do próprio pipelineRouter.
   app.use("/api/pipeline", express.json({ limit: "150mb" }), pipelineRouter);

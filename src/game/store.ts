@@ -1,5 +1,6 @@
 import type { RowDataPacket } from "mysql2/promise";
 import { execute, query, toMySQLDatetime } from "../database.js";
+import { keyedLock } from "../keyed-lock.js";
 import { replay, type Move, type Puzzle } from "./engine.js";
 import { isValidLevel, PALETTE_SIZE, puzzleForLevel } from "./levels.js";
 import type { GameProgress } from "./progress.js";
@@ -27,18 +28,7 @@ export interface RankingRecord {
   levelsCompleted: number;
 }
 
-const locks = new Map<string, Promise<void>>();
-
-export function withPlayerLock<T>(player: string, task: () => Promise<T>): Promise<T> {
-  const previous = locks.get(player) ?? Promise.resolve();
-  const run = previous.then(task);
-  const settled = run.then(() => undefined, () => undefined);
-  locks.set(player, settled);
-  void settled.then(() => {
-    if (locks.get(player) === settled) locks.delete(player);
-  });
-  return run;
-}
+export const withPlayerLock = keyedLock();
 
 function parseJson(value: unknown): unknown {
   if (typeof value !== "string") return value;
